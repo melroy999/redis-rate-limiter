@@ -184,7 +184,7 @@ class CeleryRateLimiter:
         if self.redis.exists(self.lock_key):
             return
 
-        from config import app
+        from src.config import app
         app.send_task("rate_limiter.attempt_consume", args=[self.base_key])
 
     @contextmanager

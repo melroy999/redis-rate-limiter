@@ -1,6 +1,6 @@
 from celery import shared_task
 
-from config import app
+from src.config import app
 from src.rate_limiter.registry import get_limiter
 
 

@@ -1,9 +1,8 @@
-# inspector.py
 import time
 import os
 import argparse
 
-from worker_init import init_infrastructure  # Import your existing init function
+from src.config import init_infrastructure
 
 
 def run_inspector(refresh_rate: float):
