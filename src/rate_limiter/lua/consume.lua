@@ -43,6 +43,7 @@ local active_now = tonumber(redis.call('GET', concurrency_key) or 0)
 
 -- Telemetry calculations.
 local remaining = math.max(0, math.floor(rate_limit - estimated_count))
+local buffer_count = tonumber(redis.call('ZCARD', buffer_key) or 0)
 
 -- Use the Redis server time to calculate a relative 'TTL' for the window.
 -- This ensures that clock skew will not be an issue.
@@ -73,9 +74,9 @@ if estimated_count < rate_limit and active_now < max_concurrency then
         end
 
         -- Return the task and telemetry information.
-        return {tasks[1], 1, remaining - 1, active_now + 1, reset_in}
+        return {tasks[1], 1, remaining - 1, active_now + 1, reset_in, buffer_count - 1}
     end
 end
 
 -- Return nothing and deny the request.
-return {nil, 0, remaining, active_now, reset_in}
+return {nil, 0, remaining, active_now, reset_in, buffer_count}

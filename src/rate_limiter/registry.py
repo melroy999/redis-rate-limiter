@@ -1,5 +1,5 @@
 from typing import Dict
-from .celery import CeleryRateLimiter
+from .limiters import CeleryRateLimiter
 
 # Global dictionary to store limiter instances
 _LIMITER_REGISTRY: Dict[str, CeleryRateLimiter] = {}

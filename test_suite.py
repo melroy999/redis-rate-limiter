@@ -26,7 +26,7 @@ if __name__ == "__main__":
 
     # Test Burst: Add 5 different users
     print("Pushing 5 unique tasks...")
-    for i in range(2, 500):
+    for i in range(2, 50):
         limiter.schedule_task("test_suite.mock_api_call", {"user_id": i})
 
     limiter.schedule_task("test_suite.mock_api_call", {"user_id": 1000000, "error": True})

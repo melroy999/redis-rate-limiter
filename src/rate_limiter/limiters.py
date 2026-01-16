@@ -26,6 +26,7 @@ class CeleryConsumeResult(TypedDict):
     remaining_tokens: int  # Rate limit telemetry.
     active_concurrency: int  # Concurrency telemetry.
     reset_in: int  # Time until window shift.
+    remaining_tasks: int  # The number of tasks that remain to be processed.
 
 
 class CeleryRateLimiter:
@@ -146,13 +147,14 @@ class CeleryRateLimiter:
                 self.base_key, self.buffer_key, self.concurrency_key,
                 self.window, self.limit, self.max_concurrency
             )
-            if not result or len(result) < 5:
+            if not result or len(result) < 6:
                 return {
                     "task": None,
                     "success": False,
                     "remaining_tokens": 0,
                     "active_concurrency": 0,
-                    "reset_in": self.window
+                    "reset_in": self.window,
+                    "remaining_tasks": 0
                 }
 
             return {
@@ -160,7 +162,8 @@ class CeleryRateLimiter:
                 "success": bool(result[1]),
                 "remaining_tokens": int(result[2]),
                 "active_concurrency": int(result[3]),
-                "reset_in": int(result[4])
+                "reset_in": int(result[4]),
+                "remaining_tasks": int(result[5]),
             }
         except redis.exceptions.NoScriptError:
             # Redis cache is volatile, and hence, the sha may become invalid unexpectedly.

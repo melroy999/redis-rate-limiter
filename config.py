@@ -1,7 +1,7 @@
 import redis
 from celery import Celery
 
-from src.rate_limiter.celery import CeleryRateLimiter
+from src.rate_limiter.limiters import CeleryRateLimiter
 from src.rate_limiter.registry import register_limiter
 
 # Create the celery instance here so everyone can use it
