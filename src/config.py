@@ -1,3 +1,5 @@
+from typing import override
+
 import redis
 from celery import Celery
 
@@ -9,11 +11,3 @@ celery_app = Celery('rate_limiter_demo', broker='redis://localhost:6379/0')
 
 # The rate limiter factory.
 factory = CeleryRateLimiterFactory(redis_client, celery_app)
-
-# Create a test limiter.
-test_limiter = factory.create_limiter(
-    limiter_id="test_api",
-    limit=50,
-    window=10,
-    max_concurrency=10
-)

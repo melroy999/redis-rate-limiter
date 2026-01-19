@@ -1,12 +1,11 @@
 import hashlib
 import uuid
-
 import redis
 import json
+
 from contextlib import contextmanager
 from importlib import resources
 from typing import TypedDict, Optional, cast
-
 from redis import Redis
 from celery import Celery
 

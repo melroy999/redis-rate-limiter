@@ -1,8 +1,9 @@
-from config import test_limiter
 import time
 
+from config import factory
+
 # Syncs the limiter settings with the worker
-limiter = test_limiter
+limiter = factory.registry.get("test_api")
 
 
 # Define a "Business Logic" function to be called
@@ -26,7 +27,7 @@ if __name__ == "__main__":
 
     # Test Burst: Add 5 different users
     print("Pushing 5 unique tasks...")
-    for i in range(2, 50):
+    for i in range(2, 500):
         limiter.schedule_task("src.test_suite.mock_api_call", {"user_id": i})
 
     limiter.schedule_task("src.test_suite.mock_api_call", {"user_id": 1000000, "error": True})

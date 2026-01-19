@@ -2,13 +2,13 @@ import time
 import os
 import argparse
 
-from config import test_limiter
+from config import factory
 
 
 def run_inspector(refresh_rate: float):
     # 1. Get the shared limiter instance
     # This connects to the same Redis and uses the same keys as your worker
-    limiter = test_limiter
+    limiter = factory.registry.get("test_api")
 
     try:
         while True:

@@ -1,24 +1,6 @@
-import redis
-from celery import shared_task, Celery
+from celery import shared_task
 
-# from config import celery_app
-from src import CeleryRateLimiterFactory
-
-
-# Create the redis and celery instances here so everyone can use the same configuration.
-redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
-celery_app = Celery('rate_limiter_demo', broker='redis://localhost:6379/0')
-
-# The rate limiter factory.
-factory = CeleryRateLimiterFactory(redis_client, celery_app)
-
-# Create a test limiter.
-limiter = factory.create_limiter(
-    limiter_id="test_api",
-    limit=50,
-    window=10,
-    max_concurrency=10
-)
+from config import factory, celery_app
 
 
 @shared_task(bind=True, name="rate_limiter.attempt_consume")
@@ -28,7 +10,7 @@ def attempt_consume(self, limiter_id: str):
     :param self: The instance of the runner.
     :param limiter_id: The id of the rate limiter instance to use.
     """
-    # limiter = get_limiter(limiter_id)
+    limiter = factory.registry.get(limiter_id)
 
     # Lock the execution to avoid the thundering herd problem.
     with limiter.execution_lock() as acquired:
