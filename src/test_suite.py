@@ -1,8 +1,8 @@
-from src.config import init_infrastructure
+from config import test_limiter
 import time
 
 # Syncs the limiter settings with the worker
-_, limiter = init_infrastructure()
+limiter = test_limiter
 
 
 # Define a "Business Logic" function to be called

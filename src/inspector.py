@@ -2,13 +2,13 @@ import time
 import os
 import argparse
 
-from src.config import init_infrastructure
+from config import test_limiter
 
 
 def run_inspector(refresh_rate: float):
     # 1. Get the shared limiter instance
     # This connects to the same Redis and uses the same keys as your worker
-    _, limiter = init_infrastructure()
+    limiter = test_limiter
 
     try:
         while True:
@@ -17,7 +17,7 @@ def run_inspector(refresh_rate: float):
 
             os.system('clear' if os.name == 'posix' else 'cls')
 
-            print(f"=== MONITORING: {limiter.base_key} ===")
+            print(f"=== MONITORING: {limiter.id} ===")
             print(f"Time: {time.strftime('%H:%M:%S')}")
 
             # Concurrency Stats

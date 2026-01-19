@@ -8,7 +8,8 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "celery (>=5.6.2,<5.7.0)",
-    "redis (>=7.1.0,<7.2.0)"
+    "redis (>=7.1.0,<7.2.0)",
+    "fakeredis (>=2.33.0,<3.0.0)"
 ]
 
 [build-system]

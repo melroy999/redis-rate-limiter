@@ -7,6 +7,9 @@ from contextlib import contextmanager
 from importlib import resources
 from typing import TypedDict, Optional, cast
 
+from redis import Redis
+from celery import Celery
+
 
 class TaskData(TypedDict):
     """
@@ -37,48 +40,61 @@ class CeleryRateLimiter:
     _SCHEDULE_LUA_SCRIPT = None
     _HEALTH_LUA_SCRIPT = None
 
+    # Get the location of the lua package.
     resource_package = "src.rate_limiter.lua"
-    consume_script_name = "consume.lua"
-    schedule_script_name = "schedule_task.lua"
-    health_script_name = "health.lua"
 
-    def __init__(self, redis_client, base_key: str, limit: int, window: int, max_concurrency: int):
+    def __init__(
+            self,
+            redis_client: Redis,
+            celery_app: Celery,
+            limiter_id: str,
+            limit: int,
+            window: int,
+            max_concurrency: int,
+            max_age: int
+    ):
+        """
+        Create a Celery rate limiter instance with the given parameters and import the appropriate lua scripts.
+        :param limiter_id: The id of the rate limiter to create.
+        :param window: The time window in seconds that the limit is applied to.
+        :param limit: The maximum number of tasks per time window.
+        :param max_concurrency: The maximum number of concurrent tasks.
+        :param max_age: The maximum time a task may exist in the queue before it expires.
+        :return: A rate limiter using the desired parameters.
+        """
         self.redis = redis_client
-        self.base_key = base_key
-        self.buffer_key = f"{base_key}:buffer"
-        self.concurrency_key = f"{base_key}:concurrency"
-        self.lock_key = f"{self.base_key}:dispatch_lock"
+        self.app = celery_app
+        self.id = limiter_id
+        self.buffer_key = f"{self.id}:buffer"
+        self.concurrency_key = f"{self.id}:concurrency"
+        self.lock_key = f"{self.id}:dispatch_lock"
         self.limit = limit
         self.window = window
         self.max_concurrency = max_concurrency
+        self.max_age = max_age
 
         # Import the scripts.
-        if CeleryRateLimiter._CONSUME_LUA_SCRIPT is None:
-            try:
-                source = resources.files(self.resource_package).joinpath(self.consume_script_name)
-                CeleryRateLimiter._CONSUME_LUA_SCRIPT = source.read_text(encoding="utf-8")
-            except Exception as e:
-                raise ImportError(f"Could not load {self.consume_script_name} from {self.resource_package}: {e}")
-
-        if CeleryRateLimiter._SCHEDULE_LUA_SCRIPT is None:
-            try:
-                source = resources.files(self.resource_package).joinpath(self.schedule_script_name)
-                CeleryRateLimiter._SCHEDULE_LUA_SCRIPT = source.read_text(encoding="utf-8")
-            except Exception as e:
-                raise ImportError(f"Could not load {self.schedule_script_name} from {self.resource_package}: {e}")
-
-        if CeleryRateLimiter._HEALTH_LUA_SCRIPT is None:
-            try:
-                source = resources.files(self.resource_package).joinpath(self.health_script_name)
-                CeleryRateLimiter._HEALTH_LUA_SCRIPT = source.read_text(encoding="utf-8")
-            except Exception as e:
-                raise ImportError(f"Could not load {self.health_script_name} from {self.resource_package}: {e}")
+        self._load_lua_script("consume.lua", "_CONSUME_LUA_SCRIPT")
+        self._load_lua_script("schedule.lua", "_SCHEDULE_LUA_SCRIPT")
+        self._load_lua_script("health.lua", "_HEALTH_LUA_SCRIPT")
 
         # Optimize performance by caching the scripts on the server.
         self.consume_script_sha = self.redis.script_load(self._CONSUME_LUA_SCRIPT)
         self.schedule_script_sha = self.redis.script_load(self._SCHEDULE_LUA_SCRIPT)
         self.health_script_sha = self.redis.script_load(self._HEALTH_LUA_SCRIPT)
 
+    def _load_lua_script(self, lua_script: str, key: str) -> None:
+        """
+        Load a lua script from disk.
+        :param lua_script: The name of the script to load.
+        :param key: The attribute key to store the script under.
+        """
+        if getattr(self, key, None) is None:
+            try:
+                source = resources.files(self.resource_package).joinpath(lua_script)
+                setattr(self, key, source.read_text(encoding="utf-8"))
+            except Exception as e:
+                raise ImportError(f"Could not load {lua_script} from {self.resource_package}: {e}")
 
     def schedule_task(self, func_path: str, payload: dict, priority: int = 100, retry: bool = True) -> bool:
         """
@@ -88,13 +104,14 @@ class CeleryRateLimiter:
         :param priority: The priority of the task (100 default).
         :param retry: Whether to retry the scheduling on no script error (Redis outage).
         :return: Whether the task got skipped or not.
+        :exception RuntimeError: if the necessary lua scripts cannot be (re)loaded.
         """
         # Generate a unique id for the task name and payload.
         task_signature = json.dumps({"path": func_path, "payload": payload}, sort_keys=True)
         task_id = hashlib.md5(task_signature.encode()).hexdigest()
 
         # Track active tasks--skip if it is already active.
-        active_key = f"{self.base_key}:active:{task_id}"
+        active_key = f"{self.id}:active:{task_id}"
         if self.redis.exists(active_key):
             print(f"DEBUG: Task {task_id} is already in-flight. Skipping.")
             return False
@@ -126,9 +143,6 @@ class CeleryRateLimiter:
             self.schedule_script_sha = self.redis.script_load(self._SCHEDULE_LUA_SCRIPT)
             return self.schedule_task(func_path, payload, priority, retry=False)
 
-        # Add the task with the given priority. The nx=True parameter ensures existing tasks are not overwritten.
-        # self.redis.zadd(self.buffer_key, {full_data: priority}, nx=True)
-
         # Attempt a consume.
         self.trigger_consume()
         return True
@@ -138,14 +152,15 @@ class CeleryRateLimiter:
         Attempt to consume a task from the queue.
         :param retry: Whether to retry the consumption on no script error.
         :return: A payload with a task if successfully consumed. Empty payload otherwise.
+        :exception RuntimeError: if the necessary lua scripts cannot be (re)loaded.
         """
         try:
             result = self.redis.evalsha(
                 self.consume_script_sha, 3,
                 # KEYS: [base, buffer, concurrency]
                 # ARGV: [window, limit, max_concurrency]
-                self.base_key, self.buffer_key, self.concurrency_key,
-                self.window, self.limit, self.max_concurrency
+                self.id, self.buffer_key, self.concurrency_key,
+                self.window, self.limit, self.max_concurrency, self.max_age
             )
             if not result or len(result) < 6:
                 return {
@@ -184,8 +199,8 @@ class CeleryRateLimiter:
         if self.redis.exists(self.lock_key):
             return
 
-        from src.config import app
-        app.send_task("rate_limiter.attempt_consume", args=[self.base_key])
+        from src.config import celery_app
+        celery_app.send_task("rate_limiter.attempt_consume", args=[self.id])
 
     @contextmanager
     def execution_lock(self, timeout=30):
@@ -231,7 +246,7 @@ class CeleryRateLimiter:
 
             # Clear the active lock of the task.
             if task_id:
-                active_key = f"{self.base_key}:active:{task_id}"
+                active_key = f"{self.id}:active:{task_id}"
                 self.redis.delete(active_key)
 
             # Re-trigger the dispatcher to fill the empty slot.
@@ -241,19 +256,20 @@ class CeleryRateLimiter:
         """
         Returns a snapshot of the current state of the limiter.
         :return: A json formatted result containing all status information.
+        :exception RuntimeError: if the necessary lua scripts cannot be (re)loaded.
         """
         try:
             result = self.redis.evalsha(
                 self.health_script_sha, 3,
                 # KEYS: [base, buffer, concurrency]
                 # ARGV: [window, limit, max_concurrency]
-                self.base_key, self.buffer_key, self.concurrency_key,
+                self.id, self.buffer_key, self.concurrency_key,
                 self.window, self.limit, self.max_concurrency
             )
 
             # Map the list to our dictionary.
             return {
-                "limiter_id": self.base_key,
+                "limiter_id": self.id,
                 "concurrency": {
                     "current": result[3],
                     "max": self.max_concurrency,
@@ -271,7 +287,7 @@ class CeleryRateLimiter:
                     "reset_in_seconds": result[4]
                 },
                 "dispatcher": {
-                    "is_locked": self.redis.exists(f"{self.base_key}:dispatch_lock")
+                    "is_locked": self.redis.exists(f"{self.id}:dispatch_lock")
                 }
             }
         except redis.exceptions.NoScriptError:
