@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="Python 3.12 (celery-rate-limiter)" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.12 (celery-rate-limiter)" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="Poetry (celery-rate-limiter)" project-jdk-type="Python SDK" />
 </project>
