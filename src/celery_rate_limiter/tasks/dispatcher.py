@@ -3,7 +3,7 @@ from celery import shared_task
 from config import factory, celery_app
 
 
-@shared_task(bind=True, name="rate_limiter.attempt_consume")
+@shared_task(bind=True, name="celery_rate_limiter.attempt_consume")
 def attempt_consume(self, limiter_id: str):
     """
     Attempt to consume a task from the task queue.
@@ -27,7 +27,7 @@ def attempt_consume(self, limiter_id: str):
 
             # Send to the generic worker.
             celery_app.send_task(
-                "rate_limiter.generic_worker",
+                "celery_rate_limiter.generic_worker",
                 args=[limiter_id, task["func_path"], task["payload"], task.get("id")]
             )
 

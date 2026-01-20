@@ -12,6 +12,9 @@ dependencies = [
     "fakeredis (>=2.33.0,<3.0.0)"
 ]
 
+[tool.poetry]
+packages = [{include = "celery_rate_limiter", from = "src"}]
+
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"

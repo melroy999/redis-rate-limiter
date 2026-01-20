@@ -10,7 +10,7 @@ def import_string(import_path: str):
     module = importlib.import_module(module_path)
     return getattr(module, func_name)
 
-@shared_task(name="rate_limiter.generic_worker")
+@shared_task(name="celery_rate_limiter.generic_worker")
 def generic_rate_limited_worker(limiter_id: str, func_path: str, payload: dict, task_id: str = None):
     """Executes a function by its import path."""
     limiter = factory.registry.get(limiter_id)

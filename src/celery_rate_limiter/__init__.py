@@ -1,8 +1,8 @@
 from celery import Celery
 from redis import Redis
 
-from rate_limiter.registry import RateLimiterRegistry
-from rate_limiter.limiters import CeleryRateLimiter
+from celery_rate_limiter.registry import RateLimiterRegistry
+from celery_rate_limiter.limiters import CeleryRateLimiter
 
 
 class CeleryRateLimiterFactory:

@@ -40,7 +40,7 @@ class CeleryRateLimiter:
     _HEALTH_LUA_SCRIPT = None
 
     # Get the location of the lua package.
-    resource_package = "src.rate_limiter.lua"
+    resource_package = "src.celery_rate_limiter.lua"
 
     def __init__(
             self,
@@ -199,7 +199,7 @@ class CeleryRateLimiter:
             return
 
         from src.config import celery_app
-        celery_app.send_task("rate_limiter.attempt_consume", args=[self.id])
+        celery_app.send_task("celery_rate_limiter.attempt_consume", args=[self.id])
 
     @contextmanager
     def execution_lock(self, timeout=30):
