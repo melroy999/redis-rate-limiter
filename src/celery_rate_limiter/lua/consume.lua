@@ -74,9 +74,9 @@ if estimated_count < rate_limit and active_now < max_concurrency then
         end
 
         -- Return the task and telemetry information.
-        return {tasks[1], 1, remaining - 1, active_now + 1, reset_in, buffer_count - 1}
+        return {1, tasks[1], remaining - 1, active_now + 1, reset_in, buffer_count - 1}
     end
 end
 
 -- Return nothing and deny the request.
-return {nil, 0, remaining, active_now, reset_in, buffer_count}
+return {0, false, remaining, active_now, reset_in, buffer_count}

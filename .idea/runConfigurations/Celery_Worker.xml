@@ -16,7 +16,7 @@
     <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
     <option name="RUN_TOOL" value="" />
     <option name="SCRIPT_NAME" value=".venv/bin/celery" />
-    <option name="PARAMETERS" value="-A src.worker_init worker -c 10 --loglevel=warning" />
+    <option name="PARAMETERS" value="-A src.worker_init worker -c 10 --loglevel=info" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />

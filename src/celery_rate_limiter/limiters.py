@@ -248,19 +248,9 @@ class AbstractDistributedRateLimiter(ABC):
             )
 
             # Attempt to parse the result.
-            if not result or len(result) < 6:
-                return {
-                    "task": None,
-                    "success": False,
-                    "remaining_tokens": 0,
-                    "active_concurrency": 0,
-                    "reset_in": self.window,
-                    "remaining_tasks": 0
-                }
-
             return {
-                "task": cast(TaskData, json.loads(result[0])) if result[0] else None,
-                "success": bool(result[1]),
+                "success": bool(result[0]),
+                "task": cast(TaskData, json.loads(result[1])) if result[1] else None,
                 "remaining_tokens": int(result[2]),
                 "active_concurrency": int(result[3]),
                 "reset_in": int(result[4]),
@@ -305,7 +295,7 @@ class AbstractDistributedRateLimiter(ABC):
                     task_id=task.get("id")
                 )
 
-                # ONLY pulse if there are still items waiting in the buffer
+                # ONLY pulse if there are still items waiting in the buffer.
                 # This prevents the dispatcher from running forever.
                 if result["remaining_tasks"] > 0:
                     self._schedule_drain()
