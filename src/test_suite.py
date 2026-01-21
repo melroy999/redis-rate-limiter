@@ -1,3 +1,4 @@
+import random
 import time
 
 from config import factory
@@ -10,7 +11,7 @@ limiter = factory.registry.get("test_api")
 # In a real app, this would be in app/services.py
 def mock_api_call(user_id: int, error: bool = False):
     print(f" >>> [WORKER] Starting API call for user {user_id}")
-    time.sleep(2)  # Simulate a slow network request
+    time.sleep(2 * random.random())  # Simulate a slow network request
     print(f" <<< [WORKER] Finished API call for user {user_id}")
     if error:
         raise Exception("API call failed")
