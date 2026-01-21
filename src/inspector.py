@@ -42,11 +42,11 @@ def run_inspector(refresh_rate: float):
             pct = min(1.0, r['tokens_used'] / r['limit'])
             bar_len = 20
             filled = int(pct * bar_len)
-            bar = "▓" * filled + "░" * (bar_len - filled)
+            bar = "█" * filled + "░" * (bar_len - filled)
 
             print(f"RATE LIMIT:  [{bar}] {used_str}/{limit_str}")
             if r['tokens_used'] >= r['limit']:
-                print(f"             STATUS: SATURATED (Window rotates in {r['reset_in_seconds']}s)")
+                print(f"             STATUS: SATURATED (Window rotates in {r['reset_in_ms']}ms)")
             else:
                 print(f"             STATUS: OK (Previous: {r['val_previous']}, Current: {r['val_current']})")
 

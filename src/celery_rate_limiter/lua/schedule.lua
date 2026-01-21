@@ -14,12 +14,12 @@ if exists then
 end
 
 -- Get the time.
-local time_info = redis.call('TIME')
-local now_sec = tonumber(time_info[1])
+local redis_time = redis.call('TIME')
+local now_ms = (tonumber(redis_time[1]) * 1000) + math.floor(tonumber(redis_time[2]) / 1000)
 
 -- Inject the arrival time into the json.
 local task = cjson.decode(task_json)
-task['_arrived_at'] = now_sec
+task['_arrived_at'] = now_ms
 local final_json = cjson.encode(task)
 
 -- Queue the task.

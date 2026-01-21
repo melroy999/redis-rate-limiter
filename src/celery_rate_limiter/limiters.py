@@ -27,7 +27,7 @@ class ConsumeResult(TypedDict):
     success: bool  # Whether a task was actually consumed.
     remaining_tokens: int  # Rate limit telemetry.
     active_concurrency: int  # Concurrency telemetry.
-    reset_in: int  # Time until window shift.
+    reset_in_ms: int  # Time until window shift.
     remaining_tasks: int  # The number of tasks that remain to be processed.
 
 
@@ -37,16 +37,16 @@ class DistributedLock:
     Requests a dispatch lock and perform cleanup after task completion.
     """
 
-    def __init__(self, redis_client: Redis, lock_key: str, timeout: int):
+    def __init__(self, redis_client: Redis, lock_key: str, timeout_ms: int):
         """
         Initialize the lock manager.
         :param redis_client: The client to use to connect to the redis server.
         :param lock_key: The name of the key the lock is stored under.
-        :param timeout: The timeout for the lock in seconds.
+        :param timeout_ms: The timeout for the lock in milliseconds.
         """
         self.redis = redis_client
         self.lock_key = lock_key
-        self.timeout = timeout
+        self.timeout_ms = timeout_ms
         self.token = str(uuid.uuid4())
         self.acquired = False
 
@@ -56,7 +56,7 @@ class DistributedLock:
         :return: The status of the lock such that the task knows if it should proceed.
         """
         # Acquire the lock.
-        self.acquired = self.redis.set(self.lock_key, self.token, ex=self.timeout, nx=True)
+        self.acquired = self.redis.set(self.lock_key, self.token, px=self.timeout_ms, nx=True)
         return self.acquired
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -253,7 +253,7 @@ class AbstractDistributedRateLimiter(ABC):
                 "task": cast(TaskData, json.loads(result[1])) if result[1] else None,
                 "remaining_tokens": int(result[2]),
                 "active_concurrency": int(result[3]),
-                "reset_in": int(result[4]),
+                "reset_in_ms": int(result[4]),
                 "remaining_tasks": int(result[5]),
             }
 
@@ -310,7 +310,9 @@ class AbstractDistributedRateLimiter(ABC):
 
             elif result["remaining_tokens"] <= 0:
                 # Wait for the rate window to reset.
-                self._schedule_drain(delay=result.get("reset_in", 1))
+                ms_to_reset = result.get("reset_in_ms", 0)
+                delay_seconds = round(max(0.001, (ms_to_reset / 1000.0) + 0.001), 3)
+                self._schedule_drain(delay=delay_seconds)
 
     @abstractmethod
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str):
@@ -320,7 +322,7 @@ class AbstractDistributedRateLimiter(ABC):
         pass
 
     @abstractmethod
-    def _schedule_drain(self, delay: int = 0):
+    def _schedule_drain(self, delay: float = 0.0):
         """
         Schedule the `drain` method to run again after `delay` seconds.
         :param delay: The amount of time to sleep before scheduling.
@@ -334,13 +336,13 @@ class AbstractDistributedRateLimiter(ABC):
 
         self._schedule_drain()
 
-    def execution_lock(self, timeout=30) -> ContextManager[bool]:
+    def execution_lock(self, timeout_ms=5000) -> ContextManager[bool]:
         """
         Request the dispatch lock and perform cleanup after task completion.
-        :param timeout: The timeout in seconds.
+        :param timeout_ms: The timeout in milliseconds.
         :return: The status of the lock such that the task knows if it should proceed.
         """
-        return DistributedLock(redis_client=self.redis, lock_key=self.lock_key, timeout=timeout)
+        return DistributedLock(redis_client=self.redis, lock_key=self.lock_key, timeout_ms=timeout_ms)
 
     def task_lifecycle(self, task_id: str):
         """
@@ -381,7 +383,7 @@ class AbstractDistributedRateLimiter(ABC):
                     "tokens_used": float(result[2]),  # Estimated count is a float
                     "limit": self.limit,
                     "window": self.window,
-                    "reset_in_seconds": result[4]
+                    "reset_in_ms": result[4]
                 },
                 "dispatcher": {
                     "is_locked": self.redis.exists(f"{self.id}:dispatch_lock")
@@ -455,7 +457,7 @@ class CeleryRateLimiter(AbstractDistributedRateLimiter):
                 kwargs={"_rate_limit_task_id": task_id}
             )
 
-    def _schedule_drain(self, delay: int = 0):
+    def _schedule_drain(self, delay: float = 0.0):
         # Schedule an attempt at consuming a token.
         self.app.send_task(
             "celery_rate_limiter.attempt_consume",
