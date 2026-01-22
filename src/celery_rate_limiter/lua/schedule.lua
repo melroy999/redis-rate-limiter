@@ -6,13 +6,6 @@ local buffer_key = KEYS[1]
 local task_json = ARGV[1]
 local priority = tonumber(ARGV[2])
 
--- Check if task exists already.
-local exists = redis.call('ZSCORE', buffer_key, task_json)
-if exists then
-    -- Task already queued, do nothing (Mimics NX=True).
-    return 0
-end
-
 -- Get the time.
 local redis_time = redis.call('TIME')
 local now_ms = (tonumber(redis_time[1]) * 1000) + math.floor(tonumber(redis_time[2]) / 1000)

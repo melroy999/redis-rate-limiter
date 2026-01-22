@@ -177,45 +177,65 @@ class AbstractDistributedRateLimiter(ABC):
             except Exception as e:
                 raise ImportError(f"Could not load {lua_script} from {self.resource_package}: {e}")
 
+    @staticmethod
+    def _get_task_signature_str(func_path: str, payload: dict) -> str:
+        """Get the signature of a task as a JSON string."""
+        return json.dumps({"path": func_path, "payload": payload}, sort_keys=True)
+
+    @staticmethod
+    def _get_task_data(task_id: str, func_path: str, payload: dict):
+        """Get the data of a task."""
+        return {
+            "id": task_id,
+            "func_path": func_path,
+            "payload": payload
+        }
+
+    def _get_task_data_str(self, task_id: str, func_path: str, payload: dict) -> str:
+        """Get the data of a task as a JSON string."""
+        return json.dumps(self._get_task_data(task_id, func_path, payload), sort_keys=True)
+
+    def _get_active_key(self, task_id: str):
+        """Get the active key for the given task."""
+        return f"{self.id}:active:{task_id}"
+
     def schedule_task(
             self, func_path: str, payload: dict, priority: int = 100, retry: bool = True
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """
         Schedule a task to run once rate limiting allows for it.
         :param func_path: The name of the function to schedule.
         :param payload: The payload for the task in question.
         :param priority: The priority of the task (100 default).
         :param retry: Whether to retry the scheduling on no script error (Redis outage).
-        :return: Whether the task got skipped or not.
+        :return: Whether the task got skipped or not and its task id.
         :exception RuntimeError: if the necessary lua scripts cannot be (re)loaded.
         """
         # Generate a unique id for the task name and payload.
-        task_signature = json.dumps({"path": func_path, "payload": payload}, sort_keys=True)
+        task_signature = self._get_task_signature_str(func_path, payload)
         task_id = hashlib.md5(task_signature.encode()).hexdigest()
 
         # Track active tasks--skip if it is already active.
-        active_key = f"{self.id}:active:{task_id}"
+        active_key = self._get_active_key(task_id)
         if self.redis.exists(active_key):
             print(f"DEBUG: Task {task_id} is already in-flight. Skipping.")
-            return False
-
-        # Mark as active.
-        self.redis.set(active_key, "1", ex=3600)
+            return False, task_id
 
         # Add a priority for priority queue behavior.
-        full_data = json.dumps({
-            "id": task_id,
-            "func_path": func_path,
-            "payload": payload
-        }, sort_keys=True)
+        full_data = self._get_task_data_str(task_id, func_path, payload)
 
         try:
+            # Attempt to schedule.
             self.redis.evalsha(
                 self.schedule_script_sha, 1,
                 # KEYS: [buffer]
                 # ARGV: [task_json, limit]
                 self.buffer_key, full_data, priority
             )
+
+            # Mark as active only after scheduling.
+            self.redis.set(active_key, "1", ex=3600)
+
         except redis.exceptions.NoScriptError:
             # Redis cache is volatile, and hence, the sha may become invalid unexpectedly.
             # Check if we should retry or not; throw a runtime error if not.
@@ -228,7 +248,7 @@ class AbstractDistributedRateLimiter(ABC):
 
         # Attempt a consume.
         self.trigger_consume()
-        return True
+        return True, task_id
 
     def consume(self, retry: bool = True) -> ConsumeResult:
         """
@@ -410,9 +430,17 @@ class CeleryRateLimiter(AbstractDistributedRateLimiter):
         super().__init__(redis_client, *args, **kwargs)
         self.app = celery_app
 
+    @staticmethod
+    def _get_enhanced_payload(payload: dict, use_executor: bool):
+        """Get the enhanced payload."""
+        return {
+            "data": payload,
+            "meta": {"use_executor": use_executor}
+        }
+
     def schedule_task(
             self, func_path: str, payload: dict, priority: int = 100, retry: bool = True, use_executor: bool = True
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """
         :param func_path:
             **use_executor=True**: Dot-path to the python function.
@@ -421,14 +449,11 @@ class CeleryRateLimiter(AbstractDistributedRateLimiter):
         :param priority: The priority of the task (100 default).
         :param retry: Whether to retry the scheduling on no script error (Redis outage).
         :param use_executor: Whether to use the generic worker or direct Celery worker dispatch.
-        :return: Whether the task got skipped or not.
+        :return: Whether the task got skipped or not and its task id.
         :exception RuntimeError: if the necessary lua scripts cannot be (re)loaded.
         """
         # Add the use executor flag to the payload.
-        enhanced_payload = {
-            "data": payload,
-            "meta": {"use_executor": use_executor}
-        }
+        enhanced_payload = self._get_enhanced_payload(payload, use_executor)
 
         # Call the parent scheduler.
         return super().schedule_task(func_path, enhanced_payload, priority, retry)
