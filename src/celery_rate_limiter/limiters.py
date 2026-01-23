@@ -57,7 +57,7 @@ class DistributedLock:
         """
         # Acquire the lock.
         self.acquired = self.redis.set(self.lock_key, self.token, px=self.timeout_ms, nx=True)
-        return self.acquired
+        return bool(self.acquired)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """
@@ -108,7 +108,7 @@ class TaskLifecycle:
 
             # Clear the active lock of the task.
             if self.task_id:
-                active_key = f"{self.limiter.id}:active:{self.task_id}"
+                active_key = self.limiter.get_active_key(self.task_id)
                 self.limiter.redis.delete(active_key)
         finally:
             # Re-trigger the dispatcher to fill the empty slot.
@@ -195,7 +195,7 @@ class AbstractDistributedRateLimiter(ABC):
         """Get the data of a task as a JSON string."""
         return json.dumps(self._get_task_data(task_id, func_path, payload), sort_keys=True)
 
-    def _get_active_key(self, task_id: str):
+    def get_active_key(self, task_id: str):
         """Get the active key for the given task."""
         return f"{self.id}:active:{task_id}"
 
@@ -216,7 +216,7 @@ class AbstractDistributedRateLimiter(ABC):
         task_id = hashlib.md5(task_signature.encode()).hexdigest()
 
         # Track active tasks--skip if it is already active.
-        active_key = self._get_active_key(task_id)
+        active_key = self.get_active_key(task_id)
         if self.redis.exists(active_key):
             print(f"DEBUG: Task {task_id} is already in-flight. Skipping.")
             return False, task_id
@@ -229,8 +229,9 @@ class AbstractDistributedRateLimiter(ABC):
             self.redis.evalsha(
                 self.schedule_script_sha, 1,
                 # KEYS: [buffer]
+                self.buffer_key,
                 # ARGV: [task_json, limit]
-                self.buffer_key, full_data, priority
+                full_data, priority
             )
 
             # Mark as active only after scheduling.
@@ -262,8 +263,8 @@ class AbstractDistributedRateLimiter(ABC):
             result = self.redis.evalsha(
                 self.consume_script_sha, 3,
                 # KEYS: [base, buffer, concurrency]
-                # ARGV: [window, limit, max_concurrency]
                 self.id, self.buffer_key, self.concurrency_key,
+                # ARGV: [window, limit, max_concurrency, max_age]
                 self.window, self.limit, self.max_concurrency, self.max_age
             )
 
