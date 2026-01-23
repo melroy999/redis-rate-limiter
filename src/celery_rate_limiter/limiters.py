@@ -453,7 +453,10 @@ class CeleryRateLimiter(AbstractDistributedRateLimiter):
         :exception RuntimeError: if the necessary lua scripts cannot be (re)loaded.
         """
         # Add the use executor flag to the payload.
-        enhanced_payload = self._get_enhanced_payload(payload, use_executor)
+        # Only add this if we aren't re-trying--the payload is already present otherwise.
+        enhanced_payload = payload
+        if retry:
+            enhanced_payload = self._get_enhanced_payload(payload, use_executor)
 
         # Call the parent scheduler.
         return super().schedule_task(func_path, enhanced_payload, priority, retry)

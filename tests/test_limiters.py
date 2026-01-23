@@ -1,5 +1,5 @@
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import redis
@@ -26,7 +26,7 @@ class TestScheduleTask:
         active_key = limiter._get_active_key(task_id)
 
         # Assert that the task is marked as active.
-        assert bool(redis_client.exists(active_key)) == 1
+        assert redis_client.exists(active_key) == 1
 
         # Assert that the task is in the buffer only once.
         cursor, results = redis_client.zscan(limiter.buffer_key, match=f'*"{task_id}"*')
@@ -89,6 +89,19 @@ class TestScheduleTask:
         # Assert that there is only two tasks in the buffer.
         assert redis_client.zcard(limiter.buffer_key) == 2
 
+    @pytest.mark.parametrize("payload", [
+        {"user_id": 123},
+        {},
+        {"a": [1, 2], "b": {"c": 3}},
+        {"msg": "✅ unicode"}
+    ])
+    def test_payload_serialization_integrity(self, limiter, redis_client, payload):
+        func_path = "myapp.tasks.process_data"
+        success, task_id = limiter.schedule_task(func_path, payload)
+
+        # Verify whether the data survived the trip.
+        self.assert_task_existence(limiter, redis_client, func_path, payload, task_id)
+
     def test_schedule_tasks_no_script_recovery(self, limiter, redis_client):
         payload = {"user_id": 123}
         func_path = "myapp.tasks.process_data"
@@ -97,43 +110,46 @@ class TestScheduleTask:
         real_evalsha = redis_client.evalsha
         real_script_load = redis_client.script_load
 
+        # Create a function that raises a NoScriptError only on the very first call.
         def mocked_evalsha_func(*args, **kwargs):
-            # On the VERY FIRST call, we raise the NoScriptError
             if mocked_evalsha_func.call_count == 0:
                 mocked_evalsha_func.call_count += 1
                 raise redis.exceptions.NoScriptError("NOSCRIPT")
-
-            # On subsequent calls, we call the REAL redis method
             return real_evalsha(*args, **kwargs)
 
         mocked_evalsha_func.call_count = 0
 
-        mock_evalsha = MagicMock(side_effect=mocked_evalsha_func)
-        mock_script_load = MagicMock(side_effect=real_script_load)
+        # Use with here to ensure the mock is reverted post execution.
+        with patch.object(limiter.redis, 'evalsha', side_effect=mocked_evalsha_func) as mock_eval, \
+                patch.object(limiter.redis, 'script_load', side_effect=real_script_load) as mock_load:
+            success, task_id = limiter.schedule_task(func_path, payload)
 
-        limiter.redis.evalsha = mock_evalsha
-        limiter.redis.script_load = mock_script_load
+            # Expected outcome is true.
+            assert success is True
 
-        success, task_id = limiter.schedule_task(func_path, payload)
+            # Do the common task existence and integrity assertions.
+            self.assert_task_existence(limiter, redis_client, func_path, payload, task_id)
 
-        # Expected outcome is true.
-        assert success is True
-
-        # Do the common task existence and integrity assertions.
-        self.assert_task_existence(limiter, redis_client, func_path, payload, task_id)
-
-        # Verify whether the recovery took the expected path.
-        assert mock_evalsha.call_count == 2, "evalsha should have been called twice (fail then retry)"
-        assert mock_script_load.call_count == 1, "script_load should have been called to recover"
+            # Verify whether the recovery took the expected path.
+            assert mock_eval.call_count == 2, "evalsha should have been called twice (fail then retry)"
+            assert mock_load.call_count == 1, "script_load should have been called to recover"
 
         # Verify the script was actually reloaded into the class attribute.
         assert limiter.schedule_script_sha is not None
 
-    def test_schedule_tasks_no_script_failure(self, limiter, redis_client):
+    def test_schedule_tasks_no_script_permanent_failure(self, limiter, redis_client):
         # Force evalsha to always fail.
-        limiter.redis.evalsha = MagicMock(
-            side_effect=redis.exceptions.NoScriptError("Permanent Failure")
-        )
+        with patch.object(
+                limiter.redis, 'evalsha', side_effect=redis.exceptions.NoScriptError("Permanent Failure")
+        ) as mock_eval:
+            with pytest.raises(RuntimeError, match="Redis failed to retain the Lua script"):
+                limiter.schedule_task("path", {})
 
-        with pytest.raises(RuntimeError, match="Redis failed to retain the Lua script"):
-            limiter.schedule_task("path", {}, retry=True)
+            # Assert that a re-attempt was performed.
+            assert mock_eval.call_count == 2
+
+        # Assert no tasks have been added and that the task is no longer marked active.
+        task_wildcard = limiter._get_active_key("*")
+        active_keys = redis_client.keys(task_wildcard)
+        assert len(active_keys) == 0
+        assert redis_client.zcard(limiter.buffer_key) == 0
