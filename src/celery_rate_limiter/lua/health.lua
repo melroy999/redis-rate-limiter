@@ -35,7 +35,7 @@ local weight = (window_size_ms - time_passed_in_current) / window_size_ms
 local estimated_count = current_count + (previous_count * weight)
 
 -- Get number of currently running tasks.
-local active_now = tonumber(redis.call('GET', concurrency_key) or 0)
+local active_now = tonumber(redis.call('ZCARD', concurrency_key) or 0)
 local buffer_count = tonumber(redis.call('ZCARD', buffer_key) or 0)
 
 -- Use the Redis server time to calculate a relative 'TTL' for the window.

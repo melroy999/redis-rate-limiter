@@ -134,7 +134,12 @@ class TestTaskLifecycle:
         limiter = MagicMock()
         limiter.redis = redis_client
         limiter.concurrency_key = "test:concurrency"
+        limiter.lease_duration = 30
         limiter.get_active_key.side_effect = lambda _: f"test:active:{task_id}"
+
+        # Ensure the lease renewal function exists for background thread tests.
+        limiter.extend_lease = MagicMock()
+
         return limiter
 
     @pytest.fixture
@@ -146,14 +151,25 @@ class TestTaskLifecycle:
 
     def test_task_lifecycle(self, redis_client, mock_limiter_for_lifecycle, task_id, active_key):
         # Simulate a running task.
-        redis_client.set(mock_limiter_for_lifecycle.concurrency_key, 5)
+        redis_client.zadd(mock_limiter_for_lifecycle.concurrency_key, {
+            "other_task_1": 100,
+            "other_task_2": 100,
+            "other_task_3": 100,
+            "other_task_4": 100,
+            task_id: 100
+        })
         redis_client.set(active_key, "1")
 
-        with TaskLifecycle(mock_limiter_for_lifecycle, task_id):
-            assert int(redis_client.get(mock_limiter_for_lifecycle.concurrency_key)) == 5
+        # Prevent the heartbeat thread from starting.
+        with patch("threading.Thread"):
+            with TaskLifecycle(mock_limiter_for_lifecycle, task_id):
+                # Verify we are currently have 5 tasks running concurrently.
+                assert redis_client.zcard(mock_limiter_for_lifecycle.concurrency_key) == 5
 
-        # Assert that the concurrency key has reduced and that the task is no longer active.
-        assert int(redis_client.get(mock_limiter_for_lifecycle.concurrency_key)) == 4
+        # Assert that the task has been removed from the concurrency set and that the task is no longer active.
+        assert redis_client.zcard(mock_limiter_for_lifecycle.concurrency_key) == 4
+        assert redis_client.zscore(mock_limiter_for_lifecycle.concurrency_key, task_id) is None
+        assert redis_client.zscore(mock_limiter_for_lifecycle.concurrency_key, "other_task_1") is not None
         assert redis_client.exists(active_key) == 0
 
         # The trigger_consume function must be called to ensure the processing doesn't stall.
@@ -161,16 +177,17 @@ class TestTaskLifecycle:
 
     def test_task_lifecycle_cleanup_on_exception(self, redis_client, mock_limiter_for_lifecycle, task_id, active_key):
         # Simulate a running task.
-        redis_client.set(mock_limiter_for_lifecycle.concurrency_key, 1)
+        redis_client.zadd(mock_limiter_for_lifecycle.concurrency_key, {task_id: 100})
         redis_client.set(active_key, "1")
 
         # Verify that cleanup happens appropriately after an error.
-        with pytest.raises(ValueError, match="Worker crashed"):
-            with TaskLifecycle(mock_limiter_for_lifecycle, task_id):
-                raise ValueError("Worker crashed")
+        with patch("threading.Thread"):
+            with pytest.raises(ValueError, match="Worker crashed"):
+                with TaskLifecycle(mock_limiter_for_lifecycle, task_id):
+                    raise ValueError("Worker crashed")
 
-        # Check if concurrency has decremented and that the task is no longer active.
-        assert int(redis_client.get(mock_limiter_for_lifecycle.concurrency_key)) == 0
+        # Check if the task has been removed from the concurrency set and that the task is no longer active.
+        assert redis_client.zcard(mock_limiter_for_lifecycle.concurrency_key) == 0
         assert redis_client.exists(active_key) == 0
 
         # The trigger_consume function must be called to ensure the processing doesn't stall.
@@ -178,15 +195,17 @@ class TestTaskLifecycle:
 
     def test_task_lifecycle_cleanup_on_redis_failure(self, redis_client, mock_limiter_for_lifecycle, task_id,
                                                      active_key):
-        with patch.object(mock_limiter_for_lifecycle.redis, 'decr',
-                          side_effect=Exception("Redis connection lost")) as mock_decr:
-            # Do not simulate a running task here.
-            with pytest.raises(Exception, match="Redis connection lost"):
-                with TaskLifecycle(mock_limiter_for_lifecycle, task_id):
-                    _ = ""
+        with patch.object(mock_limiter_for_lifecycle.redis, 'zrem',
+                          side_effect=Exception("Redis connection lost")) as mock_zrem:
 
-            # Verify the exception got caused by the decr function.
-            mock_decr.assert_called_once()
+            # Do not simulate a running task here.
+            with patch("threading.Thread"):
+                with pytest.raises(Exception, match="Redis connection lost"):
+                    with TaskLifecycle(mock_limiter_for_lifecycle, task_id):
+                        _ = ""
+
+            # Verify the exception got caused by the zrem function.
+            mock_zrem.assert_called_once()
 
         # The trigger_consume function must be called to ensure the processing doesn't stall.
         mock_limiter_for_lifecycle.trigger_consume.assert_called_once()

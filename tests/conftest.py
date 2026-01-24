@@ -8,11 +8,31 @@ pytest_plugins = ("celery.contrib.pytest", )
 
 
 @pytest.fixture(scope="session")
-def redis_client():
-    """Connects to a real Redis instance for testing."""
+def _redis_connection():
+    """
+    Connects to a real Redis instance for testing.
+    We only do this once and just flush the database between tests.
+    """
     client = redis.Redis(host='localhost', port=6379, decode_responses=True)
+
+    # Verify connection works before starting suite
+    try:
+        client.ping()
+    except redis.exceptions.ConnectionError:
+        pytest.fail("Could not connect to Redis. Is it running?")
+
     yield client
-    client.flushall() # Clean up after all tests
+    client.close()
+
+
+@pytest.fixture(scope="function")
+def redis_client(_redis_connection):
+    """Connects to a real Redis instance for testing."""
+    # Flush before and after the test.
+    _redis_connection.flushall()
+    yield _redis_connection
+    _redis_connection.flushall()
+
 
 @pytest.fixture(scope="session")
 def celery_config():
@@ -38,7 +58,8 @@ def limiter(redis_client, celery_app):
         limit=5,
         window=60,
         max_concurrency=2,
-        max_age=3600
+        max_age=3600,
+        lease_duration=30
     )
 
     yield test_limiter

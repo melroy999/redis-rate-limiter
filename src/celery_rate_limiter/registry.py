@@ -44,7 +44,8 @@ class RateLimiterRegistry:
                 "window": limiter.window,
                 "limit": limiter.limit,
                 "max_concurrency": limiter.max_concurrency,
-                "max_age": limiter.max_age
+                "max_age": limiter.max_age,
+                "lease_duration": limiter.lease_duration,
             }
             # This updates the source of truth that all workers watch
             self.redis.hset("rl:registry:configs", limiter.id, json.dumps(config))

@@ -7,7 +7,8 @@
 -- ARGV[1]: Window size in seconds (e.g., 60)
 -- ARGV[2]: Max requests allowed (e.g., 100)
 -- ARGV[3]: Max simultaneously running tasks allowed (e.g., 10)
--- ARGV[4]: Max Age (seconds)
+-- ARGV[4]: Max Age (DLQ/Queue TTL, seconds)
+-- ARGV[5]: Lease Duration (Lock TTL, seconds)
 local base_key = KEYS[1]
 local buffer_key = KEYS[2]
 local concurrency_key = KEYS[3]
@@ -15,10 +16,18 @@ local window_size_ms = tonumber(ARGV[1]) * 1000
 local rate_limit = tonumber(ARGV[2])
 local max_concurrency = tonumber(ARGV[3])
 local max_age = tonumber(ARGV[4]) or 3600
+local lease_duration = tonumber(ARGV[5]) or 30
 
 -- Use the Redis time to avoid clock skew in distributed systems.
 local redis_time = redis.call('TIME')
+local timestamp = tonumber(redis_time[1])
 local now_ms = (tonumber(redis_time[1]) * 1000) + math.floor(tonumber(redis_time[2]) / 1000)
+
+-- Perform the self-healing concurrency consistency check and remove expired leases.
+redis.call('ZREMRANGEBYSCORE', concurrency_key, "-inf", timestamp - 1)
+
+-- Get number of currently running tasks.
+local active_now = tonumber(redis.call('ZCARD', concurrency_key) or 0)
 
 -- Find the right keys for our current and previous windows.
 local current_window_start = math.floor(now_ms / window_size_ms) * window_size_ms
@@ -37,9 +46,6 @@ local time_passed_in_current = now_ms - current_window_start
 local weight = (window_size_ms - time_passed_in_current) / window_size_ms
 local estimated_count = current_count + (previous_count * weight)
 
--- Get number of currently running tasks.
-local active_now = tonumber(redis.call('GET', concurrency_key) or 0)
-
 -- Telemetry calculations.
 local remaining = math.max(0, math.floor(rate_limit - estimated_count))
 local buffer_count = tonumber(redis.call('ZCARD', buffer_key) or 0)
@@ -56,14 +62,16 @@ if estimated_count < rate_limit and active_now < max_concurrency then
 
     -- Do all of the bookkeeping if a the task exists.
     if #tasks > 0 then
+        -- Get the task's data.
+        local raw_task_json = tasks[1]
+        local task_data = cjson.decode(raw_task_json)
+        local task_id = task_data.id
+
         -- Remove the task.
-        redis.call('ZREM', buffer_key, tasks[1])
+        redis.call('ZREM', buffer_key, raw_task_json)
 
         -- Consume a token by incrementing the window counter.
         redis.call('INCR', current_key)
-
-        -- Increase the concurrently running tasks counter.
-        redis.call('INCR', concurrency_key)
 
         -- Ensure the window will expire and clean itself up.
         -- Note that the current window needs to be available for the next.
@@ -71,6 +79,10 @@ if estimated_count < rate_limit and active_now < max_concurrency then
         if current_count == 0 then
             redis.call('PEXPIRE', current_key, 2 * window_size_ms + 10000)
         end
+
+        -- Register the task in the concurrency set and set its expiration time.
+        local lease_expiry = timestamp + lease_duration
+        redis.call('ZADD', concurrency_key, lease_expiry, task_id)
 
         -- Return the task and telemetry information.
         return {1, tasks[1], remaining - 1, active_now + 1, reset_in_ms, buffer_count - 1}

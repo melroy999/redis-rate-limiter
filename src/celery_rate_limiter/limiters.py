@@ -1,4 +1,5 @@
 import hashlib
+import threading
 import uuid
 import redis
 import json
@@ -82,7 +83,7 @@ class TaskLifecycle:
     Context manager that handles concurrency slot cleanup.
     """
 
-    def __init__(self, limiter, task_id: str):
+    def __init__(self, limiter: AbstractDistributedRateLimiter, task_id: str, lease_duration: int = 30):
         """
         Create a lifecycle context manager that cleans up concurrency slots.
         :param limiter: The limiter to observe.
@@ -90,21 +91,45 @@ class TaskLifecycle:
         """
         self.limiter = limiter
         self.task_id = task_id
+        self.interval = self.limiter.lease_duration / 2
+
+        # Threading controls.
+        self._stop_event = threading.Event()
+        self._thread = None
+
+    def _heartbeat_loop(self):
+        """
+        Background task that renews the lease over a concurrency slot.
+        """
+        while not self._stop_event.wait(timeout=self.interval):
+            try:
+                # Extend the lease.
+                self.limiter.extend_lease(self.task_id, self.limiter.lease_duration)
+            except Exception as e:
+                print(f"Heartbeat warning for task {self.task_id}: {e}")
 
     def __enter__(self):
         """
         Enter the context manager.
         """
-        # No on-enter behavior required.
+        # Start the keep-alive thread.
+        self._thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
+        self._thread.start()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """
         Leave the context manager.
         """
+        # Stop the heartbeat.
+        self._stop_event.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=1.0)
+
+        # Perform cleanup.
         try:
             # Always decrement the counter when leaving the 'with' block.
-            self.limiter.redis.decr(self.limiter.concurrency_key)
+            self.limiter.redis.zrem(self.limiter.concurrency_key, self.task_id)
 
             # Clear the active lock of the task.
             if self.task_id:
@@ -122,6 +147,7 @@ class AbstractDistributedRateLimiter(ABC):
     _CONSUME_LUA_SCRIPT = None
     _SCHEDULE_LUA_SCRIPT = None
     _HEALTH_LUA_SCRIPT = None
+    _RENEW_LUA_SCRIPT = None
 
     # Get the location of the lua package.
     resource_package = "src.celery_rate_limiter.lua"
@@ -133,15 +159,18 @@ class AbstractDistributedRateLimiter(ABC):
             limit: int,
             window: int,
             max_concurrency: int,
-            max_age: int
+            max_age: int,
+            lease_duration: int,
     ):
         """
-        Create a Celery rate limiter instance with the given parameters and import the appropriate lua scripts.
+        Create a Abstract rate limiter instance with the given parameters and import the appropriate lua scripts.
+        :param redis_client: The redis client to use.
         :param limiter_id: The id of the rate limiter to create.
         :param window: The time window in seconds that the limit is applied to.
         :param limit: The maximum number of tasks per time window.
         :param max_concurrency: The maximum number of concurrent tasks.
         :param max_age: The maximum time a task may exist in the queue before it expires.
+        :param lease_duration: The time in seconds after which the leash to a concurrency slot will expire.
         :return: A rate limiter using the desired parameters.
         """
         self.redis = redis_client
@@ -153,16 +182,19 @@ class AbstractDistributedRateLimiter(ABC):
         self.window = window
         self.max_concurrency = max_concurrency
         self.max_age = max_age
+        self.lease_duration = lease_duration
 
         # Import the scripts.
         self._load_lua_script("consume.lua", "_CONSUME_LUA_SCRIPT")
         self._load_lua_script("schedule.lua", "_SCHEDULE_LUA_SCRIPT")
         self._load_lua_script("health.lua", "_HEALTH_LUA_SCRIPT")
+        self._load_lua_script("renew.lua", "_RENEW_LUA_SCRIPT")
 
         # Optimize performance by caching the scripts on the server.
         self.consume_script_sha = self.redis.script_load(self._CONSUME_LUA_SCRIPT)
         self.schedule_script_sha = self.redis.script_load(self._SCHEDULE_LUA_SCRIPT)
         self.health_script_sha = self.redis.script_load(self._HEALTH_LUA_SCRIPT)
+        self.renew_script_sha = self.redis.script_load(self._RENEW_LUA_SCRIPT)
 
     def _load_lua_script(self, lua_script: str, key: str) -> None:
         """
@@ -264,8 +296,8 @@ class AbstractDistributedRateLimiter(ABC):
                 self.consume_script_sha, 3,
                 # KEYS: [base, buffer, concurrency]
                 self.id, self.buffer_key, self.concurrency_key,
-                # ARGV: [window, limit, max_concurrency, max_age]
-                self.window, self.limit, self.max_concurrency, self.max_age
+                # ARGV: [window, limit, max_concurrency, max_age, lease_duration]
+                self.window, self.limit, self.max_concurrency, self.max_age, self.lease_duration
             )
 
             # Attempt to parse the result.
@@ -287,6 +319,35 @@ class AbstractDistributedRateLimiter(ABC):
             # Fetch the script sha again and reattempt.
             self.consume_script_sha = self.redis.script_load(self._CONSUME_LUA_SCRIPT)
             return self.consume(retry=False)
+
+    def extend_lease(self, task_id: str, duration: int, retry: bool = True):
+        """
+        A lease-based concurrency system is used such that proper cleanup can be performed by other workers on system
+        failure--by extending the leash, the worker notifies the distributed system it is still alive; this in turn
+        ensures that a concurrency slot can be repurposed if a worker falls quiet and expires.
+
+        :param task_id: The id of the task to extend the lease of.
+        :param duration: The number of seconds to extend the leash by, this is decoupled such that it can be a
+        fraction of the actual leash duration, such that it is always refreshed well before expiration.
+        :param retry: Internal flag to perform the operation again if a script error occurs.
+        :return: The result of the lua renew script.
+        """
+        try:
+            return self.redis.evalsha(
+                self.renew_script_sha,
+                1,
+                # KEYS: [concurrency]
+                self.concurrency_key,
+                # ARGV: [task_id, duration]
+                task_id, duration
+            )
+        except redis.exceptions.NoScriptError:
+            if not retry:
+                raise RuntimeError("Redis failed to retain the Lua script after a reload attempt.")
+
+            # Fetch the script sha again and reattempt.
+            self.renew_script_sha = self.redis.script_load(self._RENEW_LUA_SCRIPT)
+            return self.extend_lease(task_id, duration, retry=False)
 
     def get_buffer_count(self):
         """Get the number of items in the buffer."""
@@ -382,7 +443,7 @@ class AbstractDistributedRateLimiter(ABC):
             result = self.redis.evalsha(
                 self.health_script_sha, 3,
                 # KEYS: [base, buffer, concurrency]
-                # ARGV: [window, limit, max_concurrency]
+                # ARGV: [window, limit, max_concurrency, lease_duration]
                 self.id, self.buffer_key, self.concurrency_key,
                 self.window, self.limit, self.max_concurrency
             )
@@ -426,9 +487,26 @@ class CeleryRateLimiter(AbstractDistributedRateLimiter):
             self,
             redis_client,
             celery_app: Celery,
-            *args, **kwargs
+            limiter_id: str,
+            limit: int,
+            window: int,
+            max_concurrency: int,
+            max_age: int,
+            lease_duration: int,
     ):
-        super().__init__(redis_client, *args, **kwargs)
+        """
+        Create a Celery rate limiter instance with the given parameters and import the appropriate lua scripts.
+        :param redis_client: The redis client to use.
+        :param celery_app: The celery app to use.
+        :param limiter_id: The id of the rate limiter to create.
+        :param window: The time window in seconds that the limit is applied to.
+        :param limit: The maximum number of tasks per time window.
+        :param max_concurrency: The maximum number of concurrent tasks.
+        :param max_age: The maximum time a task may exist in the queue before it expires.
+        :param lease_duration: The time in seconds after which the leash to a concurrency slot will expire.
+        :return: A rate limiter using the desired parameters.
+        """
+        super().__init__(redis_client, limiter_id, limit, window, max_concurrency, max_age, lease_duration)
         self.app = celery_app
 
     @staticmethod
