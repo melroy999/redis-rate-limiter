@@ -4,6 +4,7 @@
 -- KEYS[1]: Base key name (e.g., "rate_limit:api_global")
 -- KEYS[2]: Buffer key name (e.g., "rate_limit:api_buffer")
 -- KEYS[3]: Concurrency key name (e.g., "rate_limit:api_concurrency")
+-- KEYS[3]: Dead letter queue key name (e.g., "rate_limit:dlq")
 -- ARGV[1]: Window size in seconds (e.g., 60)
 -- ARGV[2]: Max requests allowed (e.g., 100)
 -- ARGV[3]: Max simultaneously running tasks allowed (e.g., 10)
@@ -12,6 +13,7 @@
 local base_key = KEYS[1]
 local buffer_key = KEYS[2]
 local concurrency_key = KEYS[3]
+local dlq_key = KEYS[4]
 local window_size_ms = tonumber(ARGV[1]) * 1000
 local rate_limit = tonumber(ARGV[2])
 local max_concurrency = tonumber(ARGV[3])
@@ -65,10 +67,20 @@ if estimated_count < rate_limit and active_now < max_concurrency then
         -- Get the task's data.
         local raw_task_json = tasks[1]
         local task_data = cjson.decode(raw_task_json)
-        local task_id = task_data.id
 
         -- Remove the task.
         redis.call('ZREM', buffer_key, raw_task_json)
+
+        -- Check if the task has expired.
+        local effective_max_age = task_data['_max_age'] or max_age
+        local task_age = timestamp - math.floor(task_data['_arrived_at'] / 1000)
+        if task_age > effective_max_age then
+            -- If it has, add the task to the DLQ.
+            redis.call('RPUSH', dlq_key, raw_task_json)
+
+            -- Signify expiration with a -1 value.
+            return {-1, false, remaining, active_now, reset_in_ms, buffer_count - 1}
+        end
 
         -- Consume a token by incrementing the window counter.
         redis.call('INCR', current_key)
@@ -81,6 +93,7 @@ if estimated_count < rate_limit and active_now < max_concurrency then
         end
 
         -- Register the task in the concurrency set and set its expiration time.
+        local task_id = task_data.id
         local lease_expiry = timestamp + lease_duration
         redis.call('ZADD', concurrency_key, lease_expiry, task_id)
 

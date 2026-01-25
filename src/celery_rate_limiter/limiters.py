@@ -26,8 +26,9 @@ class ConsumeResult(TypedDict):
     """
     A class to hold the result of a consume.lua call.
     """
-    task: Optional[TaskData]  # The raw JSON string from Redis.
     success: bool  # Whether a task was actually consumed.
+    expired: bool  # Whether a task has expired.
+    task: Optional[TaskData]  # The raw JSON string from Redis.
     remaining_tokens: int  # Rate limit telemetry.
     active_concurrency: int  # Concurrency telemetry.
     reset_in_ms: int  # Time until window shift.
@@ -203,6 +204,7 @@ class AbstractDistributedRateLimiter(ABC):
         self.buffer_key = f"{self.id}:buffer"
         self.concurrency_key = f"{self.id}:concurrency"
         self.lock_key = f"{self.id}:dispatch_lock"
+        self.dlq_key = f"{self.id}:dlq"
         self.limit = limit
         self.window = window
         self.max_concurrency = max_concurrency
@@ -258,13 +260,14 @@ class AbstractDistributedRateLimiter(ABC):
         return f"{self.id}:active:{task_id}"
 
     def schedule_task(
-            self, func_path: str, payload: dict, priority: int = 100, retry: bool = True
+            self, func_path: str, payload: dict, priority: int = 100, max_age: Optional[int] = None, retry: bool = True
     ) -> tuple[bool, str]:
         """
         Schedule a task to run once rate limiting allows for it.
         :param func_path: The name of the function to schedule.
         :param payload: The payload for the task in question.
         :param priority: The priority of the task (100 default).
+        :param max_age: An optional override for the maximum age of the task in seconds.
         :param retry: Whether to retry the scheduling on no script error (Redis outage).
         :return: Whether the task got skipped or not and its task id.
         :exception RuntimeError: if the necessary lua scripts cannot be (re)loaded.
@@ -288,8 +291,8 @@ class AbstractDistributedRateLimiter(ABC):
                 self.schedule_script_sha, 1,
                 # KEYS: [buffer]
                 self.buffer_key,
-                # ARGV: [task_json, limit]
-                full_data, priority
+                # ARGV: [task_json, priority, max age]
+                full_data, priority, max_age or ""
             )
 
             # Mark as active only after scheduling.
@@ -319,16 +322,17 @@ class AbstractDistributedRateLimiter(ABC):
         try:
             # Fetch the result.
             result = self.redis.evalsha(
-                self.consume_script_sha, 3,
-                # KEYS: [base, buffer, concurrency]
-                self.id, self.buffer_key, self.concurrency_key,
+                self.consume_script_sha, 4,
+                # KEYS: [base, buffer, concurrency, dlq]
+                self.id, self.buffer_key, self.concurrency_key, self.dlq_key,
                 # ARGV: [window, limit, max_concurrency, max_age, lease_duration]
                 self.window, self.limit, self.max_concurrency, self.max_age, self.lease_duration
             )
 
             # Attempt to parse the result.
             return {
-                "success": bool(result[0]),
+                "success": int(result[0]) == 1,
+                "expired": int(result[0]) == -1,
                 "task": cast(TaskData, json.loads(result[1])) if result[1] else None,
                 "remaining_tokens": int(result[2]),
                 "active_concurrency": int(result[3]),
@@ -391,6 +395,10 @@ class AbstractDistributedRateLimiter(ABC):
 
             # Perform a consume.
             result = self.consume()
+
+            # Check if the task has expired.
+            if result["expired"]:
+                print("The task has expired and has been moved to the DLQ.")
 
             # Execute the task if the green light is given.
             if result["success"] and result["task"]:
@@ -544,7 +552,8 @@ class CeleryRateLimiter(AbstractDistributedRateLimiter):
         }
 
     def schedule_task(
-            self, func_path: str, payload: dict, priority: int = 100, retry: bool = True, use_executor: bool = True
+            self, func_path: str, payload: dict, priority: int = 100, max_age: Optional[int] = None,
+            retry: bool = True, use_executor: bool = True
     ) -> tuple[bool, str]:
         """
         :param func_path:
@@ -552,6 +561,7 @@ class CeleryRateLimiter(AbstractDistributedRateLimiter):
             **use_executor=False**: The Celery task name.
         :param payload: The payload for the task in question.
         :param priority: The priority of the task (100 default).
+        :param max_age: An optional override for the maximum age of the task in seconds.
         :param retry: Whether to retry the scheduling on no script error (Redis outage).
         :param use_executor: Whether to use the generic worker or direct Celery worker dispatch.
         :return: Whether the task got skipped or not and its task id.
@@ -564,7 +574,7 @@ class CeleryRateLimiter(AbstractDistributedRateLimiter):
             enhanced_payload = self._get_enhanced_payload(payload, use_executor)
 
         # Call the parent scheduler.
-        return super().schedule_task(func_path, enhanced_payload, priority, retry)
+        return super().schedule_task(func_path, enhanced_payload, priority, max_age, retry)
 
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str):
         # Check if the built-in worker should be used.
