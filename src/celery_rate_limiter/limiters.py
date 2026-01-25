@@ -1,11 +1,13 @@
 import hashlib
+import os
+import signal
 import threading
 import uuid
 import redis
 import json
 
 from importlib import resources
-from typing import TypedDict, Optional, cast, ContextManager
+from typing import TypedDict, Optional, cast, ContextManager, Literal
 from redis import Redis
 from celery import Celery
 from abc import ABC, abstractmethod
@@ -83,7 +85,8 @@ class TaskLifecycle:
     Context manager that handles concurrency slot cleanup.
     """
 
-    def __init__(self, limiter: AbstractDistributedRateLimiter, task_id: str, lease_duration: int = 30):
+    def __init__(self, limiter: AbstractDistributedRateLimiter, task_id: str,
+                 on_heartbeat_failure: Literal["warn", "kill"] = "warn"):
         """
         Create a lifecycle context manager that cleans up concurrency slots.
         :param limiter: The limiter to observe.
@@ -97,6 +100,10 @@ class TaskLifecycle:
         self._stop_event = threading.Event()
         self._thread = None
 
+        # Health controls.
+        self.on_failure_action = on_heartbeat_failure
+        self.is_healthy = True
+
     def _heartbeat_loop(self):
         """
         Background task that renews the lease over a concurrency slot.
@@ -105,8 +112,23 @@ class TaskLifecycle:
             try:
                 # Extend the lease.
                 self.limiter.extend_lease(self.task_id, self.limiter.lease_duration)
+
+                # Indicate that the worker has restored its proper functioning.
+                if not self.is_healthy:
+                    print(f"INFO: Connection restored for task {self.task_id}.")
+                    self.is_healthy = True
             except Exception as e:
-                print(f"Heartbeat warning for task {self.task_id}: {e}")
+                # Mark as unhealthy to signal to the worker job that something is wrong.
+                self.is_healthy = False
+
+                error_msg = f"CRITICAL: Heartbeat failed for task {self.task_id}: {e}"
+                if self.on_failure_action == "kill":
+                    # Log that the worker is now dead and break the loop so the child-thread stops as well.
+                    print(f"{error_msg} -> TERMINATING WORKER (Suicide Pact)")
+                    os.kill(os.getpid(), signal.SIGTERM)
+                    break
+                else:
+                    print(f"{error_msg} -> Flagged as unhealthy.")
 
     def __enter__(self):
         """
@@ -159,8 +181,9 @@ class AbstractDistributedRateLimiter(ABC):
             limit: int,
             window: int,
             max_concurrency: int,
-            max_age: int,
-            lease_duration: int,
+            max_age: int = 3600,
+            lease_duration: int = 30,
+            on_heartbeat_failure: Literal["warn", "kill"] = "warn"
     ):
         """
         Create a Abstract rate limiter instance with the given parameters and import the appropriate lua scripts.
@@ -171,6 +194,8 @@ class AbstractDistributedRateLimiter(ABC):
         :param max_concurrency: The maximum number of concurrent tasks.
         :param max_age: The maximum time a task may exist in the queue before it expires.
         :param lease_duration: The time in seconds after which the leash to a concurrency slot will expire.
+        :param on_heartbeat_failure: How to handle heartbeat failures--warn lets the job proceed.
+        whereas kill makes the worker forcefully exit its execution, effectively killing it.
         :return: A rate limiter using the desired parameters.
         """
         self.redis = redis_client
@@ -183,6 +208,7 @@ class AbstractDistributedRateLimiter(ABC):
         self.max_concurrency = max_concurrency
         self.max_age = max_age
         self.lease_duration = lease_duration
+        self.on_heartbeat_failure = on_heartbeat_failure
 
         # Import the scripts.
         self._load_lua_script("consume.lua", "_CONSUME_LUA_SCRIPT")
@@ -426,12 +452,16 @@ class AbstractDistributedRateLimiter(ABC):
         """
         return DistributedLock(redis_client=self.redis, lock_key=self.lock_key, timeout_ms=timeout_ms)
 
-    def task_lifecycle(self, task_id: str):
+    def task_lifecycle(self, task_id: str, on_heartbeat_failure_override: Literal["warn", "kill"] = None):
         """
         A context manager to ensure the concurrency slot is released
         no matter what happens during task execution.
+        :param task_id: The id of the task to lifecycle.
+        :param on_heartbeat_failure_override: An optional override to pass to the task lifecycle function.
         """
-        return TaskLifecycle(limiter=self, task_id=task_id)
+        strategy = on_heartbeat_failure_override or self.on_heartbeat_failure
+
+        return TaskLifecycle(limiter=self, task_id=task_id, on_heartbeat_failure=strategy)
 
     def get_status(self, retry: bool = True):
         """
@@ -487,12 +517,7 @@ class CeleryRateLimiter(AbstractDistributedRateLimiter):
             self,
             redis_client,
             celery_app: Celery,
-            limiter_id: str,
-            limit: int,
-            window: int,
-            max_concurrency: int,
-            max_age: int,
-            lease_duration: int,
+            *args, **kwargs
     ):
         """
         Create a Celery rate limiter instance with the given parameters and import the appropriate lua scripts.
@@ -504,9 +529,10 @@ class CeleryRateLimiter(AbstractDistributedRateLimiter):
         :param max_concurrency: The maximum number of concurrent tasks.
         :param max_age: The maximum time a task may exist in the queue before it expires.
         :param lease_duration: The time in seconds after which the leash to a concurrency slot will expire.
+        :param on_heartbeat_failure: How to handle heartbeat failures--warn lets the job proceed.
         :return: A rate limiter using the desired parameters.
         """
-        super().__init__(redis_client, limiter_id, limit, window, max_concurrency, max_age, lease_duration)
+        super().__init__(redis_client, *args, **kwargs)
         self.app = celery_app
 
     @staticmethod

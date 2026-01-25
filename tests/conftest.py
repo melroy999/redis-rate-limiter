@@ -15,7 +15,7 @@ def _redis_connection():
     """
     client = redis.Redis(host='localhost', port=6379, decode_responses=True)
 
-    # Verify connection works before starting suite
+    # Verify connection works before starting suite.
     try:
         client.ping()
     except redis.exceptions.ConnectionError:

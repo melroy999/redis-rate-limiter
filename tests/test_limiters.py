@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 import redis
 
-from celery_rate_limiter.limiters import DistributedLock, TaskLifecycle
+from celery_rate_limiter.limiters import DistributedLock, TaskLifecycle, CeleryRateLimiter
 
 
 def is_subset(subset, superset):
@@ -127,31 +127,32 @@ class TestTaskLifecycle:
     """
 
     @pytest.fixture
-    def mock_limiter_for_lifecycle(self, redis_client, task_id):
+    def mock_limiter(self, redis_client, task_id):
         """
-        Create a mock limiter that uses the real redis client.
+        Create a mock limiter that uses the real redis client but mocks internal helpers.
         """
         limiter = MagicMock()
         limiter.redis = redis_client
         limiter.concurrency_key = "test:concurrency"
         limiter.lease_duration = 30
+        limiter.id = "test_limiter"
         limiter.get_active_key.side_effect = lambda _: f"test:active:{task_id}"
 
         # Ensure the lease renewal function exists for background thread tests.
-        limiter.extend_lease = MagicMock()
+        limiter.extend_lease.return_value = 1
 
         return limiter
 
     @pytest.fixture
-    def active_key(self, mock_limiter_for_lifecycle, task_id):
+    def active_key(self, mock_limiter, task_id):
         """
         Provide the active key to all tests.
         """
-        return mock_limiter_for_lifecycle.get_active_key(task_id)
+        return mock_limiter.get_active_key(task_id)
 
-    def test_task_lifecycle(self, redis_client, mock_limiter_for_lifecycle, task_id, active_key):
+    def test_task_lifecycle(self, redis_client, mock_limiter, task_id, active_key):
         # Simulate a running task.
-        redis_client.zadd(mock_limiter_for_lifecycle.concurrency_key, {
+        redis_client.zadd(mock_limiter.concurrency_key, {
             "other_task_1": 100,
             "other_task_2": 100,
             "other_task_3": 100,
@@ -162,54 +163,66 @@ class TestTaskLifecycle:
 
         # Prevent the heartbeat thread from starting.
         with patch("threading.Thread"):
-            with TaskLifecycle(mock_limiter_for_lifecycle, task_id):
+            with TaskLifecycle(mock_limiter, task_id):
                 # Verify we are currently have 5 tasks running concurrently.
-                assert redis_client.zcard(mock_limiter_for_lifecycle.concurrency_key) == 5
+                assert redis_client.zcard(mock_limiter.concurrency_key) == 5
 
         # Assert that the task has been removed from the concurrency set and that the task is no longer active.
-        assert redis_client.zcard(mock_limiter_for_lifecycle.concurrency_key) == 4
-        assert redis_client.zscore(mock_limiter_for_lifecycle.concurrency_key, task_id) is None
-        assert redis_client.zscore(mock_limiter_for_lifecycle.concurrency_key, "other_task_1") is not None
+        assert redis_client.zcard(mock_limiter.concurrency_key) == 4
+        assert redis_client.zscore(mock_limiter.concurrency_key, task_id) is None
+        assert redis_client.zscore(mock_limiter.concurrency_key, "other_task_1") is not None
         assert redis_client.exists(active_key) == 0
 
         # The trigger_consume function must be called to ensure the processing doesn't stall.
-        mock_limiter_for_lifecycle.trigger_consume.assert_called_once()
+        mock_limiter.trigger_consume.assert_called_once()
 
-    def test_task_lifecycle_cleanup_on_exception(self, redis_client, mock_limiter_for_lifecycle, task_id, active_key):
+    def test_task_lifecycle_cleanup_on_exception(self, redis_client, mock_limiter, task_id, active_key):
         # Simulate a running task.
-        redis_client.zadd(mock_limiter_for_lifecycle.concurrency_key, {task_id: 100})
+        redis_client.zadd(mock_limiter.concurrency_key, {task_id: 100})
         redis_client.set(active_key, "1")
 
         # Verify that cleanup happens appropriately after an error.
         with patch("threading.Thread"):
             with pytest.raises(ValueError, match="Worker crashed"):
-                with TaskLifecycle(mock_limiter_for_lifecycle, task_id):
+                with TaskLifecycle(mock_limiter, task_id):
                     raise ValueError("Worker crashed")
 
         # Check if the task has been removed from the concurrency set and that the task is no longer active.
-        assert redis_client.zcard(mock_limiter_for_lifecycle.concurrency_key) == 0
+        assert redis_client.zcard(mock_limiter.concurrency_key) == 0
         assert redis_client.exists(active_key) == 0
 
         # The trigger_consume function must be called to ensure the processing doesn't stall.
-        mock_limiter_for_lifecycle.trigger_consume.assert_called_once()
+        mock_limiter.trigger_consume.assert_called_once()
 
-    def test_task_lifecycle_cleanup_on_redis_failure(self, redis_client, mock_limiter_for_lifecycle, task_id,
+    def test_task_lifecycle_cleanup_on_redis_failure(self, redis_client, mock_limiter, task_id,
                                                      active_key):
-        with patch.object(mock_limiter_for_lifecycle.redis, 'zrem',
+        with patch.object(mock_limiter.redis, 'zrem',
                           side_effect=Exception("Redis connection lost")) as mock_zrem:
 
             # Do not simulate a running task here.
             with patch("threading.Thread"):
                 with pytest.raises(Exception, match="Redis connection lost"):
-                    with TaskLifecycle(mock_limiter_for_lifecycle, task_id):
+                    with TaskLifecycle(mock_limiter, task_id):
                         _ = ""
 
             # Verify the exception got caused by the zrem function.
             mock_zrem.assert_called_once()
 
         # The trigger_consume function must be called to ensure the processing doesn't stall.
-        mock_limiter_for_lifecycle.trigger_consume.assert_called_once()
+        mock_limiter.trigger_consume.assert_called_once()
 
+    @pytest.mark.parametrize("original, override", [("warn", "kill"), ("kill", "warn")])
+    def test_override_precedence(self, redis_client, celery_app, task_id, original, override):
+        # Use the real rate limiter.
+        limiter = CeleryRateLimiter(
+            redis_client, celery_app, "id", 1, 1, 1, 1,
+            on_heartbeat_failure=original
+        )
+
+        # Test Override.
+        # noinspection PyTypeChecker
+        lifecycle_override = limiter.task_lifecycle("t2", on_heartbeat_failure_override=override)
+        assert lifecycle_override.on_failure_action == override
 
 # TODO: Create a reconcile concurrency task that "recovers" redis issues.
 
