@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import os
 import signal
@@ -187,7 +189,7 @@ class AbstractDistributedRateLimiter(ABC):
             on_heartbeat_failure: Literal["warn", "kill"] = "warn"
     ):
         """
-        Create a Abstract rate limiter instance with the given parameters and import the appropriate lua scripts.
+        Create an abstract rate limiter instance with the given parameters and import the appropriate lua scripts.
         :param redis_client: The redis client to use.
         :param limiter_id: The id of the rate limiter to create.
         :param window: The time window in seconds that the limit is applied to.
