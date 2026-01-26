@@ -10,3 +10,7 @@ __pycache__/
 .pytest_cache/
 .tox/
 .coverage
+
+# Poetry
+# poetry.lock
+# We keep pyproject.toml but ignore local virtualenvs

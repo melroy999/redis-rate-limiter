@@ -1,8 +1,8 @@
 from celery import Celery
 from redis import Redis
 
-from celery_rate_limiter.registry import RateLimiterRegistry
 from celery_rate_limiter.limiters import CeleryRateLimiter
+from celery_rate_limiter.registry import RateLimiterRegistry
 
 
 class CeleryRateLimiterFactory:
@@ -23,8 +23,15 @@ class CeleryRateLimiterFactory:
         self.registry = RateLimiterRegistry(self.redis, self.app)
 
     def create_limiter(
-            self, limiter_id, window: int, limit: int, max_concurrency: int, max_age: int = 3600,
-            lease_duration: int = 30, override: bool = False, persist: bool = True
+        self,
+        limiter_id: str,
+        window: int,
+        limit: int,
+        max_concurrency: int,
+        max_age: int = 3600,
+        lease_duration: int = 30,
+        override: bool = False,
+        persist: bool = True,
     ) -> CeleryRateLimiter:
         """
         Create a Celery rate limiter instance with the given parameters.
@@ -46,7 +53,7 @@ class CeleryRateLimiterFactory:
             limit=limit,
             max_concurrency=max_concurrency,
             max_age=max_age,
-            lease_duration=lease_duration
+            lease_duration=lease_duration,
         )
         self.registry.register(limiter, override, persist)
         return limiter

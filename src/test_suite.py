@@ -9,7 +9,7 @@ limiter = factory.registry.get("test_api")
 
 # Define a "Business Logic" function to be called
 # In a real app, this would be in app/services.py
-def mock_api_call(user_id: int, error: bool = False):
+def mock_api_call(user_id: int, error: bool = False) -> bool:
     print(f" >>> [WORKER] Starting API call for user {user_id}")
     time.sleep(0.1 * random.random())  # Simulate a slow network request
     print(f" <<< [WORKER] Finished API call for user {user_id}")
@@ -31,6 +31,8 @@ if __name__ == "__main__":
     for i in range(2, 500):
         limiter.schedule_task("src.test_suite.mock_api_call", {"user_id": i})
 
-    limiter.schedule_task("src.test_suite.mock_api_call", {"user_id": 1000000, "error": True})
+    limiter.schedule_task(
+        "src.test_suite.mock_api_call", {"user_id": 1000000, "error": True}
+    )
 
     print("--- Simulation Queued. Check Celery logs for staggered execution ---")

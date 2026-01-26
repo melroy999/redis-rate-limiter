@@ -10,3 +10,13 @@ redis-cli flushall
 
 ~~export PYTHONPATH=$PYTHONPATH:.
 python inspector.py --rate 0.2~~
+
+
+# Run formatting
+poetry run ruff check --select I --fix .
+poetry run ruff format .
+poetry run ruff format . --check
+poetry run ruff check .
+
+# Run type checks
+poetry run mypy src

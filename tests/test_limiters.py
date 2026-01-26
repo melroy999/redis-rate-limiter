@@ -1,11 +1,15 @@
 import json
 import time
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import redis
 
-from celery_rate_limiter.limiters import DistributedLock, TaskLifecycle, CeleryRateLimiter
+from celery_rate_limiter.limiters import (
+    CeleryRateLimiter,
+    DistributedLock,
+    TaskLifecycle,
+)
 
 
 def is_subset(subset, superset):
@@ -20,12 +24,15 @@ def is_subset(subset, superset):
     return True
 
 
-@pytest.mark.parametrize("lua_script, target_key", [
-    # Use existing files.
-    ("schedule.lua", "_SCHEDULE_LUA_SCRIPT"),
-    # Use fictional not existing file.
-    ("missing.lua", "_MISSING_LUA_SCRIPT"),
-])
+@pytest.mark.parametrize(
+    "lua_script, target_key",
+    [
+        # Use existing files.
+        ("schedule.lua", "_SCHEDULE_LUA_SCRIPT"),
+        # Use fictional not existing file.
+        ("missing.lua", "_MISSING_LUA_SCRIPT"),
+    ],
+)
 class TestInternalHelpers:
     def test_load_lua_script_imports_only_once(self, limiter, lua_script, target_key):
         # The key must already exist beforehand.
@@ -48,8 +55,10 @@ class TestInternalHelpers:
             delattr(limiter, target_key)
 
         # Mock the resource loader and see if the ImportError is thrown correctly.
-        with patch("src.celery_rate_limiter.limiters.resources.files",
-                   side_effect=Exception("File system error")) as mock_files:
+        with patch(
+            "src.celery_rate_limiter.limiters.resources.files",
+            side_effect=Exception("File system error"),
+        ) as mock_files:
             with pytest.raises(ImportError, match=f"Could not load {lua_script}"):
                 limiter._load_lua_script(lua_script=lua_script, key=target_key)
 
@@ -152,13 +161,16 @@ class TestTaskLifecycle:
 
     def test_task_lifecycle(self, redis_client, mock_limiter, task_id, active_key):
         # Simulate a running task.
-        redis_client.zadd(mock_limiter.concurrency_key, {
-            "other_task_1": 100,
-            "other_task_2": 100,
-            "other_task_3": 100,
-            "other_task_4": 100,
-            task_id: 100
-        })
+        redis_client.zadd(
+            mock_limiter.concurrency_key,
+            {
+                "other_task_1": 100,
+                "other_task_2": 100,
+                "other_task_3": 100,
+                "other_task_4": 100,
+                task_id: 100,
+            },
+        )
         redis_client.set(active_key, "1")
 
         # Prevent the heartbeat thread from starting.
@@ -170,13 +182,18 @@ class TestTaskLifecycle:
         # Assert that the task has been removed from the concurrency set and that the task is no longer active.
         assert redis_client.zcard(mock_limiter.concurrency_key) == 4
         assert redis_client.zscore(mock_limiter.concurrency_key, task_id) is None
-        assert redis_client.zscore(mock_limiter.concurrency_key, "other_task_1") is not None
+        assert (
+            redis_client.zscore(mock_limiter.concurrency_key, "other_task_1")
+            is not None
+        )
         assert redis_client.exists(active_key) == 0
 
         # The trigger_consume function must be called to ensure the processing doesn't stall.
         mock_limiter.trigger_consume.assert_called_once()
 
-    def test_task_lifecycle_cleanup_on_exception(self, redis_client, mock_limiter, task_id, active_key):
+    def test_task_lifecycle_cleanup_on_exception(
+        self, redis_client, mock_limiter, task_id, active_key
+    ):
         # Simulate a running task.
         redis_client.zadd(mock_limiter.concurrency_key, {task_id: 100})
         redis_client.set(active_key, "1")
@@ -194,11 +211,12 @@ class TestTaskLifecycle:
         # The trigger_consume function must be called to ensure the processing doesn't stall.
         mock_limiter.trigger_consume.assert_called_once()
 
-    def test_task_lifecycle_cleanup_on_redis_failure(self, redis_client, mock_limiter, task_id,
-                                                     active_key):
-        with patch.object(mock_limiter.redis, 'zrem',
-                          side_effect=Exception("Redis connection lost")) as mock_zrem:
-
+    def test_task_lifecycle_cleanup_on_redis_failure(
+        self, redis_client, mock_limiter, task_id, active_key
+    ):
+        with patch.object(
+            mock_limiter.redis, "zrem", side_effect=Exception("Redis connection lost")
+        ) as mock_zrem:
             # Do not simulate a running task here.
             with patch("threading.Thread"):
                 with pytest.raises(Exception, match="Redis connection lost"):
@@ -212,24 +230,30 @@ class TestTaskLifecycle:
         mock_limiter.trigger_consume.assert_called_once()
 
     @pytest.mark.parametrize("original, override", [("warn", "kill"), ("kill", "warn")])
-    def test_override_precedence(self, redis_client, celery_app, task_id, original, override):
+    def test_override_precedence(
+        self, redis_client, celery_app, task_id, original, override
+    ):
         # Use the real rate limiter.
         limiter = CeleryRateLimiter(
-            redis_client, celery_app, "id", 1, 1, 1, 1,
-            on_heartbeat_failure=original
+            redis_client, celery_app, "id", 1, 1, 1, 1, on_heartbeat_failure=original
         )
 
         # Test Override.
         # noinspection PyTypeChecker
-        lifecycle_override = limiter.task_lifecycle("t2", on_heartbeat_failure_override=override)
+        lifecycle_override = limiter.task_lifecycle(
+            "t2", on_heartbeat_failure_override=override
+        )
         assert lifecycle_override.on_failure_action == override
+
 
 # TODO: Create a reconcile concurrency task that "recovers" redis issues.
 
 
 class TestScheduleTask:
     @staticmethod
-    def assert_task_existence(limiter, redis_client, func_path: str, payload: dict, task_id: str) -> None:
+    def assert_task_existence(
+        limiter, redis_client, func_path: str, payload: dict, task_id: str
+    ) -> None:
         # Gather data needed to verify assertions.
         enhanced_payload = limiter._get_enhanced_payload(payload, True)
         full_data = limiter._get_task_data(task_id, func_path, enhanced_payload)
@@ -241,15 +265,23 @@ class TestScheduleTask:
         # Assert that the task is in the buffer only once.
         cursor, results = redis_client.zscan(limiter.buffer_key, match=f'*"{task_id}"*')
         assert len(results) > 0, f"task with ID {task_id} not found in buffer"
-        assert len(results) == 1, f"task with ID {task_id} has been found more than once in the buffer"
+        assert len(results) == 1, (
+            f"task with ID {task_id} has been found more than once in the buffer"
+        )
 
         # Assert that the task data remains correct.
         full_data_server_str, score = results[0]
         full_data_server = json.loads(full_data_server_str)
 
-        assert is_subset(full_data, full_data_server), f"task with ID {task_id} has a data mismatch."
-        assert "_arrived_at" in full_data_server
-        assert isinstance(full_data_server["_arrived_at"], int)
+        assert is_subset(full_data, full_data_server), (
+            f"task with ID {task_id} has a data mismatch."
+        )
+        assert "_arrived_at" in full_data_server, (
+            f"the _arrived_at tag is missing for the task with ID {task_id}"
+        )
+        assert isinstance(full_data_server["_arrived_at"], int), (
+            f"the _arrived_at tag not an int for task with ID {task_id}"
+        )
 
     def test_schedule_single_task(self, limiter, redis_client):
         payload = {"user_id": 123}
@@ -293,17 +325,17 @@ class TestScheduleTask:
 
         # Do the common task existence and integrity assertions.
         self.assert_task_existence(limiter, redis_client, func_path, payload, task_id)
-        self.assert_task_existence(limiter, redis_client, func_path, payload_2, task_id_2)
+        self.assert_task_existence(
+            limiter, redis_client, func_path, payload_2, task_id_2
+        )
 
         # Assert that there is only two tasks in the buffer.
         assert redis_client.zcard(limiter.buffer_key) == 2
 
-    @pytest.mark.parametrize("payload", [
-        {"user_id": 123},
-        {},
-        {"a": [1, 2], "b": {"c": 3}},
-        {"msg": "✅ unicode"}
-    ])
+    @pytest.mark.parametrize(
+        "payload",
+        [{"user_id": 123}, {}, {"a": [1, 2], "b": {"c": 3}}, {"msg": "✅ unicode"}],
+    )
     def test_payload_serialization_integrity(self, limiter, redis_client, payload):
         func_path = "myapp.tasks.process_data"
         success, task_id = limiter.schedule_task(func_path, payload)
@@ -329,19 +361,31 @@ class TestScheduleTask:
         mocked_evalsha_func.call_count = 0
 
         # Use with here to ensure the mock is reverted post execution.
-        with patch.object(limiter.redis, 'evalsha', side_effect=mocked_evalsha_func) as mock_eval, \
-                patch.object(limiter.redis, 'script_load', side_effect=real_script_load) as mock_load:
+        with (
+            patch.object(
+                limiter.redis, "evalsha", side_effect=mocked_evalsha_func
+            ) as mock_eval,
+            patch.object(
+                limiter.redis, "script_load", side_effect=real_script_load
+            ) as mock_load,
+        ):
             success, task_id = limiter.schedule_task(func_path, payload)
 
             # Expected outcome is true.
             assert success is True
 
             # Do the common task existence and integrity assertions.
-            self.assert_task_existence(limiter, redis_client, func_path, payload, task_id)
+            self.assert_task_existence(
+                limiter, redis_client, func_path, payload, task_id
+            )
 
             # Verify whether the recovery took the expected path.
-            assert mock_eval.call_count == 2, "evalsha should have been called twice (fail then retry)"
-            assert mock_load.call_count == 1, "script_load should have been called to recover"
+            assert mock_eval.call_count == 2, (
+                "evalsha should have been called twice (fail then retry)"
+            )
+            assert mock_load.call_count == 1, (
+                "script_load should have been called to recover"
+            )
 
         # Verify the script was actually reloaded into the class attribute.
         assert limiter.schedule_script_sha is not None
@@ -349,9 +393,13 @@ class TestScheduleTask:
     def test_schedule_tasks_no_script_permanent_failure(self, limiter, redis_client):
         # Force evalsha to always fail.
         with patch.object(
-                limiter.redis, 'evalsha', side_effect=redis.exceptions.NoScriptError("Permanent Failure")
+            limiter.redis,
+            "evalsha",
+            side_effect=redis.exceptions.NoScriptError("Permanent Failure"),
         ) as mock_eval:
-            with pytest.raises(RuntimeError, match="Redis failed to retain the Lua script"):
+            with pytest.raises(
+                RuntimeError, match="Redis failed to retain the Lua script"
+            ):
                 limiter.schedule_task("path", {})
 
             # Assert that a re-attempt was performed.

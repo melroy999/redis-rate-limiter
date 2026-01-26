@@ -1,11 +1,11 @@
-import time
-import os
 import argparse
+import os
+import time
 
 from config import factory
 
 
-def run_inspector(refresh_rate: float):
+def run_inspector(refresh_rate: float) -> None:
     # 1. Get the shared limiter instance
     # This connects to the same Redis and uses the same keys as your worker
     limiter = factory.registry.get("test_api")
@@ -15,43 +15,47 @@ def run_inspector(refresh_rate: float):
             # 2. Fetch data from Redis via the limiter object
             status = limiter.get_status()
 
-            os.system('clear' if os.name == 'posix' else 'cls')
+            os.system("clear" if os.name == "posix" else "cls")
 
             print(f"=== MONITORING: {limiter.id} ===")
             print(f"Time: {time.strftime('%H:%M:%S')}")
 
             # Concurrency Stats
-            c = status['concurrency']
+            c = status["concurrency"]
             bar_width = 20
-            filled = int((c['current'] / c['max']) * bar_width) if c['max'] > 0 else 0
+            filled = int((c["current"] / c["max"]) * bar_width) if c["max"] > 0 else 0
             bar = "█" * filled + "░" * (bar_width - filled)
             print(f"\nCONCURRENCY: [{bar}] {c['current']}/{c['max']}")
 
             # Buffer Stats
-            b = status['buffer']
+            b = status["buffer"]
             print(f"BUFFER:      {b['count']} tasks waiting")
 
             # Rate Limit Stats
-            r = status['rate_limit']
+            r = status["rate_limit"]
 
             # Format to 1 decimal place since it's an estimation
             used_str = f"{r['tokens_used']:.1f}"
             limit_str = f"{r['limit']}"
 
             # Visual Bar for Rate Limit
-            pct = min(1.0, r['tokens_used'] / r['limit'])
+            pct = min(1.0, r["tokens_used"] / r["limit"])
             bar_len = 20
             filled = int(pct * bar_len)
             bar = "█" * filled + "░" * (bar_len - filled)
 
             print(f"RATE LIMIT:  [{bar}] {used_str}/{limit_str}")
-            if r['tokens_used'] >= r['limit']:
-                print(f"             STATUS: SATURATED (Window rotates in {r['reset_in_ms']}ms)")
+            if r["tokens_used"] >= r["limit"]:
+                print(
+                    f"             STATUS: SATURATED (Window rotates in {r['reset_in_ms']}ms)"
+                )
             else:
-                print(f"             STATUS: OK (Previous: {r['val_previous']}, Current: {r['val_current']})")
+                print(
+                    f"             STATUS: OK (Previous: {r['val_previous']}, Current: {r['val_current']})"
+                )
 
             # Lock Status
-            lock = "BUSY" if status['dispatcher']['is_locked'] else "IDLE"
+            lock = "BUSY" if status["dispatcher"]["is_locked"] else "IDLE"
             print(f"DISPATCHER:  {lock}")
 
             print("\n" + "-" * 35)
@@ -65,7 +69,9 @@ def run_inspector(refresh_rate: float):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--rate", type=float, default=0.5, help="Refresh rate (seconds)")
+    parser.add_argument(
+        "--rate", type=float, default=0.5, help="Refresh rate (seconds)"
+    )
 
     args = parser.parse_args()
     run_inspector(args.rate)

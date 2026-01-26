@@ -1,0 +1,10 @@
+line-length = 88
+target-version = "py312"
+
+[lint]
+# Enable Pyflakes (F), Pycodestyle (E, W), and Isort (I)
+select = ["F", "E", "W", "I"]
+ignore = ["E501"] # Ignore line-length violations (let Ruff format handle it)
+
+[format]
+quote-style = "double"

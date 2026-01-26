@@ -1,25 +1,27 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import signal
-import threading
 import uuid
-import redis
-import json
-
-from importlib import resources
-from typing import TypedDict, Optional, cast, ContextManager, Literal
-from redis import Redis
-from celery import Celery
 from abc import ABC, abstractmethod
+from importlib import resources
+from threading import Event, Thread
+from typing import Any, ContextManager, Literal, Optional, TypedDict, cast
+
+import redis
+from celery import Celery
+from redis import Redis
 
 
 class TaskData(TypedDict):
     """
     A class that holds the task data format.
     """
+
     id: str
+    func_path: str
     task: str
     payload: dict
 
@@ -28,6 +30,7 @@ class ConsumeResult(TypedDict):
     """
     A class to hold the result of a consume.lua call.
     """
+
     success: bool  # Whether a task was actually consumed.
     expired: bool  # Whether a task has expired.
     task: Optional[TaskData]  # The raw JSON string from Redis.
@@ -62,10 +65,12 @@ class DistributedLock:
         :return: The status of the lock such that the task knows if it should proceed.
         """
         # Acquire the lock.
-        self.acquired = self.redis.set(self.lock_key, self.token, px=self.timeout_ms, nx=True)
+        self.acquired = bool(
+            self.redis.set(self.lock_key, self.token, px=self.timeout_ms, nx=True)
+        )
         return bool(self.acquired)
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """
         Leave the context manager.
         """
@@ -88,8 +93,12 @@ class TaskLifecycle:
     Context manager that handles concurrency slot cleanup.
     """
 
-    def __init__(self, limiter: AbstractDistributedRateLimiter, task_id: str,
-                 on_heartbeat_failure: Literal["warn", "kill"] = "warn"):
+    def __init__(
+        self,
+        limiter: AbstractDistributedRateLimiter,
+        task_id: str,
+        on_heartbeat_failure: Literal["warn", "kill"] = "warn",
+    ):
         """
         Create a lifecycle context manager that cleans up concurrency slots.
         :param limiter: The limiter to observe.
@@ -100,14 +109,14 @@ class TaskLifecycle:
         self.interval = self.limiter.lease_duration / 2
 
         # Threading controls.
-        self._stop_event = threading.Event()
-        self._thread = None
+        self._stop_event: Event = Event()
+        self._thread: Optional[Thread] = None
 
         # Health controls.
         self.on_failure_action = on_heartbeat_failure
         self.is_healthy = True
 
-    def _heartbeat_loop(self):
+    def _heartbeat_loop(self) -> None:
         """
         Background task that renews the lease over a concurrency slot.
         """
@@ -133,16 +142,16 @@ class TaskLifecycle:
                 else:
                     print(f"{error_msg} -> Flagged as unhealthy.")
 
-    def __enter__(self):
+    def __enter__(self) -> TaskLifecycle:
         """
         Enter the context manager.
         """
         # Start the keep-alive thread.
-        self._thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
+        self._thread = Thread(target=self._heartbeat_loop, daemon=True)
         self._thread.start()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """
         Leave the context manager.
         """
@@ -167,26 +176,27 @@ class TaskLifecycle:
 
 class AbstractDistributedRateLimiter(ABC):
     """
-        A class that rate limits celery tasks.
-        """
-    _CONSUME_LUA_SCRIPT = None
-    _SCHEDULE_LUA_SCRIPT = None
-    _HEALTH_LUA_SCRIPT = None
-    _RENEW_LUA_SCRIPT = None
+    A class that rate limits celery tasks.
+    """
+
+    _CONSUME_LUA_SCRIPT: str
+    _SCHEDULE_LUA_SCRIPT: str
+    _HEALTH_LUA_SCRIPT: str
+    _RENEW_LUA_SCRIPT: str
 
     # Get the location of the lua package.
     resource_package = "src.celery_rate_limiter.lua"
 
     def __init__(
-            self,
-            redis_client: Redis,
-            limiter_id: str,
-            limit: int,
-            window: int,
-            max_concurrency: int,
-            max_age: int = 3600,
-            lease_duration: int = 30,
-            on_heartbeat_failure: Literal["warn", "kill"] = "warn"
+        self,
+        redis_client: Redis,
+        limiter_id: str,
+        limit: int,
+        window: int,
+        max_concurrency: int,
+        max_age: int = 3600,
+        lease_duration: int = 30,
+        on_heartbeat_failure: Literal["warn", "kill"] = "warn",
     ):
         """
         Create an abstract rate limiter instance with the given parameters and import the appropriate lua scripts.
@@ -221,10 +231,16 @@ class AbstractDistributedRateLimiter(ABC):
         self._load_lua_script("renew.lua", "_RENEW_LUA_SCRIPT")
 
         # Optimize performance by caching the scripts on the server.
-        self.consume_script_sha = self.redis.script_load(self._CONSUME_LUA_SCRIPT)
-        self.schedule_script_sha = self.redis.script_load(self._SCHEDULE_LUA_SCRIPT)
-        self.health_script_sha = self.redis.script_load(self._HEALTH_LUA_SCRIPT)
-        self.renew_script_sha = self.redis.script_load(self._RENEW_LUA_SCRIPT)
+        self.consume_script_sha: str = str(
+            self.redis.script_load(self._CONSUME_LUA_SCRIPT)
+        )
+        self.schedule_script_sha: str = str(
+            self.redis.script_load(self._SCHEDULE_LUA_SCRIPT)
+        )
+        self.health_script_sha: str = str(
+            self.redis.script_load(self._HEALTH_LUA_SCRIPT)
+        )
+        self.renew_script_sha: str = str(self.redis.script_load(self._RENEW_LUA_SCRIPT))
 
     def _load_lua_script(self, lua_script: str, key: str) -> None:
         """
@@ -237,7 +253,9 @@ class AbstractDistributedRateLimiter(ABC):
                 source = resources.files(self.resource_package).joinpath(lua_script)
                 setattr(self, key, source.read_text(encoding="utf-8"))
             except Exception as e:
-                raise ImportError(f"Could not load {lua_script} from {self.resource_package}: {e}")
+                raise ImportError(
+                    f"Could not load {lua_script} from {self.resource_package}: {e}"
+                )
 
     @staticmethod
     def _get_task_signature_str(func_path: str, payload: dict) -> str:
@@ -245,24 +263,27 @@ class AbstractDistributedRateLimiter(ABC):
         return json.dumps({"path": func_path, "payload": payload}, sort_keys=True)
 
     @staticmethod
-    def _get_task_data(task_id: str, func_path: str, payload: dict):
+    def _get_task_data(task_id: str, func_path: str, payload: dict) -> dict:
         """Get the data of a task."""
-        return {
-            "id": task_id,
-            "func_path": func_path,
-            "payload": payload
-        }
+        return {"id": task_id, "func_path": func_path, "payload": payload}
 
     def _get_task_data_str(self, task_id: str, func_path: str, payload: dict) -> str:
         """Get the data of a task as a JSON string."""
-        return json.dumps(self._get_task_data(task_id, func_path, payload), sort_keys=True)
+        return json.dumps(
+            self._get_task_data(task_id, func_path, payload), sort_keys=True
+        )
 
-    def get_active_key(self, task_id: str):
+    def get_active_key(self, task_id: str) -> str:
         """Get the active key for the given task."""
         return f"{self.id}:active:{task_id}"
 
     def schedule_task(
-            self, func_path: str, payload: dict, priority: int = 100, max_age: Optional[int] = None, retry: bool = True
+        self,
+        func_path: str,
+        payload: dict,
+        priority: int = 100,
+        max_age: Optional[int] = None,
+        retry: bool = True,
     ) -> tuple[bool, str]:
         """
         Schedule a task to run once rate limiting allows for it.
@@ -290,11 +311,14 @@ class AbstractDistributedRateLimiter(ABC):
         try:
             # Attempt to schedule.
             self.redis.evalsha(
-                self.schedule_script_sha, 1,
+                self.schedule_script_sha,
+                1,
                 # KEYS: [buffer]
                 self.buffer_key,
                 # ARGV: [task_json, priority, max age]
-                full_data, priority, max_age or ""
+                full_data,
+                priority,
+                max_age or "",
             )
 
             # Mark as active only after scheduling.
@@ -304,10 +328,14 @@ class AbstractDistributedRateLimiter(ABC):
             # Redis cache is volatile, and hence, the sha may become invalid unexpectedly.
             # Check if we should retry or not; throw a runtime error if not.
             if not retry:
-                raise RuntimeError("Redis failed to retain the Lua script after a reload attempt.")
+                raise RuntimeError(
+                    "Redis failed to retain the Lua script after a reload attempt."
+                )
 
             # Fetch the script sha again and reattempt.
-            self.schedule_script_sha = self.redis.script_load(self._SCHEDULE_LUA_SCRIPT)
+            self.schedule_script_sha = str(
+                self.redis.script_load(self._SCHEDULE_LUA_SCRIPT)
+            )
             return self.schedule_task(func_path, payload, priority, retry=False)
 
         # Attempt a consume.
@@ -323,12 +351,26 @@ class AbstractDistributedRateLimiter(ABC):
         """
         try:
             # Fetch the result.
-            result = self.redis.evalsha(
-                self.consume_script_sha, 4,
-                # KEYS: [base, buffer, concurrency, dlq]
-                self.id, self.buffer_key, self.concurrency_key, self.dlq_key,
-                # ARGV: [window, limit, max_concurrency, max_age, lease_duration]
-                self.window, self.limit, self.max_concurrency, self.max_age, self.lease_duration
+            result = cast(
+                list[str],
+                cast(
+                    object,
+                    self.redis.evalsha(
+                        self.consume_script_sha,
+                        4,
+                        # KEYS: [base, buffer, concurrency, dlq]
+                        self.id,
+                        self.buffer_key,
+                        self.concurrency_key,
+                        self.dlq_key,
+                        # ARGV: [window, limit, max_concurrency, max_age, lease_duration]
+                        self.window,
+                        self.limit,
+                        self.max_concurrency,
+                        self.max_age,
+                        self.lease_duration,
+                    ),
+                ),
             )
 
             # Attempt to parse the result.
@@ -346,13 +388,17 @@ class AbstractDistributedRateLimiter(ABC):
             # Redis cache is volatile, and hence, the sha may become invalid unexpectedly.
             # Check if we should retry or not; throw a runtime error if not.
             if not retry:
-                raise RuntimeError("Redis failed to retain the Lua script after a reload attempt.")
+                raise RuntimeError(
+                    "Redis failed to retain the Lua script after a reload attempt."
+                )
 
             # Fetch the script sha again and reattempt.
-            self.consume_script_sha = self.redis.script_load(self._CONSUME_LUA_SCRIPT)
+            self.consume_script_sha = str(
+                self.redis.script_load(self._CONSUME_LUA_SCRIPT)
+            )
             return self.consume(retry=False)
 
-    def extend_lease(self, task_id: str, duration: int, retry: bool = True):
+    def extend_lease(self, task_id: str, duration: int, retry: bool = True) -> bool:
         """
         A lease-based concurrency system is used such that proper cleanup can be performed by other workers on system
         failure--by extending the leash, the worker notifies the distributed system it is still alive; this in turn
@@ -365,27 +411,36 @@ class AbstractDistributedRateLimiter(ABC):
         :return: The result of the lua renew script.
         """
         try:
-            return self.redis.evalsha(
-                self.renew_script_sha,
-                1,
-                # KEYS: [concurrency]
-                self.concurrency_key,
-                # ARGV: [task_id, duration]
-                task_id, duration
+            return cast(
+                bool,
+                cast(
+                    object,
+                    self.redis.evalsha(
+                        self.renew_script_sha,
+                        1,
+                        # KEYS: [concurrency]
+                        self.concurrency_key,
+                        # ARGV: [task_id, duration]
+                        task_id,
+                        duration,
+                    ),
+                ),
             )
         except redis.exceptions.NoScriptError:
             if not retry:
-                raise RuntimeError("Redis failed to retain the Lua script after a reload attempt.")
+                raise RuntimeError(
+                    "Redis failed to retain the Lua script after a reload attempt."
+                )
 
             # Fetch the script sha again and reattempt.
-            self.renew_script_sha = self.redis.script_load(self._RENEW_LUA_SCRIPT)
+            self.renew_script_sha = str(self.redis.script_load(self._RENEW_LUA_SCRIPT))
             return self.extend_lease(task_id, duration, retry=False)
 
-    def get_buffer_count(self):
+    def get_buffer_count(self) -> int:
         """Get the number of items in the buffer."""
-        return self.redis.zcard(self.buffer_key)
+        return int(str(self.redis.zcard(self.buffer_key)))
 
-    def drain(self):
+    def drain(self) -> None:
         """
         Attempt to drain an item from the queue.
         """
@@ -410,7 +465,7 @@ class AbstractDistributedRateLimiter(ABC):
                 self._dispatch_task(
                     func_path=task["func_path"],
                     payload=task["payload"],
-                    task_id=task.get("id")
+                    task_id=task.get("id"),
                 )
 
                 # ONLY pulse if there are still items waiting in the buffer.
@@ -433,36 +488,42 @@ class AbstractDistributedRateLimiter(ABC):
                 self._schedule_drain(delay=delay_seconds)
 
     @abstractmethod
-    def _dispatch_task(self, func_path: str, payload: dict, task_id: str):
+    def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
         """
         Send the task to the actual worker (Celery worker, Thread, etc.)
         """
         pass
 
     @abstractmethod
-    def _schedule_drain(self, delay: float = 0.0):
+    def _schedule_drain(self, delay: float = 0.0) -> None:
         """
         Schedule the `drain` method to run again after `delay` seconds.
         :param delay: The amount of time to sleep before scheduling.
         """
         pass
 
-    def trigger_consume(self):
+    def trigger_consume(self) -> None:
         """Trigger the consumption of the task queue."""
         if self.redis.exists(self.lock_key):
             return
 
         self._schedule_drain()
 
-    def execution_lock(self, timeout_ms=5000) -> ContextManager[bool]:
+    def execution_lock(self, timeout_ms: int = 5000) -> ContextManager[bool]:
         """
         Request the dispatch lock and perform cleanup after task completion.
         :param timeout_ms: The timeout in milliseconds.
         :return: The status of the lock such that the task knows if it should proceed.
         """
-        return DistributedLock(redis_client=self.redis, lock_key=self.lock_key, timeout_ms=timeout_ms)
+        return DistributedLock(
+            redis_client=self.redis, lock_key=self.lock_key, timeout_ms=timeout_ms
+        )
 
-    def task_lifecycle(self, task_id: str, on_heartbeat_failure_override: Literal["warn", "kill"] = None):
+    def task_lifecycle(
+        self,
+        task_id: str,
+        on_heartbeat_failure_override: Optional[Literal["warn", "kill"]] = None,
+    ) -> TaskLifecycle:
         """
         A context manager to ensure the concurrency slot is released
         no matter what happens during task execution.
@@ -471,21 +532,34 @@ class AbstractDistributedRateLimiter(ABC):
         """
         strategy = on_heartbeat_failure_override or self.on_heartbeat_failure
 
-        return TaskLifecycle(limiter=self, task_id=task_id, on_heartbeat_failure=strategy)
+        return TaskLifecycle(
+            limiter=self, task_id=task_id, on_heartbeat_failure=strategy
+        )
 
-    def get_status(self, retry: bool = True):
+    def get_status(self, retry: bool = True) -> dict:
         """
         Returns a snapshot of the current state of the limiter.
         :return: A JSON formatted result containing all status information.
         :exception RuntimeError: if the necessary lua scripts cannot be (re)loaded.
         """
         try:
-            result = self.redis.evalsha(
-                self.health_script_sha, 3,
-                # KEYS: [base, buffer, concurrency]
-                # ARGV: [window, limit, max_concurrency, lease_duration]
-                self.id, self.buffer_key, self.concurrency_key,
-                self.window, self.limit, self.max_concurrency
+            result = cast(
+                list[str],
+                cast(
+                    object,
+                    self.redis.evalsha(
+                        self.health_script_sha,
+                        3,
+                        # KEYS: [base, buffer, concurrency]
+                        # ARGV: [window, limit, max_concurrency, lease_duration]
+                        self.id,
+                        self.buffer_key,
+                        self.concurrency_key,
+                        self.window,
+                        self.limit,
+                        self.max_concurrency,
+                    ),
+                ),
             )
 
             # Map the list to our dictionary.
@@ -494,7 +568,7 @@ class AbstractDistributedRateLimiter(ABC):
                 "concurrency": {
                     "current": result[3],
                     "max": self.max_concurrency,
-                    "available": max(0, self.max_concurrency - int(result[3]))
+                    "available": max(0, self.max_concurrency - int(result[3])),
                 },
                 "buffer": {
                     "count": result[5],
@@ -505,29 +579,30 @@ class AbstractDistributedRateLimiter(ABC):
                     "tokens_used": float(result[2]),  # Estimated count is a float
                     "limit": self.limit,
                     "window": self.window,
-                    "reset_in_ms": result[4]
+                    "reset_in_ms": result[4],
                 },
                 "dispatcher": {
                     "is_locked": self.redis.exists(f"{self.id}:dispatch_lock")
-                }
+                },
             }
         except redis.exceptions.NoScriptError:
             # Redis cache is volatile, and hence, the sha may become invalid unexpectedly.
             # Check if we should retry or not; throw a runtime error if not.
             if not retry:
-                raise RuntimeError("Redis failed to retain the Lua script after a reload attempt.")
+                raise RuntimeError(
+                    "Redis failed to retain the Lua script after a reload attempt."
+                )
 
             # Fetch the script sha again and reattempt.
-            self.consume_script_sha = self.redis.script_load(self._CONSUME_LUA_SCRIPT)
+            self.consume_script_sha = str(
+                self.redis.script_load(self._CONSUME_LUA_SCRIPT)
+            )
             return self.get_status(retry=False)
 
 
 class CeleryRateLimiter(AbstractDistributedRateLimiter):
     def __init__(
-            self,
-            redis_client,
-            celery_app: Celery,
-            *args, **kwargs
+        self, redis_client: Redis, celery_app: Celery, *args: Any, **kwargs: Any
     ):
         """
         Create a Celery rate limiter instance with the given parameters and import the appropriate lua scripts.
@@ -546,16 +621,18 @@ class CeleryRateLimiter(AbstractDistributedRateLimiter):
         self.app = celery_app
 
     @staticmethod
-    def _get_enhanced_payload(payload: dict, use_executor: bool):
+    def _get_enhanced_payload(payload: dict, use_executor: bool) -> dict:
         """Get the enhanced payload."""
-        return {
-            "data": payload,
-            "meta": {"use_executor": use_executor}
-        }
+        return {"data": payload, "meta": {"use_executor": use_executor}}
 
     def schedule_task(
-            self, func_path: str, payload: dict, priority: int = 100, max_age: Optional[int] = None,
-            retry: bool = True, use_executor: bool = True
+        self,
+        func_path: str,
+        payload: dict,
+        priority: int = 100,
+        max_age: Optional[int] = None,
+        retry: bool = True,
+        use_executor: bool = True,
     ) -> tuple[bool, str]:
         """
         :param func_path:
@@ -576,9 +653,11 @@ class CeleryRateLimiter(AbstractDistributedRateLimiter):
             enhanced_payload = self._get_enhanced_payload(payload, use_executor)
 
         # Call the parent scheduler.
-        return super().schedule_task(func_path, enhanced_payload, priority, max_age, retry)
+        return super().schedule_task(
+            func_path, enhanced_payload, priority, max_age, retry
+        )
 
-    def _dispatch_task(self, func_path: str, payload: dict, task_id: str):
+    def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
         # Check if the built-in worker should be used.
         use_executor = payload.get("meta", {}).get("use_executor", True)
         data = payload.get("data", {})
@@ -591,21 +670,17 @@ class CeleryRateLimiter(AbstractDistributedRateLimiter):
                     "limiter_id": self.id,
                     "func_path": func_path,
                     "payload": data,
-                    "_rate_limit_task_id": task_id
-                }
+                    "_rate_limit_task_id": task_id,
+                },
             )
         else:
             # Use the custom user task.
             self.app.send_task(
-                func_path,
-                args=[data],
-                kwargs={"_rate_limit_task_id": task_id}
+                func_path, args=[data], kwargs={"_rate_limit_task_id": task_id}
             )
 
-    def _schedule_drain(self, delay: float = 0.0):
+    def _schedule_drain(self, delay: float = 0.0) -> None:
         # Schedule an attempt at consuming a token.
         self.app.send_task(
-            "celery_rate_limiter.attempt_consume",
-            args=[self.id],
-            countdown=delay
+            "celery_rate_limiter.attempt_consume", args=[self.id], countdown=delay
         )

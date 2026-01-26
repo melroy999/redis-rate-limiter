@@ -14,6 +14,8 @@ dependencies = [
 [tool.poetry.group.dev.dependencies]
 pytest = ">=9.0.2"
 fakeredis = ">=2.33.0"
+ruff = "^0.14.14"
+mypy = "^1.19.1"
 
 [tool.poetry]
 packages = [{include = "celery_rate_limiter", from = "src"}]

@@ -3,8 +3,7 @@ import redis
 
 from src import CeleryRateLimiter
 
-
-pytest_plugins = ("celery.contrib.pytest", )
+pytest_plugins = ("celery.contrib.pytest",)
 
 
 @pytest.fixture(scope="session")
@@ -13,7 +12,7 @@ def _redis_connection():
     Connects to a real Redis instance for testing.
     We only do this once and just flush the database between tests.
     """
-    client = redis.Redis(host='localhost', port=6379, decode_responses=True)
+    client = redis.Redis(host="localhost", port=6379, decode_responses=True)
 
     # Verify connection works before starting suite.
     try:
@@ -38,9 +37,9 @@ def redis_client(_redis_connection):
 def celery_config():
     """Configures the celery_app fixture."""
     return {
-        'broker_url': 'redis://localhost:6379/0',
-        'result_backend': 'redis://localhost:6379/0',
-        'task_always_eager': True,
+        "broker_url": "redis://localhost:6379/0",
+        "result_backend": "redis://localhost:6379/0",
+        "task_always_eager": True,
     }
 
 
@@ -59,7 +58,7 @@ def limiter(redis_client, celery_app):
         window=60,
         max_concurrency=2,
         max_age=3600,
-        lease_duration=30
+        lease_duration=30,
     )
 
     yield test_limiter
@@ -68,4 +67,3 @@ def limiter(redis_client, celery_app):
     keys = redis_client.keys(f"{limiter_id}:*")
     if keys:
         redis_client.delete(*keys)
-

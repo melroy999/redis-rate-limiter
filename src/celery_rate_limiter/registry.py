@@ -13,15 +13,17 @@ class RateLimiterRegistry:
     """
 
     def __init__(
-            self,
-            redis_client: Redis,
-            celery_app: Celery,
+        self,
+        redis_client: Redis,
+        celery_app: Celery,
     ):
         self._limiters: Dict[str, CeleryRateLimiter] = {}
         self.app = celery_app
         self.redis = redis_client
 
-    def register(self, limiter: CeleryRateLimiter, override: bool = False, persist: bool = True) -> None:
+    def register(
+        self, limiter: CeleryRateLimiter, override: bool = False, persist: bool = True
+    ) -> None:
         """
         Register a limiter instance by its limiter_id.
         :param limiter: The limiter to register--the name of the limiter will be used as the key.
@@ -62,26 +64,24 @@ class RateLimiterRegistry:
             return self._limiters[limiter_id]
 
         # Check if the limiter is available in the redis store.
-        raw_config = self.redis.hget("rl:registry:configs", limiter_id)
+        raw_config = str(self.redis.hget("rl:registry:configs", limiter_id))
         if raw_config:
             # Avoid circular dependencies through a lazy import.
             from .limiters import CeleryRateLimiter
+
             config = json.loads(raw_config)
 
             # Reconstruct the rate limiter.
-            instance = CeleryRateLimiter(
-                self.redis,
-                self.app,
-                limiter_id,
-                **config
-            )
+            instance = CeleryRateLimiter(self.redis, self.app, limiter_id, **config)
 
             # Store the rate limiter and return.
             self._limiters[limiter_id] = instance
             return instance
 
-        raise ValueError(f"Limiter with ID '{limiter_id}' not found in local registry or Redis storage. "
-                         "Ensure it was registered at startup.")
+        raise ValueError(
+            f"Limiter with ID '{limiter_id}' not found in local registry or Redis storage. "
+            "Ensure it was registered at startup."
+        )
 
     def __contains__(self, limiter_id: str) -> bool:
         """
@@ -89,13 +89,15 @@ class RateLimiterRegistry:
         :param limiter_id: The id of the limiter to check.
         :return: True if the limiter exists, False otherwise.
         """
-        return limiter_id in self._limiters or self.redis.hexists("rl:registry:configs", limiter_id)
+        return limiter_id in self._limiters or bool(
+            self.redis.hexists("rl:registry:configs", limiter_id)
+        )
 
-    def list_all(self):
+    def list_all(self) -> list[str]:
         """Returns all registered limiter IDs."""
         return list(self._limiters.keys())
         # self.redis.hkeys("rl:registry:configs")
 
-    def clear(self):
+    def clear(self) -> None:
         """Clear all registered limiters."""
         self._limiters.clear()

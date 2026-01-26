@@ -23,7 +23,7 @@ FROM base AS test
 RUN apt-get update && \
     apt-get install -y redis-server
 
-# Include a --no-root variant for efficient caching--this avoids redownloads of packages.
+# Caching.
 RUN poetry install --no-interaction --no-ansi --no-root
 
 # Copy source and tests.
@@ -33,17 +33,17 @@ COPY tests/ ./tests/
 # Install all dependencies.
 RUN poetry install --no-interaction --no-ansi
 
-# Start the redis server and run the tests.
+# Run the tests.
 # If any tests fail, the build process stops here.
 RUN redis-server --daemonize yes && \
-    sleep 2 && \
-    PYTHONPATH=src python3 -m pytest tests/ && \
+    until redis-cli ping; do sleep 1; done && \
+    PYTHONPATH=src python3 -m pytest --junitxml=result.xml tests/ && \
     redis-cli shutdown
 
 # --- Stage 3: Production --- #
 FROM base AS production
 
-# Include a --no-root variant for efficient caching--this avoids redownloads of packages.
+# Caching.
 RUN poetry install --only main --no-interaction --no-ansi --no-root
 
 # Copy only the source code.
@@ -53,5 +53,5 @@ COPY --from=test /app/src ./src
 # Install only the main dependencies.
 RUN poetry install --only main --no-interaction --no-ansi
 
-# TODO: configure the entrypoint. For now, we start the celery worker.
+# Start celery.
 CMD ["celery", "-A", "src.worker_init", "worker", "-c", "10", "--loglevel=info"]

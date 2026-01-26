@@ -7,31 +7,89 @@ on:
     branches: [ "master", "dev" ]
 
 jobs:
-  build-and-test:
+  # Check code quality.
+  lint-and-typecheck:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+
+      - name: Install Poetry
+        run: pipx install poetry
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'poetry'
+
+      - name: Install Dependencies
+        run: poetry install
+
+      - name: Ruff Check (Lint)
+        run: poetry run ruff check .
+
+      - name: Mypy (Types)
+        run: poetry run mypy src
+
+  # Build the project and run the unit tests (integrated within the docker file).
+  build-and-test:
+    needs: lint-and-typecheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
 
       # Ensure vm.overcommit_memory is set--not strictly necessary, but redis prefers it is on.
       - name: Configure Kernel for Redis
-        run: |
-          sudo sysctl vm.overcommit_memory=1
+        run: sudo sysctl vm.overcommit_memory=1
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and Test Docker Image
-        uses: docker/build-push-action@v5
+      # Perform integration testing and report results.
+      - name: Build Test Stage
+        uses: docker/build-push-action@v6
         with:
           context: .
+          target: test
+          load: true
+          tags: celery-rate-limiter:test-stage
           # Using the GHA cache type allows Docker to store layers
           # directly in the GitHub Actions cache.
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          tags: celery-rate-limiter:latest
+
+      # Always upload the test results.
+      - name: Extract Test Results
+        if: always()
+        run: |
+          docker create --name extract celery-rate-limiter:test-stage
+          docker cp extract:/app/result.xml ./result.xml || echo "result.xml not found"
+          docker rm extract
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pytest-results
+          path: result.xml
+
+
+      # Build the production image and verify that it is not tainted by dev artifacts.
+      - name: Build Production Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: production
           outputs: type=docker,dest=/tmp/image.tar
+          tags: celery-rate-limiter:latest
+          # Using the GHA cache type allows Docker to store layers
+          # directly in the GitHub Actions cache.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Verify Final Image
         run: |
@@ -43,3 +101,14 @@ jobs:
           else
             echo "Success: Production image is clean."
           fi
+
+      - name: Run Trivy Security Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'celery-rate-limiter:latest'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+
+          # Fail if there is a vulnerability with an update.
+          ignore-unfixed: true
+          exit-code: '1'
