@@ -1,0 +1,45 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ "master", "dev" ]
+  pull_request:
+    branches: [ "master", "dev" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Ensure vm.overcommit_memory is set--not strictly necessary, but redis prefers it is on.
+      - name: Configure Kernel for Redis
+        run: |
+          sudo sysctl vm.overcommit_memory=1
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Test Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          # Using the GHA cache type allows Docker to store layers
+          # directly in the GitHub Actions cache.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: celery-rate-limiter:latest
+          outputs: type=docker,dest=/tmp/image.tar
+
+      - name: Verify Final Image
+        run: |
+          docker load --input /tmp/image.tar
+          echo "Checking for dev dependencies..."
+          if docker run --rm celery-rate-limiter:latest pip list | grep -E "pytest|fakeredis"; then
+            echo "Error: Dev dependencies leaked into production!"
+            exit 1
+          else
+            echo "Success: Production image is clean."
+          fi
