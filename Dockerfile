@@ -1,6 +1,9 @@
 # --- Stage 1: Base Python ---
 FROM python:3.12-slim AS base
 
+# Ensure vunerabilities are patched.
+RUN apt-get update && apt-get upgrade -y && apt-get clean
+
 # Configure poetry to not create a virtualenv inside the container,
 # given that the docker image is already an isolated environment.
 ENV PYTHONUNBUFFERED=1 \
@@ -17,6 +20,7 @@ RUN pip install "poetry==$POETRY_VERSION"
 COPY pyproject.toml poetry.lock ./
 
 # --- Stage 2: Tests ---
+# Set up the environment only. Tests are executed by our CI workflow.
 FROM base AS test
 
 # Install redis.
@@ -33,22 +37,14 @@ COPY tests/ ./tests/
 # Install all dependencies.
 RUN poetry install --no-interaction --no-ansi
 
-# Run the tests.
-# If any tests fail, the build process stops here.
-RUN redis-server --daemonize yes && \
-    until redis-cli ping; do sleep 1; done && \
-    PYTHONPATH=src python3 -m pytest --junitxml=result.xml tests/ && \
-    redis-cli shutdown
-
-# --- Stage 3: Production --- #
+# --- Stage 3: Production ---
 FROM base AS production
 
 # Caching.
 RUN poetry install --only main --no-interaction --no-ansi --no-root
 
-# Copy only the source code.
-# This is done from the test stage, such that it actually runs.
-COPY --from=test /app/src ./src
+# Copy source folder only.
+COPY src/ ./src/
 
 # Install only the main dependencies.
 RUN poetry install --only main --no-interaction --no-ansi

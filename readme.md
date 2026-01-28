@@ -1,3 +1,5 @@
+![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/melroy999/f3caa8f0af98bf11563b5b2031c1ef3e/raw/celery-rate-limiter-coverage.json)
+
 export PYTHONPATH=$PYTHONPATH:.
 celery -A worker_init worker -c 10 --loglevel=warning
 

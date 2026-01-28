@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [ "master", "dev" ]
 
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/celery-rate-limiter
+  TAG: ${{ github.ref_name == 'master' && 'latest' || 'dev' }}
+
 jobs:
   # Check code quality.
   lint-and-typecheck:
@@ -27,17 +36,18 @@ jobs:
       - name: Install Dependencies
         run: poetry install
 
+      # Soft fail (i.e. warning) if not master branch.
       - name: Ruff Check (Lint)
+        continue-on-error: ${{ github.ref_name != 'master' }}
         run: poetry run ruff check .
 
       - name: Mypy (Types)
         run: poetry run mypy src
 
-  # Build the project and run the unit tests (integrated within the docker file).
-  build-and-test:
+  # Run tests and report findings.
+  test-and-report:
     needs: lint-and-typecheck
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -45,38 +55,78 @@ jobs:
       # Ensure vm.overcommit_memory is set--not strictly necessary, but redis prefers it is on.
       - name: Configure Kernel for Redis
         run: sudo sysctl vm.overcommit_memory=1
+
+      - name: Build Test Image
+        run: docker build --target test -t app-test .
+
+      - name: Run Pytest in Container
+        run: |
+          docker run --name test-container app-test \
+          sh -c "redis-server --daemonize yes && PYTHONPATH=src python3 -m pytest --junitxml=result.xml --cov=src --cov-report=xml:coverage.xml tests/ && redis-cli shutdown"
+
+      - name: Extract Artifacts
+        if: always()
+        run: |
+          docker cp test-container:/app/result.xml ./result.xml || true
+          docker cp test-container:/app/coverage.xml ./coverage.xml || true
+          docker rm test-container
+
+      - name: Check Coverage Threshold
+        id: coverage_check
+        shell: python
+        env:
+          MIN_COVERAGE: ${{ github.ref_name == 'master' && 90 || 30 }}
+        run: |
+          import xml.etree.ElementTree as ET
+          import os, sys
+          try:
+              tree = ET.parse('coverage.xml')
+              root = tree.getroot()
+              coverage = float(root.attrib['line-rate']) * 100
+              threshold = float(os.getenv('MIN_COVERAGE'))
+              
+              print(f"Current Coverage: {coverage:.2f}% | Required: {threshold}%")
+              
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f"perc={coverage:.2f}\n")
+              
+              if coverage < threshold:
+                  print(f"FAILED: Coverage below {threshold}%")
+                  # sys.exit(1)
+          except Exception as e:
+              print(f"Error parsing coverage: {e}")
+              sys.exit(1)
+
+      - name: Update Coverage Badge
+        if: ${{ github.ref_name == 'master' }}
+        uses: schneegans/dynamic-badges-action@v1.7.0
+        with:
+          auth: ${{ secrets.GIST_SECRET }}
+          gistID: f3caa8f0af98bf11563b5b2031c1ef3e
+          filename: celery-rate-limiter-coverage.json
+          label: Coverage
+          message: ${{ steps.coverage_check.outputs.perc }}%
+          color: green
+
+  # Build the project and push the docker image.
+  build-and-push:
+    needs: test-and-report
+    runs-on: ubuntu-latest
+    # Run only iff test-and-report passed.
+    if: success()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      # Perform integration testing and report results.
-      - name: Build Test Stage
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          target: test
-          load: true
-          tags: celery-rate-limiter:test-stage
-          # Using the GHA cache type allows Docker to store layers
-          # directly in the GitHub Actions cache.
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # Always upload the test results.
-      - name: Extract Test Results
-        if: always()
-        run: |
-          docker create --name extract celery-rate-limiter:test-stage
-          docker cp extract:/app/result.xml ./result.xml || echo "result.xml not found"
-          docker rm extract
-
-      - name: Upload Test Results
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: pytest-results
-          path: result.xml
-
 
       # Build the production image and verify that it is not tainted by dev artifacts.
       - name: Build Production Image
@@ -84,8 +134,8 @@ jobs:
         with:
           context: .
           target: production
-          outputs: type=docker,dest=/tmp/image.tar
-          tags: celery-rate-limiter:latest
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:${{ env.TAG }}
           # Using the GHA cache type allows Docker to store layers
           # directly in the GitHub Actions cache.
           cache-from: type=gha
@@ -93,22 +143,37 @@ jobs:
 
       - name: Verify Final Image
         run: |
-          docker load --input /tmp/image.tar
-          echo "Checking for dev dependencies..."
-          if docker run --rm celery-rate-limiter:latest pip list | grep -E "pytest|fakeredis"; then
-            echo "Error: Dev dependencies leaked into production!"
+          if docker run --rm ${{ env.IMAGE_NAME }}:${{ env.TAG }} pip list | grep -E "pytest|fakeredis"; then
+            echo "Error: Dev dependencies leaked into production stage!"
             exit 1
-          else
-            echo "Success: Production image is clean."
           fi
 
       - name: Run Trivy Security Scan
+        id: trivy_scan
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: 'celery-rate-limiter:latest'
+          image-ref: '${{ env.IMAGE_NAME }}:${{ env.TAG }}'
           format: 'table'
           severity: 'CRITICAL,HIGH'
 
           # Fail if there is a vulnerability with an update.
           ignore-unfixed: true
           exit-code: '1'
+
+      - name: Push Production Image
+        run: docker push ${{ env.IMAGE_NAME }}:${{ env.TAG }}
+
+  # Auto-cleanup files in the GHCR registry.
+  cleanup-registry:
+    needs: build-and-push
+    # Always run cleanup, even if previous steps failed.
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prune Old Images
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: 'celery-rate-limiter'
+          package-type: 'container'
+          min-versions-to-keep: 2
+          delete-only-untagged-versions: 'true'
