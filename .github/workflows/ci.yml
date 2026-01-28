@@ -71,6 +71,15 @@ jobs:
           docker cp test-container:/app/coverage.xml ./coverage.xml || true
           docker rm test-container
 
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pytest-results
+          path: |
+            result.xml
+            coverage.xml
+
       - name: Check Coverage Threshold
         id: coverage_check
         shell: python
