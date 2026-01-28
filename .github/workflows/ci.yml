@@ -93,23 +93,11 @@ jobs:
               root = tree.getroot()
               coverage = float(root.attrib['line-rate']) * 100
               threshold = float(os.getenv('MIN_COVERAGE'))
-          
-              if coverage >= 90:
-                  color = "brightgreen"
-              elif coverage >= 75:
-                  color = "yellowgreen"
-              elif coverage >= 60:
-                  color = "yellow"
-              elif coverage >= 40:
-                  color = "orange"
-              else:
-                  color = "red"
-              
+   
               print(f"Current Coverage: {coverage:.2f}% | Required: {threshold}%")
               
               with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
                   f.write(f"perc={coverage:.2f}\n")
-                  f.write(f"color={color}\n") # Output the color here
 
               if coverage < threshold:
                   print(f"FAILED: Coverage below {threshold}%")
@@ -128,7 +116,9 @@ jobs:
           filename: celery-rate-limiter-coverage.json
           label: Coverage
           message: ${{ steps.coverage_check.outputs.perc }}%
-          color: ${{ steps.coverage_check.outputs.color }}
+          valColorRange: ${{ steps.coverage_check.outputs.perc }}
+          maxColorRange: 100
+          minColorRange: 0
 
   # Build the project and push the docker image.
   build-and-push:
