@@ -18,10 +18,9 @@ from redis import Redis
 class TaskData(TypedDict):
     """A class that holds the task data format."""
 
-    id: str
-    func_path: str
-    task: str
-    payload: dict
+    id: str # The id of the task.
+    func_path: str # Python path to the function to execute.
+    payload: dict # The parameters to pass on to the function.
 
 
 class ConsumeResult(TypedDict):
@@ -665,23 +664,6 @@ class CeleryRateLimiter(AbstractDistributedRateLimiter):
         retry: bool = True,
         use_executor: bool = True,
     ) -> tuple[bool, str]:
-        """Schedule a task to run once rate limiting allows for it.
-
-        Args:
-            func_path: When use_executor=True, this is the dot-path to the python function.
-                When use_executor=False, this is the Celery task name.
-            payload: The payload for the task in question.
-            priority: The priority of the task (100 default).
-            max_age: An optional override for the maximum age of the task in seconds.
-            retry: Whether to retry the scheduling on no script error (Redis outage).
-            use_executor: Whether to use the generic worker or direct Celery worker dispatch.
-
-        Returns:
-            A tuple of (was_scheduled, task_id). was_scheduled is False if the task was skipped.
-
-        Raises:
-            RuntimeError: If the necessary lua scripts cannot be (re)loaded.
-        """
         # Add the use executor flag to the payload.
         # Only add this if we aren't re-trying--the payload is already present otherwise.
         enhanced_payload = payload
