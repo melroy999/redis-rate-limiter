@@ -1,14 +1,18 @@
 # --- Stage 1: Base Python ---
-FROM python:3.12-slim AS base
+# Using build args allows easy version updates without editing multiple lines.
+ARG PYTHON_VERSION=3.12
+ARG POETRY_VERSION=2.3.1
 
-# Ensure vunerabilities are patched.
+FROM python:${PYTHON_VERSION}-slim AS base
+
+# Ensure vulnerabilities are patched.
 RUN apt-get update && apt-get upgrade -y && apt-get clean
 
 # Configure poetry to not create a virtualenv inside the container,
 # given that the docker image is already an isolated environment.
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    POETRY_VERSION=2.3.1 \
+    POETRY_VERSION=${POETRY_VERSION} \
     POETRY_NO_INTERACTION=1 \
     POETRY_VIRTUALENVS_CREATE=false
 
@@ -25,7 +29,8 @@ FROM base AS test
 
 # Install redis.
 RUN apt-get update && \
-    apt-get install -y redis-server
+    apt-get install -y redis-server && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Caching.
 RUN poetry install --no-interaction --no-ansi --no-root
@@ -48,6 +53,16 @@ COPY src/ ./src/
 
 # Install only the main dependencies.
 RUN poetry install --only main --no-interaction --no-ansi
+
+# Create a non-root user for security hardening.
+# Running as non-root limits the impact of potential container escapes.
+RUN useradd -m -u 1000 celery && chown -R celery:celery /app
+USER celery
+
+# Health check verifies the Celery worker is responsive.
+# Allows orchestrators (Docker Compose, Kubernetes) to detect and restart unhealthy containers.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD celery -A src.worker_init inspect ping -d celery@$HOSTNAME || exit 1
 
 # Start celery.
 CMD ["celery", "-A", "src.worker_init", "worker", "-c", "10", "--loglevel=info"]
