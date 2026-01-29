@@ -12,8 +12,18 @@ from celery_rate_limiter.limiters import (
 )
 
 
-def is_subset(subset, superset):
-    for key, value in subset.items():
+def is_subset(target: dict, superset: dict):
+    """
+    Check if the given target is a subset of the given superset.
+
+    Args:
+        target: The data that is considered the subset in the comparison.
+        superset: The superset data.
+
+    Returns:
+        True if 'target' is a recursive subset of 'superset,' False otherwise. 
+    """
+    for key, value in target.items():
         if key not in superset:
             return False
         if isinstance(value, dict):

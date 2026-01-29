@@ -42,11 +42,12 @@ class DistributedLock:
     """
 
     def __init__(self, redis_client: Redis, lock_key: str, timeout_ms: int):
-        """
-        Initialize the lock manager.
-        :param redis_client: The client to use to connect to the redis server.
-        :param lock_key: The name of the key the lock is stored under.
-        :param timeout_ms: The timeout for the lock in milliseconds.
+        """Initialize the lock manager.
+
+        Args:
+            redis_client: The client to use to connect to the redis server.
+            lock_key: The name of the key the lock is stored under.
+            timeout_ms: The timeout for the lock in milliseconds.
         """
         self.redis = redis_client
         self.lock_key = lock_key
