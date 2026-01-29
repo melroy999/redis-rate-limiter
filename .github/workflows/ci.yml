@@ -56,7 +56,7 @@ jobs:
         run: sudo sysctl vm.overcommit_memory=1
 
       - name: Build Test Image
-        run: docker build --target test -t app-test .
+        uses: docker/build-push-action@v6
         with:
           context: .
           target: test
