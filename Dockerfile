@@ -5,6 +5,9 @@ ARG POETRY_VERSION=2.3.1
 
 FROM python:${PYTHON_VERSION}-slim AS base
 
+# Re-declare ARG to make it available inside this build stage.
+ARG POETRY_VERSION
+
 # Ensure vulnerabilities are patched.
 RUN apt-get update && apt-get upgrade -y && apt-get clean
 
