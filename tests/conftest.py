@@ -8,9 +8,12 @@ pytest_plugins = ("celery.contrib.pytest",)
 
 @pytest.fixture(scope="session")
 def _redis_connection():
-    """
-    Connects to a real Redis instance for testing.
+    """Connect to a real Redis instance for testing.
+
     We only do this once and just flush the database between tests.
+
+    Yields:
+        A Redis client connected to localhost.
     """
     client = redis.Redis(host="localhost", port=6379, decode_responses=True)
 
@@ -26,7 +29,13 @@ def _redis_connection():
 
 @pytest.fixture(scope="function")
 def redis_client(_redis_connection):
-    """Connects to a real Redis instance for testing."""
+    """Connect to a real Redis instance for testing.
+
+    Flushes the database before and after each test.
+
+    Yields:
+        A Redis client for use in tests.
+    """
     # Flush before and after the test.
     _redis_connection.flushall()
     yield _redis_connection
@@ -35,7 +44,11 @@ def redis_client(_redis_connection):
 
 @pytest.fixture(scope="session")
 def celery_config():
-    """Configures the celery_app fixture."""
+    """Configure the celery_app fixture.
+
+    Returns:
+        A dictionary with Celery configuration for testing.
+    """
     return {
         "broker_url": "redis://localhost:6379/0",
         "result_backend": "redis://localhost:6379/0",
@@ -45,8 +58,10 @@ def celery_config():
 
 @pytest.fixture
 def limiter(redis_client, celery_app):
-    """
-    Setup and Teardown for the CeleryRateLimiter.
+    """Setup and teardown for the CeleryRateLimiter.
+
+    Yields:
+        A configured CeleryRateLimiter instance for testing.
     """
     # SETUP
     limiter_id = "test_limiter"

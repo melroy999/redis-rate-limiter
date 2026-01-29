@@ -8,9 +8,10 @@ T = TypeVar("T", bound=Callable[..., Any])
 
 
 def rate_limited(limiter_id: Optional[str] = None) -> Callable[[T], T]:
-    """
-    Decorator to apply rate limiting lifecycle to a standard Celery task.
-    :param limiter_id: The id of the rate limiter instance to use.
+    """Decorator to apply rate limiting lifecycle to a standard Celery task.
+
+    Args:
+        limiter_id: The id of the rate limiter instance to use.
     """
 
     def decorator(func: T) -> T:

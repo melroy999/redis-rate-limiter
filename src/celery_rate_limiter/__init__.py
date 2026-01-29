@@ -13,10 +13,14 @@ class CeleryRateLimiterFactory:
         redis_client: Redis,
         celery_app: Celery,
     ):
-        """
-        Initialize the Celery rate limiter factory.
+        """Initialize the Celery rate limiter factory.
+
         The factory ensures that all rate limiters use the same redis and app instance.
         Additionally, the rate limit registry is factory specific.
+
+        Args:
+            redis_client: The Redis client to use for all limiters.
+            celery_app: The Celery app to use for all limiters.
         """
         self.redis = redis_client
         self.app = celery_app
@@ -33,17 +37,20 @@ class CeleryRateLimiterFactory:
         override: bool = False,
         persist: bool = True,
     ) -> CeleryRateLimiter:
-        """
-        Create a Celery rate limiter instance with the given parameters.
-        :param limiter_id: The id of the rate limiter to create.
-        :param window: The time window in seconds that the limit is applied to.
-        :param limit: The maximum number of tasks per time window.
-        :param max_concurrency: The maximum number of concurrent tasks.
-        :param max_age: The maximum time a task may exist in the queue before it expires.
-        :param lease_duration: The time in seconds after which the leash to a concurrency slot will expire.
-        :param override: Whether to forcefully overwrite an existing rate limiter configuration.
-        :param persist: Whether to persist the rate limiter configuration by storing it in Redis.
-        :return: A rate limiter using the desired parameters.
+        """Create a Celery rate limiter instance with the given parameters.
+
+        Args:
+            limiter_id: The id of the rate limiter to create.
+            window: The time window in seconds that the limit is applied to.
+            limit: The maximum number of tasks per time window.
+            max_concurrency: The maximum number of concurrent tasks.
+            max_age: The maximum time a task may exist in the queue before it expires.
+            lease_duration: The time in seconds after which the lease to a concurrency slot will expire.
+            override: Whether to forcefully overwrite an existing rate limiter configuration.
+            persist: Whether to persist the rate limiter configuration by storing it in Redis.
+
+        Returns:
+            A rate limiter using the desired parameters.
         """
         limiter = CeleryRateLimiter(
             redis_client=self.redis,

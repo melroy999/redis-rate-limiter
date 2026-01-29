@@ -8,9 +8,7 @@ from .limiters import CeleryRateLimiter
 
 
 class RateLimiterRegistry:
-    """
-    A registry for rate limiter instances.
-    """
+    """A registry for rate limiter instances."""
 
     def __init__(
         self,
@@ -24,12 +22,15 @@ class RateLimiterRegistry:
     def register(
         self, limiter: CeleryRateLimiter, override: bool = False, persist: bool = True
     ) -> None:
-        """
-        Register a limiter instance by its limiter_id.
-        :param limiter: The limiter to register--the name of the limiter will be used as the key.
-        :param override: Whether to overwrite existing limiters.
-        :param persist: Whether the rate limiter configuration should be stored in the redis database.
-        :exception ValueError: If the limiter ID is already registered.
+        """Register a limiter instance by its limiter_id.
+
+        Args:
+            limiter: The limiter to register. The name of the limiter will be used as the key.
+            override: Whether to overwrite existing limiters.
+            persist: Whether the rate limiter configuration should be stored in the redis database.
+
+        Raises:
+            ValueError: If the limiter ID is already registered and override is False.
         """
         # Check whether we are about to make an illegal override of an existing configuration.
         # Raise an exception if the operation will overwrite an existing limiter (unless force=True).
@@ -53,11 +54,16 @@ class RateLimiterRegistry:
             self.redis.hset("rl:registry:configs", limiter.id, json.dumps(config))
 
     def get(self, limiter_id: str) -> CeleryRateLimiter:
-        """
-        Get a limiter by its ID from local storage or Redis storage.
-        :param limiter_id: The id of the limiter to get.
-        :return: The limiter associated with the id.
-        :exception ValueError: If the limiter ID doesn't exist.
+        """Get a limiter by its ID from local storage or Redis storage.
+
+        Args:
+            limiter_id: The id of the limiter to get.
+
+        Returns:
+            The limiter associated with the id.
+
+        Raises:
+            ValueError: If the limiter ID doesn't exist.
         """
         # Return locally cached limiters as-is.
         if limiter_id in self._limiters:
@@ -84,10 +90,13 @@ class RateLimiterRegistry:
         )
 
     def __contains__(self, limiter_id: str) -> bool:
-        """
-        Check if a limiter exists in either local or Redis storage by its ID.
-        :param limiter_id: The id of the limiter to check.
-        :return: True if the limiter exists, False otherwise.
+        """Check if a limiter exists in either local or Redis storage by its ID.
+
+        Args:
+            limiter_id: The id of the limiter to check.
+
+        Returns:
+            True if the limiter exists, False otherwise.
         """
         return limiter_id in self._limiters or bool(
             self.redis.hexists("rl:registry:configs", limiter_id)

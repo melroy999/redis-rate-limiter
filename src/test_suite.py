@@ -10,6 +10,18 @@ limiter = factory.registry.get("test_api")
 # Define a "Business Logic" function to be called
 # In a real app, this would be in app/services.py
 def mock_api_call(user_id: int, error: bool = False) -> bool:
+    """Mock API call function for testing rate limiting.
+
+    Args:
+        user_id: The user ID to process.
+        error: Whether to simulate an error.
+
+    Returns:
+        True if successful.
+
+    Raises:
+        Exception: If error is True.
+    """
     print(f" >>> [WORKER] Starting API call for user {user_id}")
     time.sleep(0.1 * random.random())  # Simulate a slow network request
     print(f" <<< [WORKER] Finished API call for user {user_id}")

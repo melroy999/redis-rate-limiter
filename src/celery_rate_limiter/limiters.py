@@ -16,9 +16,7 @@ from redis import Redis
 
 
 class TaskData(TypedDict):
-    """
-    A class that holds the task data format.
-    """
+    """A class that holds the task data format."""
 
     id: str
     func_path: str
@@ -27,9 +25,7 @@ class TaskData(TypedDict):
 
 
 class ConsumeResult(TypedDict):
-    """
-    A class to hold the result of a consume.lua call.
-    """
+    """A class to hold the result of a consume.lua call."""
 
     success: bool  # Whether a task was actually consumed.
     expired: bool  # Whether a task has expired.
@@ -41,8 +37,8 @@ class ConsumeResult(TypedDict):
 
 
 class DistributedLock:
-    """
-    A dedicated class for the execution lock (instead of a @contextmanager) to keep the IDE happy.
+    """A dedicated class for the execution lock (instead of a @contextmanager) to keep the IDE happy.
+
     Requests a dispatch lock and perform cleanup after task completion.
     """
 
@@ -60,9 +56,10 @@ class DistributedLock:
         self.acquired = False
 
     def __enter__(self) -> bool:
-        """
-        Enter the context manager.
-        :return: The status of the lock such that the task knows if it should proceed.
+        """Enter the context manager.
+
+        Returns:
+            The status of the lock such that the task knows if it should proceed.
         """
         # Acquire the lock.
         self.acquired = bool(
@@ -71,9 +68,7 @@ class DistributedLock:
         return bool(self.acquired)
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """
-        Leave the context manager.
-        """
+        """Leave the context manager."""
         # This runs even if the task crashes.
         if self.acquired:
             # Only delete if locks match.
@@ -89,9 +84,7 @@ class DistributedLock:
 
 
 class TaskLifecycle:
-    """
-    Context manager that handles concurrency slot cleanup.
-    """
+    """Context manager that handles concurrency slot cleanup."""
 
     def __init__(
         self,
@@ -99,10 +92,12 @@ class TaskLifecycle:
         task_id: str,
         on_heartbeat_failure: Literal["warn", "kill"] = "warn",
     ):
-        """
-        Create a lifecycle context manager that cleans up concurrency slots.
-        :param limiter: The limiter to observe.
-        :param task_id: The id of the task to clear the active state for.
+        """Create a lifecycle context manager that cleans up concurrency slots.
+
+        Args:
+            limiter: The limiter to observe.
+            task_id: The id of the task to clear the active state for.
+            on_heartbeat_failure: How to handle heartbeat failures.
         """
         self.limiter = limiter
         self.task_id = task_id
@@ -117,9 +112,7 @@ class TaskLifecycle:
         self.is_healthy = True
 
     def _heartbeat_loop(self) -> None:
-        """
-        Background task that renews the lease over a concurrency slot.
-        """
+        """Background task that renews the lease over a concurrency slot."""
         while not self._stop_event.wait(timeout=self.interval):
             try:
                 # Extend the lease.
@@ -143,18 +136,14 @@ class TaskLifecycle:
                     print(f"{error_msg} -> Flagged as unhealthy.")
 
     def __enter__(self) -> TaskLifecycle:
-        """
-        Enter the context manager.
-        """
+        """Enter the context manager."""
         # Start the keep-alive thread.
         self._thread = Thread(target=self._heartbeat_loop, daemon=True)
         self._thread.start()
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """
-        Leave the context manager.
-        """
+        """Leave the context manager."""
         # Stop the heartbeat.
         self._stop_event.set()
         if self._thread and self._thread.is_alive():
@@ -175,9 +164,7 @@ class TaskLifecycle:
 
 
 class AbstractDistributedRateLimiter(ABC):
-    """
-    A class that rate limits celery tasks.
-    """
+    """A class that rate limits celery tasks."""
 
     _CONSUME_LUA_SCRIPT: str
     _SCHEDULE_LUA_SCRIPT: str
@@ -198,18 +185,18 @@ class AbstractDistributedRateLimiter(ABC):
         lease_duration: int = 30,
         on_heartbeat_failure: Literal["warn", "kill"] = "warn",
     ):
-        """
-        Create an abstract rate limiter instance with the given parameters and import the appropriate lua scripts.
-        :param redis_client: The redis client to use.
-        :param limiter_id: The id of the rate limiter to create.
-        :param window: The time window in seconds that the limit is applied to.
-        :param limit: The maximum number of tasks per time window.
-        :param max_concurrency: The maximum number of concurrent tasks.
-        :param max_age: The maximum time a task may exist in the queue before it expires.
-        :param lease_duration: The time in seconds after which the leash to a concurrency slot will expire.
-        :param on_heartbeat_failure: How to handle heartbeat failures--warn lets the job proceed.
-        whereas kill makes the worker forcefully exit its execution, effectively killing it.
-        :return: A rate limiter using the desired parameters.
+        """Create an abstract rate limiter instance with the given parameters and import the appropriate lua scripts.
+
+        Args:
+            redis_client: The redis client to use.
+            limiter_id: The id of the rate limiter to create.
+            limit: The maximum number of tasks per time window.
+            window: The time window in seconds that the limit is applied to.
+            max_concurrency: The maximum number of concurrent tasks.
+            max_age: The maximum time a task may exist in the queue before it expires.
+            lease_duration: The time in seconds after which the lease to a concurrency slot will expire.
+            on_heartbeat_failure: How to handle heartbeat failures. 'warn' lets the job proceed,
+                whereas 'kill' makes the worker forcefully exit its execution, effectively killing it.
         """
         self.redis = redis_client
         self.id = limiter_id
@@ -243,10 +230,11 @@ class AbstractDistributedRateLimiter(ABC):
         self.renew_script_sha: str = str(self.redis.script_load(self._RENEW_LUA_SCRIPT))
 
     def _load_lua_script(self, lua_script: str, key: str) -> None:
-        """
-        Load a lua script from disk.
-        :param lua_script: The name of the script to load.
-        :param key: The attribute key to store the script under.
+        """Load a lua script from disk.
+
+        Args:
+            lua_script: The name of the script to load.
+            key: The attribute key to store the script under.
         """
         if getattr(self, key, None) is None:
             try:
@@ -274,7 +262,14 @@ class AbstractDistributedRateLimiter(ABC):
         )
 
     def get_active_key(self, task_id: str) -> str:
-        """Get the active key for the given task."""
+        """Get the active key for the given task.
+
+        Args:
+            task_id: The id of the task.
+
+        Returns:
+            The Redis key for tracking active status of this task.
+        """
         return f"{self.id}:active:{task_id}"
 
     def schedule_task(
@@ -285,15 +280,21 @@ class AbstractDistributedRateLimiter(ABC):
         max_age: Optional[int] = None,
         retry: bool = True,
     ) -> tuple[bool, str]:
-        """
-        Schedule a task to run once rate limiting allows for it.
-        :param func_path: The name of the function to schedule.
-        :param payload: The payload for the task in question.
-        :param priority: The priority of the task (100 default).
-        :param max_age: An optional override for the maximum age of the task in seconds.
-        :param retry: Whether to retry the scheduling on no script error (Redis outage).
-        :return: Whether the task got skipped or not and its task id.
-        :exception RuntimeError: if the necessary lua scripts cannot be (re)loaded.
+        """Schedule a task to run once rate limiting allows for it.
+
+        Args:
+            func_path: The name of the function to schedule.
+            payload: The payload for the task in question.
+            priority: The priority of the task (100 default).
+            max_age: An optional override for the maximum age of the task in seconds.
+            retry: Whether to retry the scheduling on no script error (Redis outage).
+
+        Returns:
+            A tuple of (was_scheduled, task_id). was_scheduled is False if the task was skipped
+            because it's already in-flight.
+
+        Raises:
+            RuntimeError: If the necessary lua scripts cannot be (re)loaded.
         """
         # Generate a unique id for the task name and payload.
         task_signature = self._get_task_signature_str(func_path, payload)
@@ -343,11 +344,16 @@ class AbstractDistributedRateLimiter(ABC):
         return True, task_id
 
     def consume(self, retry: bool = True) -> ConsumeResult:
-        """
-        Attempt to consume a task from the queue.
-        :param retry: Whether to retry the consumption on no script error.
-        :return: A payload with a task if successfully consumed. Empty payload otherwise.
-        :exception RuntimeError: if the necessary lua scripts cannot be (re)loaded.
+        """Attempt to consume a task from the queue.
+
+        Args:
+            retry: Whether to retry the consumption on no script error.
+
+        Returns:
+            A payload with a task if successfully consumed. Empty payload otherwise.
+
+        Raises:
+            RuntimeError: If the necessary lua scripts cannot be (re)loaded.
         """
         try:
             # Fetch the result.
@@ -399,16 +405,22 @@ class AbstractDistributedRateLimiter(ABC):
             return self.consume(retry=False)
 
     def extend_lease(self, task_id: str, duration: int, retry: bool = True) -> bool:
-        """
-        A lease-based concurrency system is used such that proper cleanup can be performed by other workers on system
-        failure--by extending the leash, the worker notifies the distributed system it is still alive; this in turn
-        ensures that a concurrency slot can be repurposed if a worker falls quiet and expires.
+        """Extend the lease on a concurrency slot.
 
-        :param task_id: The id of the task to extend the lease of.
-        :param duration: The number of seconds to extend the leash by, this is decoupled such that it can be a
-        fraction of the actual leash duration, such that it is always refreshed well before expiration.
-        :param retry: Internal flag to perform the operation again if a script error occurs.
-        :return: The result of the lua renew script.
+        A lease-based concurrency system is used such that proper cleanup can be performed by other
+        workers on system failure. By extending the lease, the worker notifies the distributed system
+        it is still alive; this in turn ensures that a concurrency slot can be repurposed if a worker
+        falls quiet and expires.
+
+        Args:
+            task_id: The id of the task to extend the lease of.
+            duration: The number of seconds to extend the lease by. This is decoupled such that it
+                can be a fraction of the actual lease duration, such that it is always refreshed
+                well before expiration.
+            retry: Internal flag to perform the operation again if a script error occurs.
+
+        Returns:
+            The result of the lua renew script.
         """
         try:
             return cast(
@@ -441,9 +453,7 @@ class AbstractDistributedRateLimiter(ABC):
         return int(str(self.redis.zcard(self.buffer_key)))
 
     def drain(self) -> None:
-        """
-        Attempt to drain an item from the queue.
-        """
+        """Attempt to drain an item from the queue."""
         # Lock the execution to avoid the thundering herd problem.
         with self.execution_lock() as acquired:
             if not acquired:
@@ -489,16 +499,21 @@ class AbstractDistributedRateLimiter(ABC):
 
     @abstractmethod
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
-        """
-        Send the task to the actual worker (Celery worker, Thread, etc.)
+        """Send the task to the actual worker (Celery worker, Thread, etc.).
+
+        Args:
+            func_path: The path to the function to execute.
+            payload: The task payload.
+            task_id: The unique task identifier.
         """
         pass
 
     @abstractmethod
     def _schedule_drain(self, delay: float = 0.0) -> None:
-        """
-        Schedule the `drain` method to run again after `delay` seconds.
-        :param delay: The amount of time to sleep before scheduling.
+        """Schedule the drain method to run again after delay seconds.
+
+        Args:
+            delay: The amount of time to sleep before scheduling.
         """
         pass
 
@@ -510,10 +525,13 @@ class AbstractDistributedRateLimiter(ABC):
         self._schedule_drain()
 
     def execution_lock(self, timeout_ms: int = 5000) -> ContextManager[bool]:
-        """
-        Request the dispatch lock and perform cleanup after task completion.
-        :param timeout_ms: The timeout in milliseconds.
-        :return: The status of the lock such that the task knows if it should proceed.
+        """Request the dispatch lock and perform cleanup after task completion.
+
+        Args:
+            timeout_ms: The timeout in milliseconds.
+
+        Returns:
+            A context manager that yields the lock status indicating if the task should proceed.
         """
         return DistributedLock(
             redis_client=self.redis, lock_key=self.lock_key, timeout_ms=timeout_ms
@@ -524,11 +542,16 @@ class AbstractDistributedRateLimiter(ABC):
         task_id: str,
         on_heartbeat_failure_override: Optional[Literal["warn", "kill"]] = None,
     ) -> TaskLifecycle:
-        """
-        A context manager to ensure the concurrency slot is released
-        no matter what happens during task execution.
-        :param task_id: The id of the task to lifecycle.
-        :param on_heartbeat_failure_override: An optional override to pass to the task lifecycle function.
+        """Create a context manager to ensure the concurrency slot is released.
+
+        Ensures the concurrency slot is released no matter what happens during task execution.
+
+        Args:
+            task_id: The id of the task to lifecycle.
+            on_heartbeat_failure_override: An optional override to pass to the task lifecycle function.
+
+        Returns:
+            A TaskLifecycle context manager.
         """
         strategy = on_heartbeat_failure_override or self.on_heartbeat_failure
 
@@ -537,10 +560,16 @@ class AbstractDistributedRateLimiter(ABC):
         )
 
     def get_status(self, retry: bool = True) -> dict:
-        """
-        Returns a snapshot of the current state of the limiter.
-        :return: A JSON formatted result containing all status information.
-        :exception RuntimeError: if the necessary lua scripts cannot be (re)loaded.
+        """Get a snapshot of the current state of the limiter.
+
+        Args:
+            retry: Whether to retry on script error.
+
+        Returns:
+            A JSON formatted result containing all status information.
+
+        Raises:
+            RuntimeError: If the necessary lua scripts cannot be (re)loaded.
         """
         try:
             result = cast(
@@ -604,25 +633,27 @@ class CeleryRateLimiter(AbstractDistributedRateLimiter):
     def __init__(
         self, redis_client: Redis, celery_app: Celery, *args: Any, **kwargs: Any
     ):
-        """
-        Create a Celery rate limiter instance with the given parameters and import the appropriate lua scripts.
-        :param redis_client: The redis client to use.
-        :param celery_app: The celery app to use.
-        :param limiter_id: The id of the rate limiter to create.
-        :param window: The time window in seconds that the limit is applied to.
-        :param limit: The maximum number of tasks per time window.
-        :param max_concurrency: The maximum number of concurrent tasks.
-        :param max_age: The maximum time a task may exist in the queue before it expires.
-        :param lease_duration: The time in seconds after which the leash to a concurrency slot will expire.
-        :param on_heartbeat_failure: How to handle heartbeat failures--warn lets the job proceed.
-        :return: A rate limiter using the desired parameters.
+        """Create a Celery rate limiter instance.
+
+        Args:
+            celery_app: The celery app to use for task dispatch.
+
+        Other parameters are inherited from AbstractDistributedRateLimiter.
         """
         super().__init__(redis_client, *args, **kwargs)
         self.app = celery_app
 
     @staticmethod
     def _get_enhanced_payload(payload: dict, use_executor: bool) -> dict:
-        """Get the enhanced payload."""
+        """Get the enhanced payload with metadata.
+
+        Args:
+            payload: The original task payload.
+            use_executor: Whether to use the generic executor.
+
+        Returns:
+            The enhanced payload with metadata.
+        """
         return {"data": payload, "meta": {"use_executor": use_executor}}
 
     def schedule_task(
@@ -634,17 +665,22 @@ class CeleryRateLimiter(AbstractDistributedRateLimiter):
         retry: bool = True,
         use_executor: bool = True,
     ) -> tuple[bool, str]:
-        """
-        :param func_path:
-            **use_executor=True**: Dot-path to the python function.
-            **use_executor=False**: The Celery task name.
-        :param payload: The payload for the task in question.
-        :param priority: The priority of the task (100 default).
-        :param max_age: An optional override for the maximum age of the task in seconds.
-        :param retry: Whether to retry the scheduling on no script error (Redis outage).
-        :param use_executor: Whether to use the generic worker or direct Celery worker dispatch.
-        :return: Whether the task got skipped or not and its task id.
-        :exception RuntimeError: if the necessary lua scripts cannot be (re)loaded.
+        """Schedule a task to run once rate limiting allows for it.
+
+        Args:
+            func_path: When use_executor=True, this is the dot-path to the python function.
+                When use_executor=False, this is the Celery task name.
+            payload: The payload for the task in question.
+            priority: The priority of the task (100 default).
+            max_age: An optional override for the maximum age of the task in seconds.
+            retry: Whether to retry the scheduling on no script error (Redis outage).
+            use_executor: Whether to use the generic worker or direct Celery worker dispatch.
+
+        Returns:
+            A tuple of (was_scheduled, task_id). was_scheduled is False if the task was skipped.
+
+        Raises:
+            RuntimeError: If the necessary lua scripts cannot be (re)loaded.
         """
         # Add the use executor flag to the payload.
         # Only add this if we aren't re-trying--the payload is already present otherwise.

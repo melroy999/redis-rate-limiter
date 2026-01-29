@@ -6,6 +6,11 @@ from config import factory
 
 
 def run_inspector(refresh_rate: float) -> None:
+    """Run the rate limiter inspector to monitor limiter status in real-time.
+
+    Args:
+        refresh_rate: The refresh rate in seconds for updating the display.
+    """
     # 1. Get the shared limiter instance
     # This connects to the same Redis and uses the same keys as your worker
     limiter = factory.registry.get("test_api")
