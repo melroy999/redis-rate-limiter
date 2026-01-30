@@ -22,7 +22,8 @@ tests/
 │   ├── test_serialization.py           # Payload serialization properties
 │   └── test_is_subset.py               # Mathematical subset properties
 │
-├── integration/                        # End-to-end integration tests (future)
+├── integration/                        # End-to-end integration tests
+│   └── test_rate_limiting.py           # Rate limiting behavior verification
 │
 ├── test_utils.py                       # Shared test utilities
 ├── test_strategies.py                  # Shared Hypothesis strategies
@@ -82,7 +83,44 @@ def test_json_payload_survives_redis_round_trip(self, limiter, redis_client, pay
     # Verify payload was preserved...
 ```
 
-### 3. Arrange-Act-Assert Pattern
+### 3. Integration Testing
+
+Integration tests verify end-to-end behavior of the rate limiter with real Redis and Lua scripts.
+
+**Benefits:**
+- Tests the full system including Redis interactions and Lua script execution
+- Verifies rate limiting behavior in realistic scenarios
+- Tests burst handling, concurrency limits, and telemetry tracking
+- Uses explicit fixture configuration to maintain test independence
+
+**Example:**
+```python
+# integration/test_rate_limiting.py
+@pytest.fixture
+def integration_limiter(redis_client, celery_app):
+    """Create a limiter with explicit configuration for integration tests."""
+    return CeleryRateLimiter(
+        redis_client=redis_client,
+        celery_app=celery_app,
+        limiter_id="integration_test_limiter",
+        limit=5,
+        window=60,
+        max_concurrency=2,
+        max_age=3600,
+        lease_duration=30,
+    )
+
+def test_basic_rate_limit_enforcement(self, integration_limiter, redis_client):
+    """Verify rate limiter enforces the configured limit."""
+    # Schedule 10 tasks, consume up to limit (5), verify remaining queued
+    for i in range(10):
+        integration_limiter.schedule_task("path", {"index": i})
+
+    consumed = sum(1 for _ in range(10) if integration_limiter.consume()["success"])
+    assert consumed == 5  # Only 5 consumed due to rate limit
+```
+
+### 4. Arrange-Act-Assert Pattern
 
 All tests follow the AAA pattern for clarity:
 
@@ -119,6 +157,9 @@ pytest tests/implementations/
 
 # Property-based tests only
 pytest tests/properties/
+
+# Integration tests only
+pytest tests/integration/
 
 # Specific implementation
 pytest tests/implementations/celery_redis/
