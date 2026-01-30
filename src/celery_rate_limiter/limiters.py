@@ -252,8 +252,22 @@ class AbstractDistributedRateLimiter(ABC):
 
     @staticmethod
     def _get_task_data(task_id: str, func_path: str, payload: dict) -> dict:
-        """Get the data of a task."""
-        return {"id": task_id, "func_path": func_path, "payload": payload}
+        """Get the data of a task.
+
+        Raises:
+            ValueError: If task data contains reserved __meta_ keys.
+        """
+        task_data = {"id": task_id, "func_path": func_path, "payload": payload}
+
+        # Ensure no collision with Lua metadata injection.
+        # The __meta_ prefix is reserved for internal metadata added by Lua scripts.
+        if any(key.startswith("__meta_") for key in task_data.keys()):
+            raise ValueError(
+                "task data contains reserved __meta_ prefix keys. "
+                "keys starting with __meta_ are reserved for internal use."
+            )
+
+        return task_data
 
     def _get_task_data_str(self, task_id: str, func_path: str, payload: dict) -> str:
         """Get the data of a task as a JSON string."""

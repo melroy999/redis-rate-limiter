@@ -1,0 +1,359 @@
+# Test Suite Documentation
+
+This directory contains a comprehensive test suite for the celery-rate-limiter project, organized using **contract-based testing** and **property-based testing** patterns.
+
+## Directory Structure
+
+```
+tests/
+├── contracts/                          # Abstract interface contracts
+│   ├── test_rate_limiter_contract.py   # Tests any limiter must satisfy
+│   ├── test_lock_contract.py           # Tests any lock must satisfy
+│   └── test_lifecycle_contract.py      # Tests any lifecycle manager must satisfy
+│
+├── implementations/                    # Implementation-specific tests
+│   └── celery_redis/                   # Celery + Redis implementation
+│       ├── test_celery_limiter.py      # Inherits contract + adds Celery tests
+│       ├── test_distributed_lock.py    # Inherits contract + adds Redis tests
+│       ├── test_task_lifecycle.py      # Inherits contract + adds lifecycle tests
+│       └── test_internal_helpers.py    # Lua script loading and helpers
+│
+├── properties/                         # Property-based tests (Hypothesis)
+│   ├── test_serialization.py           # Payload serialization properties
+│   └── test_is_subset.py               # Mathematical subset properties
+│
+├── integration/                        # End-to-end integration tests (future)
+│
+├── test_utils.py                       # Shared test utilities
+├── test_strategies.py                  # Shared Hypothesis strategies
+├── conftest.py                         # Pytest fixtures and configuration
+└── README.md                           # This file
+```
+
+## Testing Philosophy
+
+### 1. Contract-Based Testing
+
+Contract tests define the **expected behavior** for interfaces, ensuring all implementations satisfy the same requirements.
+
+**Benefits:**
+- New implementations automatically inherit all contract tests
+- Ensures consistency across different limiter implementations
+- Documents the required interface behavior
+- Makes it easy to verify Liskov Substitution Principle
+
+**Example:**
+```python
+# contracts/test_rate_limiter_contract.py
+class RateLimiterContractTest:
+    """Abstract test suite that any RateLimiter must pass."""
+
+    def test_schedule_task_returns_success_and_task_id(self, limiter, redis_client):
+        """Contract: schedule_task must return (bool, str) tuple."""
+        success, task_id = limiter.schedule_task("path", {})
+        assert isinstance(success, bool)
+        assert isinstance(task_id, str)
+
+# implementations/celery_redis/test_celery_limiter.py
+class TestCeleryRateLimiter(RateLimiterContractTest):
+    """Inherits all contract tests + adds Celery-specific tests."""
+    pass  # Automatically runs all contract tests!
+```
+
+### 2. Property-Based Testing
+
+Property-based tests use [Hypothesis](https://hypothesis.readthedocs.io/) to automatically generate hundreds of test cases, verifying invariants hold for **any** input.
+
+**Benefits:**
+- Discovers edge cases you wouldn't think to test manually
+- Tests mathematical properties (reflexivity, transitivity, etc.)
+- Provides stronger guarantees than example-based tests
+- Automatically shrinks failing cases to minimal examples
+
+**Example:**
+```python
+from hypothesis import given
+from tests.test_strategies import json_value
+
+@given(payload=json_value)  # Generates arbitrary JSON structures
+def test_json_payload_survives_redis_round_trip(self, limiter, redis_client, payload):
+    """Property: ANY JSON payload survives Redis round-trip."""
+    success, task_id = limiter.schedule_task("path", payload)
+    # Verify payload was preserved...
+```
+
+### 3. Arrange-Act-Assert Pattern
+
+All tests follow the AAA pattern for clarity:
+
+```python
+def test_example(self, limiter, redis_client):
+    """Clear description of what this test verifies."""
+    # Arrange
+    # Setup test data and preconditions.
+    payload = {"user_id": 123}
+
+    # Act
+    # Execute the operation being tested.
+    success, task_id = limiter.schedule_task("path", payload)
+
+    # Assert
+    # Verify the expected outcome.
+    assert success is True, "task should be scheduled successfully"
+```
+
+## Running Tests
+
+### Run All Tests
+```bash
+pytest tests/
+```
+
+### Run Specific Test Categories
+```bash
+# Contract tests only
+pytest tests/contracts/
+
+# Implementation tests only
+pytest tests/implementations/
+
+# Property-based tests only
+pytest tests/properties/
+
+# Specific implementation
+pytest tests/implementations/celery_redis/
+```
+
+### Run with Coverage
+```bash
+pytest tests/ --cov=celery_rate_limiter --cov-report=html
+```
+
+### Run Property Tests with More Examples
+```bash
+# Default: 50 examples per property
+pytest tests/properties/
+
+# More thorough: 200 examples
+pytest tests/properties/ --hypothesis-max-examples=200
+```
+
+## Adding a New Limiter Implementation
+
+When adding a new rate limiter implementation (e.g., in-memory, different backend), follow these steps:
+
+### Step 1: Create Implementation Directory
+```bash
+mkdir -p tests/implementations/inmemory
+touch tests/implementations/inmemory/__init__.py
+```
+
+### Step 2: Create Test File Inheriting from Contracts
+```python
+# tests/implementations/inmemory/test_inmemory_limiter.py
+import pytest
+from your_module import InMemoryRateLimiter
+from tests.contracts.test_rate_limiter_contract import RateLimiterContractTest
+
+class TestInMemoryRateLimiter(RateLimiterContractTest):
+    """Test in-memory limiter implementation.
+
+    Inherits all contract tests automatically.
+    """
+
+    @pytest.fixture
+    def limiter(self):
+        """Provide the in-memory limiter instance."""
+        return InMemoryRateLimiter(
+            limiter_id="test_limiter",
+            limit=100,
+            window=60,
+            max_concurrency=10,
+        )
+
+    # Add implementation-specific tests
+    def test_inmemory_specific_behavior(self, limiter):
+        """Test something specific to the in-memory implementation."""
+        # ...
+```
+
+### Step 3: Run Tests
+```bash
+pytest tests/implementations/inmemory/
+```
+
+All contract tests will run automatically against your new implementation!
+
+## Shared Resources
+
+### test_utils.py
+Contains shared utility functions used across multiple tests:
+- `is_subset(target, superset)`: Recursive dictionary subset checker
+
+**Usage:**
+```python
+from tests.test_utils import is_subset
+
+assert is_subset({"a": 1}, {"a": 1, "b": 2})  # True
+```
+
+### test_strategies.py
+Contains shared Hypothesis strategies for generating test data:
+- `json_value`: Generates arbitrary JSON-serializable values
+- `nested_dict`: Generates arbitrary nested dictionaries
+
+**Usage:**
+```python
+from hypothesis import given
+from tests.test_strategies import json_value, nested_dict
+
+@given(payload=json_value)
+def test_something(self, payload):
+    # Test with arbitrary JSON value
+    pass
+```
+
+## Test Naming Conventions
+
+### Test Class Names
+- **Contract classes**: `{Component}ContractTest` (e.g., `RateLimiterContractTest`)
+- **Implementation classes**: `Test{Implementation}{Component}` (e.g., `TestCeleryRateLimiter`)
+
+### Test Method Names
+- Use descriptive names that read like sentences
+- Start with `test_`
+- Include what is being tested and expected outcome
+
+**Good examples:**
+- `test_schedule_task_returns_success_and_task_id`
+- `test_lock_releases_on_exception`
+- `test_payload_survives_redis_round_trip`
+
+**Poor examples:**
+- `test_schedule` (too vague)
+- `test_1` (meaningless)
+- `test_lock` (what about the lock?)
+
+### Docstrings
+- Contract tests: Start with "Contract: " to clarify the requirement
+- Property tests: Start with "Property: " to clarify the invariant
+- Implementation tests: Describe the specific behavior being tested
+
+**Examples:**
+```python
+def test_schedule_duplicate_task_returns_false(self, limiter):
+    """Contract: scheduling identical tasks must return False on duplicate."""
+
+@given(payload=json_value)
+def test_payload_survives_round_trip(self, payload):
+    """Property: any JSON-serializable payload survives Redis round-trip."""
+
+def test_lua_script_recovery_on_noscript_error(self, limiter):
+    """Verify limiter recovers from NoScriptError by reloading Lua script."""
+```
+
+## Assertion Style
+
+### Use Lowercase for Messages
+```python
+# Good
+assert success is True, "task should be scheduled successfully"
+
+# Bad
+assert success is True, "Task should be scheduled successfully"
+```
+
+### Provide Context in Failure Messages
+```python
+# Good
+assert len(results) > 0, f"task with ID {task_id} not found in buffer"
+
+# Bad
+assert len(results) > 0
+```
+
+### Comments Before Lines, Not After
+```python
+# Good
+# Clean state for each example.
+redis_client.flushdb()
+
+# Bad
+redis_client.flushdb()  # Clean state
+```
+
+## Fixtures
+
+### Function-Scoped Fixtures (Default)
+Used for most tests. Clean state between tests:
+- `redis_client`: Fresh Redis connection with DB flushed
+- `limiter`: Fresh limiter instance
+
+### Module-Scoped Fixtures
+Used for property-based tests to improve performance:
+- `property_redis_client`: Shared Redis client for hypothesis tests
+- `property_limiter`: Shared limiter for hypothesis tests
+
+### Session-Scoped Fixtures
+Used for expensive setup:
+- `celery_app`: Celery application instance
+
+## Best Practices
+
+### 1. Keep Tests Focused
+Each test should verify **one specific behavior**. If you need multiple assertions, they should all relate to the same behavior.
+
+### 2. Use Parametrize for Variations
+```python
+@pytest.mark.parametrize(
+    "payload",
+    [{"a": 1}, {}, {"nested": {"b": 2}}],
+    ids=["simple", "empty", "nested"],
+)
+def test_various_payloads(self, limiter, payload):
+    # Test runs 3 times with different payloads
+    pass
+```
+
+### 3. Mock External Dependencies
+Use `unittest.mock` for Celery-specific behavior to avoid needing full Celery workers in tests.
+
+### 4. Clean Up Resources
+Use fixtures with proper teardown or context managers to ensure resources are cleaned up even if tests fail.
+
+## Troubleshooting
+
+### Tests Fail Due to Redis Connection
+Ensure Redis is running:
+```bash
+redis-cli ping  # Should return "PONG"
+```
+
+### Hypothesis Tests Are Slow
+Reduce the number of examples for faster iteration:
+```bash
+pytest tests/properties/ --hypothesis-max-examples=10
+```
+
+### Import Errors
+Ensure you're running pytest from the project root:
+```bash
+cd /path/to/celery-rate-limiter
+pytest tests/
+```
+
+## Contributing
+
+When adding new tests:
+1. Follow the existing structure (contracts, implementations, properties)
+2. Use the AAA pattern (Arrange-Act-Assert)
+3. Add descriptive docstrings
+4. Follow naming conventions
+5. Update this README if adding new patterns or conventions
+
+## Resources
+
+- [Pytest Documentation](https://docs.pytest.org/)
+- [Hypothesis Documentation](https://hypothesis.readthedocs.io/)
+- [Contract Testing Explained](https://martinfowler.com/bliki/ContractTest.html)
+- [Property-Based Testing](https://increment.com/testing/in-praise-of-property-based-testing/)
