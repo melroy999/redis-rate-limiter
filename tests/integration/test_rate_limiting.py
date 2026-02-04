@@ -66,14 +66,14 @@ def consume_and_complete(limiter) -> dict:
 class TestRateLimitingIntegration:
     """Integration tests for rate limiting with Redis."""
 
-    def test_basic_rate_limit_enforcement(self, integration_limiter, redis_client):
+    def test_basic_rate_limit_enforcement(self, integration_limiter, func_path):
         """Verify rate limiter enforces the configured limit.
 
+        Limiter config: limit=5, window=60.
         Schedule 10 tasks, consume up to limit (releasing concurrency slots
         after each consume to isolate rate limit behavior), verify queueing.
         """
         # Arrange
-        func_path = "myapp.tasks.process_data"
         for i in range(10):
             success, _ = integration_limiter.schedule_task(func_path, {"index": i})
             assert success is True
@@ -89,62 +89,13 @@ class TestRateLimitingIntegration:
         assert last_successful["remaining_tokens"] == 0
         assert results[-1]["remaining_tasks"] == 5
 
-    def test_burst_at_window_boundary(self, integration_limiter, redis_client):
-        """Verify sliding window allows burst up to limit at window start.
-
-        Sliding window permits consuming up to limit immediately when
-        previous window is empty, then rate-limits additional requests.
-        """
-        # Arrange
-        func_path = "myapp.tasks.process_data"
-        for i in range(8):
-            integration_limiter.schedule_task(func_path, {"index": i})
-
-        # Act
-        # Concurrency slots are released after each consume to isolate rate limit behavior.
-        results = [consume_and_complete(integration_limiter) for _ in range(5)]
-        burst_consumed = sum(1 for r in results if r["success"])
-
-        # Assert
-        assert burst_consumed == 5
-        next_result = integration_limiter.consume()
-        assert next_result["success"] is False
-        assert next_result["remaining_tokens"] == 0
-        assert next_result["remaining_tasks"] == 3
-
-    def test_rate_limit_recovery_over_time(self, integration_limiter):
-        """Verify rate limit recovers as sliding window progresses."""
-        # Arrange
-        func_path = "myapp.tasks.process_data"
-        for i in range(8):
-            integration_limiter.schedule_task(func_path, {"index": i})
-
-        # Act
-        # Concurrency slots are released after each consume to isolate rate limit behavior.
-        results = [consume_and_complete(integration_limiter) for _ in range(5)]
-        assert all(r["success"] for r in results)
-
-        result = integration_limiter.consume()
-        assert result["success"] is False
-        initial_reset_time = result["reset_in_ms"]
-
-        # Wait for window to slide.
-        time.sleep(3)
-        result = integration_limiter.consume()
-
-        # Assert
-        assert result["reset_in_ms"] < initial_reset_time
-        # Short wait insufficient for token recovery with limit=5, window=60.
-        assert result["success"] is False
-
-    def test_concurrency_limit_enforcement(self, integration_limiter):
+    def test_concurrency_limit_enforcement(self, integration_limiter, func_path):
         """Verify concurrency limits are enforced independently of rate limit.
 
         Limiter config: max_concurrency=2.
         Verify only 2 tasks consumed simultaneously even if rate limit allows more.
         """
         # Arrange
-        func_path = "myapp.tasks.process_data"
         for i in range(5):
             integration_limiter.schedule_task(func_path, {"index": i})
 
@@ -162,28 +113,10 @@ class TestRateLimitingIntegration:
         assert results[2]["success"] is False
         assert results[2]["active_concurrency"] == 2
 
-    def test_multiple_burst_windows(self, integration_limiter):
-        """Verify burst behavior at window boundaries."""
-        # Arrange
-        func_path = "myapp.tasks.process_data"
-        for i in range(10):
-            integration_limiter.schedule_task(func_path, {"index": i})
-
-        # Act
-        # Concurrency slots are released after each consume to isolate rate limit behavior.
-        first_burst = [consume_and_complete(integration_limiter) for _ in range(6)]
-
-        # Assert
-        successful = sum(1 for r in first_burst if r["success"])
-        assert successful == 5
-        assert first_burst[-1]["success"] is False
-        assert first_burst[-1]["remaining_tasks"] == 5
-
     @pytest.mark.parametrize("num_tasks", [3, 5, 10, 20])
-    def test_accurate_telemetry_tracking(self, integration_limiter, num_tasks):
+    def test_accurate_telemetry_tracking(self, integration_limiter, num_tasks, func_path):
         """Verify telemetry accurately tracks remaining tokens and tasks."""
         # Arrange
-        func_path = "myapp.tasks.process_data"
         for i in range(num_tasks):
             integration_limiter.schedule_task(func_path, {"index": i})
 
@@ -216,3 +149,219 @@ class TestRateLimitingIntegration:
         assert result["task"] is None
         assert result["remaining_tasks"] == 0
         assert result["remaining_tokens"] == 5
+
+
+class TestSlidingWindowBehavior:
+    """Tests for sliding window counter algorithm behavior.
+
+    The sliding window counter algorithm approximates a true sliding window
+    by weighting the previous and current fixed windows. This has important
+    implications:
+
+    1. **Burst behavior**: At window boundaries, up to 2x the limit may be
+       consumed in a short period. This occurs when the previous window is
+       empty and requests arrive at the boundary--the algorithm allows a full
+       `limit` from each adjacent window.
+
+    2. **Long-term convergence**: Despite short-term bursts, the average
+       consumption rate over multiple windows converges to the configured
+       limit. This is the key property we test here.
+
+    These tests verify long-term rate convergence and opportunistically check
+    the 2x burst bound. The burst bound check is NOT guaranteed to catch all
+    violations (it depends on timing we don't control), but will fail if the
+    implementation is fundamentally broken.
+    """
+
+    @pytest.fixture
+    def sliding_window_limiter(self, redis_client, celery_app):
+        """Limiter with short window for sliding window behavior tests.
+
+        Config:
+            - limit: 10 requests per window
+            - window: 2 seconds (short for practical testing)
+            - max_concurrency: 50 (high to isolate rate limiting behavior)
+        """
+        limiter = CeleryRateLimiter(
+            redis_client=redis_client,
+            celery_app=celery_app,
+            limiter_id="sliding_window_test_limiter",
+            limit=10,
+            window=2,
+            max_concurrency=50,
+            max_age=3600,
+            lease_duration=30,
+        )
+
+        yield limiter
+
+        keys = redis_client.keys(f"{limiter.id}:*")
+        if keys:
+            redis_client.delete(*keys)
+
+    def test_long_term_rate_converges_to_limit(
+        self, sliding_window_limiter, func_path
+    ):
+        """Verify average consumption rate converges to configured limit.
+
+        Over multiple windows, total successful consumptions should approximate
+        `num_windows x limit`. This tests the fundamental property of rate
+        limiting: controlling throughput over time.
+
+        Additionally, we opportunistically verify that no window-sized period
+        exceeds 2x the limit. This check is NOT exhaustive--the 2x bound depends
+        on specific timing scenarios (empty previous window + boundary burst)
+        that we cannot reliably trigger. However, it will catch grossly broken
+        implementations that allow unbounded throughput.
+
+        Note on the 2x bound: The sliding window counter algorithm can allow
+        up to 2x limit in edge cases. This is a known algorithmic property,
+        not a bug. A true sliding window would enforce exactly 1x limit, but
+        the counter approximation trades this for O(1) space complexity.
+        """
+        # Arrange: infer configuration from limiter for consistency.
+        limit = sliding_window_limiter.limit
+        window = sliding_window_limiter.window
+        num_windows = 4
+        total_duration = num_windows * window
+
+        # Schedule more tasks than we expect to consume.
+        for i in range(100):
+            sliding_window_limiter.schedule_task(func_path, {"index": i})
+
+        # Act: consume continuously, recording timestamps.
+        # Only sleep on failure (rate limited) to maximize burst potential.
+        start_time = time.time()
+        timestamps = []
+
+        while time.time() - start_time < total_duration:
+            result = consume_and_complete(sliding_window_limiter)
+            if result["success"]:
+                timestamps.append(time.time())
+            else:
+                # Rate limited--wait briefly for tokens to recover.
+                time.sleep(0.1)
+
+        total_consumed = len(timestamps)
+        actual_duration = time.time() - start_time
+
+        # Calculate observed metrics.
+        observed_max_burst = 0
+        for ts in timestamps:
+            count_in_window = sum(1 for t in timestamps if ts <= t < ts + window)
+            observed_max_burst = max(observed_max_burst, count_in_window)
+
+        observed_rate = total_consumed / actual_duration * window  # requests per window
+
+        # Report observed metrics.
+        print(f"\n  Sliding window test results:")
+        print(f"    Config: limit={limit}, window={window}s")
+        print(f"    Duration: {actual_duration:.2f}s ({num_windows} windows)")
+        print(f"    Total consumed: {total_consumed}")
+        print(f"    Observed rate: {observed_rate:.2f} requests/window (expected: {limit})")
+        print(f"    Max burst in any {window}s window: {observed_max_burst} (max allowed: {2 * limit})")
+
+        # Assert 1: Long-term rate convergence.
+        # Total consumed should be approximately num_windows x limit.
+        expected = num_windows * limit
+        # Allow 20% tolerance for timing variations and algorithm approximation.
+        tolerance = 0.20
+        lower_bound = expected * (1 - tolerance)
+        upper_bound = expected * (1 + tolerance)
+
+        assert lower_bound <= total_consumed <= upper_bound, (
+            f"Expected ~{expected} consumed over {num_windows} windows, "
+            f"got {total_consumed} (tolerance: ±{tolerance * 100:.0f}%)"
+        )
+
+        # Assert 2: Opportunistic 2x bound check.
+        # Verify no window-sized period exceeded 2x limit.
+        # This is NOT guaranteed to catch all violations--it depends on
+        # timing we don't control--but catches fundamentally broken implementations.
+        max_burst = 2 * limit
+        assert observed_max_burst <= max_burst, (
+            f"Exceeded 2x limit: {observed_max_burst} requests in {window}s window "
+            f"(limit={limit}, max_allowed={max_burst}). "
+            f"This indicates a bug in the sliding window implementation."
+        )
+
+    def test_burst_at_window_boundary_after_empty_window(
+        self, sliding_window_limiter, func_path
+    ):
+        """Verify burst behavior when consuming across a boundary after an empty window.
+
+        The sliding window counter allows up to 2x limit when:
+        1. The previous window is empty (no consumption)
+        2. Consumption starts near the end of the current (empty) window
+        3. Consumption continues into the next window
+
+        This test uses `reset_in_ms` to calculate a single wait that positions
+        us at the end of a window with an empty previous window:
+        - Wait for reset_in_ms (finish current window)
+        - Plus one full window (ensure an empty window passes)
+        - Plus 80% of another window (position near the end)
+        """
+        # Arrange: infer configuration from limiter.
+        limit = sliding_window_limiter.limit
+        window = sliding_window_limiter.window
+        window_tail = 0.05  # Fraction of window to use as "near the end"
+
+        # Schedule enough tasks for a potential 2x burst.
+        for i in range(limit * 3):
+            sliding_window_limiter.schedule_task(func_path, {"index": i})
+
+        # Get reset_in_ms to calculate wait time.
+        # This consume may succeed, but we only need the timing info.
+        result = sliding_window_limiter.consume()
+        if result["success"]:
+            with sliding_window_limiter.task_lifecycle(result["task"]["id"]):
+                pass
+
+        reset_ms = result["reset_in_ms"]
+
+        # Calculate wait: finish current window + skip one empty window + position near end.
+        # This ensures the previous window is empty when we start consuming.
+        wait_seconds = (reset_ms / 1000) + window + (window * (1 - window_tail))
+        time.sleep(wait_seconds)
+
+        # Consume rapidly across the window boundary.
+        # Use a time-based loop: tail of current window + enough windows to consume all tasks.
+        # This ensures we capture the burst and verify subsequent windows don't cause issues.
+        timestamps = []
+        num_task_windows = 3  # We scheduled limit * 3 tasks
+        burst_window = window * (num_task_windows + window_tail)
+        start_time = time.time()
+
+        while time.time() - start_time < burst_window:
+            result = consume_and_complete(sliding_window_limiter)
+            if result["success"]:
+                timestamps.append(time.time())
+            # No sleep--consume as fast as possible to maximize burst
+
+        total_consumed = len(timestamps)
+        burst_duration = timestamps[-1] - timestamps[0] if len(timestamps) > 1 else 0
+
+        # Calculate max burst in any window-sized period.
+        max_burst_in_window = 0
+        for ts in timestamps:
+            count_in_window = sum(1 for t in timestamps if ts <= t < ts + window)
+            max_burst_in_window = max(max_burst_in_window, count_in_window)
+
+        # Report observed burst.
+        print(f"\n  Window boundary burst test results:")
+        print(f"    Config: limit={limit}, window={window}s")
+        print(f"    Burst duration: {burst_duration:.3f}s")
+        print(f"    Total consumed: {total_consumed}")
+        print(f"    Max in any {window}s window: {max_burst_in_window}")
+        print(f"    Expected range: {limit} < max_burst <= {2 * limit}")
+
+        # Assert: max burst in any window should exceed limit (demonstrating burst)
+        # but never exceed 2x limit (the algorithmic upper bound).
+        assert max_burst_in_window > limit, (
+            f"Expected burst to exceed limit ({limit}), got {max_burst_in_window}. "
+            f"This may indicate the test didn't trigger the burst scenario."
+        )
+        assert max_burst_in_window <= 2 * limit, (
+            f"Burst exceeded 2x limit: {max_burst_in_window} > {2 * limit}. "
+            f"This indicates a bug in the sliding window implementation."
+        )

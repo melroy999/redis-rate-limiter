@@ -48,7 +48,7 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
         )
 
         # Assert that the task is in the buffer only once.
-        cursor, results = redis_client.zscan(limiter.buffer_key, match=f'*"{task_id}"*')
+        _, results = redis_client.zscan(limiter.buffer_key, match=f'*"{task_id}"*')
         assert len(results) > 0, f"task with ID {task_id} not found in buffer"
         assert len(results) == 1, (
             f"task with ID {task_id} has been found more than once in the buffer"
@@ -70,41 +70,32 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
 
     # ==================== Implementation-Specific Tests ====================
 
-    def test_schedule_single_task_stores_correctly(self, limiter, redis_client):
+    def test_schedule_single_task_stores_correctly(self, limiter, redis_client, func_path, default_payload):
         """Verify a single task is stored with all required metadata."""
-        # Arrange
-        payload = {"user_id": 123}
-        func_path = "myapp.tasks.process_data"
-
         # Act
-        success, task_id = limiter.schedule_task(func_path, payload)
+        _, task_id = limiter.schedule_task(func_path, default_payload)
 
         # Assert
-        self.assert_task_existence(limiter, redis_client, func_path, payload, task_id)
+        self.assert_task_existence(limiter, redis_client, func_path, default_payload, task_id)
         assert redis_client.zcard(limiter.buffer_key) == 1, "buffer should contain exactly one task"
 
-    def test_schedule_duplicate_task_skips_second(self, limiter, redis_client):
+    def test_schedule_duplicate_task_skips_second(self, limiter, redis_client, func_path, default_payload):
         """Verify duplicate tasks are not scheduled twice."""
-        # Arrange
-        payload = {"user_id": 123}
-        func_path = "myapp.tasks.process_data"
-
         # Act
-        success_1, task_id_1 = limiter.schedule_task(func_path, payload)
-        success_2, task_id_2 = limiter.schedule_task(func_path, payload)
+        success_1, task_id_1 = limiter.schedule_task(func_path, default_payload)
+        success_2, task_id_2 = limiter.schedule_task(func_path, default_payload)
 
         # Assert
         assert success_1 is True, "first task should be scheduled successfully"
         assert success_2 is False, "duplicate task should not be scheduled"
         assert task_id_1 == task_id_2, "duplicate task should have same ID"
-        self.assert_task_existence(limiter, redis_client, func_path, payload, task_id_1)
+        self.assert_task_existence(limiter, redis_client, func_path, default_payload, task_id_1)
 
-    def test_schedule_multiple_tasks_with_one_duplicate(self, limiter, redis_client):
+    def test_schedule_multiple_tasks_with_one_duplicate(self, limiter, redis_client, func_path):
         """Verify multiple different tasks can be scheduled with duplicate detection."""
         # Arrange
         payload_1 = {"user_id": 123}
         payload_2 = {"user_id": 456}
-        func_path = "myapp.tasks.process_data"
 
         # Act
         limiter.schedule_task(func_path, payload_1)
@@ -129,11 +120,8 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
         ],
         ids=["simple_dict", "empty_dict", "nested_dict", "unicode_content"],
     )
-    def test_payload_serialization_preserves_data(self, limiter, redis_client, payload):
+    def test_payload_serialization_preserves_data(self, limiter, redis_client, payload, func_path):
         """Property: any JSON-serializable payload should survive Redis round-trip."""
-        # Arrange
-        func_path = "myapp.tasks.process_data"
-
         # Act
         success, task_id = limiter.schedule_task(func_path, payload)
 
@@ -141,11 +129,9 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
         assert success is True, "task should be scheduled successfully"
         self.assert_task_existence(limiter, redis_client, func_path, payload, task_id)
 
-    def test_lua_script_recovery_on_noscript_error(self, limiter, redis_client):
+    def test_lua_script_recovery_on_noscript_error(self, limiter, redis_client, func_path, default_payload):
         """Verify limiter recovers from NoScriptError by reloading Lua script."""
         # Arrange
-        payload = {"user_id": 123}
-        func_path = "myapp.tasks.process_data"
         real_evalsha = redis_client.evalsha
         real_script_load = redis_client.script_load
 
@@ -167,11 +153,11 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
                 limiter.redis, "script_load", side_effect=real_script_load
             ) as mock_load,
         ):
-            success, task_id = limiter.schedule_task(func_path, payload)
+            success, task_id = limiter.schedule_task(func_path, default_payload)
 
             # Assert
             assert success is True, "task should be scheduled after recovery"
-            self.assert_task_existence(limiter, redis_client, func_path, payload, task_id)
+            self.assert_task_existence(limiter, redis_client, func_path, default_payload, task_id)
 
             # Verify recovery path was taken.
             assert mock_eval.call_count == 2, "evalsha should be called twice (fail then retry)"

@@ -56,6 +56,28 @@ def celery_config():
     }
 
 
+@pytest.fixture(scope="session")
+def func_path():
+    """Fictional function path for test task scheduling.
+
+    Returns:
+        A placeholder function path string representing a non-existent
+        Celery task, used when scheduling test tasks.
+    """
+    return "rate_limiter.test.task.function"
+
+
+@pytest.fixture(scope="session")
+def default_payload():
+    """Default payload for test task scheduling.
+
+    Returns:
+        A generic payload dictionary for use in tests where the
+        specific payload content is not relevant to the test.
+    """
+    return {"user_id": 123}
+
+
 @pytest.fixture
 def limiter(redis_client, celery_app):
     """Setup and teardown for the CeleryRateLimiter.

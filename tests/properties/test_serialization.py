@@ -11,7 +11,7 @@ import redis
 from hypothesis import HealthCheck, given, settings, strategies as st
 
 from celery_rate_limiter.limiters import CeleryRateLimiter
-from tests.test_strategies import json_value, nested_dict
+from tests.test_strategies import nested_dict
 from tests.test_utils import dict_equals_approx
 
 
@@ -63,7 +63,7 @@ class TestSerializationProperties:
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
     def test_json_payload_survives_redis_round_trip(
-        self, property_limiter, property_redis_client, payload
+        self, property_limiter, property_redis_client, payload, func_path
     ):
         """Property: any JSON-serializable dict payload survives Redis round-trip unchanged.
 
@@ -77,7 +77,6 @@ class TestSerializationProperties:
         # Arrange
         # Clean state for each example.
         property_redis_client.flushdb()
-        func_path = "myapp.tasks.example"
 
         # Act
         try:
@@ -91,7 +90,7 @@ class TestSerializationProperties:
             )
 
             # Retrieve the task data from Redis.
-            cursor, results = property_redis_client.zscan(
+            _, results = property_redis_client.zscan(
                 property_limiter.buffer_key, match=f'*"{task_id}"*'
             )
 
@@ -135,7 +134,7 @@ class TestSerializationProperties:
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
     def test_nonempty_dict_payloads_are_schedulable(
-        self, property_limiter, property_redis_client, payload
+        self, property_limiter, property_redis_client, payload, func_path
     ):
         """Property: any non-empty dictionary payload can be successfully scheduled.
 
@@ -143,7 +142,6 @@ class TestSerializationProperties:
         """
         # Arrange
         property_redis_client.flushdb()
-        func_path = "myapp.tasks.example"
 
         # Act
         success, task_id = property_limiter.schedule_task(func_path, payload)

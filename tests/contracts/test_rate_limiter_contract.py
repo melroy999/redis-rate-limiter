@@ -25,14 +25,10 @@ class RateLimiterContractTest:
     # ==================== Contract Tests ====================
 
     @staticmethod
-    def test_schedule_task_returns_success_and_task_id(limiter, redis_client):
+    def test_schedule_task_returns_success_and_task_id(limiter, func_path, default_payload):
         """Contract: schedule_task must return (bool, str) tuple."""
-        # Arrange
-        func_path = "myapp.tasks.example"
-        payload = {"key": "value"}
-
         # Act
-        success, task_id = limiter.schedule_task(func_path, payload)
+        success, task_id = limiter.schedule_task(func_path, default_payload)
 
         # Assert
         assert isinstance(success, bool), "first return value must be a boolean"
@@ -40,14 +36,10 @@ class RateLimiterContractTest:
         assert len(task_id) > 0, "task ID must not be empty"
 
     @staticmethod
-    def test_schedule_task_marks_task_as_active(limiter, redis_client):
+    def test_schedule_task_marks_task_as_active(limiter, redis_client, func_path, default_payload):
         """Contract: scheduled tasks must be marked as active in Redis."""
-        # Arrange
-        func_path = "myapp.tasks.example"
-        payload = {"user_id": 123}
-
         # Act
-        success, task_id = limiter.schedule_task(func_path, payload)
+        success, task_id = limiter.schedule_task(func_path, default_payload)
 
         # Assert
         assert success is True, "scheduling should succeed for first task"
@@ -57,14 +49,10 @@ class RateLimiterContractTest:
         )
 
     @staticmethod
-    def test_schedule_task_adds_to_buffer(limiter, redis_client):
+    def test_schedule_task_adds_to_buffer(limiter, redis_client, func_path, default_payload):
         """Contract: scheduled tasks must be added to the buffer."""
-        # Arrange
-        func_path = "myapp.tasks.example"
-        payload = {"user_id": 123}
-
         # Act
-        success, task_id = limiter.schedule_task(func_path, payload)
+        success, task_id = limiter.schedule_task(func_path, default_payload)
 
         # Assert
         assert success is True, "scheduling should succeed"
@@ -72,15 +60,11 @@ class RateLimiterContractTest:
         assert buffer_size >= 1, "buffer must contain at least the scheduled task"
 
     @staticmethod
-    def test_schedule_duplicate_task_returns_false(limiter, redis_client):
+    def test_schedule_duplicate_task_returns_false(limiter, func_path, default_payload):
         """Contract: scheduling identical tasks must return False on duplicate."""
-        # Arrange
-        func_path = "myapp.tasks.example"
-        payload = {"user_id": 123}
-
         # Act
-        success_1, task_id_1 = limiter.schedule_task(func_path, payload)
-        success_2, task_id_2 = limiter.schedule_task(func_path, payload)
+        success_1, task_id_1 = limiter.schedule_task(func_path, default_payload)
+        success_2, task_id_2 = limiter.schedule_task(func_path, default_payload)
 
         # Assert
         assert success_1 is True, "first scheduling should succeed"
