@@ -36,9 +36,31 @@ def integration_limiter(redis_client, celery_app):
     yield limiter
 
     # Cleanup
+    # Delete all keys associated with the limiter to ensure all tests get a clean slate.
     keys = redis_client.keys(f"{limiter.id}:*")
     if keys:
         redis_client.delete(*keys)
+
+
+def consume_and_complete(limiter) -> dict:
+    """Consume a task and immediately complete its lifecycle.
+
+    This simulates a task being consumed and executed instantly, releasing
+    the concurrency slot. Useful for tests that need to isolate rate limiting
+    behavior from concurrency limiting.
+
+    Args:
+        limiter: The rate limiter instance.
+
+    Returns:
+        The consume result dict.
+    """
+    result = limiter.consume()
+    if result["success"]:
+        task_id = result["task"]["id"]
+        with limiter.task_lifecycle(task_id):
+            pass
+    return result
 
 
 class TestRateLimitingIntegration:
@@ -47,8 +69,8 @@ class TestRateLimitingIntegration:
     def test_basic_rate_limit_enforcement(self, integration_limiter, redis_client):
         """Verify rate limiter enforces the configured limit.
 
-        Limiter config: limit=5 per window=60 seconds.
-        Schedule 10 tasks, consume up to limit, verify queueing.
+        Schedule 10 tasks, consume up to limit (releasing concurrency slots
+        after each consume to isolate rate limit behavior), verify queueing.
         """
         # Arrange
         func_path = "myapp.tasks.process_data"
@@ -57,13 +79,9 @@ class TestRateLimitingIntegration:
             assert success is True
 
         # Act
-        consumed_count = 0
-        results = []
-        for _ in range(10):
-            result = integration_limiter.consume()
-            results.append(result)
-            if result["success"]:
-                consumed_count += 1
+        # Concurrency slots are released after each consume to isolate rate limit behavior.
+        results = [consume_and_complete(integration_limiter) for _ in range(10)]
+        consumed_count = sum(1 for r in results if r["success"])
 
         # Assert
         assert consumed_count == 5, "should consume exactly 5 tasks"
@@ -83,11 +101,9 @@ class TestRateLimitingIntegration:
             integration_limiter.schedule_task(func_path, {"index": i})
 
         # Act
-        burst_consumed = 0
-        for _ in range(5):
-            result = integration_limiter.consume()
-            if result["success"]:
-                burst_consumed += 1
+        # Concurrency slots are released after each consume to isolate rate limit behavior.
+        results = [consume_and_complete(integration_limiter) for _ in range(5)]
+        burst_consumed = sum(1 for r in results if r["success"])
 
         # Assert
         assert burst_consumed == 5
@@ -96,7 +112,7 @@ class TestRateLimitingIntegration:
         assert next_result["remaining_tokens"] == 0
         assert next_result["remaining_tasks"] == 3
 
-    def test_rate_limit_recovery_over_time(self, integration_limiter, redis_client):
+    def test_rate_limit_recovery_over_time(self, integration_limiter):
         """Verify rate limit recovers as sliding window progresses."""
         # Arrange
         func_path = "myapp.tasks.process_data"
@@ -104,9 +120,9 @@ class TestRateLimitingIntegration:
             integration_limiter.schedule_task(func_path, {"index": i})
 
         # Act
-        for _ in range(5):
-            result = integration_limiter.consume()
-            assert result["success"] is True
+        # Concurrency slots are released after each consume to isolate rate limit behavior.
+        results = [consume_and_complete(integration_limiter) for _ in range(5)]
+        assert all(r["success"] for r in results)
 
         result = integration_limiter.consume()
         assert result["success"] is False
@@ -121,7 +137,7 @@ class TestRateLimitingIntegration:
         # Short wait insufficient for token recovery with limit=5, window=60.
         assert result["success"] is False
 
-    def test_concurrency_limit_enforcement(self, integration_limiter, redis_client):
+    def test_concurrency_limit_enforcement(self, integration_limiter):
         """Verify concurrency limits are enforced independently of rate limit.
 
         Limiter config: max_concurrency=2.
@@ -146,7 +162,7 @@ class TestRateLimitingIntegration:
         assert results[2]["success"] is False
         assert results[2]["active_concurrency"] == 2
 
-    def test_multiple_burst_windows(self, integration_limiter, redis_client):
+    def test_multiple_burst_windows(self, integration_limiter):
         """Verify burst behavior at window boundaries."""
         # Arrange
         func_path = "myapp.tasks.process_data"
@@ -154,10 +170,8 @@ class TestRateLimitingIntegration:
             integration_limiter.schedule_task(func_path, {"index": i})
 
         # Act
-        first_burst = []
-        for _ in range(6):
-            result = integration_limiter.consume()
-            first_burst.append(result)
+        # Concurrency slots are released after each consume to isolate rate limit behavior.
+        first_burst = [consume_and_complete(integration_limiter) for _ in range(6)]
 
         # Assert
         successful = sum(1 for r in first_burst if r["success"])
@@ -166,7 +180,7 @@ class TestRateLimitingIntegration:
         assert first_burst[-1]["remaining_tasks"] == 5
 
     @pytest.mark.parametrize("num_tasks", [3, 5, 10, 20])
-    def test_accurate_telemetry_tracking(self, integration_limiter, redis_client, num_tasks):
+    def test_accurate_telemetry_tracking(self, integration_limiter, num_tasks):
         """Verify telemetry accurately tracks remaining tokens and tasks."""
         # Arrange
         func_path = "myapp.tasks.process_data"
@@ -174,10 +188,8 @@ class TestRateLimitingIntegration:
             integration_limiter.schedule_task(func_path, {"index": i})
 
         # Act
-        results = []
-        for _ in range(num_tasks):
-            result = integration_limiter.consume()
-            results.append(result)
+        # Concurrency slots are released after each consume to isolate rate limit behavior.
+        results = [consume_and_complete(integration_limiter) for _ in range(num_tasks)]
 
         # Assert
         consumed = sum(1 for r in results if r["success"])
@@ -194,7 +206,7 @@ class TestRateLimitingIntegration:
             actual_tokens = [r["remaining_tokens"] for r in successful_results]
             assert actual_tokens == expected_tokens[:len(successful_results)]
 
-    def test_empty_buffer_returns_no_task(self, integration_limiter, redis_client):
+    def test_empty_buffer_returns_no_task(self, integration_limiter):
         """Verify consuming from empty buffer returns unsuccessful result."""
         # Act
         result = integration_limiter.consume()
