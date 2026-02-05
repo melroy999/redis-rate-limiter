@@ -1,3 +1,5 @@
+import os
+
 import pytest
 import redis
 
@@ -6,22 +8,35 @@ from src import CeleryRateLimiter
 pytest_plugins = ("celery.contrib.pytest",)
 
 
+# Redis configuration from environment variables
+# Defaults to localhost:6379, but can be overridden for Docker Compose
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+
+
 @pytest.fixture(scope="session")
 def _redis_connection():
     """Connect to a real Redis instance for testing.
 
     We only do this once and just flush the database between tests.
 
+    Connection details can be configured via environment variables:
+    - REDIS_HOST: Redis hostname (default: localhost)
+    - REDIS_PORT: Redis port (default: 6379)
+
     Yields:
-        A Redis client connected to localhost.
+        A Redis client connected to the configured Redis instance.
     """
-    client = redis.Redis(host="localhost", port=6379, decode_responses=True)
+    client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
     # Verify connection works before starting suite.
     try:
         client.ping()
     except redis.exceptions.ConnectionError:
-        pytest.fail("Could not connect to Redis. Is it running?")
+        pytest.fail(
+            f"Could not connect to Redis at {REDIS_HOST}:{REDIS_PORT}. Is it running?\n"
+            f"Tip: Use docker-compose up redis or set REDIS_HOST/REDIS_PORT environment variables."
+        )
 
     yield client
     client.close()
@@ -46,12 +61,15 @@ def redis_client(_redis_connection):
 def celery_config():
     """Configure the celery_app fixture.
 
+    Uses the same Redis configuration as tests (from environment variables).
+
     Returns:
         A dictionary with Celery configuration for testing.
     """
+    redis_url = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
     return {
-        "broker_url": "redis://localhost:6379/0",
-        "result_backend": "redis://localhost:6379/0",
+        "broker_url": redis_url,
+        "result_backend": redis_url,
         "task_always_eager": True,
     }
 

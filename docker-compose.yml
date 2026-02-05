@@ -1,0 +1,92 @@
+services:
+  # Redis service for rate limiting backend.
+  redis:
+    image: redis:7-alpine
+    container_name: celery-rate-limiter-redis
+    ports:
+      # Map to port 6380 by default to avoid conflicts with local Redis on 6379.
+      # Override with REDIS_PORT environment variable if needed.
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      # Optional: persist Redis data.
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - rate-limiter-network
+
+  # Celery worker service (production).
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: celery-rate-limiter-worker
+    environment:
+      # Configure Celery to use the docker-compose Redis.
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - rate-limiter-network
+    profiles:
+      # Only start with: docker-compose --profile production up.
+      - production
+
+  # Test runner service.
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test
+    container_name: celery-rate-limiter-test
+    environment:
+      # Tests will use docker-compose Redis instead of localhost.
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    volumes:
+      # Mount source for live development.
+      - ./src:/app/src:ro
+      - ./tests:/app/tests:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    # Run tests with verbose output.
+    command: poetry run pytest tests/ -v
+    networks:
+      - rate-limiter-network
+    profiles:
+      # Only start with: docker-compose --profile test up.
+      - test
+
+  # Optional: Redis Commander (web UI for debugging).
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: celery-rate-limiter-redis-ui
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - rate-limiter-network
+    profiles:
+      # Only start with: docker-compose --profile debug up.
+      - debug
+
+volumes:
+  redis-data:
+    driver: local
+
+networks:
+  rate-limiter-network:
+    driver: bridge
