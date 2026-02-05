@@ -11,8 +11,8 @@ import redis
 from hypothesis import HealthCheck, given, settings, strategies as st
 
 from celery_rate_limiter.limiters import CeleryRateLimiter
-from tests.test_strategies import nested_dict
-from tests.test_utils import dict_equals_approx
+from helpers.strategies import nested_dict
+from helpers.utils import dict_equals_approx
 
 
 @pytest.fixture(scope="module")

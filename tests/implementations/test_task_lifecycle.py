@@ -1,7 +1,8 @@
 """Tests for the TaskLifecycle context manager.
 
 This module tests the TaskLifecycle implementation that manages concurrency
-slots and task cleanup. It inherits contract tests and adds implementation-specific tests.
+slots and task cleanup. It inherits contract tests and adds generic
+implementation-specific tests that work with any rate limiter implementation.
 """
 
 import os
@@ -11,14 +12,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from celery_rate_limiter.limiters import CeleryRateLimiter, TaskLifecycle
-from tests.contracts.test_lifecycle_contract import TaskLifecycleContractTest
-
-
-@pytest.fixture
-def task_id():
-    """Provide a consistent task ID for testing."""
-    return "task123"
+from celery_rate_limiter.limiters import TaskLifecycle
+from tests.contracts.test_task_lifecycle import TaskLifecycleContractTest
+from tests.implementations.conftest import MinimalRateLimiter
 
 
 @pytest.fixture
@@ -54,7 +50,7 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
     """Test TaskLifecycle context manager implementation.
 
     Inherits all contract tests from TaskLifecycleContractTest and adds
-    Celery-specific tests for heartbeat handling and lifecycle behavior.
+    generic implementation tests for heartbeat handling and lifecycle behavior.
     """
 
     # ==================== Implementation-Specific Tests ====================
@@ -117,14 +113,13 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
         ids=["default_warn_override_kill", "default_kill_override_warn"]
     )
     def test_heartbeat_failure_override_precedence(
-        self, redis_client, celery_app, task_id, original, override
+        self, redis_client, task_id, original, override
     ):
         """Verify that override parameter takes precedence over limiter default."""
         # Arrange
         # Use real limiter to test override mechanism.
-        limiter = CeleryRateLimiter(
-            redis_client,
-            celery_app,
+        limiter = MinimalRateLimiter(
+            redis_client=redis_client,
             limiter_id="test_id",
             limit=1,
             window=1,
@@ -135,7 +130,6 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
 
         # Act
         # Create lifecycle with override.
-        # noinspection PyTypeChecker
         lifecycle_with_override = limiter.task_lifecycle(
             task_id,
             on_heartbeat_failure_override=override,

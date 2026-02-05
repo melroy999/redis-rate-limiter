@@ -1,27 +1,33 @@
 # Test Suite Documentation
 
-This directory contains a comprehensive test suite for the celery-rate-limiter project, organized using **contract-based testing** and **property-based testing** patterns.
+This directory contains a comprehensive test suite for the celery-rate-limiter project, organized using **contract-based**, **property-based**, **algorithm/spec**, and **integration** testing patterns.
+
+All test categories assume a real Redis instance is available, because the core limiter logic is implemented in Redis Lua scripts.
 
 ## Directory Structure
 
 ```
 tests/
 ├── contracts/                          # Abstract interface contracts
-│   ├── test_rate_limiter_contract.py   # Tests any limiter must satisfy
-│   ├── test_lock_contract.py           # Tests any lock must satisfy
-│   └── test_lifecycle_contract.py      # Tests any lifecycle manager must satisfy
+│   ├── test_rate_limiter.py            # Tests any limiter must satisfy
+│   ├── test_distributed_lock.py        # Tests any lock must satisfy
+│   └── test_task_lifecycle.py          # Tests any lifecycle manager must satisfy
 │
 ├── implementations/                    # Implementation-specific tests
-│   └── celery_redis/                   # Celery + Redis implementation
+│   ├── test_distributed_lock.py        # Redis-backed lock implementation tests
+│   └── celery/                         # Celery implementation (uses Redis + Lua)
 │       ├── test_celery_limiter.py      # Inherits contract + adds Celery tests
-│       ├── test_distributed_lock.py    # Inherits contract + adds Redis tests
 │       ├── test_task_lifecycle.py      # Inherits contract + adds lifecycle tests
 │       └── test_internal_helpers.py    # Lua script loading and helpers
+│
+├── algorithms/                         # Pure algorithm/spec tests (no backend)
+│   ├── sliding_window_counter.py       # Shared pure algorithm used by tests
+│   └── test_sliding_window_counter.py  # Deterministic algorithm/spec tests
 │
 ├── properties/                         # Property-based tests (Hypothesis)
 │   ├── test_serialization.py           # Payload serialization properties
 │   ├── test_is_subset.py               # Mathematical subset properties
-│   └── test_sliding_window_counter.py  # Sliding window counter algorithm
+│   └── test_sliding_window_counter.py  # Sliding window invariants (Hypothesis)
 │
 ├── integration/                        # End-to-end integration tests
 │   └── test_rate_limiting.py           # Rate limiting behavior verification
@@ -31,6 +37,14 @@ tests/
 ├── conftest.py                         # Pytest fixtures and configuration
 └── README.md                           # This file
 ```
+
+## Quick Placement Rules
+
+1. Contract tests define interface guarantees and live in `contracts/`.
+1. Implementation tests verify backend-specific behavior and live in `implementations/<backend>/` (or directly in `implementations/` when shared).
+1. Algorithm/spec tests validate pure logic with no Redis/Celery dependency in the test code and live in `algorithms/`.
+1. Property-based tests use Hypothesis to check invariants and live in `properties/`.
+1. Integration tests verify end-to-end behavior with real Redis/Lua/Celery wiring and live in `integration/`.
 
 ## Testing Philosophy
 
@@ -46,7 +60,7 @@ Contract tests define the **expected behavior** for interfaces, ensuring all imp
 
 **Example:**
 ```python
-# contracts/test_rate_limiter_contract.py
+# contracts/test_rate_limiter.py
 class RateLimiterContractTest:
     """Abstract test suite that any RateLimiter must pass."""
 
@@ -56,7 +70,7 @@ class RateLimiterContractTest:
         assert isinstance(success, bool)
         assert isinstance(task_id, str)
 
-# implementations/celery_redis/test_celery_limiter.py
+# implementations/celery/test_celery_limiter.py
 class TestCeleryRateLimiter(RateLimiterContractTest):
     """Inherits all contract tests + adds Celery-specific tests."""
     pass  # Automatically runs all contract tests!
@@ -73,9 +87,11 @@ Property-based tests use [Hypothesis](https://hypothesis.readthedocs.io/) to aut
 - Automatically shrinks failing cases to minimal examples
 
 **Example:**
+
 ```python
 from hypothesis import given
 from tests.test_strategies import json_value
+
 
 @given(payload=json_value)  # Generates arbitrary JSON structures
 def test_json_payload_survives_redis_round_trip(self, limiter, redis_client, payload):
@@ -84,7 +100,26 @@ def test_json_payload_survives_redis_round_trip(self, limiter, redis_client, pay
     # Verify payload was preserved...
 ```
 
-### 3. Integration Testing
+### 3. Algorithm/Spec Testing
+
+Algorithm/spec tests validate pure logic extracted from Redis/Lua behavior, without any backend dependencies.
+
+**Benefits:**
+- Verifies core math and edge cases deterministically
+- Keeps tricky logic testable without Redis time control
+- Acts as a spec for the Lua implementation
+
+**Example:**
+
+```python
+from tests.algorithms.sliding_window_counter import sliding_window_estimate
+
+
+def test_weight_is_half_at_midpoint():
+    assert sliding_window_estimate(10, 0, 1000, 500) == 5.0
+```
+
+### 4. Integration Testing
 
 Integration tests verify end-to-end behavior of the rate limiter with real Redis and Lua scripts.
 
@@ -121,7 +156,7 @@ def test_basic_rate_limit_enforcement(self, integration_limiter, redis_client):
     assert consumed == 5  # Only 5 consumed due to rate limit
 ```
 
-### 4. Arrange-Act-Assert Pattern
+### 5. Arrange-Act-Assert Pattern
 
 All tests follow the AAA pattern for clarity:
 
@@ -142,6 +177,8 @@ def test_example(self, limiter, redis_client):
 ```
 
 ## Running Tests
+
+All test runs expect a real Redis instance to be available.
 
 ### Run All Tests (excluding slow tests)
 ```bash
@@ -170,11 +207,14 @@ pytest tests/implementations/
 # Property-based tests only
 pytest tests/properties/
 
+# Algorithm/spec tests only
+pytest tests/algorithms/
+
 # Integration tests only
 pytest tests/integration/
 
 # Specific implementation
-pytest tests/implementations/celery_redis/
+pytest tests/implementations/celery/
 ```
 
 ### Run with Coverage
@@ -206,7 +246,7 @@ touch tests/implementations/inmemory/__init__.py
 # tests/implementations/inmemory/test_inmemory_limiter.py
 import pytest
 from your_module import InMemoryRateLimiter
-from tests.contracts.test_rate_limiter_contract import RateLimiterContractTest
+from tests.contracts.test_rate_limiter import RateLimiterContractTest
 
 class TestInMemoryRateLimiter(RateLimiterContractTest):
     """Test in-memory limiter implementation.
@@ -244,6 +284,7 @@ Contains shared utility functions used across multiple tests:
 - `is_subset(target, superset)`: Recursive dictionary subset checker
 
 **Usage:**
+
 ```python
 from tests.test_utils import is_subset
 
@@ -256,9 +297,11 @@ Contains shared Hypothesis strategies for generating test data:
 - `nested_dict`: Generates arbitrary nested dictionaries
 
 **Usage:**
+
 ```python
 from hypothesis import given
 from tests.test_strategies import json_value, nested_dict
+
 
 @given(payload=json_value)
 def test_something(self, payload):
@@ -398,7 +441,7 @@ pytest tests/
 ## Contributing
 
 When adding new tests:
-1. Follow the existing structure (contracts, implementations, properties)
+1. Follow the existing structure (contracts, implementations, algorithms, properties, integration)
 2. Use the AAA pattern (Arrange-Act-Assert)
 3. Add descriptive docstrings
 4. Follow naming conventions

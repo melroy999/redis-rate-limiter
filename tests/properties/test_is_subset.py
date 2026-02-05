@@ -6,8 +6,8 @@ is_subset function with arbitrary nested dictionaries.
 
 from hypothesis import given, strategies as st
 
-from tests.test_strategies import nested_dict
-from tests.test_utils import is_subset
+from helpers.strategies import nested_dict
+from helpers.utils import is_subset
 
 
 class TestIsSubsetProperties:

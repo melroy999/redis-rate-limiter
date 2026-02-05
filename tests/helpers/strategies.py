@@ -20,7 +20,7 @@ json_value = st.recursive(
         ),
         st.text(
             alphabet=st.characters(
-                blacklist_categories=("Cs",),
+                blacklist_categories=["Cs"],
                 blacklist_characters="\x00",
             ),
             max_size=100,
@@ -31,7 +31,7 @@ json_value = st.recursive(
         st.dictionaries(
             st.text(
                 alphabet=st.characters(
-                    blacklist_categories=("Cs",),
+                    blacklist_categories=["Cs"],
                     blacklist_characters="\x00",
                 ),
                 min_size=1,
@@ -44,5 +44,5 @@ json_value = st.recursive(
     max_leaves=20,
 )
 
-# Strategy for generating only dictionaries from json_value.
+# Strategy for generating only dictionaries from JSON_value.
 nested_dict = json_value.filter(lambda value: isinstance(value, dict))

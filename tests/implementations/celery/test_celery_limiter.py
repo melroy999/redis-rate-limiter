@@ -11,8 +11,8 @@ from unittest.mock import patch
 import pytest
 import redis
 
-from tests.contracts.test_rate_limiter_contract import RateLimiterContractTest
-from tests.test_utils import is_subset
+from tests.contracts.test_rate_limiter import RateLimiterContractTest
+from helpers.utils import is_subset
 
 
 class TestCeleryRateLimiter(RateLimiterContractTest):

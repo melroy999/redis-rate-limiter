@@ -9,7 +9,10 @@ import time
 import pytest
 
 from celery_rate_limiter.limiters import DistributedLock
-from tests.contracts.test_lock_contract import DistributedLockContractTest, SHORT_TIMEOUT_MS
+from tests.contracts.test_distributed_lock import (
+    DistributedLockContractTest,
+    SHORT_TIMEOUT_MS,
+)
 
 
 @pytest.fixture
