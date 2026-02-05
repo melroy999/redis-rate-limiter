@@ -4,6 +4,9 @@ This module tests the TaskLifecycle implementation that manages concurrency
 slots and task cleanup. It inherits contract tests and adds implementation-specific tests.
 """
 
+import os
+import signal
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,7 +31,7 @@ def mock_limiter(redis_client, task_id):
     limiter = MagicMock()
     limiter.redis = redis_client
     limiter.concurrency_key = "test:concurrency"
-    limiter.lease_duration = 30
+    limiter.lease_duration = 0.2  # Short duration for fast tests
     limiter.id = "test_limiter"
     limiter.get_active_key.side_effect = lambda _: f"test:active:{task_id}"
     limiter.extend_lease.return_value = 1  # For background thread tests
@@ -111,7 +114,7 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
     @pytest.mark.parametrize(
         "original, override",
         [("warn", "kill"), ("kill", "warn")],
-        ids=["warn_to_kill", "kill_to_warn"],
+        ids=["default_warn_override_kill", "default_kill_override_warn"]
     )
     def test_heartbeat_failure_override_precedence(
         self, redis_client, celery_app, task_id, original, override
@@ -143,3 +146,148 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
         assert lifecycle_with_override.on_failure_action == override, (
             f"override {override} should take precedence over default {original}"
         )
+
+    # ==================== Heartbeat Loop Tests ====================
+
+    def test_heartbeat_loop_extends_lease_periodically(
+        self, redis_client, mock_limiter, task_id
+    ):
+        """Verify heartbeat loop extends lease at regular intervals."""
+        # Arrange
+        mock_limiter.extend_lease.return_value = 1
+
+        # Act
+        with TaskLifecycle(mock_limiter, task_id):
+            # Wait for at least one heartbeat interval.
+            # The interval is lease_duration / 2.
+            # Sleep for slightly longer to ensure the heartbeat runs.
+            time.sleep(0.75 * mock_limiter.lease_duration)
+
+        # Assert
+        # Heartbeat should have been called at least once during the context.
+        assert mock_limiter.extend_lease.call_count >= 1, (
+            "extend_lease must be called periodically by heartbeat loop"
+        )
+
+        # Verify the correct parameters were passed.
+        mock_limiter.extend_lease.assert_called_with(task_id, mock_limiter.lease_duration)
+
+    def test_heartbeat_interval_calculation(self, mock_limiter, task_id):
+        """Verify heartbeat interval is correctly calculated as lease_duration / 2."""
+        # Arrange & Act
+        with patch("threading.Thread"):
+            lifecycle = TaskLifecycle(mock_limiter, task_id)
+
+        # Assert
+        expected_interval = mock_limiter.lease_duration / 2
+        assert lifecycle.interval == expected_interval, (
+            f"interval must be lease_duration / 2 = {expected_interval} seconds"
+        )
+
+    def test_heartbeat_loop_restores_health_on_recovery(
+        self, redis_client, mock_limiter, task_id
+    ):
+        """Verify heartbeat loop restores health status after recovering from failure."""
+        # Arrange
+        mock_limiter.extend_lease.return_value  = 1
+
+        # Act
+        with TaskLifecycle(mock_limiter, task_id) as lifecycle:
+            # Simulate an unhealthy state.
+            lifecycle.is_healthy = False
+
+            # Wait for heartbeat to run multiple times.
+            time.sleep(0.75 * mock_limiter.lease_duration)
+
+            # Assert
+            # Lifecycle should have recovered and be healthy.
+            assert lifecycle.is_healthy, "lifecycle must restore health after recovery"
+
+    def test_heartbeat_loop_flags_unhealthy_on_failure_warn_mode(
+        self, redis_client, mock_limiter, task_id
+    ):
+        """Verify heartbeat loop flags as unhealthy on failure in warn mode."""
+        # Arrange
+        mock_limiter.extend_lease.side_effect = Exception("Simulated Redis failure")
+
+        # Act
+        with patch("builtins.print") as mock_print, TaskLifecycle(
+            mock_limiter, task_id, on_heartbeat_failure="warn"
+        ) as lifecycle:
+            # Wait for heartbeat to fail.
+            time.sleep(0.75 * mock_limiter.lease_duration)
+
+            # Assert
+            # Lifecycle should be marked as unhealthy.
+            assert not lifecycle.is_healthy, (
+                "lifecycle must be marked unhealthy after heartbeat failure"
+            )
+
+    def test_heartbeat_loop_terminates_worker_on_failure_kill_mode(
+        self, redis_client, mock_limiter, task_id
+    ):
+        """Verify heartbeat loop terminates worker on failure in kill mode."""
+        # Arrange
+        mock_limiter.extend_lease.side_effect = Exception("Simulated Redis failure")
+
+        # Act & Assert
+        with patch("builtins.print") as mock_print, patch("os.kill") as mock_kill:
+            with TaskLifecycle(
+                mock_limiter, task_id, on_heartbeat_failure="kill"
+            ):
+                # Wait for heartbeat to fail and trigger termination.
+                time.sleep(0.75 * mock_limiter.lease_duration)
+
+                # Verify termination was attempted.
+                assert mock_kill.call_count > 0, (
+                    "os.kill must be called in kill mode on heartbeat failure"
+                )
+
+                # Verify correct signal and PID.
+                mock_kill.assert_called_with(os.getpid(), signal.SIGTERM)
+
+    def test_heartbeat_loop_stops_on_exit(self, redis_client, mock_limiter, task_id):
+        """Verify heartbeat loop stops when exiting lifecycle context."""
+        # Arrange
+        mock_limiter.extend_lease.return_value = 1
+
+        # Act
+        lifecycle = TaskLifecycle(mock_limiter, task_id)
+        lifecycle.__enter__()
+
+        # Thread should be running.
+        assert lifecycle._thread is not None, "thread must be created on enter"
+        assert lifecycle._thread.is_alive(), "thread must be running during lifecycle"
+
+        # Exit the context.
+        lifecycle.__exit__(None, None, None)
+
+        # Wait for thread to stop.
+        time.sleep(0.75 * mock_limiter.lease_duration)
+
+        # Assert
+        # Thread should have stopped.
+        assert lifecycle._stop_event.is_set(), "stop event must be set on exit"
+        assert not lifecycle._thread.is_alive(), (
+            "thread must be stopped after exiting lifecycle"
+        )
+
+    def test_heartbeat_loop_calls_extend_lease_with_correct_parameters(
+        self, redis_client, mock_limiter, task_id
+    ):
+        """Verify heartbeat loop calls extend_lease with correct task_id and duration."""
+        # Arrange
+        mock_limiter.extend_lease.return_value = 1
+
+        # Act
+        with TaskLifecycle(mock_limiter, task_id):
+            time.sleep(0.75 * mock_limiter.lease_duration)
+
+        # Assert
+        # Verify extend_lease was called with the correct parameters.
+        assert mock_limiter.extend_lease.call_count >= 1
+        for call in mock_limiter.extend_lease.call_args_list:
+            assert call[0][0] == task_id, "extend_lease must be called with task_id"
+            assert call[0][1] == mock_limiter.lease_duration, (
+                "extend_lease must be called with lease_duration"
+            )

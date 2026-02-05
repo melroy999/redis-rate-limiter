@@ -50,7 +50,7 @@ class RateLimiterRegistry:
                 "max_age": limiter.max_age,
                 "lease_duration": limiter.lease_duration,
             }
-            # This updates the source of truth that all workers watch
+            # This updates the source of truth that all workers watch.
             self.redis.hset("rl:registry:configs", limiter.id, json.dumps(config))
 
     def get(self, limiter_id: str) -> CeleryRateLimiter:
