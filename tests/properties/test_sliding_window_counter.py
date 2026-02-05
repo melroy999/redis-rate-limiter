@@ -577,7 +577,6 @@ class TestSlidingWindowProperties:
         window_ms=st.integers(min_value=1, max_value=100000),
         elapsed_ms=st.integers(min_value=0, max_value=100000),
     )
-    @settings(max_examples=100)
     def test_estimate_is_bounded(previous_count, current_count, window_ms, elapsed_ms):
         """Property: estimate is always between current_count and (previous + current)."""
         # Arrange
@@ -600,7 +599,6 @@ class TestSlidingWindowProperties:
         current_count=st.integers(min_value=0, max_value=1000),
         window_ms=st.integers(min_value=10, max_value=10000),
     )
-    @settings(max_examples=100)
     def test_estimate_decreases_as_time_passes(previous_count, current_count, window_ms):
         """Property: estimate decreases monotonically as elapsed time increases."""
         # Act
@@ -623,7 +621,6 @@ class TestSlidingWindowProperties:
         window_ms=st.integers(min_value=1, max_value=100000),
         elapsed_ms=st.integers(min_value=0, max_value=100000),
     )
-    @settings(max_examples=100)
     def test_current_count_always_contributes_fully(current_count, window_ms, elapsed_ms):
         """Property: current_count contributes fully regardless of elapsed time."""
         # Arrange
@@ -646,7 +643,6 @@ class TestSlidingWindowProperties:
         elapsed_ms=st.integers(min_value=0, max_value=100000),
         limit=st.integers(min_value=1, max_value=1000),
     )
-    @settings(max_examples=100)
     def test_is_allowed_matches_estimate_comparison(
         previous_count, current_count, window_ms, elapsed_ms, limit
     ):
@@ -671,7 +667,6 @@ class TestSlidingWindowProperties:
         current_count=st.integers(min_value=0, max_value=1000),
         window_ms=st.integers(min_value=1, max_value=100000),
     )
-    @settings(max_examples=100)
     def test_estimate_equals_previous_plus_current_at_start(
         previous_count, current_count, window_ms
     ):
@@ -691,7 +686,6 @@ class TestSlidingWindowProperties:
         current_count=st.integers(min_value=0, max_value=1000),
         window_ms=st.integers(min_value=1, max_value=100000),
     )
-    @settings(max_examples=100)
     def test_estimate_equals_current_at_window_end(previous_count, current_count, window_ms):
         """Property: at elapsed=window_ms, estimate equals current_count only."""
         # Act
