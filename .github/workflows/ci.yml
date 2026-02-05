@@ -71,10 +71,12 @@ jobs:
           cache-to: type=gha,mode=max
 
       # Run the tests--this requires the redis server to run--'|| true' ensures a clean shutdown even if redis crashes.
+      # The '--override-ini' clears the default slow test exclusion from pyproject.toml,
+      # ensuring all tests (including slow parameterized tests) run in CI.
       - name: Run Pytest in Container
         run: |
           docker run --name test-container app-test \
-          sh -c "redis-server --daemonize yes && PYTHONPATH=src python3 -m pytest --junitxml=result.xml --cov=src --cov-report=xml:coverage.xml tests/ && redis-cli shutdown || true"
+          sh -c "redis-server --daemonize yes && PYTHONPATH=src python3 -m pytest --override-ini='addopts=' --junitxml=result.xml --cov=src --cov-report=xml:coverage.xml tests/ && redis-cli shutdown || true"
 
       - name: Extract Artifacts
         if: always()

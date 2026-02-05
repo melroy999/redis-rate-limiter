@@ -20,7 +20,8 @@ tests/
 │
 ├── properties/                         # Property-based tests (Hypothesis)
 │   ├── test_serialization.py           # Payload serialization properties
-│   └── test_is_subset.py               # Mathematical subset properties
+│   ├── test_is_subset.py               # Mathematical subset properties
+│   └── test_sliding_window_counter.py  # Sliding window counter algorithm
 │
 ├── integration/                        # End-to-end integration tests
 │   └── test_rate_limiting.py           # Rate limiting behavior verification
@@ -142,9 +143,20 @@ def test_example(self, limiter, redis_client):
 
 ## Running Tests
 
-### Run All Tests
+### Run All Tests (excluding slow tests)
 ```bash
 pytest tests/
+```
+
+### Run Slow Tests
+Slow tests use real `time.sleep()` calls and run parameterized configurations.
+They are excluded by default for faster local development.
+```bash
+# Run only slow tests
+pytest -m slow tests/
+
+# Run ALL tests including slow tests (as in CI)
+pytest --override-ini='addopts=' tests/
 ```
 
 ### Run Specific Test Categories

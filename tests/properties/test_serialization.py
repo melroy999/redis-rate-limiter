@@ -58,8 +58,6 @@ class TestSerializationProperties:
 
     @given(payload=nested_dict)
     @settings(
-        # Balance between coverage and speed.
-        max_examples=50,
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
     def test_json_payload_survives_redis_round_trip(
@@ -83,7 +81,7 @@ class TestSerializationProperties:
             success, task_id = property_limiter.schedule_task(func_path, payload)
 
             # Assert
-            # Scheduling should ALWAYS succeed for valid JSON payloads.
+            # Scheduling should always succeed for valid JSON payloads.
             assert success is True, (
                 f"scheduling failed for valid JSON payload: {payload}\n"
                 f"this indicates a bug in payload handling"
@@ -130,7 +128,6 @@ class TestSerializationProperties:
         )
     )
     @settings(
-        max_examples=30,
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
     def test_nonempty_dict_payloads_are_schedulable(
@@ -153,5 +150,5 @@ class TestSerializationProperties:
             property_limiter.get_active_key(task_id)
         ), "task should be marked as active"
 
-        # Cleanup.
+        # Cleanup
         property_redis_client.flushdb()

@@ -25,3 +25,10 @@ packages = [{include = "celery_rate_limiter", from = "src"}]
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+# Exclude slow tests by default. Run with: pytest -m slow (or pytest --run-slow).
+addopts = "-m 'not slow'"
+markers = [
+    "slow: marks tests as slow (use real time.sleep, multiple configurations). Run explicitly with: pytest -m slow",
+]

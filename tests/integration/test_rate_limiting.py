@@ -158,19 +158,23 @@ class TestSlidingWindowBehavior:
     by weighting the previous and current fixed windows. This has important
     implications:
 
-    1. **Burst behavior**: At window boundaries, up to 2x the limit may be
+    1. Burst behavior: At window boundaries, up to 2x the limit may be
        consumed in a short period. This occurs when the previous window is
        empty and requests arrive at the boundary--the algorithm allows a full
-       `limit` from each adjacent window.
+       limit from each adjacent window.
 
-    2. **Long-term convergence**: Despite short-term bursts, the average
+    2. Long-term convergence: Despite short-term bursts, the average
        consumption rate over multiple windows converges to the configured
        limit. This is the key property we test here.
 
     These tests verify long-term rate convergence and opportunistically check
-    the 2x burst bound. The burst bound check is NOT guaranteed to catch all
+    the 2x burst bound. The burst bound check is not guaranteed to catch all
     violations (it depends on timing we don't control), but will fail if the
     implementation is fundamentally broken.
+
+    Note: The 2x burst bound property is formally verified in
+    tests/properties/test_sliding_window_counter.py using the pure algorithm
+    extracted from the Lua implementation.
     """
 
     @pytest.fixture
@@ -179,7 +183,7 @@ class TestSlidingWindowBehavior:
 
         Config:
             - limit: 10 requests per window
-            - window: 2 seconds (short for practical testing)
+            - window: 0.5 seconds (short for fast testing)
             - max_concurrency: 50 (high to isolate rate limiting behavior)
         """
         limiter = CeleryRateLimiter(
@@ -187,7 +191,7 @@ class TestSlidingWindowBehavior:
             celery_app=celery_app,
             limiter_id="sliding_window_test_limiter",
             limit=10,
-            window=2,
+            window=0.5,
             max_concurrency=50,
             max_age=3600,
             lease_duration=30,
@@ -209,7 +213,7 @@ class TestSlidingWindowBehavior:
         limiting: controlling throughput over time.
 
         Additionally, we opportunistically verify that no window-sized period
-        exceeds 2x the limit. This check is NOT exhaustive--the 2x bound depends
+        exceeds 2x the limit. This check is not exhaustive--the 2x bound depends
         on specific timing scenarios (empty previous window + boundary burst)
         that we cannot reliably trigger. However, it will catch grossly broken
         implementations that allow unbounded throughput.
@@ -219,7 +223,8 @@ class TestSlidingWindowBehavior:
         not a bug. A true sliding window would enforce exactly 1x limit, but
         the counter approximation trades this for O(1) space complexity.
         """
-        # Arrange: infer configuration from limiter for consistency.
+        # Arrange
+        # Infer configuration from limiter for consistency.
         limit = sliding_window_limiter.limit
         window = sliding_window_limiter.window
         num_windows = 4
@@ -229,7 +234,8 @@ class TestSlidingWindowBehavior:
         for i in range(100):
             sliding_window_limiter.schedule_task(func_path, {"index": i})
 
-        # Act: consume continuously, recording timestamps.
+        # Act
+        # Consume continuously, recording timestamps.
         # Only sleep on failure (rate limited) to maximize burst potential.
         start_time = time.time()
         timestamps = []
@@ -261,28 +267,30 @@ class TestSlidingWindowBehavior:
         print(f"    Observed rate: {observed_rate:.2f} requests/window (expected: {limit})")
         print(f"    Max burst in any {window}s window: {observed_max_burst} (max allowed: {2 * limit})")
 
-        # Assert 1: Long-term rate convergence.
-        # Total consumed should be approximately num_windows x limit.
+        # Assert
+        # The sliding window algorithm can burst up to 2x limit at the start if we
+        # happen to hit a window boundary with empty history. After that initial
+        # burst, the algorithm spreads requests properly across successive windows.
+        # Account for this by allowing up to 1 extra window's worth on the upper bound.
         expected = num_windows * limit
-        # Allow 20% tolerance for timing variations and algorithm approximation.
-        tolerance = 0.20
-        lower_bound = expected * (1 - tolerance)
-        upper_bound = expected * (1 + tolerance)
+        # 20% tolerance for timing variance.
+        lower_bound = expected * 0.80
+        # Possible initial boundary burst.
+        upper_bound = (num_windows + 1) * limit
 
         assert lower_bound <= total_consumed <= upper_bound, (
-            f"Expected ~{expected} consumed over {num_windows} windows, "
-            f"got {total_consumed} (tolerance: ±{tolerance * 100:.0f}%)"
+            f"expected ~{expected} consumed over {num_windows} windows, "
+            f"got {total_consumed} (allowed: {lower_bound:.0f}-{upper_bound})"
         )
 
-        # Assert 2: Opportunistic 2x bound check.
         # Verify no window-sized period exceeded 2x limit.
-        # This is NOT guaranteed to catch all violations--it depends on
-        # timing we don't control--but catches fundamentally broken implementations.
+        # This is not guaranteed to catch all violations: it depends on timing we
+        # don't control, but catches fundamentally broken implementations.
         max_burst = 2 * limit
         assert observed_max_burst <= max_burst, (
-            f"Exceeded 2x limit: {observed_max_burst} requests in {window}s window "
+            f"exceeded 2x limit: {observed_max_burst} requests in {window}s window "
             f"(limit={limit}, max_allowed={max_burst}). "
-            f"This indicates a bug in the sliding window implementation."
+            f"this indicates a bug in the sliding window implementation."
         )
 
     def test_burst_at_window_boundary_after_empty_window(
@@ -301,10 +309,12 @@ class TestSlidingWindowBehavior:
         - Plus one full window (ensure an empty window passes)
         - Plus 80% of another window (position near the end)
         """
-        # Arrange: infer configuration from limiter.
+        # Arrange
+        # Infer configuration from limiter.
         limit = sliding_window_limiter.limit
         window = sliding_window_limiter.window
-        window_tail = 0.05  # Fraction of window to use as "near the end"
+        # Fraction of window to use as "near the end."
+        window_tail = 0.05
 
         # Schedule enough tasks for a potential 2x burst.
         for i in range(limit * 3):
@@ -336,7 +346,7 @@ class TestSlidingWindowBehavior:
             result = consume_and_complete(sliding_window_limiter)
             if result["success"]:
                 timestamps.append(time.time())
-            # No sleep--consume as fast as possible to maximize burst
+            # No sleep--consume as fast as possible to maximize burst.
 
         total_consumed = len(timestamps)
         burst_duration = timestamps[-1] - timestamps[0] if len(timestamps) > 1 else 0
@@ -355,13 +365,223 @@ class TestSlidingWindowBehavior:
         print(f"    Max in any {window}s window: {max_burst_in_window}")
         print(f"    Expected range: {limit} < max_burst <= {2 * limit}")
 
-        # Assert: max burst in any window should exceed limit (demonstrating burst)
-        # but never exceed 2x limit (the algorithmic upper bound).
+        # Assert
+        # Max burst in any window should exceed limit (demonstrating burst) but
+        # never exceed 2x limit (the algorithmic upper bound).
         assert max_burst_in_window > limit, (
-            f"Expected burst to exceed limit ({limit}), got {max_burst_in_window}. "
-            f"This may indicate the test didn't trigger the burst scenario."
+            f"expected burst to exceed limit ({limit}), got {max_burst_in_window}. "
+            f"this may indicate the test didn't trigger the burst scenario."
         )
         assert max_burst_in_window <= 2 * limit, (
-            f"Burst exceeded 2x limit: {max_burst_in_window} > {2 * limit}. "
-            f"This indicates a bug in the sliding window implementation."
+            f"burst exceeded 2x limit: {max_burst_in_window} > {2 * limit}. "
+            f"this indicates a bug in the sliding window implementation."
+        )
+
+
+# Configuration matrix for slow tests: (limit, window_seconds).
+# These cover edge cases and various realistic configurations.
+SLIDING_WINDOW_CONFIGS = [
+    (3, 0.5),   # Small limit, very short window.
+    (5, 0.5),   # Medium limit, very short window.
+    (5, 1),     # Medium limit, short window.
+    (10, 1),    # Default-ish limit, short window.
+    (10, 2),    # Default config (matches fast test).
+    (20, 2),    # Higher limit, short window.
+    (5, 5),     # Medium limit, longer window.
+    (15, 5),    # Higher limit, longer window.
+]
+
+
+@pytest.mark.slow
+class TestSlidingWindowBehaviorParametrized:
+    """Parameterized sliding window tests across multiple configurations.
+
+    These tests are marked as slow because they use real time.sleep() calls
+    and run across multiple window/limit configurations. They verify that
+    the sliding window algorithm properties hold regardless of configuration.
+
+    Run with: pytest -m slow
+    Skip with: pytest -m "not slow"
+    """
+
+    @pytest.fixture
+    def sliding_window_limiter(self, request, redis_client, celery_app):
+        """Parameterized limiter fixture for sliding window behavior tests.
+
+        The limit and window are injected via indirect parametrization,
+        allowing the same test logic to run across multiple configurations.
+        """
+        limit, window = request.param
+        limiter_id = f"sliding_window_param_{limit}_{window}".replace(".", "_")
+
+        limiter = CeleryRateLimiter(
+            redis_client=redis_client,
+            celery_app=celery_app,
+            limiter_id=limiter_id,
+            limit=limit,
+            window=window,
+            max_concurrency=100,
+            max_age=3600,
+            lease_duration=30,
+        )
+
+        yield limiter
+
+        keys = redis_client.keys(f"{limiter.id}:*")
+        if keys:
+            redis_client.delete(*keys)
+
+    @pytest.mark.parametrize(
+        "sliding_window_limiter",
+        SLIDING_WINDOW_CONFIGS,
+        indirect=True,
+        ids=[f"limit={l}, window={w}s" for l, w in SLIDING_WINDOW_CONFIGS],
+    )
+    def test_long_term_rate_converges_to_limit(
+        self, sliding_window_limiter : CeleryRateLimiter, func_path
+    ):
+        """Verify average consumption rate converges to configured limit.
+
+        This parameterized version runs the convergence test across multiple
+        configurations to ensure the algorithm behaves correctly regardless
+        of specific limit/window values.
+        """
+        # Arrange
+        # Infer configuration from limiter.
+        limit = sliding_window_limiter.limit
+        window = sliding_window_limiter.window
+        num_windows = 4
+        total_duration = num_windows * window
+
+        # Schedule more tasks than we expect to consume.
+        for i in range(limit * num_windows * 2):
+            sliding_window_limiter.schedule_task(func_path, {"index": i})
+
+        # Act
+        # Consume continuously, recording timestamps.
+        start_time = time.time()
+        timestamps = []
+
+        while time.time() - start_time < total_duration:
+            result = consume_and_complete(sliding_window_limiter)
+            if result["success"]:
+                timestamps.append(time.time())
+            else:
+                # Rate limited--wait briefly for tokens to recover.
+                time.sleep(0.05)
+
+        total_consumed = len(timestamps)
+        actual_duration = time.time() - start_time
+
+        # Calculate observed metrics.
+        observed_max_burst = 0
+        for ts in timestamps:
+            count_in_window = sum(1 for t in timestamps if ts <= t < ts + window)
+            observed_max_burst = max(observed_max_burst, count_in_window)
+
+        observed_rate = total_consumed / actual_duration * window
+
+        # Report observed metrics.
+        print(f"\n  Parameterized sliding window test results:")
+        print(f"    Config: limit={limit}, window={window}s")
+        print(f"    Duration: {actual_duration:.2f}s ({num_windows} windows)")
+        print(f"    Total consumed: {total_consumed}")
+        print(f"    Observed rate: {observed_rate:.2f} requests/window (expected: {limit})")
+        print(f"    Max burst in any {window}s window: {observed_max_burst} (max allowed: {2 * limit})")
+
+        # Assert
+        # Account for possible initial boundary burst (up to 1 extra window's worth).
+        expected = num_windows * limit
+        # 25% tolerance for timing variance (slightly more lenient for short windows).
+        lower_bound = expected * 0.75
+        # Possible initial boundary burst.
+        upper_bound = (num_windows + 1) * limit
+
+        assert lower_bound <= total_consumed <= upper_bound, (
+            f"expected ~{expected} consumed over {num_windows} windows, "
+            f"got {total_consumed} (allowed: {lower_bound:.0f}-{upper_bound})"
+        )
+
+        # Verify 2x bound.
+        max_burst = 2 * limit
+        assert observed_max_burst <= max_burst, (
+            f"exceeded 2x limit: {observed_max_burst} requests in {window}s window "
+            f"(limit={limit}, max_allowed={max_burst})"
+        )
+
+    @pytest.mark.parametrize(
+        "sliding_window_limiter",
+        SLIDING_WINDOW_CONFIGS,
+        indirect=True,
+        ids=[f"limit={l}_window={w}s" for l, w in SLIDING_WINDOW_CONFIGS],
+    )
+    def test_burst_at_window_boundary_after_empty_window(
+        self, sliding_window_limiter: CeleryRateLimiter, func_path
+    ):
+        """Verify burst behavior across multiple configurations.
+
+        This parameterized version ensures the 2x burst bound holds for
+        various limit/window combinations.
+        """
+        # Arrange
+        # Infer configuration from limiter.
+        limit = sliding_window_limiter.limit
+        window = sliding_window_limiter.window
+        # Fraction of window to use as "near the end."
+        window_tail = 0.05
+
+        # Schedule enough tasks for a potential 2x burst.
+        for i in range(limit * 3):
+            sliding_window_limiter.schedule_task(func_path, {"index": i})
+
+        # Get reset_in_ms to calculate wait time.
+        result = sliding_window_limiter.consume()
+        if result["success"]:
+            with sliding_window_limiter.task_lifecycle(result["task"]["id"]):
+                pass
+
+        reset_ms = result["reset_in_ms"]
+
+        # Calculate wait: finish current window + skip one empty window + position near end.
+        wait_seconds = (reset_ms / 1000) + window + (window * (1 - window_tail))
+        time.sleep(wait_seconds)
+
+        # Consume rapidly across the window boundary.
+        timestamps = []
+        num_task_windows = 3
+        burst_window = window * (num_task_windows + window_tail)
+        start_time = time.time()
+
+        while time.time() - start_time < burst_window:
+            result = consume_and_complete(sliding_window_limiter)
+            if result["success"]:
+                timestamps.append(time.time())
+
+        total_consumed = len(timestamps)
+        burst_duration = timestamps[-1] - timestamps[0] if len(timestamps) > 1 else 0
+
+        # Calculate max burst in any window-sized period.
+        max_burst_in_window = 0
+        for ts in timestamps:
+            count_in_window = sum(1 for t in timestamps if ts <= t < ts + window)
+            max_burst_in_window = max(max_burst_in_window, count_in_window)
+
+        # Report observed burst.
+        print(f"\n  Parameterized window boundary burst test results:")
+        print(f"    Config: limit={limit}, window={window}s")
+        print(f"    Burst duration: {burst_duration:.3f}s")
+        print(f"    Total consumed: {total_consumed}")
+        print(f"    Max in any {window}s window: {max_burst_in_window}")
+        print(f"    Expected range: {limit} < max_burst <= {2 * limit}")
+
+        # Assert
+        # Max burst should exceed limit (demonstrating burst capability) but never
+        # exceed 2x limit (the algorithmic upper bound).
+        assert max_burst_in_window > limit, (
+            f"expected burst to exceed limit ({limit}), got {max_burst_in_window}. "
+            f"this may indicate the test didn't trigger the burst scenario."
+        )
+        assert max_burst_in_window <= 2 * limit, (
+            f"burst exceeded 2x limit: {max_burst_in_window} > {2 * limit}. "
+            f"this indicates a bug in the sliding window implementation."
         )
