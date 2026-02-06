@@ -163,9 +163,15 @@ class TestSlidingWindowBehavior:
        empty and requests arrive at the boundary--the algorithm allows a full
        limit from each adjacent window.
 
-    2. Long-term convergence: Despite short-term bursts, the average
+    2. Steady-state approximation: Once past the initial window (where the
+       burst can occur), the algorithm approximates the configured limit.
+       The counter's uniform-distribution assumption and timing jitter mean
+       the true count in a measurement window can exceed the limit by 1,
+       but not more.
+
+    3. Long-term convergence: Despite short-term bursts, the average
        consumption rate over multiple windows converges to the configured
-       limit. This is the key property we test here.
+       limit.
 
     These tests verify long-term rate convergence and opportunistically check
     the 2x burst bound. The burst bound check is not guaranteed to catch all
@@ -231,7 +237,7 @@ class TestSlidingWindowBehavior:
         total_duration = num_windows * window
 
         # Schedule more tasks than we expect to consume.
-        for i in range(100):
+        for i in range(2 * num_windows * limit):
             sliding_window_limiter.schedule_task(func_path, {"index": i})
 
         # Act
@@ -246,7 +252,7 @@ class TestSlidingWindowBehavior:
                 timestamps.append(time.time())
             else:
                 # Rate limited--wait briefly for tokens to recover.
-                time.sleep(0.1)
+                time.sleep(0.01)
 
         total_consumed = len(timestamps)
         actual_duration = time.time() - start_time
@@ -259,6 +265,21 @@ class TestSlidingWindowBehavior:
 
         observed_rate = total_consumed / actual_duration * window  # requests per window
 
+        # Steady-state max: skip the first 2W (burst + recovery), then check
+        # that no window-sized period exceeds limit+1.
+        #
+        # This bound holds here because sustained, greedy consumption from a
+        # single worker keeps fixed windows roughly uniformly filled. It is NOT
+        # a general property of the sliding window counter--arbitrary traffic
+        # patterns (multiple workers, bursty arrivals, non-greedy consumers)
+        # can violate it. The +1 accounts for timing jitter.
+        steady_state_start = start_time + window * 2
+        post_burst_timestamps = [ts for ts in timestamps if ts >= steady_state_start]
+        observed_steady_state_max = 0
+        for ts in post_burst_timestamps:
+            count_in_window = sum(1 for t in timestamps if ts <= t < ts + window)
+            observed_steady_state_max = max(observed_steady_state_max, count_in_window)
+
         # Report observed metrics.
         print(f"\n  Sliding window test results:")
         print(f"    Config: limit={limit}, window={window}s")
@@ -266,6 +287,7 @@ class TestSlidingWindowBehavior:
         print(f"    Total consumed: {total_consumed}")
         print(f"    Observed rate: {observed_rate:.2f} requests/window (expected: {limit})")
         print(f"    Max burst in any {window}s window: {observed_max_burst} (max allowed: {2 * limit})")
+        print(f"    Steady-state max (after {window * 2:.2f}s): {observed_steady_state_max} (max allowed: {limit + 1})")
 
         # Assert
         # The sliding window algorithm can burst up to 2x limit at the start if we
@@ -273,8 +295,10 @@ class TestSlidingWindowBehavior:
         # burst, the algorithm spreads requests properly across successive windows.
         # Account for this by allowing up to 1 extra window's worth on the upper bound.
         expected = num_windows * limit
+        
         # 20% tolerance for timing variance.
         lower_bound = expected * 0.80
+        
         # Possible initial boundary burst.
         upper_bound = (num_windows + 1) * limit
 
@@ -292,6 +316,14 @@ class TestSlidingWindowBehavior:
             f"(limit={limit}, max_allowed={max_burst}). "
             f"this indicates a bug in the sliding window implementation."
         )
+
+        # Verify steady-state max under sustained load (see comment above).
+        if post_burst_timestamps:
+            assert observed_steady_state_max <= limit + 1, (
+                f"exceeded limit+1 in steady state: {observed_steady_state_max} requests "
+                f"in {window}s window (limit={limit}, max_allowed={limit + 1}). "
+                f"the sliding window counter should approximate the limit after the initial burst phase."
+            )
 
     def test_burst_at_window_boundary_after_empty_window(
         self, sliding_window_limiter, func_path
@@ -313,6 +345,7 @@ class TestSlidingWindowBehavior:
         # Infer configuration from limiter.
         limit = sliding_window_limiter.limit
         window = sliding_window_limiter.window
+        
         # Fraction of window to use as "near the end."
         window_tail = 0.05
 
@@ -454,7 +487,7 @@ class TestSlidingWindowBehaviorParametrized:
         total_duration = num_windows * window
 
         # Schedule more tasks than we expect to consume.
-        for i in range(limit * num_windows * 2):
+        for i in range(2 * limit * num_windows):
             sliding_window_limiter.schedule_task(func_path, {"index": i})
 
         # Act
@@ -468,7 +501,7 @@ class TestSlidingWindowBehaviorParametrized:
                 timestamps.append(time.time())
             else:
                 # Rate limited--wait briefly for tokens to recover.
-                time.sleep(0.05)
+                time.sleep(0.01)
 
         total_consumed = len(timestamps)
         actual_duration = time.time() - start_time
@@ -481,6 +514,15 @@ class TestSlidingWindowBehaviorParametrized:
 
         observed_rate = total_consumed / actual_duration * window
 
+        # Steady-state max: see the non-parameterized test for why this bound
+        # holds under sustained single-worker load but not in general.
+        steady_state_start = start_time + window * 2
+        post_burst_timestamps = [ts for ts in timestamps if ts >= steady_state_start]
+        observed_steady_state_max = 0
+        for ts in post_burst_timestamps:
+            count_in_window = sum(1 for t in timestamps if ts <= t < ts + window)
+            observed_steady_state_max = max(observed_steady_state_max, count_in_window)
+
         # Report observed metrics.
         print(f"\n  Parameterized sliding window test results:")
         print(f"    Config: limit={limit}, window={window}s")
@@ -488,12 +530,15 @@ class TestSlidingWindowBehaviorParametrized:
         print(f"    Total consumed: {total_consumed}")
         print(f"    Observed rate: {observed_rate:.2f} requests/window (expected: {limit})")
         print(f"    Max burst in any {window}s window: {observed_max_burst} (max allowed: {2 * limit})")
+        print(f"    Steady-state max (after {window * 2:.2f}s): {observed_steady_state_max} (max allowed: {limit + 1})")
 
         # Assert
         # Account for possible initial boundary burst (up to 1 extra window's worth).
         expected = num_windows * limit
+        
         # 25% tolerance for timing variance (slightly more lenient for short windows).
         lower_bound = expected * 0.75
+        
         # Possible initial boundary burst.
         upper_bound = (num_windows + 1) * limit
 
@@ -508,6 +553,14 @@ class TestSlidingWindowBehaviorParametrized:
             f"exceeded 2x limit: {observed_max_burst} requests in {window}s window "
             f"(limit={limit}, max_allowed={max_burst})"
         )
+
+        # Verify steady-state max under sustained load (see non-parameterized test).
+        if post_burst_timestamps:
+            assert observed_steady_state_max <= limit + 1, (
+                f"exceeded limit+1 in steady state: {observed_steady_state_max} requests "
+                f"in {window}s window (limit={limit}, max_allowed={limit + 1}). "
+                f"the sliding window counter should approximate the limit after the initial burst phase."
+            )
 
     @pytest.mark.parametrize(
         "sliding_window_limiter",
@@ -527,6 +580,7 @@ class TestSlidingWindowBehaviorParametrized:
         # Infer configuration from limiter.
         limit = sliding_window_limiter.limit
         window = sliding_window_limiter.window
+        
         # Fraction of window to use as "near the end."
         window_tail = 0.05
 
