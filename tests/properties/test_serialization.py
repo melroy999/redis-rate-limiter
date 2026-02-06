@@ -7,7 +7,6 @@ survives the round-trip through Redis storage, regardless of structure.
 import json
 
 import pytest
-import redis
 from hypothesis import HealthCheck, given, settings, strategies as st
 
 from celery_rate_limiter.limiters import CeleryRateLimiter
@@ -16,16 +15,10 @@ from helpers.utils import dict_equals_approx
 
 
 @pytest.fixture(scope="module")
-def property_redis_client():
+def property_redis_client(_redis_connection):
     """Module-scoped Redis client for property-based tests (performance)."""
-    client = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
-    try:
-        client.ping()
-    except redis.exceptions.ConnectionError:
-        pytest.fail("Could not connect to Redis. Is it running?")
-    yield client
-    client.flushdb()
-    client.close()
+    yield _redis_connection
+    _redis_connection.flushdb()
 
 
 @pytest.fixture(scope="module")

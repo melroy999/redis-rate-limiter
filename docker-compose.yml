@@ -3,6 +3,9 @@ services:
   redis:
     image: redis:7-alpine
     container_name: celery-rate-limiter-redis
+    # Disable RDB snapshots and AOF to suppress "DB saved on disk" log spam.
+    # Note: data will NOT survive container restarts with this setting.
+    command: redis-server --save "" --appendonly no
     ports:
       # Map to port 6380 by default to avoid conflicts with local Redis on 6379.
       # Override with REDIS_PORT environment variable if needed.
@@ -51,6 +54,7 @@ services:
       # Tests will use docker-compose Redis instead of localhost.
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      PYTHONPATH: /app
     volumes:
       # Mount source for live development.
       - ./src:/app/src:ro
@@ -58,8 +62,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    # Run tests with verbose output.
-    command: poetry run pytest tests/ -v
+    # Run tests with verbose output--also run all default excluded marked tests.
+    command: poetry run pytest --override-ini='addopts=' tests/ -v -s
     networks:
       - rate-limiter-network
     profiles:
