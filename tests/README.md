@@ -14,11 +14,13 @@ tests/
 │   └── test_task_lifecycle.py          # Tests any lifecycle manager must satisfy
 │
 ├── implementations/                    # Implementation-specific tests
+│   ├── conftest.py                     # Shared fixtures for implementation tests
 │   ├── test_distributed_lock.py        # Redis-backed lock implementation tests
+│   ├── test_internal_helpers.py        # Lua script loading and helpers
+│   ├── test_task_lifecycle.py          # Lifecycle manager implementation tests
+│   ├── test_smart_jitter.py            # Adaptive jitter calculation tests
 │   └── celery/                         # Celery implementation (uses Redis + Lua)
-│       ├── test_celery_limiter.py      # Inherits contract + adds Celery tests
-│       ├── test_task_lifecycle.py      # Inherits contract + adds lifecycle tests
-│       └── test_internal_helpers.py    # Lua script loading and helpers
+│       └── test_celery_limiter.py      # Inherits contract + adds Celery tests
 │
 ├── algorithms/                         # Pure algorithm/spec tests (no backend)
 │   ├── sliding_window_counter.py       # Shared pure algorithm used by tests
@@ -32,8 +34,10 @@ tests/
 ├── integration/                        # End-to-end integration tests
 │   └── test_rate_limiting.py           # Rate limiting behavior verification
 │
-├── test_utils.py                       # Shared test utilities
-├── test_strategies.py                  # Shared Hypothesis strategies
+├── helpers/                            # Shared test utilities and strategies
+│   ├── utils.py                        # Subset checker and approximate equality
+│   └── strategies.py                   # Shared Hypothesis strategies
+│
 ├── conftest.py                         # Pytest fixtures and configuration
 └── README.md                           # This file
 ```
@@ -90,7 +94,7 @@ Property-based tests use [Hypothesis](https://hypothesis.readthedocs.io/) to aut
 
 ```python
 from hypothesis import given
-from tests.test_strategies import json_value
+from tests.helpers.strategies import json_value
 
 
 @given(payload=json_value)  # Generates arbitrary JSON structures
@@ -279,28 +283,30 @@ All contract tests will run automatically against your new implementation!
 
 ## Shared Resources
 
-### test_utils.py
+### helpers/utils.py
 Contains shared utility functions used across multiple tests:
 - `is_subset(target, superset)`: Recursive dictionary subset checker
+- `dict_equals_approx(left, right)`: Approximate equality for nested structures, with configurable tolerance for float comparisons
 
 **Usage:**
 
 ```python
-from tests.test_utils import is_subset
+from tests.helpers.utils import is_subset, dict_equals_approx
 
 assert is_subset({"a": 1}, {"a": 1, "b": 2})  # True
+assert dict_equals_approx({"x": 1.0000001}, {"x": 1.0})  # True
 ```
 
-### test_strategies.py
+### helpers/strategies.py
 Contains shared Hypothesis strategies for generating test data:
-- `json_value`: Generates arbitrary JSON-serializable values
-- `nested_dict`: Generates arbitrary nested dictionaries
+- `json_value`: Generates arbitrary JSON-serializable values (recursive structure of primitives, lists, and dicts)
+- `nested_dict`: Generates arbitrary nested dictionaries (filtered from `json_value`)
 
 **Usage:**
 
 ```python
 from hypothesis import given
-from tests.test_strategies import json_value, nested_dict
+from tests.helpers.strategies import json_value, nested_dict
 
 
 @given(payload=json_value)

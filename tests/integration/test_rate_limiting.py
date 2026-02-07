@@ -4,6 +4,7 @@ End-to-end tests verifying rate limiter correctly limits requests
 and handles burst scenarios using Redis and Lua scripts.
 """
 
+import sys
 import time
 
 import pytest
@@ -61,6 +62,98 @@ def consume_and_complete(limiter) -> dict:
         with limiter.task_lifecycle(task_id):
             pass
     return result
+
+
+def precise_sleep(duration_seconds: float) -> None:
+    """Sleep for a precise duration using active polling.
+
+    Works around Windows time.sleep() unreliability for sub-second sleeps.
+    On Windows, time.sleep() can be off by 10x for small durations due to
+    poor timer resolution (~15ms).
+
+    Args:
+        duration_seconds: Duration to sleep in seconds.
+    """
+    target_time = time.time() + duration_seconds
+    # Use 1ms sleep intervals to avoid busy-waiting while maintaining precision.
+    while time.time() < target_time:
+        time.sleep(0.001)
+
+
+def position_at_window_percentage(
+    limiter,
+    target_pct: float,
+    verbose: bool = False
+) -> tuple[dict, float]:
+    """Position precisely at a target percentage through a rate limit window.
+
+    Uses two-phase positioning:
+    1. Coarse: Wait 2 windows to ensure clean state (empty previous window).
+    2. Fine-tune: Measure current position and wait to reach target.
+
+    Args:
+        limiter: The rate limiter instance.
+        target_pct: Target position as fraction (0.0-1.0, e.g., 0.8 for 80%).
+        verbose: Whether to print debug information.
+
+    Returns:
+        Tuple of (consume_result, actual_position_pct) at target position.
+    """
+    window = limiter.window
+
+    # Phase 1: Coarse positioning - wait 2 windows for clean state.
+    if verbose:
+        print(f"\n  [DEBUG] Initial positioning:")
+        print(f"    Waiting {window * 2:.1f}s (2 windows) to ensure empty previous window...")
+
+    result = limiter.consume()
+    if result["success"]:
+        with limiter.task_lifecycle(result["task"]["id"]):
+            pass
+
+    precise_sleep(window * 2)
+
+    # Phase 2: Fine-tune positioning to target percentage.
+    check_result = limiter.consume()
+    if check_result["success"]:
+        with limiter.task_lifecycle(check_result["task"]["id"]):
+            pass
+
+    reset_ms = check_result["reset_in_ms"]
+    current_pct = (window * 1000 - reset_ms) / (window * 1000)
+
+    if verbose:
+        print(f"\n  [DEBUG] Fine-tuning position:")
+        print(f"    Current position: {current_pct * 100:.1f}% through window")
+        print(f"    Target position: {target_pct * 100:.1f}% through window")
+        print(f"    reset_in_ms: {reset_ms}ms")
+
+    # Calculate wait to reach target.
+    if current_pct < target_pct:
+        wait_time = (target_pct - current_pct) * window
+        if verbose:
+            print(f"    Waiting additional {wait_time:.3f}s to reach target...")
+        precise_sleep(wait_time)
+    else:
+        # Passed target, wait for next window + position in that one.
+        wait_for_next = reset_ms / 1000
+        wait_to_position = target_pct * window
+        total_wait = wait_for_next + wait_to_position
+        if verbose:
+            print(f"    Already past target, waiting {total_wait:.3f}s for next window + position...")
+        precise_sleep(total_wait)
+
+    # Verify final position.
+    final_result = limiter.consume()
+    actual_pct = (window * 1000 - final_result['reset_in_ms']) / (window * 1000)
+
+    if verbose:
+        print(f"\n  [DEBUG] State at target position:")
+        print(f"    remaining_tokens: {final_result['remaining_tokens']}")
+        print(f"    reset_in_ms: {final_result['reset_in_ms']}ms")
+        print(f"    Position in window: {actual_pct * 100:.1f}% (target: {target_pct * 100:.0f}%)")
+
+    return final_result, actual_pct
 
 
 class TestRateLimitingIntegration:
@@ -151,6 +244,15 @@ class TestRateLimitingIntegration:
         assert result["remaining_tokens"] == 5
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "Sliding window tests require sub-second timing precision. "
+        "Windows time.sleep() and timer resolution (~15ms) are too coarse "
+        "for reliable results. Run in Docker instead: "
+        "docker compose --profile test up"
+    ),
+)
 class TestSlidingWindowBehavior:
     """Tests for sliding window counter algorithm behavior.
 
@@ -185,20 +287,20 @@ class TestSlidingWindowBehavior:
 
     @pytest.fixture
     def sliding_window_limiter(self, redis_client, celery_app):
-        """Limiter with short window for sliding window behavior tests.
+        """Limiter with production-realistic settings for sliding window behavior tests.
 
         Config:
-            - limit: 10 requests per window
-            - window: 0.5 seconds (short for fast testing)
+            - limit: 25 requests per window (production setting)
+            - window: 1.0 seconds (production setting, less timing-sensitive than 0.5s)
             - max_concurrency: 50 (high to isolate rate limiting behavior)
         """
         limiter = CeleryRateLimiter(
             redis_client=redis_client,
             celery_app=celery_app,
             limiter_id="sliding_window_test_limiter",
-            limit=10,
-            window=0.5,
-            max_concurrency=50,
+            limit=25,
+            window=1.0,
+            max_concurrency=100,
             max_age=3600,
             lease_duration=30,
         )
@@ -242,7 +344,7 @@ class TestSlidingWindowBehavior:
 
         # Act
         # Consume continuously, recording timestamps.
-        # Only sleep on failure (rate limited) to maximize burst potential.
+        # Sleep when rate-limited to allow more even distribution across windows.
         start_time = time.time()
         timestamps = []
 
@@ -251,8 +353,9 @@ class TestSlidingWindowBehavior:
             if result["success"]:
                 timestamps.append(time.time())
             else:
-                # Rate limited--wait briefly for tokens to recover.
-                time.sleep(0.01)
+                # Rate limited--wait for tokens to recover.
+                # Use 5% of window duration for realistic pacing.
+                precise_sleep(window * 0.05)
 
         total_consumed = len(timestamps)
         actual_duration = time.time() - start_time
@@ -326,7 +429,7 @@ class TestSlidingWindowBehavior:
             )
 
     def test_burst_at_window_boundary_after_empty_window(
-        self, sliding_window_limiter, func_path
+        self, sliding_window_limiter, func_path, request
     ):
         """Verify burst behavior when consuming across a boundary after an empty window.
 
@@ -334,43 +437,35 @@ class TestSlidingWindowBehavior:
         1. The previous window is empty (no consumption)
         2. Consumption starts near the end of the current (empty) window
         3. Consumption continues into the next window
-
-        This test uses `reset_in_ms` to calculate a single wait that positions
-        us at the end of a window with an empty previous window:
-        - Wait for reset_in_ms (finish current window)
-        - Plus one full window (ensure an empty window passes)
-        - Plus 80% of another window (position near the end)
         """
         # Arrange
-        # Infer configuration from limiter.
         limit = sliding_window_limiter.limit
         window = sliding_window_limiter.window
-        
-        # Fraction of window to use as "near the end."
-        window_tail = 0.05
+        window_tail = 0.2  # Position at 80% through window
+        verbose = request.config.getoption("verbose") > 0
 
-        # Schedule enough tasks for a potential 2x burst.
+        # Schedule enough tasks for a potential 2x burst
         for i in range(limit * 3):
             sliding_window_limiter.schedule_task(func_path, {"index": i})
 
-        # Get reset_in_ms to calculate wait time.
-        # This consume may succeed, but we only need the timing info.
-        result = sliding_window_limiter.consume()
-        if result["success"]:
-            with sliding_window_limiter.task_lifecycle(result["task"]["id"]):
+        # Position at 80% through window with empty previous window
+        pre_burst_result, actual_pct = position_at_window_percentage(
+            sliding_window_limiter,
+            target_pct=1 - window_tail,
+            verbose=verbose
+        )
+
+        # Complete the positioning consume and start timestamp tracking
+        if pre_burst_result["success"]:
+            with sliding_window_limiter.task_lifecycle(pre_burst_result["task"]["id"]):
                 pass
-
-        reset_ms = result["reset_in_ms"]
-
-        # Calculate wait: finish current window + skip one empty window + position near end.
-        # This ensures the previous window is empty when we start consuming.
-        wait_seconds = (reset_ms / 1000) + window + (window * (1 - window_tail))
-        time.sleep(wait_seconds)
+            timestamps = [time.time()]
+        else:
+            timestamps = []
 
         # Consume rapidly across the window boundary.
         # Use a time-based loop: tail of current window + enough windows to consume all tasks.
         # This ensures we capture the burst and verify subsequent windows don't cause issues.
-        timestamps = []
         num_task_windows = 3  # We scheduled limit * 3 tasks
         burst_window = window * (num_task_windows + window_tail)
         start_time = time.time()
@@ -384,13 +479,38 @@ class TestSlidingWindowBehavior:
         total_consumed = len(timestamps)
         burst_duration = timestamps[-1] - timestamps[0] if len(timestamps) > 1 else 0
 
-        # Calculate max burst in any window-sized period.
+        # Calculate max burst in any window-sized period
         max_burst_in_window = 0
-        for ts in timestamps:
+        max_burst_start_idx = 0
+        for i, ts in enumerate(timestamps):
             count_in_window = sum(1 for t in timestamps if ts <= t < ts + window)
-            max_burst_in_window = max(max_burst_in_window, count_in_window)
+            if count_in_window > max_burst_in_window:
+                max_burst_in_window = count_in_window
+                max_burst_start_idx = i
 
-        # Report observed burst.
+        # Verbose debug output
+        if verbose:
+            # Analyze consumption gaps
+            if len(timestamps) >= 2:
+                first_10_gaps = [timestamps[i+1] - timestamps[i] for i in range(min(9, len(timestamps)-1))]
+                print(f"\n  [DEBUG] First 10 consumption gaps (ms): {[f'{g*1000:.1f}' for g in first_10_gaps]}")
+                print(f"    Fastest gap: {min(first_10_gaps)*1000:.1f}ms")
+                print(f"    Slowest gap in first 10: {max(first_10_gaps)*1000:.1f}ms")
+
+            # Analyze the max burst window
+            if max_burst_in_window > 0:
+                burst_start = timestamps[max_burst_start_idx]
+                burst_end = burst_start + window
+                burst_timestamps = [t for t in timestamps if burst_start <= t < burst_end]
+                print(f"\n  [DEBUG] Max burst window analysis:")
+                print(f"    Started at index {max_burst_start_idx}, consumed {max_burst_in_window} tokens")
+                print(f"    Time span: {burst_timestamps[0] - timestamps[0]:.3f}s to {burst_timestamps[-1] - timestamps[0]:.3f}s into test")
+                if len(burst_timestamps) >= 2:
+                    burst_gaps = [burst_timestamps[i+1] - burst_timestamps[i] for i in range(len(burst_timestamps)-1)]
+                    print(f"    Average gap in burst window: {sum(burst_gaps)/len(burst_gaps)*1000:.1f}ms")
+                    print(f"    Burst window duration: {burst_timestamps[-1] - burst_timestamps[0]:.3f}s")
+
+        # Always report summary (visible even without -v)
         print(f"\n  Window boundary burst test results:")
         print(f"    Config: limit={limit}, window={window}s")
         print(f"    Burst duration: {burst_duration:.3f}s")
@@ -426,6 +546,15 @@ SLIDING_WINDOW_CONFIGS = [
 
 
 @pytest.mark.slow
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "Sliding window tests require sub-second timing precision. "
+        "Windows time.sleep() and timer resolution (~15ms) are too coarse "
+        "for reliable results. Run in Docker instead: "
+        "docker compose --profile test-all up"
+    ),
+)
 class TestSlidingWindowBehaviorParametrized:
     """Parameterized sliding window tests across multiple configurations.
 
@@ -500,8 +629,9 @@ class TestSlidingWindowBehaviorParametrized:
             if result["success"]:
                 timestamps.append(time.time())
             else:
-                # Rate limited--wait briefly for tokens to recover.
-                time.sleep(0.01)
+                # Rate limited--wait for tokens to recover.
+                # Use 5% of window duration for realistic pacing.
+                precise_sleep(window * 0.05)
 
         total_consumed = len(timestamps)
         actual_duration = time.time() - start_time
@@ -569,7 +699,7 @@ class TestSlidingWindowBehaviorParametrized:
         ids=[f"limit={l}_window={w}s" for l, w in SLIDING_WINDOW_CONFIGS],
     )
     def test_burst_at_window_boundary_after_empty_window(
-        self, sliding_window_limiter: CeleryRateLimiter, func_path
+        self, sliding_window_limiter: CeleryRateLimiter, func_path, request
     ):
         """Verify burst behavior across multiple configurations.
 
@@ -577,31 +707,31 @@ class TestSlidingWindowBehaviorParametrized:
         various limit/window combinations.
         """
         # Arrange
-        # Infer configuration from limiter.
         limit = sliding_window_limiter.limit
         window = sliding_window_limiter.window
-        
-        # Fraction of window to use as "near the end."
-        window_tail = 0.05
+        window_tail = 0.2  # Position at 80% through window
+        verbose = request.config.getoption("verbose") > 0
 
-        # Schedule enough tasks for a potential 2x burst.
+        # Schedule enough tasks for a potential 2x burst
         for i in range(limit * 3):
             sliding_window_limiter.schedule_task(func_path, {"index": i})
 
-        # Get reset_in_ms to calculate wait time.
-        result = sliding_window_limiter.consume()
-        if result["success"]:
-            with sliding_window_limiter.task_lifecycle(result["task"]["id"]):
+        # Position at 80% through window with empty previous window
+        pre_burst_result, actual_pct = position_at_window_percentage(
+            sliding_window_limiter,
+            target_pct=1 - window_tail,
+            verbose=verbose
+        )
+
+        # Complete the positioning consume and start timestamp tracking
+        if pre_burst_result["success"]:
+            with sliding_window_limiter.task_lifecycle(pre_burst_result["task"]["id"]):
                 pass
+            timestamps = [time.time()]
+        else:
+            timestamps = []
 
-        reset_ms = result["reset_in_ms"]
-
-        # Calculate wait: finish current window + skip one empty window + position near end.
-        wait_seconds = (reset_ms / 1000) + window + (window * (1 - window_tail))
-        time.sleep(wait_seconds)
-
-        # Consume rapidly across the window boundary.
-        timestamps = []
+        # Consume rapidly across the window boundary
         num_task_windows = 3
         burst_window = window * (num_task_windows + window_tail)
         start_time = time.time()

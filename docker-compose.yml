@@ -43,8 +43,9 @@ services:
       # Only start with: docker-compose --profile production up.
       - production
 
-  # Test runner service.
+  # Test runner service (fast tests only, excludes @pytest.mark.slow).
   test:
+    &test-base
     build:
       context: .
       dockerfile: Dockerfile
@@ -62,13 +63,19 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    # Run tests with verbose output--also run all default excluded marked tests.
-    command: poetry run pytest --override-ini='addopts=' tests/ -v -s
+    command: poetry run pytest tests/ -v -s
     networks:
       - rate-limiter-network
     profiles:
-      # Only start with: docker-compose --profile test up.
       - test
+
+  # Test runner service (all tests, including @pytest.mark.slow).
+  test-all:
+    <<: *test-base
+    container_name: celery-rate-limiter-test-all
+    command: poetry run pytest --override-ini='addopts=' tests/ -v -s
+    profiles:
+      - test-all
 
   # Optional: Redis Commander (web UI for debugging).
   redis-commander:

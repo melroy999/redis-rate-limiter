@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import random
 import signal
 import uuid
 from abc import ABC, abstractmethod
@@ -164,7 +165,21 @@ class TaskLifecycle:
 
 
 class AbstractDistributedRateLimiter(ABC):
-    """A class that rate limits celery tasks."""
+    """A class that rate limits celery tasks.
+
+    Rate limiting relies on atomic Lua scripts executed on a single Redis instance.
+    All rate limit state (window counters, buffer, concurrency set) must reside on the
+    same Redis node to guarantee correctness.
+
+    Redis configuration requirements:
+        - Single Redis instance, or a master-only setup where all reads and writes go
+          to the same node. Read replicas introduce replication lag that can cause the
+          rate limit to be exceeded, because a replica may serve stale window counters.
+        - Redis Cluster is not supported. The limiter uses multiple keys (window counters,
+          buffer, concurrency set, dispatch lock) that must be co-located on the same
+          shard. Key hash tags are not applied, so Redis Cluster may distribute them
+          across different nodes and break atomicity.
+    """
 
     _CONSUME_LUA_SCRIPT: str
     _SCHEDULE_LUA_SCRIPT: str
@@ -184,6 +199,9 @@ class AbstractDistributedRateLimiter(ABC):
         max_age: int = 3600,
         lease_duration: int = 30,
         on_heartbeat_failure: Literal["warn", "kill"] = "warn",
+        jitter_enabled: bool = True,
+        jitter_min_pct: float = 0.02,
+        jitter_max_pct: float = 0.08,
     ):
         """Create an abstract rate limiter instance with the given parameters and import the appropriate lua scripts.
 
@@ -197,6 +215,12 @@ class AbstractDistributedRateLimiter(ABC):
             lease_duration: The time in seconds after which the lease to a concurrency slot will expire.
             on_heartbeat_failure: How to handle heartbeat failures. 'warn' lets the job proceed,
                 whereas 'kill' makes the worker forcefully exit its execution, effectively killing it.
+            jitter_enabled: Whether to add randomized jitter to retry delays to reduce thundering herd.
+                Recommended: True (default).
+            jitter_min_pct: Minimum jitter as percentage of window size (default: 2% = 20ms for 1s window).
+                Lower bound ensures some spread even under low load.
+            jitter_max_pct: Maximum jitter as percentage of window size (default: 8% = 80ms for 1s window).
+                Upper bound prevents excessive delays under high load.
         """
         self.redis = redis_client
         self.id = limiter_id
@@ -210,6 +234,9 @@ class AbstractDistributedRateLimiter(ABC):
         self.max_age = max_age
         self.lease_duration = lease_duration
         self.on_heartbeat_failure = on_heartbeat_failure
+        self.jitter_enabled = jitter_enabled
+        self.jitter_min_pct = jitter_min_pct
+        self.jitter_max_pct = jitter_max_pct
 
         # Import the scripts.
         self._load_lua_script("consume.lua", "_CONSUME_LUA_SCRIPT")
@@ -462,6 +489,64 @@ class AbstractDistributedRateLimiter(ABC):
             self.renew_script_sha = str(self.redis.script_load(self._RENEW_LUA_SCRIPT))
             return self.extend_lease(task_id, duration, retry=False)
 
+    def _calculate_smart_jitter(
+        self,
+        remaining_tasks: int,
+        remaining_tokens: int,
+        active_concurrency: int,
+    ) -> float:
+        """Calculate adaptive jitter to reduce thundering herd at window resets.
+
+        Jitter prevents all workers from waking simultaneously when rate limit resets.
+        Strategy scales with both window size and system load:
+            - Window proportional: 1s window = 20-80ms jitter, 60s window = 1.2-4.8s jitter.
+            - Load adaptive: High contention = larger jitter spread, low contention = smaller spread.
+
+        Args:
+            remaining_tasks: Number of tasks waiting in buffer.
+            remaining_tokens: Number of rate limit tokens available.
+            active_concurrency: Number of currently active tasks.
+
+        Returns:
+            Jitter amount in seconds to add to base delay.
+        """
+        if not self.jitter_enabled:
+            return 0.0
+
+        # Base jitter range scales with window size.
+        min_jitter = self.window * self.jitter_min_pct
+        max_jitter = self.window * self.jitter_max_pct
+
+        # Calculate load pressure (0.0 = low contention, 1.0 = high contention).
+        if remaining_tasks <= 0:
+            load_pressure = 0.0
+        elif remaining_tasks < 10:
+            load_pressure = 0.2
+        elif remaining_tasks < 50:
+            load_pressure = 0.5
+        elif remaining_tasks < 100:
+            load_pressure = 0.7
+        else:
+            load_pressure = 1.0
+
+        # Calculate concurrency pressure (0.0 = many free slots, 1.0 = at capacity).
+        concurrency_pressure = active_concurrency / max(1, self.max_concurrency)
+
+        # Combine pressures: weight queue load more heavily than concurrency.
+        combined_pressure = (load_pressure * 0.7) + (concurrency_pressure * 0.3)
+
+        # Scale jitter range based on pressure.
+        # High pressure = use more of jitter range (spread workers out more).
+        # Low pressure = use less of jitter range (process faster, less spread).
+        # Range: 0.3 to 1.0.
+        jitter_scale = 0.3 + (combined_pressure * 0.7)
+
+        # Calculate final jitter with randomization.
+        jitter_range_size = (max_jitter - min_jitter) * jitter_scale
+        jitter = min_jitter + (jitter_range_size * random.random())
+
+        return round(jitter, 3)
+
     def get_buffer_count(self) -> int:
         """Get the number of items in the buffer."""
         return int(str(self.redis.zcard(self.buffer_key)))
@@ -508,7 +593,16 @@ class AbstractDistributedRateLimiter(ABC):
             elif result["remaining_tokens"] <= 0:
                 # Wait for the rate window to reset.
                 ms_to_reset = result.get("reset_in_ms", 0)
-                delay_seconds = round(max(0.001, (ms_to_reset / 1000.0) + 0.001), 3)
+                base_delay = (ms_to_reset / 1000.0) + 0.001
+
+                # Add smart jitter to prevent thundering herd when window resets.
+                jitter = self._calculate_smart_jitter(
+                    remaining_tasks=result["remaining_tasks"],
+                    remaining_tokens=result["remaining_tokens"],
+                    active_concurrency=result["active_concurrency"],
+                )
+
+                delay_seconds = round(max(0.001, base_delay + jitter), 3)
                 self._schedule_drain(delay=delay_seconds)
 
     @abstractmethod
