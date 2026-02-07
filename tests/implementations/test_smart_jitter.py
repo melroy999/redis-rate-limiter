@@ -5,6 +5,8 @@ attempts based on system load.
 """
 
 import itertools
+import random
+from unittest.mock import patch
 
 import pytest
 
@@ -13,6 +15,12 @@ from celery_rate_limiter.limiters import CeleryRateLimiter
 
 class TestSmartJitter:
     """Test suite for adaptive jitter implementation."""
+
+    @staticmethod
+    def _seeded_random_values(samples: int, seed: int) -> list[float]:
+        """Generate deterministic pseudo-random values for jitter tests."""
+        seeded_rng = random.Random(seed)
+        return [seeded_rng.random() for _ in range(samples)]
 
     @pytest.fixture
     def limiter(self, redis_client, celery_app):
@@ -67,18 +75,27 @@ class TestSmartJitter:
         # Act
         # Take multiple samples to test statistical properties.
         samples = 100
-        short_jitters = [
-            short_limiter._calculate_smart_jitter(
-                remaining_tasks=50, remaining_tokens=0, active_concurrency=3
-            )
-            for _ in range(samples)
-        ]
-        long_jitters = [
-            long_limiter._calculate_smart_jitter(
-                remaining_tasks=50, remaining_tokens=0, active_concurrency=3
-            )
-            for _ in range(samples)
-        ]
+        random_values = self._seeded_random_values(samples, seed=20260207)
+        with patch(
+            "celery_rate_limiter.limiters.random.random",
+            side_effect=iter(random_values),
+        ):
+            short_jitters = [
+                short_limiter._calculate_smart_jitter(
+                    remaining_tasks=50, remaining_tokens=0, active_concurrency=3
+                )
+                for _ in range(samples)
+            ]
+        with patch(
+            "celery_rate_limiter.limiters.random.random",
+            side_effect=iter(random_values),
+        ):
+            long_jitters = [
+                long_limiter._calculate_smart_jitter(
+                    remaining_tasks=50, remaining_tokens=0, active_concurrency=3
+                )
+                for _ in range(samples)
+            ]
 
         # Assert
         avg_short = sum(short_jitters) / len(short_jitters)
@@ -94,42 +111,64 @@ class TestSmartJitter:
         """Verify average jitter increases under higher contention."""
         # Arrange
         samples = 100
+        random_values = self._seeded_random_values(samples, seed=20260208)
 
         # Act
         # Take multiple samples at each load level.
-        low_load_jitters = [
-            limiter._calculate_smart_jitter(
-                remaining_tasks=5,
-                remaining_tokens=0,
-                active_concurrency=1,
-            )
-            for _ in range(samples)
-        ]
-        medium_load_jitters = [
-            limiter._calculate_smart_jitter(
-                remaining_tasks=50,
-                remaining_tokens=0,
-                active_concurrency=3,
-            )
-            for _ in range(samples)
-        ]
-        high_load_jitters = [
-            limiter._calculate_smart_jitter(
-                remaining_tasks=200,
-                remaining_tokens=0,
-                active_concurrency=5,
-            )
-            for _ in range(samples)
-        ]
+        with patch(
+            "celery_rate_limiter.limiters.random.random",
+            side_effect=iter(random_values),
+        ):
+            low_load_jitters = [
+                limiter._calculate_smart_jitter(
+                    remaining_tasks=5,
+                    remaining_tokens=0,
+                    active_concurrency=1,
+                )
+                for _ in range(samples)
+            ]
+        with patch(
+            "celery_rate_limiter.limiters.random.random",
+            side_effect=iter(random_values),
+        ):
+            medium_load_jitters = [
+                limiter._calculate_smart_jitter(
+                    remaining_tasks=50,
+                    remaining_tokens=0,
+                    active_concurrency=3,
+                )
+                for _ in range(samples)
+            ]
+        with patch(
+            "celery_rate_limiter.limiters.random.random",
+            side_effect=iter(random_values),
+        ):
+            high_load_jitters = [
+                limiter._calculate_smart_jitter(
+                    remaining_tasks=200,
+                    remaining_tokens=0,
+                    active_concurrency=5,
+                )
+                for _ in range(samples)
+            ]
 
         # Assert
         avg_low = sum(low_load_jitters) / len(low_load_jitters)
         avg_medium = sum(medium_load_jitters) / len(medium_load_jitters)
         avg_high = sum(high_load_jitters) / len(high_load_jitters)
 
-        assert avg_low < avg_medium < avg_high, (
-            f"average jitter should increase with load: "
-            f"low={avg_low:.4f}, medium={avg_medium:.4f}, high={avg_high:.4f}"
+        monotonicity_violations = [
+            (idx, low, medium, high)
+            for idx, (low, medium, high) in enumerate(
+                zip(low_load_jitters, medium_load_jitters, high_load_jitters, strict=True)
+            )
+            if not (low <= medium <= high)
+        ]
+        first_violation = monotonicity_violations[0] if monotonicity_violations else None
+        assert not monotonicity_violations, (
+            f"paired jitter monotonicity violated for load pressure; "
+            f"violations={len(monotonicity_violations)}, first={first_violation}, "
+            f"avg_low={avg_low:.4f}, avg_medium={avg_medium:.4f}, avg_high={avg_high:.4f}"
         )
 
     @pytest.mark.parametrize(
@@ -161,14 +200,20 @@ class TestSmartJitter:
         """Verify repeated calls produce varied output."""
         # Act
         # Call jitter calculation multiple times with identical inputs.
-        jitters = [
-            limiter._calculate_smart_jitter(
-                remaining_tasks=50,
-                remaining_tokens=0,
-                active_concurrency=3,
-            )
-            for _ in range(100)
-        ]
+        samples = 100
+        random_values = self._seeded_random_values(samples, seed=20260209)
+        with patch(
+            "celery_rate_limiter.limiters.random.random",
+            side_effect=iter(random_values),
+        ):
+            jitters = [
+                limiter._calculate_smart_jitter(
+                    remaining_tasks=50,
+                    remaining_tokens=0,
+                    active_concurrency=3,
+                )
+                for _ in range(samples)
+            ]
 
         # Assert
         unique_jitters = set(jitters)
@@ -215,36 +260,58 @@ class TestSmartJitter:
         )
 
     def test_concurrency_pressure_increases_jitter(self, limiter):
-        """Verify higher concurrency pressure produces larger average jitter."""
+        """Verify higher concurrency pressure produces larger average jitter.
+
+        Uses a seeded random stream so this unit test is deterministic.
+        """
         # Arrange
         samples = 100
+        random_values = self._seeded_random_values(samples, seed=20260210)
 
         # Act
-        # Take multiple samples at each concurrency level.
-        low_concurrency_jitters = [
-            limiter._calculate_smart_jitter(
-                remaining_tasks=50,
-                remaining_tokens=0,
-                active_concurrency=1,
-            )
-            for _ in range(samples)
-        ]
-        high_concurrency_jitters = [
-            limiter._calculate_smart_jitter(
-                remaining_tasks=50,
-                remaining_tokens=0,
-                active_concurrency=5,
-            )
-            for _ in range(samples)
-        ]
+        # Sample each concurrency level many times.
+        # Reuse the exact same random values for both levels so any difference
+        # comes from concurrency pressure, not random chance.
+        with patch(
+            "celery_rate_limiter.limiters.random.random",
+            side_effect=iter(random_values),
+        ):
+            low_concurrency_jitters = [
+                limiter._calculate_smart_jitter(
+                    remaining_tasks=50,
+                    remaining_tokens=0,
+                    active_concurrency=1,
+                )
+                for _ in range(samples)
+            ]
+        with patch(
+            "celery_rate_limiter.limiters.random.random",
+            side_effect=iter(random_values),
+        ):
+            high_concurrency_jitters = [
+                limiter._calculate_smart_jitter(
+                    remaining_tasks=50,
+                    remaining_tokens=0,
+                    active_concurrency=5,
+                )
+                for _ in range(samples)
+            ]
 
         # Assert
         avg_low = sum(low_concurrency_jitters) / len(low_concurrency_jitters)
         avg_high = sum(high_concurrency_jitters) / len(high_concurrency_jitters)
-
-        assert avg_high > avg_low, (
-            f"higher concurrency pressure should increase jitter: "
-            f"low={avg_low:.4f}, high={avg_high:.4f}"
+        monotonicity_violations = [
+            (idx, low, high)
+            for idx, (low, high) in enumerate(
+                zip(low_concurrency_jitters, high_concurrency_jitters, strict=True)
+            )
+            if high < low
+        ]
+        first_violation = monotonicity_violations[0] if monotonicity_violations else None
+        assert not monotonicity_violations, (
+            f"paired jitter monotonicity violated for concurrency pressure; "
+            f"violations={len(monotonicity_violations)}, first={first_violation}, "
+            f"avg_low={avg_low:.4f}, avg_high={avg_high:.4f}"
         )
 
     def test_jitter_precision(self, limiter):

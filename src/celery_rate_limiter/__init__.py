@@ -1,8 +1,12 @@
+import logging
+
 from celery import Celery
 from redis import Redis
 
 from celery_rate_limiter.limiters import CeleryRateLimiter
 from celery_rate_limiter.registry import RateLimiterRegistry
+
+logger = logging.getLogger(__name__)
 
 
 class CeleryRateLimiterFactory:
@@ -25,6 +29,7 @@ class CeleryRateLimiterFactory:
         self.redis = redis_client
         self.app = celery_app
         self.registry = RateLimiterRegistry(self.redis, self.app)
+        logger.info("CeleryRateLimiterFactory initialized.")
 
     def create_limiter(
         self,
@@ -63,4 +68,15 @@ class CeleryRateLimiterFactory:
             lease_duration=lease_duration,
         )
         self.registry.register(limiter, override, persist)
+        logger.info(
+            "Limiter created via factory: limiter_id=%s, window_s=%d, limit=%d, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, override=%s, persist=%s.",
+            limiter_id,
+            window,
+            limit,
+            max_concurrency,
+            max_age,
+            lease_duration,
+            override,
+            persist,
+        )
         return limiter

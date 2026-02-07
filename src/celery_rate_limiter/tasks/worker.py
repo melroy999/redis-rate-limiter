@@ -1,9 +1,12 @@
 import importlib
+import logging
 from typing import Any, Callable, cast
 
 from celery import shared_task
 
 from celery_rate_limiter.decorators import rate_limited
+
+logger = logging.getLogger(__name__)
 
 
 def import_string(import_path: str) -> Callable[..., Any]:
@@ -23,6 +26,12 @@ def import_string(import_path: str) -> Callable[..., Any]:
     func = getattr(module, func_name)
     if not callable(func):
         raise TypeError(f"Object at {import_path} is not callable.")
+    logger.debug(
+        "Dynamic import resolved for worker execution: import_path=%s, module=%s, callable=%s.",
+        import_path,
+        module_path,
+        func_name,
+    )
 
     # noinspection PyUnnecessaryCast
     # This cast is in fact necessary for mypy validation.
@@ -44,6 +53,11 @@ def generic_rate_limited_worker(limiter_id: str, func_path: str, payload: dict) 
     """
     # limiter_id needs to be included.
     _ = limiter_id
+    logger.debug(
+        "Generic worker executing task: limiter_id=%s, func_path=%s.",
+        limiter_id,
+        func_path,
+    )
 
     # Execute the function.
     target_func = import_string(func_path)

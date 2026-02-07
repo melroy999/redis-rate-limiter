@@ -1,7 +1,8 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import random
 import signal
@@ -14,6 +15,8 @@ from typing import Any, ContextManager, Literal, Optional, TypedDict, cast
 import redis
 from celery import Celery
 from redis import Redis
+
+logger = logging.getLogger(__name__)
 
 
 class TaskData(TypedDict):
@@ -66,6 +69,18 @@ class DistributedLock:
         self.acquired = bool(
             self.redis.set(self.lock_key, self.token, px=self.timeout_ms, nx=True)
         )
+        if self.acquired:
+            logger.debug(
+                "Dispatch lock acquired: key=%s, token=%s, timeout_ms=%d.",
+                self.lock_key,
+                self.token,
+                self.timeout_ms,
+            )
+        else:
+            logger.debug(
+                "Dispatch lock contended: key=%s (another drainer holds the lock).",
+                self.lock_key,
+            )
         return bool(self.acquired)
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -81,7 +96,19 @@ class DistributedLock:
                     return 0
                 end
                 """
-            self.redis.eval(script, 1, self.lock_key, self.token)
+            result = self.redis.eval(script, 1, self.lock_key, self.token)
+            if result:
+                logger.debug(
+                    "Dispatch lock released: key=%s, token=%s.",
+                    self.lock_key,
+                    self.token,
+                )
+            else:
+                logger.debug(
+                    "Dispatch lock already expired before release: key=%s, token=%s.",
+                    self.lock_key,
+                    self.token,
+                )
 
 
 class TaskLifecycle:
@@ -121,26 +148,43 @@ class TaskLifecycle:
 
                 # Indicate that the worker has restored its proper functioning.
                 if not self.is_healthy:
-                    print(f"INFO: Connection restored for task {self.task_id}.")
+                    logger.info(
+                        "Heartbeat connection restored for task %s on limiter %s.",
+                        self.task_id,
+                        self.limiter.id,
+                    )
                     self.is_healthy = True
             except Exception as e:
                 # Mark as unhealthy to signal to the worker job that something is wrong.
                 self.is_healthy = False
 
-                error_msg = f"CRITICAL: Heartbeat failed for task {self.task_id}: {e}"
                 if self.on_failure_action == "kill":
                     # Log that the worker is now dead and break the loop so the child-thread stops as well.
-                    print(f"{error_msg} -> TERMINATING WORKER (Suicide Pact)")
+                    logger.critical(
+                        "Heartbeat failed for task %s: %s - terminating worker (suicide pact).",
+                        self.task_id,
+                        e,
+                    )
                     os.kill(os.getpid(), signal.SIGTERM)
                     break
                 else:
-                    print(f"{error_msg} -> Flagged as unhealthy.")
+                    logger.critical(
+                        "Heartbeat failed for task %s: %s - flagged as unhealthy.",
+                        self.task_id,
+                        e,
+                    )
 
     def __enter__(self) -> TaskLifecycle:
         """Enter the context manager."""
         # Start the keep-alive thread.
         self._thread = Thread(target=self._heartbeat_loop, daemon=True)
         self._thread.start()
+        logger.debug(
+            "Task lifecycle entered: limiter=%s, task_id=%s, heartbeat_interval_s=%.3f.",
+            self.limiter.id,
+            self.task_id,
+            self.interval,
+        )
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -153,13 +197,29 @@ class TaskLifecycle:
         # Perform cleanup.
         try:
             # Always decrement the counter when leaving the 'with' block.
-            self.limiter.redis.zrem(self.limiter.concurrency_key, self.task_id)
+            removed_concurrency = self.limiter.redis.zrem(
+                self.limiter.concurrency_key, self.task_id
+            )
 
             # Clear the active lock of the task.
+            active_removed = 0
             if self.task_id:
                 active_key = self.limiter.get_active_key(self.task_id)
-                self.limiter.redis.delete(active_key)
+                active_removed = self.limiter.redis.delete(active_key)
+
+            logger.debug(
+                "Concurrency slot released and active key cleared: limiter=%s, task_id=%s, removed_concurrency=%s, removed_active=%s.",
+                self.limiter.id,
+                self.task_id,
+                removed_concurrency,
+                active_removed,
+            )
         finally:
+            logger.debug(
+                "Task lifecycle exited, triggering follow-up consume: limiter=%s, task_id=%s.",
+                self.limiter.id,
+                self.task_id,
+            )
             # Re-trigger the dispatcher to fill the empty slot.
             self.limiter.trigger_consume()
 
@@ -237,6 +297,19 @@ class AbstractDistributedRateLimiter(ABC):
         self.jitter_enabled = jitter_enabled
         self.jitter_min_pct = jitter_min_pct
         self.jitter_max_pct = jitter_max_pct
+        logger.info(
+            "Rate limiter initialized: id=%s, limit=%d, window_s=%d, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f.",
+            self.id,
+            self.limit,
+            self.window,
+            self.max_concurrency,
+            self.max_age,
+            self.lease_duration,
+            self.on_heartbeat_failure,
+            self.jitter_enabled,
+            self.jitter_min_pct,
+            self.jitter_max_pct,
+        )
 
         # Import the scripts.
         self._load_lua_script("consume.lua", "_CONSUME_LUA_SCRIPT")
@@ -248,13 +321,37 @@ class AbstractDistributedRateLimiter(ABC):
         self.consume_script_sha: str = str(
             self.redis.script_load(self._CONSUME_LUA_SCRIPT)
         )
+        logger.debug(
+            "Lua script cached: limiter=%s, script=%s, sha=%s.",
+            self.id,
+            "consume.lua",
+            self.consume_script_sha,
+        )
         self.schedule_script_sha: str = str(
             self.redis.script_load(self._SCHEDULE_LUA_SCRIPT)
+        )
+        logger.debug(
+            "Lua script cached: limiter=%s, script=%s, sha=%s.",
+            self.id,
+            "schedule.lua",
+            self.schedule_script_sha,
         )
         self.health_script_sha: str = str(
             self.redis.script_load(self._HEALTH_LUA_SCRIPT)
         )
+        logger.debug(
+            "Lua script cached: limiter=%s, script=%s, sha=%s.",
+            self.id,
+            "health.lua",
+            self.health_script_sha,
+        )
         self.renew_script_sha: str = str(self.redis.script_load(self._RENEW_LUA_SCRIPT))
+        logger.debug(
+            "Lua script cached: limiter=%s, script=%s, sha=%s.",
+            self.id,
+            "renew.lua",
+            self.renew_script_sha,
+        )
 
     def _load_lua_script(self, lua_script: str, key: str) -> None:
         """Load a lua script from disk.
@@ -267,6 +364,12 @@ class AbstractDistributedRateLimiter(ABC):
             try:
                 source = resources.files(self.resource_package).joinpath(lua_script)
                 setattr(self, key, source.read_text(encoding="utf-8"))
+                logger.debug(
+                    "Lua script loaded from disk: limiter=%s, script=%s, attr=%s.",
+                    self.id,
+                    lua_script,
+                    key,
+                )
             except Exception as e:
                 raise ImportError(
                     f"Could not load {lua_script} from {self.resource_package}: {e}"
@@ -340,11 +443,24 @@ class AbstractDistributedRateLimiter(ABC):
         # Generate a unique id for the task name and payload.
         task_signature = self._get_task_signature_str(func_path, payload)
         task_id = hashlib.md5(task_signature.encode()).hexdigest()
+        logger.debug(
+            "Scheduling task attempt: limiter=%s, task_id=%s, func_path=%s, priority=%d, max_age=%s.",
+            self.id,
+            task_id,
+            func_path,
+            priority,
+            max_age,
+        )
 
         # Track active tasks--skip if it is already active.
         active_key = self.get_active_key(task_id)
         if self.redis.exists(active_key):
-            print(f"DEBUG: Task {task_id} is already in-flight. Skipping.")
+            logger.debug(
+                "Task already in-flight, skipping schedule: limiter=%s, task_id=%s, active_key=%s.",
+                self.id,
+                task_id,
+                active_key,
+            )
             return False, task_id
 
         # Add a priority for priority queue behavior.
@@ -365,6 +481,13 @@ class AbstractDistributedRateLimiter(ABC):
 
             # Mark as active only after scheduling.
             self.redis.set(active_key, "1", ex=3600)
+            logger.info(
+                "Task scheduled: limiter=%s, task_id=%s, func_path=%s, priority=%d.",
+                self.id,
+                task_id,
+                func_path,
+                priority,
+            )
 
         except redis.exceptions.NoScriptError:
             # Redis cache is volatile, and hence, the sha may become invalid unexpectedly.
@@ -375,10 +498,18 @@ class AbstractDistributedRateLimiter(ABC):
                 )
 
             # Fetch the script sha again and reattempt.
+            logger.warning(
+                "Lua script cache miss during schedule; reloading script: limiter=%s, script=%s, task_id=%s.",
+                self.id,
+                "schedule.lua",
+                task_id,
+            )
             self.schedule_script_sha = str(
                 self.redis.script_load(self._SCHEDULE_LUA_SCRIPT)
             )
-            return self.schedule_task(func_path, payload, priority, retry=False)
+            return self.schedule_task(
+                func_path, payload, priority, max_age=max_age, retry=False
+            )
 
         # Attempt a consume.
         self.trigger_consume()
@@ -396,6 +527,7 @@ class AbstractDistributedRateLimiter(ABC):
         Raises:
             RuntimeError: If the necessary lua scripts cannot be (re)loaded.
         """
+        logger.debug("Consume attempt started: limiter=%s.", self.id)
         try:
             # Fetch the result.
             result = cast(
@@ -421,7 +553,7 @@ class AbstractDistributedRateLimiter(ABC):
             )
 
             # Attempt to parse the result.
-            return {
+            consume_result = {
                 "success": int(result[0]) == 1,
                 "expired": int(result[0]) == -1,
                 "task": cast(TaskData, json.loads(result[1])) if result[1] else None,
@@ -430,6 +562,18 @@ class AbstractDistributedRateLimiter(ABC):
                 "reset_in_ms": int(result[4]),
                 "remaining_tasks": int(result[5]),
             }
+            logger.debug(
+                "Consume result: limiter=%s, success=%s, expired=%s, task_id=%s, remaining_tokens=%d, active_concurrency=%d, remaining_tasks=%d, reset_in_ms=%d.",
+                self.id,
+                consume_result["success"],
+                consume_result["expired"],
+                (consume_result["task"] or {}).get("id"),
+                consume_result["remaining_tokens"],
+                consume_result["active_concurrency"],
+                consume_result["remaining_tasks"],
+                consume_result["reset_in_ms"],
+            )
+            return consume_result
 
         except redis.exceptions.NoScriptError:
             # Redis cache is volatile, and hence, the sha may become invalid unexpectedly.
@@ -440,6 +584,11 @@ class AbstractDistributedRateLimiter(ABC):
                 )
 
             # Fetch the script sha again and reattempt.
+            logger.warning(
+                "Lua script cache miss during consume; reloading script: limiter=%s, script=%s.",
+                self.id,
+                "consume.lua",
+            )
             self.consume_script_sha = str(
                 self.redis.script_load(self._CONSUME_LUA_SCRIPT)
             )
@@ -464,7 +613,7 @@ class AbstractDistributedRateLimiter(ABC):
             The result of the lua renew script.
         """
         try:
-            return cast(
+            renewed = cast(
                 bool,
                 cast(
                     object,
@@ -479,6 +628,14 @@ class AbstractDistributedRateLimiter(ABC):
                     ),
                 ),
             )
+            logger.debug(
+                "Lease extension result: limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
+                self.id,
+                task_id,
+                duration,
+                renewed,
+            )
+            return renewed
         except redis.exceptions.NoScriptError:
             if not retry:
                 raise RuntimeError(
@@ -486,6 +643,12 @@ class AbstractDistributedRateLimiter(ABC):
                 )
 
             # Fetch the script sha again and reattempt.
+            logger.warning(
+                "Lua script cache miss during lease extension; reloading script: limiter=%s, script=%s, task_id=%s.",
+                self.id,
+                "renew.lua",
+                task_id,
+            )
             self.renew_script_sha = str(self.redis.script_load(self._RENEW_LUA_SCRIPT))
             return self.extend_lease(task_id, duration, retry=False)
 
@@ -545,7 +708,18 @@ class AbstractDistributedRateLimiter(ABC):
         jitter_range_size = (max_jitter - min_jitter) * jitter_scale
         jitter = min_jitter + (jitter_range_size * random.random())
 
-        return round(jitter, 3)
+        rounded_jitter = round(jitter, 3)
+        logger.debug(
+            "Smart jitter calculated: limiter=%s, remaining_tasks=%d, remaining_tokens=%d, active_concurrency=%d, load_pressure=%.3f, concurrency_pressure=%.3f, jitter_s=%.3f.",
+            self.id,
+            remaining_tasks,
+            remaining_tokens,
+            active_concurrency,
+            load_pressure,
+            concurrency_pressure,
+            rounded_jitter,
+        )
+        return rounded_jitter
 
     def get_buffer_count(self) -> int:
         """Get the number of items in the buffer."""
@@ -553,10 +727,20 @@ class AbstractDistributedRateLimiter(ABC):
 
     def drain(self) -> None:
         """Attempt to drain an item from the queue."""
+        logger.debug("Drain loop start: limiter=%s.", self.id)
         # Lock the execution to avoid the thundering herd problem.
         with self.execution_lock() as acquired:
+            logger.debug(
+                "Drain lock acquisition result: limiter=%s, acquired=%s.",
+                self.id,
+                acquired,
+            )
             if not acquired:
                 # Someone is already executing an attempt; hence skip.
+                logger.debug(
+                    "Drain skipped because lock is held by another drainer: limiter=%s.",
+                    self.id,
+                )
                 return
 
             # Perform a consume.
@@ -564,31 +748,51 @@ class AbstractDistributedRateLimiter(ABC):
 
             # Check if the task has expired.
             if result["expired"]:
-                print("The task has expired and has been moved to the DLQ.")
+                logger.warning(
+                    "Expired task moved to DLQ during consume: limiter=%s.",
+                    self.id,
+                )
 
             # Execute the task if the green light is given.
             if result["success"] and result["task"]:
                 task = result["task"]
+                task_id = task.get("id", "")
 
                 # Send to the generic worker.
                 self._dispatch_task(
                     func_path=task["func_path"],
                     payload=task["payload"],
-                    task_id=task.get("id"),
+                    task_id=task_id,
+                )
+                logger.info(
+                    "Task dispatched: limiter=%s, task_id=%s, func_path=%s.",
+                    self.id,
+                    task_id,
+                    task["func_path"],
                 )
 
                 # ONLY pulse if there are still items waiting in the buffer.
                 # This prevents the dispatcher from running forever.
                 if result["remaining_tasks"] > 0:
+                    logger.debug(
+                        "More tasks remain, scheduling immediate follow-up drain: limiter=%s, remaining_tasks=%d.",
+                        self.id,
+                        result["remaining_tasks"],
+                    )
                     self._schedule_drain()
 
             elif result["remaining_tasks"] == 0:
                 # Stop: No remaining tasks. Next drain will be triggered by a new task being added.
-                pass
+                logger.debug("Drain stopped: buffer empty for limiter=%s.", self.id)
 
             elif result["active_concurrency"] >= self.max_concurrency:
                 # Stop: The next drain will be triggered by worker completion.
-                pass
+                logger.debug(
+                    "Drain stopped: concurrency at capacity for limiter=%s (active=%d, max=%d).",
+                    self.id,
+                    result["active_concurrency"],
+                    self.max_concurrency,
+                )
 
             elif result["remaining_tokens"] <= 0:
                 # Wait for the rate window to reset.
@@ -603,6 +807,14 @@ class AbstractDistributedRateLimiter(ABC):
                 )
 
                 delay_seconds = round(max(0.001, base_delay + jitter), 3)
+                logger.info(
+                    "Rate limited, scheduling retry: limiter=%s, delay_s=%.3f, reset_in_ms=%d, jitter_s=%.3f, remaining_tasks=%d.",
+                    self.id,
+                    delay_seconds,
+                    ms_to_reset,
+                    jitter,
+                    result["remaining_tasks"],
+                )
                 self._schedule_drain(delay=delay_seconds)
 
     @abstractmethod
@@ -628,8 +840,14 @@ class AbstractDistributedRateLimiter(ABC):
     def trigger_consume(self) -> None:
         """Trigger the consumption of the task queue."""
         if self.redis.exists(self.lock_key):
+            logger.debug(
+                "Trigger consume skipped because dispatch lock is currently held: limiter=%s, lock_key=%s.",
+                self.id,
+                self.lock_key,
+            )
             return
 
+        logger.debug("Trigger consume scheduling drain: limiter=%s.", self.id)
         self._schedule_drain()
 
     def execution_lock(self, timeout_ms: int = 5000) -> ContextManager[bool]:
@@ -731,8 +949,13 @@ class AbstractDistributedRateLimiter(ABC):
                 )
 
             # Fetch the script sha again and reattempt.
-            self.consume_script_sha = str(
-                self.redis.script_load(self._CONSUME_LUA_SCRIPT)
+            logger.warning(
+                "Lua script cache miss during status fetch; reloading script: limiter=%s, script=%s.",
+                self.id,
+                "health.lua",
+            )
+            self.health_script_sha = str(
+                self.redis.script_load(self._HEALTH_LUA_SCRIPT)
             )
             return self.get_status(retry=False)
 
@@ -811,3 +1034,4 @@ class CeleryRateLimiter(AbstractDistributedRateLimiter):
         self.app.send_task(
             "celery_rate_limiter.attempt_consume", args=[self.id], countdown=delay
         )
+
