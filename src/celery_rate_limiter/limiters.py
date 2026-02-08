@@ -6,11 +6,13 @@ import logging
 import os
 import random
 import signal
+import time
 import uuid
+import warnings
 from abc import ABC, abstractmethod
 from importlib import resources
 from threading import Event, Thread
-from typing import Any, Callable, ContextManager, Literal, Optional, TypedDict, cast
+from typing import Any, Callable, ClassVar, ContextManager, Dict, Literal, Optional, TypedDict, cast
 
 import redis
 from celery import Celery
@@ -769,6 +771,19 @@ class AbstractDistributedRateLimiter(ABC):
 
     def drain(self) -> None:
         """Attempt to drain an item from the queue."""
+        # Check for dynamic config updates before draining.
+        if hasattr(self, "refresh_config"):
+            self.refresh_config()
+
+        # Respect window-change pause: skip draining until the pause expires.
+        if hasattr(self, "_paused_until") and time.time() < self._paused_until:
+            logger.debug(
+                "Drain skipped: limiter=%s is paused until %.3f for window transition.",
+                self.id,
+                self._paused_until,
+            )
+            return
+
         logger.debug("Drain loop start: limiter=%s.", self.id)
         # Lock the execution to avoid the thundering herd problem.
         with self.execution_lock() as acquired:
@@ -1003,18 +1018,353 @@ class AbstractDistributedRateLimiter(ABC):
 
 
 class CeleryRateLimiter(AbstractDistributedRateLimiter):
+    """A rate limiter that dispatches tasks via Celery.
+
+    Use the classmethods ``configure``, ``create``, ``get``, and ``update``
+    instead of constructing instances directly.
+    """
+
+    _REGISTRY_KEY: ClassVar[str] = "rl:registry:configs"
+    _VERSION_KEY: ClassVar[str] = "rl:registry:versions"
+    _SENTINEL: ClassVar[object] = object()
+
+    # Class-level shared state (set via configure()).
+    _redis_client: ClassVar[Optional[Redis]] = None
+    _celery_app: ClassVar[Optional[Celery]] = None
+    _instances: ClassVar[Dict[str, "CeleryRateLimiter"]] = {}
+
+    # ------------------------------------------------------------------
+    # Class-level API (replaces CeleryRateLimiterFactory + RateLimiterRegistry)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def configure(cls, redis_client: Redis, celery_app: Celery) -> None:
+        """One-time class-level configuration.  Call during worker / app init.
+
+        Args:
+            redis_client: The Redis client that all limiter instances will share.
+            celery_app: The Celery app that all limiter instances will share.
+        """
+        cls._redis_client = redis_client
+        cls._celery_app = celery_app
+        logger.info("CeleryRateLimiter configured.")
+
+    @classmethod
+    def create(
+        cls,
+        limiter_id: str,
+        limit: int,
+        window: int,
+        max_concurrency: int,
+        max_age: int = 3600,
+        lease_duration: int = 30,
+        override: bool = False,
+        persist: bool = True,
+        **kwargs: Any,
+    ) -> "CeleryRateLimiter":
+        """Create a new limiter, cache it locally, and optionally persist its config to Redis.
+
+        Args:
+            limiter_id: Unique identifier for this limiter.
+            limit: Maximum number of tasks per time window.
+            window: Time window in seconds.
+            max_concurrency: Maximum number of concurrent tasks.
+            max_age: Maximum time a task may sit in the queue before expiring.
+            lease_duration: Concurrency-slot lease timeout in seconds.
+            override: Allow replacing an existing limiter with the same id.
+            persist: Store the configuration in Redis so other workers can hydrate it.
+            **kwargs: Additional keyword arguments forwarded to the constructor
+                (e.g. ``on_heartbeat_failure``, ``jitter_enabled``, ``metrics_callback``).
+
+        Returns:
+            The newly created limiter instance.
+
+        Raises:
+            RuntimeError: If ``configure()`` has not been called yet.
+            ValueError: If *limiter_id* is already registered and *override* is ``False``.
+        """
+        cls._require_configured()
+
+        if not override and limiter_id in cls._instances:
+            raise ValueError(
+                f"Limiter '{limiter_id}' already exists. Use override=True to replace it."
+            )
+
+        instance = cls(
+            redis_client=cls._redis_client,
+            celery_app=cls._celery_app,
+            limiter_id=limiter_id,
+            limit=limit,
+            window=window,
+            max_concurrency=max_concurrency,
+            max_age=max_age,
+            lease_duration=lease_duration,
+            _sentinel=cls._SENTINEL,
+            **kwargs,
+        )
+        cls._instances[limiter_id] = instance
+
+        if persist:
+            cls._persist_config(instance)
+
+        logger.info(
+            "Limiter created: limiter_id=%s, window_s=%d, limit=%d, max_concurrency=%d, persist=%s.",
+            limiter_id,
+            window,
+            limit,
+            max_concurrency,
+            persist,
+        )
+        return instance
+
+    @classmethod
+    def get(cls, limiter_id: str) -> "CeleryRateLimiter":
+        """Retrieve a limiter by id.  Returns the cached instance or hydrates from Redis.
+
+        Args:
+            limiter_id: The id of the limiter to retrieve.
+
+        Returns:
+            The limiter instance.
+
+        Raises:
+            RuntimeError: If ``configure()`` has not been called yet.
+            ValueError: If the limiter does not exist locally or in Redis.
+        """
+        # Fast path: local cache.
+        if limiter_id in cls._instances:
+            logger.debug("Limiter resolved from local cache: limiter_id=%s.", limiter_id)
+            return cls._instances[limiter_id]
+
+        # Slow path: hydrate from Redis.
+        cls._require_configured()
+        assert cls._redis_client is not None  # Guaranteed by _require_configured.
+
+        raw_config = cls._redis_client.hget(cls._REGISTRY_KEY, limiter_id)
+        if raw_config is None:
+            raise ValueError(
+                f"Limiter '{limiter_id}' not found in local cache or Redis. "
+                "Ensure it was created via CeleryRateLimiter.create()."
+            )
+
+        config = json.loads(
+            raw_config.decode("utf-8") if isinstance(raw_config, bytes) else str(raw_config)
+        )
+
+        instance = cls(
+            redis_client=cls._redis_client,
+            celery_app=cls._celery_app,
+            limiter_id=limiter_id,
+            _sentinel=cls._SENTINEL,
+            **config,
+        )
+
+        # Load the current config version so refresh_config() has a baseline.
+        raw_version = cls._redis_client.hget(cls._VERSION_KEY, limiter_id)
+        if raw_version is not None:
+            instance._config_version = int(raw_version)
+
+        cls._instances[limiter_id] = instance
+        logger.debug("Limiter hydrated from Redis: limiter_id=%s.", limiter_id)
+        return instance
+
+    @classmethod
+    def update(
+        cls,
+        limiter_id: str,
+        limit: Optional[int] = None,
+        window: Optional[int] = None,
+        max_concurrency: Optional[int] = None,
+        max_age: Optional[int] = None,
+        lease_duration: Optional[int] = None,
+    ) -> "CeleryRateLimiter":
+        """Update the config of a live limiter, persist to Redis, and bump version.
+
+        Other workers will pick up the change on their next ``drain()`` via
+        ``refresh_config()``.
+
+        Window changes trigger a pause equal to ``max(old_window, new_window)``
+        to ensure a safe transition (see ``refresh_config()``).
+
+        Args:
+            limiter_id: The limiter to update.
+            limit: New rate limit (tasks per window), or ``None`` to keep current.
+            window: New window size in seconds, or ``None`` to keep current.
+            max_concurrency: New concurrency cap, or ``None`` to keep current.
+            max_age: New task expiry, or ``None`` to keep current.
+            lease_duration: New lease duration, or ``None`` to keep current.
+
+        Returns:
+            The updated limiter instance.
+
+        Raises:
+            ValueError: If the limiter does not exist.
+        """
+        instance = cls.get(limiter_id)
+
+        # Apply the window change with a pause for safety.
+        if window is not None and window != instance.window:
+            pause_duration = max(instance.window, window)
+            instance._paused_until = time.time() + pause_duration
+            instance.window = window
+            logger.info(
+                "Window changed for limiter %s: new_window=%d, paused_for_s=%d.",
+                limiter_id,
+                window,
+                pause_duration,
+            )
+
+        if limit is not None:
+            instance.limit = limit
+        if max_concurrency is not None:
+            instance.max_concurrency = max_concurrency
+        if max_age is not None:
+            instance.max_age = max_age
+        if lease_duration is not None:
+            instance.lease_duration = lease_duration
+
+        # Persist and bump version.
+        cls._persist_config(instance)
+
+        logger.info(
+            "Limiter updated: limiter_id=%s, limit=%d, window=%d, max_concurrency=%d.",
+            limiter_id,
+            instance.limit,
+            instance.window,
+            instance.max_concurrency,
+        )
+        return instance
+
+    @classmethod
+    def _reset(cls) -> None:
+        """Clear all class-level state.  **For testing only.**"""
+        cls._instances.clear()
+        cls._redis_client = None
+        cls._celery_app = None
+
+    @classmethod
+    def _require_configured(cls) -> None:
+        """Raise if ``configure()`` has not been called."""
+        if cls._redis_client is None or cls._celery_app is None:
+            raise RuntimeError(
+                "CeleryRateLimiter.configure(redis_client, celery_app) "
+                "must be called before create() or get()."
+            )
+
+    @classmethod
+    def _persist_config(cls, instance: "CeleryRateLimiter") -> None:
+        """Write the limiter config to Redis and bump its version counter."""
+        assert cls._redis_client is not None
+        config = {
+            "limit": instance.limit,
+            "window": instance.window,
+            "max_concurrency": instance.max_concurrency,
+            "max_age": instance.max_age,
+            "lease_duration": instance.lease_duration,
+        }
+        cls._redis_client.hset(cls._REGISTRY_KEY, instance.id, json.dumps(config))
+        cls._redis_client.hincrby(cls._VERSION_KEY, instance.id, 1)
+
+        # Keep the local version in sync.
+        raw_version = cls._redis_client.hget(cls._VERSION_KEY, instance.id)
+        if raw_version is not None:
+            instance._config_version = int(raw_version)
+
+    # ------------------------------------------------------------------
+    # Instance construction
+    # ------------------------------------------------------------------
+
     def __init__(
-        self, redis_client: Redis, celery_app: Celery, *args: Any, **kwargs: Any
+        self,
+        redis_client: Redis,
+        celery_app: Celery,
+        *args: Any,
+        _sentinel: Any = None,
+        **kwargs: Any,
     ):
         """Create a Celery rate limiter instance.
 
+        .. deprecated::
+            Direct construction is deprecated.  Use ``CeleryRateLimiter.create()`` or
+            ``CeleryRateLimiter.get()`` instead.
+
         Args:
-            celery_app: The celery app to use for task dispatch.
+            redis_client: The Redis client.
+            celery_app: The Celery app to use for task dispatch.
+            _sentinel: Internal — passed by classmethods to suppress the deprecation warning.
 
         Other parameters are inherited from AbstractDistributedRateLimiter.
         """
+        if _sentinel is not CeleryRateLimiter._SENTINEL:
+            warnings.warn(
+                "Direct CeleryRateLimiter() construction is deprecated. "
+                "Use CeleryRateLimiter.configure() + .create() or .get() instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         super().__init__(redis_client, *args, **kwargs)
         self.app = celery_app
+        self._config_version: int = 0
+        self._paused_until: float = 0.0
+
+    # ------------------------------------------------------------------
+    # Dynamic config refresh
+    # ------------------------------------------------------------------
+
+    def refresh_config(self) -> bool:
+        """Check Redis for config updates and apply them if a newer version exists.
+
+        Window changes trigger a pause equal to ``max(old_window, new_window)``
+        to let old counter keys expire safely.
+
+        Returns:
+            ``True`` if the config was updated, ``False`` otherwise.
+        """
+        raw_version = self.redis.hget(self.__class__._VERSION_KEY, self.id)
+        if raw_version is None:
+            return False
+
+        remote_version = int(raw_version)
+        if remote_version <= self._config_version:
+            return False
+
+        # Version changed — fetch the new config.
+        raw_config = self.redis.hget(self.__class__._REGISTRY_KEY, self.id)
+        if raw_config is None:
+            return False
+
+        config = json.loads(
+            raw_config.decode("utf-8") if isinstance(raw_config, bytes) else str(raw_config)
+        )
+
+        # Handle window changes with a pause for safety.
+        new_window = config.get("window", self.window)
+        if new_window != self.window:
+            pause_duration = max(self.window, new_window)
+            self._paused_until = time.time() + pause_duration
+            self.window = new_window
+            logger.info(
+                "Window change detected via refresh for limiter %s: new_window=%d, paused_for_s=%d.",
+                self.id,
+                new_window,
+                pause_duration,
+            )
+
+        self.limit = config.get("limit", self.limit)
+        self.max_concurrency = config.get("max_concurrency", self.max_concurrency)
+        self.max_age = config.get("max_age", self.max_age)
+        self.lease_duration = config.get("lease_duration", self.lease_duration)
+        self._config_version = remote_version
+
+        logger.info(
+            "Config refreshed for limiter %s: version=%d, limit=%d, window=%d, max_concurrency=%d.",
+            self.id,
+            remote_version,
+            self.limit,
+            self.window,
+            self.max_concurrency,
+        )
+        return True
 
     @staticmethod
     def _get_enhanced_payload(payload: dict, use_executor: bool) -> dict:

@@ -1,4 +1,5 @@
 import logging
+import warnings
 
 from celery import Celery
 from redis import Redis
@@ -8,9 +9,15 @@ from celery_rate_limiter.registry import RateLimiterRegistry
 
 logger = logging.getLogger(__name__)
 
+__all__ = ["CeleryRateLimiter", "CeleryRateLimiterFactory"]
+
 
 class CeleryRateLimiterFactory:
-    """Factory for creating Celery rate limiter instances."""
+    """Factory for creating Celery rate limiter instances.
+
+    .. deprecated::
+        Use ``CeleryRateLimiter.configure()`` + ``CeleryRateLimiter.create()`` instead.
+    """
 
     def __init__(
         self,
@@ -19,17 +26,26 @@ class CeleryRateLimiterFactory:
     ):
         """Initialize the Celery rate limiter factory.
 
-        The factory ensures that all rate limiters use the same redis and app instance.
-        Additionally, the rate limit registry is factory specific.
+        .. deprecated::
+            Use ``CeleryRateLimiter.configure(redis_client, celery_app)`` instead.
 
         Args:
             redis_client: The Redis client to use for all limiters.
             celery_app: The Celery app to use for all limiters.
         """
+        warnings.warn(
+            "CeleryRateLimiterFactory is deprecated. "
+            "Use CeleryRateLimiter.configure(redis_client, celery_app) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.redis = redis_client
         self.app = celery_app
         self.registry = RateLimiterRegistry(self.redis, self.app)
-        logger.info("CeleryRateLimiterFactory initialized.")
+
+        # Also configure the new class-level API for forward compatibility.
+        CeleryRateLimiter.configure(redis_client, celery_app)
+        logger.info("CeleryRateLimiterFactory initialized (deprecated).")
 
     def create_limiter(
         self,
@@ -44,6 +60,9 @@ class CeleryRateLimiterFactory:
     ) -> CeleryRateLimiter:
         """Create a Celery rate limiter instance with the given parameters.
 
+        .. deprecated::
+            Use ``CeleryRateLimiter.create()`` instead.
+
         Args:
             limiter_id: The id of the rate limiter to create.
             window: The time window in seconds that the limit is applied to.
@@ -57,26 +76,26 @@ class CeleryRateLimiterFactory:
         Returns:
             A rate limiter using the desired parameters.
         """
-        limiter = CeleryRateLimiter(
-            redis_client=self.redis,
-            celery_app=self.app,
+        warnings.warn(
+            "CeleryRateLimiterFactory.create_limiter() is deprecated. "
+            "Use CeleryRateLimiter.create() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        limiter = CeleryRateLimiter.create(
             limiter_id=limiter_id,
-            window=window,
             limit=limit,
+            window=window,
             max_concurrency=max_concurrency,
             max_age=max_age,
             lease_duration=lease_duration,
+            override=override,
+            persist=persist,
         )
-        self.registry.register(limiter, override, persist)
+        # Also register in the legacy registry for backward compatibility.
+        self.registry._limiters[limiter_id] = limiter
         logger.info(
-            "Limiter created via factory: limiter_id=%s, window_s=%d, limit=%d, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, override=%s, persist=%s.",
+            "Limiter created via deprecated factory: limiter_id=%s.",
             limiter_id,
-            window,
-            limit,
-            max_concurrency,
-            max_age,
-            lease_duration,
-            override,
-            persist,
         )
         return limiter

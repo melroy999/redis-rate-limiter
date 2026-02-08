@@ -3,7 +3,7 @@ import os
 import pytest
 import redis
 
-from src import CeleryRateLimiter
+from celery_rate_limiter.limiters import CeleryRateLimiter
 
 pytest_plugins = ("celery.contrib.pytest",)
 
@@ -96,6 +96,19 @@ def default_payload():
     return {"user_id": 123}
 
 
+@pytest.fixture(autouse=True)
+def _reset_limiter_class_state(redis_client, celery_app):
+    """Reset CeleryRateLimiter class-level state before and after each test.
+
+    This prevents singleton cache pollution between tests and ensures
+    configure() is called with the test fixtures.
+    """
+    CeleryRateLimiter._reset()
+    CeleryRateLimiter.configure(redis_client, celery_app)
+    yield
+    CeleryRateLimiter._reset()
+
+
 @pytest.fixture
 def limiter(redis_client, celery_app):
     """Setup and teardown for the CeleryRateLimiter.
@@ -105,15 +118,14 @@ def limiter(redis_client, celery_app):
     """
     # SETUP
     limiter_id = "test_limiter"
-    test_limiter = CeleryRateLimiter(
-        redis_client=redis_client,
-        celery_app=celery_app,
+    test_limiter = CeleryRateLimiter.create(
         limiter_id=limiter_id,
         limit=5,
         window=60,
         max_concurrency=2,
         max_age=3600,
         lease_duration=30,
+        override=True,
     )
 
     yield test_limiter

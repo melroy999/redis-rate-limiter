@@ -2,7 +2,7 @@ import functools
 import logging
 from typing import Any, Callable, Optional, TypeVar, cast
 
-from config import factory
+from celery_rate_limiter.limiters import CeleryRateLimiter
 
 # Use generic types.
 T = TypeVar("T", bound=Callable[..., Any])
@@ -23,7 +23,7 @@ def rate_limited(limiter_id: Optional[str] = None) -> Callable[[T], T]:
             l_id = limiter_id or kwargs.get("limiter_id")
 
             # Fetch the limiter and the task id.
-            limiter = factory.registry.get(l_id)
+            limiter = CeleryRateLimiter.get(l_id)
             task_id = kwargs.pop("_rate_limit_task_id")
             logger.debug(
                 "Rate-limited decorator entered: limiter_id=%s, task_id=%s, func=%s.",
