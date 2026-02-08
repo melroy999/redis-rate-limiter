@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Prepare Test Suite (Linux)" type="CompoundRunConfigurationType" folderName="Linux">
+  <configuration default="false" name="Prepare Test Suite" type="CompoundRunConfigurationType" folderName="Demo">
     <toRun name="Celery Worker" type="PythonConfigurationType" />
     <toRun name="Progress Monitor" type="PythonConfigurationType" />
     <method v="2" />

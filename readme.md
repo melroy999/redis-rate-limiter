@@ -1,17 +1,17 @@
 ![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/melroy999/f3caa8f0af98bf11563b5b2031c1ef3e/raw/celery-rate-limiter-coverage.json)
 
-export PYTHONPATH=$PYTHONPATH:.
-celery -A worker_init worker -c 10 --loglevel=warning
+export PYTHONPATH=$PYTHONPATH:examples:src
+celery -A worker worker -c 10 --loglevel=warning
 
-export PYTHONPATH=$PYTHONPATH:.
-python test_suite.py
+export PYTHONPATH=$PYTHONPATH:examples:src
+python examples/simulation.py
 
 redis-cli monitor
 
 redis-cli flushall
 
-~~export PYTHONPATH=$PYTHONPATH:.
-python inspector.py --rate 0.2~~
+export PYTHONPATH=$PYTHONPATH:examples:src
+python examples/inspector.py --rate 0.2
 
 
 # Run formatting

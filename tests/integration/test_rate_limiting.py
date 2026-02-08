@@ -243,6 +243,102 @@ class TestRateLimitingIntegration:
         assert result["remaining_tasks"] == 0
         assert result["remaining_tokens"] == 5
 
+    def test_bulk_deduplication_only_buffers_one_task(
+        self, integration_limiter, redis_client, func_path
+    ):
+        """Verify deduplication holds under repeated scheduling pressure.
+
+        Schedule 50 identical tasks (same func_path and payload). Only the
+        first should succeed; the remaining 49 should be rejected as
+        duplicates, and the buffer should contain exactly 1 task.
+        """
+        # Arrange
+        payload = {"user_id": 1}
+        num_duplicates = 50
+
+        # Act
+        results = [
+            integration_limiter.schedule_task(func_path, payload)
+            for _ in range(num_duplicates)
+        ]
+
+        # Assert
+        successes = [r for r in results if r[0] is True]
+        failures = [r for r in results if r[0] is False]
+        assert len(successes) == 1, (
+            f"exactly 1 scheduling should succeed, got {len(successes)}"
+        )
+        assert len(failures) == num_duplicates - 1, (
+            f"remaining {num_duplicates - 1} should be rejected as duplicates"
+        )
+        task_ids = {r[1] for r in results}
+        assert len(task_ids) == 1, "all duplicates should produce the same task ID"
+        buffer_size = redis_client.zcard(integration_limiter.buffer_key)
+        assert buffer_size == 1, f"buffer should contain 1 task, got {buffer_size}"
+
+    def test_bulk_scheduling_unique_tasks(
+        self, integration_limiter, redis_client, func_path
+    ):
+        """Verify bulk scheduling of unique tasks at scale.
+
+        Schedule 100 tasks with unique payloads. All should succeed, produce
+        unique task IDs, and the buffer should contain all 100 tasks.
+        """
+        # Arrange
+        num_tasks = 100
+
+        # Act
+        results = [
+            integration_limiter.schedule_task(func_path, {"index": i})
+            for i in range(num_tasks)
+        ]
+
+        # Assert
+        successes = [r for r in results if r[0] is True]
+        assert len(successes) == num_tasks, (
+            f"all {num_tasks} tasks should schedule successfully, got {len(successes)}"
+        )
+        task_ids = [r[1] for r in results]
+        assert len(set(task_ids)) == num_tasks, (
+            f"all task IDs should be unique, got {len(set(task_ids))} unique out of {num_tasks}"
+        )
+        buffer_size = redis_client.zcard(integration_limiter.buffer_key)
+        assert buffer_size == num_tasks, (
+            f"buffer should contain {num_tasks} tasks, got {buffer_size}"
+        )
+
+    def test_task_lifecycle_releases_slot_on_error(
+        self, integration_limiter, redis_client, func_path
+    ):
+        """Verify concurrency slot is released when a task errors during execution.
+
+        The full chain: schedule -> consume -> lifecycle error -> cleanup ->
+        slot available for next consume.
+        """
+        # Arrange
+        integration_limiter.schedule_task(func_path, {"index": 0})
+        integration_limiter.schedule_task(func_path, {"index": 1})
+
+        # Act
+        # Consume a task and simulate an error within its lifecycle.
+        result = integration_limiter.consume()
+        assert result["success"] is True
+        task_id = result["task"]["id"]
+
+        with pytest.raises(RuntimeError):
+            with integration_limiter.task_lifecycle(task_id):
+                raise RuntimeError("simulated task failure")
+
+        # Assert
+        active_slots = redis_client.zcard(integration_limiter.concurrency_key)
+        assert active_slots == 0, (
+            f"concurrency slot should be released after error, got {active_slots} active"
+        )
+        next_result = consume_and_complete(integration_limiter)
+        assert next_result["success"] is True, (
+            "next consume should succeed after error cleanup released the slot"
+        )
+
 
 @pytest.mark.skipif(
     sys.platform == "win32",

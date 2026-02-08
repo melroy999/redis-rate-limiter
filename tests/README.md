@@ -19,6 +19,7 @@ tests/
 │   ├── test_internal_helpers.py        # Lua script loading and helpers
 │   ├── test_task_lifecycle.py          # Lifecycle manager implementation tests
 │   ├── test_smart_jitter.py            # Adaptive jitter calculation tests
+│   ├── test_metrics_callback.py        # Metrics callback observability tests
 │   └── celery/                         # Celery implementation (uses Redis + Lua)
 │       └── test_celery_limiter.py      # Inherits contract + adds Celery tests
 │

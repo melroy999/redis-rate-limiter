@@ -10,7 +10,7 @@ import uuid
 from abc import ABC, abstractmethod
 from importlib import resources
 from threading import Event, Thread
-from typing import Any, ContextManager, Literal, Optional, TypedDict, cast
+from typing import Any, Callable, ContextManager, Literal, Optional, TypedDict, cast
 
 import redis
 from celery import Celery
@@ -262,6 +262,7 @@ class AbstractDistributedRateLimiter(ABC):
         jitter_enabled: bool = True,
         jitter_min_pct: float = 0.02,
         jitter_max_pct: float = 0.08,
+        metrics_callback: Optional[Callable[[str, dict], None]] = None,
     ):
         """Create an abstract rate limiter instance with the given parameters and import the appropriate lua scripts.
 
@@ -281,6 +282,9 @@ class AbstractDistributedRateLimiter(ABC):
                 Lower bound ensures some spread even under low load.
             jitter_max_pct: Maximum jitter as percentage of window size (default: 8% = 80ms for 1s window).
                 Upper bound prevents excessive delays under high load.
+            metrics_callback: Optional callback invoked after consume and schedule operations.
+                Receives an event name string ("consume" or "schedule") and a dict with event data.
+                Exceptions raised by the callback are caught and logged to avoid breaking the limiter.
         """
         self.redis = redis_client
         self.id = limiter_id
@@ -297,8 +301,9 @@ class AbstractDistributedRateLimiter(ABC):
         self.jitter_enabled = jitter_enabled
         self.jitter_min_pct = jitter_min_pct
         self.jitter_max_pct = jitter_max_pct
+        self.metrics_callback = metrics_callback
         logger.info(
-            "Rate limiter initialized: id=%s, limit=%d, window_s=%d, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f.",
+            "Rate limiter initialized: id=%s, limit=%d, window_s=%d, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s.",
             self.id,
             self.limit,
             self.window,
@@ -309,6 +314,7 @@ class AbstractDistributedRateLimiter(ABC):
             self.jitter_enabled,
             self.jitter_min_pct,
             self.jitter_max_pct,
+            "enabled" if self.metrics_callback else "disabled",
         )
 
         # Import the scripts.
@@ -461,6 +467,7 @@ class AbstractDistributedRateLimiter(ABC):
                 task_id,
                 active_key,
             )
+            self._emit_metric("schedule", {"scheduled": False, "task_id": task_id})
             return False, task_id
 
         # Add a priority for priority queue behavior.
@@ -513,6 +520,7 @@ class AbstractDistributedRateLimiter(ABC):
 
         # Attempt a consume.
         self.trigger_consume()
+        self._emit_metric("schedule", {"scheduled": True, "task_id": task_id})
         return True, task_id
 
     def consume(self, retry: bool = True) -> ConsumeResult:
@@ -572,6 +580,17 @@ class AbstractDistributedRateLimiter(ABC):
                 consume_result["active_concurrency"],
                 consume_result["remaining_tasks"],
                 consume_result["reset_in_ms"],
+            )
+            self._emit_metric(
+                "consume",
+                {
+                    "success": consume_result["success"],
+                    "expired": consume_result["expired"],
+                    "remaining_tokens": consume_result["remaining_tokens"],
+                    "active_concurrency": consume_result["active_concurrency"],
+                    "reset_in_ms": consume_result["reset_in_ms"],
+                    "remaining_tasks": consume_result["remaining_tasks"],
+                },
             )
             return consume_result
 
@@ -651,6 +670,29 @@ class AbstractDistributedRateLimiter(ABC):
             )
             self.renew_script_sha = str(self.redis.script_load(self._RENEW_LUA_SCRIPT))
             return self.extend_lease(task_id, duration, retry=False)
+
+    def _emit_metric(self, event: str, data: dict) -> None:
+        """Safely invoke the metrics callback if one is configured.
+
+        Catches and logs any exception raised by the callback to avoid breaking
+        the limiter if a user-provided callback fails.
+
+        Args:
+            event: The event name (e.g. "consume", "schedule").
+            data: A dict with event-specific data.
+        """
+        if self.metrics_callback is None:
+            return
+
+        try:
+            self.metrics_callback(event, data)
+        except Exception as e:
+            logger.warning(
+                "Metrics callback raised an exception: limiter=%s, event=%s, error=%s.",
+                self.id,
+                event,
+                e,
+            )
 
     def _calculate_smart_jitter(
         self,
@@ -1023,15 +1065,32 @@ class CeleryRateLimiter(AbstractDistributedRateLimiter):
                     "_rate_limit_task_id": task_id,
                 },
             )
+            logger.debug(
+                "Celery task sent to generic worker: limiter=%s, task_id=%s, func_path=%s.",
+                self.id,
+                task_id,
+                func_path,
+            )
         else:
             # Use the custom user task.
             self.app.send_task(
                 func_path, args=[data], kwargs={"_rate_limit_task_id": task_id}
+            )
+            logger.debug(
+                "Celery task sent to custom worker: limiter=%s, task_id=%s, func_path=%s.",
+                self.id,
+                task_id,
+                func_path,
             )
 
     def _schedule_drain(self, delay: float = 0.0) -> None:
         # Schedule an attempt at consuming a token.
         self.app.send_task(
             "celery_rate_limiter.attempt_consume", args=[self.id], countdown=delay
+        )
+        logger.debug(
+            "Drain scheduled via Celery: limiter=%s, countdown_s=%.3f.",
+            self.id,
+            delay,
         )
 
