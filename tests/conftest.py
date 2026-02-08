@@ -8,8 +8,8 @@ from celery_rate_limiter.limiters import CeleryRateLimiter
 pytest_plugins = ("celery.contrib.pytest",)
 
 
-# Redis configuration from environment variables
-# Defaults to localhost:6379, but can be overridden for Docker Compose
+# Redis configuration from environment variables.
+# Defaults to localhost:6379, but can be overridden for Docker Compose.
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
@@ -96,6 +96,7 @@ def default_payload():
     return {"user_id": 123}
 
 
+# noinspection PyProtectedMember
 @pytest.fixture(autouse=True)
 def _reset_limiter_class_state(redis_client, celery_app):
     """Reset CeleryRateLimiter class-level state before and after each test.
@@ -116,7 +117,7 @@ def limiter(redis_client, celery_app):
     Yields:
         A configured CeleryRateLimiter instance for testing.
     """
-    # SETUP
+    # Setup
     limiter_id = "test_limiter"
     test_limiter = CeleryRateLimiter.create(
         limiter_id=limiter_id,
@@ -130,7 +131,8 @@ def limiter(redis_client, celery_app):
 
     yield test_limiter
 
-    # TEARDOWN: Clear keys associated with this limiter
+    # Teardown
+    # Clear keys associated with this limiter.
     keys = redis_client.keys(f"{limiter_id}:*")
     if keys:
         redis_client.delete(*keys)

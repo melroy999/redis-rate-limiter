@@ -1,5 +1,3 @@
-from celery_rate_limiter import CeleryRateLimiterFactory
 from celery_rate_limiter.limiters import CeleryRateLimiter
 
-# Define exports.
-__all__ = ["CeleryRateLimiter", "CeleryRateLimiterFactory"]
+__all__ = ["CeleryRateLimiter"]

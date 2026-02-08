@@ -20,6 +20,7 @@ tests/
 │   ├── test_task_lifecycle.py          # Lifecycle manager implementation tests
 │   ├── test_smart_jitter.py            # Adaptive jitter calculation tests
 │   ├── test_metrics_callback.py        # Metrics callback observability tests
+│   ├── test_rate_limiter_class_api.py  # Class-level API (configure/create/get/update)
 │   └── celery/                         # Celery implementation (uses Redis + Lua)
 │       └── test_celery_limiter.py      # Inherits contract + adds Celery tests
 │
@@ -30,10 +31,12 @@ tests/
 ├── properties/                         # Property-based tests (Hypothesis)
 │   ├── test_serialization.py           # Payload serialization properties
 │   ├── test_is_subset.py               # Mathematical subset properties
-│   └── test_sliding_window_counter.py  # Sliding window invariants (Hypothesis)
+│   ├── test_sliding_window_counter.py  # Sliding window invariants (Hypothesis)
+│   └── test_smart_jitter.py            # Smart jitter invariants (Hypothesis)
 │
 ├── integration/                        # End-to-end integration tests
-│   └── test_rate_limiting.py           # Rate limiting behavior verification
+│   ├── test_rate_limiting.py           # Rate limiting behavior verification
+│   └── README.md                       # Platform requirements and timing notes
 │
 ├── helpers/                            # Shared test utilities and strategies
 │   ├── utils.py                        # Subset checker and approximate equality
@@ -140,15 +143,14 @@ Integration tests verify end-to-end behavior of the rate limiter with real Redis
 @pytest.fixture
 def integration_limiter(redis_client, celery_app):
     """Create a limiter with explicit configuration for integration tests."""
-    return CeleryRateLimiter(
-        redis_client=redis_client,
-        celery_app=celery_app,
+    return CeleryRateLimiter.create(
         limiter_id="integration_test_limiter",
         limit=5,
         window=60,
         max_concurrency=2,
         max_age=3600,
         lease_duration=30,
+        override=True,
     )
 
 def test_basic_rate_limit_enforcement(self, integration_limiter, redis_client):
@@ -183,7 +185,9 @@ def test_example(self, limiter, redis_client):
 
 ## Running Tests
 
-All test runs expect a real Redis instance to be available.
+All test runs expect a real Redis instance to be available. The Redis connection is configurable via environment variables:
+- `REDIS_HOST` (default: `localhost`)
+- `REDIS_PORT` (default: `6379`)
 
 ### Run All Tests (excluding slow tests)
 ```bash
@@ -199,6 +203,13 @@ pytest -m slow tests/
 
 # Run ALL tests including slow tests (as in CI)
 pytest --override-ini='addopts=' tests/
+```
+
+### Run via Docker (recommended for integration tests)
+Sliding window timing tests are skipped on Windows. Use Docker for reliable results:
+```bash
+docker compose --profile test up       # fast tests only
+docker compose --profile test-all up   # includes @pytest.mark.slow
 ```
 
 ### Run Specific Test Categories
@@ -387,19 +398,24 @@ redis_client.flushdb()  # Clean state
 
 ## Fixtures
 
+### Session-Scoped Fixtures
+Used for expensive, one-time setup:
+- `_redis_connection`: Single Redis connection for the entire test suite (configurable via `REDIS_HOST`/`REDIS_PORT` environment variables)
+- `celery_app`: Celery application instance (provided by `celery.contrib.pytest`)
+- `celery_config`: Celery configuration with Redis broker
+- `func_path`: Fictional function path for test task scheduling
+- `default_payload`: Default payload `{"user_id": 123}` for tests
+
 ### Function-Scoped Fixtures (Default)
 Used for most tests. Clean state between tests:
-- `redis_client`: Fresh Redis connection with DB flushed
-- `limiter`: Fresh limiter instance
+- `redis_client`: Wraps `_redis_connection` with `flushall()` before and after each test
+- `limiter`: Fresh `CeleryRateLimiter` instance created via the class API (`CeleryRateLimiter.create(...)`)
+- `_reset_limiter_class_state` (autouse): Resets class-level singleton cache and calls `configure()` with test fixtures before each test, preventing state pollution between tests
 
 ### Module-Scoped Fixtures
 Used for property-based tests to improve performance:
-- `property_redis_client`: Shared Redis client for hypothesis tests
-- `property_limiter`: Shared limiter for hypothesis tests
-
-### Session-Scoped Fixtures
-Used for expensive setup:
-- `celery_app`: Celery application instance
+- `property_redis_client`: Shared Redis client for Hypothesis tests
+- `property_limiter`: Shared limiter for Hypothesis tests
 
 ## Best Practices
 
