@@ -105,7 +105,7 @@ def _reset_limiter_class_state(redis_client, celery_app):
     configure() is called with the test fixtures.
     """
     CeleryRateLimiter._reset()
-    CeleryRateLimiter.configure(redis_client, celery_app)
+    CeleryRateLimiter.configure(redis_client, celery_app=celery_app)
     yield
     CeleryRateLimiter._reset()
 

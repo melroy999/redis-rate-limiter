@@ -51,7 +51,7 @@ class TestRateLimiterClassApi:
         CeleryRateLimiter._reset()
 
         # Act
-        CeleryRateLimiter.configure(redis_client, celery_app)
+        CeleryRateLimiter.configure(redis_client, celery_app=celery_app)
 
         # Assert
         assert CeleryRateLimiter._redis_client is redis_client, (

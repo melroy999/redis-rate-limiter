@@ -18,5 +18,5 @@ def configure_limiter() -> None:
     if _is_configured:
         return
 
-    CeleryRateLimiter.configure(redis_client, celery_app)
+    CeleryRateLimiter.configure(redis_client, celery_app=celery_app)
     _is_configured = True

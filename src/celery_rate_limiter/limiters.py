@@ -275,7 +275,6 @@ class AbstractDistributedRateLimiter(ABC):
         jitter_min_pct: float = 0.02,
         jitter_max_pct: float = 0.08,
         metrics_callback: Optional[Callable[[str, dict], None]] = None,
-        _sentinel: object = None,
     ):
         """Create an abstract rate limiter instance with the given parameters and import the appropriate lua scripts.
 
@@ -979,10 +978,10 @@ class AbstractDistributedRateLimiter(ABC):
                         self.health_script_sha,
                         3,
                         # KEYS: [base, buffer, concurrency]
-                        # ARGV: [window, limit, max_concurrency, lease_duration]
                         self.id,
                         self.buffer_key,
                         self.concurrency_key,
+                        # ARGV: [window, limit, max_concurrency]
                         self.window,
                         self.limit,
                         self.max_concurrency,
@@ -1116,7 +1115,6 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
             max_concurrency=max_concurrency,
             max_age=max_age,
             lease_duration=lease_duration,
-            _sentinel=cls._SENTINEL,
             **cls._get_instance_context(),
             **kwargs,
         )
@@ -1163,7 +1161,6 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
         instance = cls(
             redis_client=cls._redis_client,
             limiter_id=limiter_id,
-            _sentinel=cls._SENTINEL,
             **cls._get_instance_context(),
             **config,
         )
@@ -1309,9 +1306,13 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
     _celery_app: ClassVar[Optional[Celery]] = None
 
     @classmethod
-    def configure(cls, redis_client: Redis, celery_app: Celery, **backend_context: Any) -> None:
-        """Configure shared Redis and Celery app context for class API usage."""
-        super().configure(redis_client, celery_app=celery_app, **backend_context)
+    def configure(cls, redis_client: Redis, **backend_context: Any) -> None:
+        """Configure shared Redis and Celery app context for class API usage.
+
+        Requires ``celery_app`` as a keyword argument
+        (e.g. ``CeleryRateLimiter.configure(redis, celery_app=app)``).
+        """
+        super().configure(redis_client, **backend_context)
 
     @classmethod
     def _configure_backend(cls, **backend_context: Any) -> None:
@@ -1333,7 +1334,7 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
     def _get_instance_context(cls) -> dict[str, Any]:
         """Expose constructor context for concrete instance creation."""
         assert cls._celery_app is not None
-        return {"celery_app": cls._celery_app}
+        return {"celery_app": cls._celery_app, "_sentinel": cls._SENTINEL}
 
     @classmethod
     def _reset_backend_context(cls) -> None:
@@ -1359,7 +1360,7 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
     ):
         """Create a Celery rate limiter instance.
 
-        .. deprecated::
+        Deprecated:
             Direct construction is deprecated.  Use ``CeleryRateLimiter.create()`` or
             ``CeleryRateLimiter.get()`` instead.
 
