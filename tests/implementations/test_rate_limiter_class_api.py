@@ -13,7 +13,10 @@ import warnings
 
 import pytest
 
-from celery_rate_limiter.limiters import CeleryRateLimiter
+from celery_rate_limiter.limiters import (
+    AbstractRedisManagedRateLimiter,
+    CeleryRateLimiter,
+)
 
 
 class TestRateLimiterClassApi:
@@ -61,12 +64,24 @@ class TestRateLimiterClassApi:
             "configure should store the provided Celery app"
         )
 
+    def test_configure_without_celery_app_raises_error(self, redis_client):
+        """Verify CeleryRateLimiter.configure() fails when celery_app is missing."""
+        # Arrange
+        CeleryRateLimiter._reset()
+
+        # Act & Assert
+        with pytest.raises(RuntimeError, match="celery_app"):
+            CeleryRateLimiter.configure(redis_client)
+
+        # Cleanup for test isolation.
+        CeleryRateLimiter._reset()
+
     def test_create_without_configure_raises(self):
         """Verify create fails when configure has not been called."""
         # Arrange
         CeleryRateLimiter._reset()
 
-        # Act / Assert
+        # Act & Assert
         with pytest.raises(RuntimeError, match="configure"):
             CeleryRateLimiter.create("api_unconfigured", limit=1, window=1, max_concurrency=1)
 
@@ -75,7 +90,7 @@ class TestRateLimiterClassApi:
         # Arrange
         CeleryRateLimiter._reset()
 
-        # Act / Assert
+        # Act & Assert
         with pytest.raises(RuntimeError, match="configure"):
             CeleryRateLimiter.get("api_unconfigured")
 
@@ -112,7 +127,7 @@ class TestRateLimiterClassApi:
         # Arrange
         self._create_limiter("api_c")
 
-        # Act / Assert
+        # Act & Assert
         with pytest.raises(ValueError, match="already exists"):
             CeleryRateLimiter.create(
                 "api_c",
@@ -238,7 +253,7 @@ class TestRateLimiterClassApi:
 
     def test_get_nonexistent_limiter_raises_value_error(self):
         """Verify get raises ValueError when limiter does not exist anywhere."""
-        # Act / Assert
+        # Act & Assert
         with pytest.raises(ValueError, match="not found"):
             CeleryRateLimiter.get("api_nonexistent")
 
@@ -428,7 +443,7 @@ class TestRateLimiterClassApi:
         celery_app,
     ):
         """Verify direct construction emits a deprecation warning."""
-        # Act / Assert
+        # Act & Assert
         with pytest.warns(DeprecationWarning, match="deprecated"):
             CeleryRateLimiter(
                 redis_client=redis_client,
@@ -454,4 +469,79 @@ class TestRateLimiterClassApi:
         ]
         assert not deprecation_warnings, (
             "class API create should not emit deprecation warnings"
+        )
+
+    def test_subclass_isolation_separate_instances(self):
+        """Verify __init_subclass__ isolates _instances and _redis_client per subclass."""
+
+        class IsolatedLimiterA(AbstractRedisManagedRateLimiter):
+            @classmethod
+            def _configure_backend(cls, **backend_context):
+                return None
+
+            @classmethod
+            def _has_backend_context(cls) -> bool:
+                return True
+
+            @classmethod
+            def _get_instance_context(cls) -> dict[str, object]:
+                return {}
+
+            @classmethod
+            def _reset_backend_context(cls) -> None:
+                return None
+
+            @classmethod
+            def _configure_hint(cls) -> str:
+                return "isolated configure hint"
+
+            def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
+                return None
+
+            def _schedule_drain(self, delay: float = 0.0) -> None:
+                return None
+
+        class IsolatedLimiterB(AbstractRedisManagedRateLimiter):
+            @classmethod
+            def _configure_backend(cls, **backend_context):
+                return None
+
+            @classmethod
+            def _has_backend_context(cls) -> bool:
+                return True
+
+            @classmethod
+            def _get_instance_context(cls) -> dict[str, object]:
+                return {}
+
+            @classmethod
+            def _reset_backend_context(cls) -> None:
+                return None
+
+            @classmethod
+            def _configure_hint(cls) -> str:
+                return "isolated configure hint"
+
+            def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
+                return None
+
+            def _schedule_drain(self, delay: float = 0.0) -> None:
+                return None
+
+        # Arrange
+        IsolatedLimiterA._instances["a"] = object()
+        IsolatedLimiterA._redis_client = object()
+
+        # Assert
+        assert IsolatedLimiterA._instances is not IsolatedLimiterB._instances, (
+            "subclasses should not share _instances mapping"
+        )
+        assert IsolatedLimiterB._instances == {}, (
+            "second subclass should start with empty _instances"
+        )
+        assert IsolatedLimiterA._redis_client is not IsolatedLimiterB._redis_client, (
+            "subclasses should not share _redis_client"
+        )
+        assert IsolatedLimiterB._redis_client is None, (
+            "second subclass should start with no redis client"
         )

@@ -11,6 +11,7 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
+import redis
 
 from celery_rate_limiter.limiters import TaskLifecycle
 from tests.contracts.test_task_lifecycle import TaskLifecycleContractTest
@@ -205,7 +206,7 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
         mock_limiter.extend_lease.side_effect = Exception("Simulated Redis failure")
 
         # Act
-        with patch("builtins.print") as mock_print, TaskLifecycle(
+        with TaskLifecycle(
             mock_limiter, task_id, on_heartbeat_failure="warn"
         ) as lifecycle:
             # Wait for heartbeat to fail.
@@ -225,7 +226,7 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
         mock_limiter.extend_lease.side_effect = Exception("Simulated Redis failure")
 
         # Act & Assert
-        with patch("builtins.print") as mock_print, patch("os.kill") as mock_kill:
+        with patch("os.kill") as mock_kill:
             with TaskLifecycle(
                 mock_limiter, task_id, on_heartbeat_failure="kill"
             ):
@@ -285,3 +286,64 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
             assert call[0][1] == mock_limiter.lease_duration, (
                 "extend_lease must be called with lease_duration"
             )
+
+    # ==================== extend_lease() Tests ====================
+
+    def test_extend_lease_recovery_on_noscript_error(
+        self, generic_limiter, redis_client, task_id
+    ):
+        """Verify extend_lease() reloads Lua script and retries on NoScriptError."""
+        # Arrange
+        redis_client.zadd(generic_limiter.concurrency_key, {task_id: int(time.time()) + 5})
+        real_evalsha = redis_client.evalsha
+        real_script_load = redis_client.script_load
+
+        def mocked_evalsha_func(*args, **kwargs):
+            if mocked_evalsha_func.call_count == 0:
+                mocked_evalsha_func.call_count += 1
+                raise redis.exceptions.NoScriptError("NOSCRIPT")
+            return real_evalsha(*args, **kwargs)
+
+        mocked_evalsha_func.call_count = 0
+
+        # Act
+        with (
+            patch.object(
+                generic_limiter.redis, "evalsha", side_effect=mocked_evalsha_func
+            ) as mock_eval,
+            patch.object(
+                generic_limiter.redis, "script_load", side_effect=real_script_load
+            ) as mock_load,
+        ):
+            renewed = generic_limiter.extend_lease(task_id, 30)
+
+            # Assert
+            assert renewed == 0, (
+                "renewing an existing task lease should return redis zadd update count"
+            )
+            assert mock_eval.call_count == 2, "evalsha should be called twice (fail then retry)"
+            assert mock_load.call_count == 1, "script_load should be called once for recovery"
+
+    def test_extend_lease_permanent_failure_raises_error(self, generic_limiter):
+        """Verify permanent NoScriptError during extend_lease() raises RuntimeError."""
+        # Arrange
+        with patch.object(
+            generic_limiter.redis,
+            "evalsha",
+            side_effect=redis.exceptions.NoScriptError("Permanent Failure"),
+        ) as mock_eval:
+            # Act & Assert
+            with pytest.raises(RuntimeError, match="Redis failed to retain the Lua script"):
+                generic_limiter.extend_lease("task123", 30)
+
+            assert mock_eval.call_count == 2, (
+                "extend_lease should attempt one retry before failing"
+            )
+
+    def test_extend_lease_returns_false_for_unknown_task(self, generic_limiter):
+        """Verify extend_lease() returns false for unknown task ids."""
+        # Act
+        renewed = generic_limiter.extend_lease("nonexistent", 30)
+
+        # Assert
+        assert not renewed, "unknown task should not renew lease"

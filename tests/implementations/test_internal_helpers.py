@@ -13,7 +13,8 @@ import pytest
     "lua_script, target_key",
     [
         ("schedule.lua", "_SCHEDULE_LUA_SCRIPT"),
-        ("missing.lua", "_MISSING_LUA_SCRIPT"),  # Fictional non-existent file
+        # Fictional non-existent file.
+        ("missing.lua", "_MISSING_LUA_SCRIPT"),
     ],
     ids=["existing_script", "missing_script"],
 )
@@ -22,31 +23,34 @@ class TestInternalHelpers:
 
     def test_load_lua_script_imports_only_once(self, generic_limiter, lua_script, target_key):
         """Verify Lua scripts are only loaded from disk once (cached)."""
-        # Arrange - Simulate script already loaded
+        # Arrange
+        # Simulate script already loaded.
         existing_content = "return 1"
         setattr(generic_limiter, target_key, existing_content)
 
-        # Act - Mock the resource loader to track the number of calls
+        # Act
+        # Mock the resource loader to track the number of calls.
         with patch("src.celery_rate_limiter.limiters.resources.files") as mock_files:
             generic_limiter._load_lua_script(lua_script=lua_script, key=target_key)
 
-            # Assert - Script should not be loaded since it already exists
+            # Assert
             mock_files.assert_not_called()
 
-        # Assert - Script content should remain unchanged
         assert getattr(generic_limiter, target_key) == existing_content, (
-            "Cached script content should not be modified"
+            "cached script content should not be modified"
         )
 
     def test_load_lua_script_raises_import_error_on_failure(
         self, generic_limiter, lua_script, target_key
     ):
         """Verify ImportError is raised when Lua script cannot be loaded."""
-        # Arrange - Ensure the attribute doesn't exist
+        # Arrange
+        # Ensure the attribute doesn't exist.
         if hasattr(generic_limiter, target_key):
             delattr(generic_limiter, target_key)
 
-        # Act & Assert - Mock the resource loader to simulate file system error
+        # Act & Assert
+        # Mock the resource loader to simulate file system error.
         with patch(
             "src.celery_rate_limiter.limiters.resources.files",
             side_effect=Exception("File system error"),
@@ -54,5 +58,21 @@ class TestInternalHelpers:
             with pytest.raises(ImportError, match=f"Could not load {lua_script}"):
                 generic_limiter._load_lua_script(lua_script=lua_script, key=target_key)
 
-            # Verify only one attempt was made
+            # Verify only one attempt was made.
             mock_files.assert_called_once()
+
+
+def test_task_signature_is_deterministic_across_key_orders(generic_limiter):
+    """Verify _get_task_signature_str is deterministic across dict key order."""
+    # Arrange
+    payload_a = {"user_id": 123, "flags": {"vip": True, "beta": False}}
+    payload_b = {"flags": {"beta": False, "vip": True}, "user_id": 123}
+
+    # Act
+    signature_a = generic_limiter._get_task_signature_str("myapp.tasks.process", payload_a)
+    signature_b = generic_limiter._get_task_signature_str("myapp.tasks.process", payload_b)
+
+    # Assert
+    assert signature_a == signature_b, (
+        "task signature should be identical regardless of key insertion order"
+    )

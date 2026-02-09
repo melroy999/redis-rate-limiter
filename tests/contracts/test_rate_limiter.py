@@ -5,9 +5,6 @@ AbstractDistributedRateLimiter. Any concrete implementation should inherit
 from RateLimiterContractTest and provide its own limiter fixture.
 """
 
-import pytest
-
-
 class RateLimiterContractTest:
     """Abstract test suite that any RateLimiter implementation must pass.
 
@@ -97,10 +94,15 @@ class RateLimiterContractTest:
         assert hasattr(limiter, "window"), "limiter must have a 'window' attribute"
         assert hasattr(limiter, "max_concurrency"), "limiter must have a 'max_concurrency'"
 
+        # Assert attributes have valid types.
+        assert isinstance(limiter.limit, int), "limit must be an int"
+        assert isinstance(limiter.window, int), "window must be an int"
+        assert isinstance(limiter.max_concurrency, int), "max_concurrency must be an int"
+
         # Assert attributes have valid values.
-        assert isinstance(limiter.limit, int) and limiter.limit > 0
-        assert isinstance(limiter.window, int) and limiter.window > 0
-        assert isinstance(limiter.max_concurrency, int) and limiter.max_concurrency > 0
+        assert limiter.limit > 0, "limit must be positive"
+        assert limiter.window > 0, "window must be positive"
+        assert limiter.max_concurrency > 0, "max_concurrency must be positive"
 
     @staticmethod
     def test_schedule_multiple_different_tasks(limiter, redis_client):
@@ -123,4 +125,81 @@ class RateLimiterContractTest:
         buffer_size = redis_client.zcard(limiter.buffer_key)
         assert buffer_size == len(tasks), (
             f"buffer should contain {len(tasks)} tasks, found {buffer_size}"
+        )
+
+    @staticmethod
+    def test_consume_returns_expected_structure(limiter):
+        """Contract: consume() returns all required consume result keys."""
+        # Act
+        result = limiter.consume()
+
+        # Assert
+        expected_keys = {
+            "success",
+            "expired",
+            "task",
+            "remaining_tokens",
+            "active_concurrency",
+            "reset_in_ms",
+            "remaining_tasks",
+        }
+        assert isinstance(result, dict), "consume result must be a dictionary"
+        assert set(result.keys()) == expected_keys, (
+            f"consume result keys must match {expected_keys}"
+        )
+
+        # Assert value types match the ConsumeResult TypedDict contract.
+        assert isinstance(result["success"], bool), "success must be a bool"
+        assert isinstance(result["expired"], bool), "expired must be a bool"
+        assert result["task"] is None or isinstance(result["task"], dict), (
+            "task must be None or a dict"
+        )
+        assert isinstance(result["remaining_tokens"], int), "remaining_tokens must be an int"
+        assert isinstance(result["active_concurrency"], int), "active_concurrency must be an int"
+        assert isinstance(result["reset_in_ms"], int), "reset_in_ms must be an int"
+        assert isinstance(result["remaining_tasks"], int), "remaining_tasks must be an int"
+
+        # Assert values have valid bounds.
+        assert result["remaining_tokens"] >= 0, "remaining_tokens must be non-negative on empty buffer"
+        assert result["active_concurrency"] >= 0, "active_concurrency must be non-negative"
+        assert result["reset_in_ms"] >= 0, "reset_in_ms must be non-negative"
+        assert result["remaining_tasks"] >= 0, "remaining_tasks must be non-negative"
+
+    @staticmethod
+    def test_consume_empty_buffer_returns_unsuccessful(limiter):
+        """Contract: consuming an empty buffer returns no task and unsuccessful result."""
+        # Act
+        result = limiter.consume()
+
+        # Assert
+        assert result["success"] is False, "consume should fail on empty buffer"
+        assert result["task"] is None, "consume should return no task on empty buffer"
+
+    @staticmethod
+    def test_get_buffer_count_returns_nonnegative_integer(limiter):
+        """Contract: get_buffer_count() returns a non-negative integer."""
+        # Act
+        count = limiter.get_buffer_count()
+
+        # Assert
+        assert isinstance(count, int), "buffer count must be an integer"
+        assert count >= 0, "buffer count must be non-negative"
+
+    @staticmethod
+    def test_get_status_returns_dict_with_required_sections(limiter):
+        """Contract: get_status() returns required top-level status sections."""
+        # Act
+        result = limiter.get_status()
+
+        # Assert
+        required_sections = {
+            "limiter_id",
+            "concurrency",
+            "buffer",
+            "rate_limit",
+            "dispatcher",
+        }
+        assert isinstance(result, dict), "status result must be a dictionary"
+        assert required_sections.issubset(result.keys()), (
+            f"status result must include sections {required_sections}"
         )

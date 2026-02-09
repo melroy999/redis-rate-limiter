@@ -25,6 +25,25 @@ class MinimalRateLimiter(AbstractDistributedRateLimiter):
         pass
 
 
+class TrackingRateLimiter(MinimalRateLimiter):
+    """Concrete limiter that records dispatch and drain scheduling calls."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dispatched_tasks: list[dict] = []
+        self.scheduled_drains: list[float] = []
+
+    def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
+        """Record dispatch calls for assertions in drain tests."""
+        self.dispatched_tasks.append(
+            {"func_path": func_path, "payload": payload, "task_id": task_id}
+        )
+
+    def _schedule_drain(self, delay: float = 0.0) -> None:
+        """Record scheduled drain delay for assertions."""
+        self.scheduled_drains.append(delay)
+
+
 @pytest.fixture
 def task_id():
     """Provide a consistent task ID for testing."""
@@ -44,7 +63,7 @@ def generic_limiter(redis_client):
     Yields:
         A configured MinimalRateLimiter instance for testing.
     """
-    # SETUP
+    # Setup
     limiter_id = "test_limiter"
     test_limiter = MinimalRateLimiter(
         redis_client=redis_client,
@@ -58,7 +77,31 @@ def generic_limiter(redis_client):
 
     yield test_limiter
 
-    # TEARDOWN: Clear keys associated with this limiter
+    # Teardown
+    # Clear keys associated with this limiter.
+    keys = redis_client.keys(f"{limiter_id}:*")
+    if keys:
+        redis_client.delete(*keys)
+
+
+@pytest.fixture
+def tracking_limiter(redis_client):
+    """Create a tracking limiter that records dispatch and schedule calls."""
+    # Setup
+    limiter_id = "tracking_limiter"
+    test_limiter = TrackingRateLimiter(
+        redis_client=redis_client,
+        limiter_id=limiter_id,
+        limit=5,
+        window=60,
+        max_concurrency=2,
+        max_age=3600,
+        lease_duration=30,
+    )
+
+    yield test_limiter
+
+    # Teardown
     keys = redis_client.keys(f"{limiter_id}:*")
     if keys:
         redis_client.delete(*keys)

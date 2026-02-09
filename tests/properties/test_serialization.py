@@ -7,11 +7,12 @@ survives the round-trip through Redis storage, regardless of structure.
 import json
 
 import pytest
-from hypothesis import HealthCheck, given, settings, strategies as st
-
-from celery_rate_limiter.limiters import CeleryRateLimiter
 from helpers.strategies import nested_dict
 from helpers.utils import dict_equals_approx
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
+
+from celery_rate_limiter.limiters import CeleryRateLimiter
 
 
 @pytest.fixture(scope="module")
@@ -145,3 +146,22 @@ class TestSerializationProperties:
 
         # Cleanup
         property_redis_client.flushdb()
+
+    @given(payload=nested_dict)
+    @settings(
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_task_signature_is_deterministic(self, payload):
+        """Property: repeated signature generation for same payload is deterministic."""
+        # Act
+        signature_1 = CeleryRateLimiter._get_task_signature_str(
+            "myapp.tasks.process", payload
+        )
+        signature_2 = CeleryRateLimiter._get_task_signature_str(
+            "myapp.tasks.process", payload
+        )
+
+        # Assert
+        assert signature_1 == signature_2, (
+            "task signature must be stable across repeated calls"
+        )

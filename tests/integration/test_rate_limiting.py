@@ -4,6 +4,7 @@ End-to-end tests verifying rate limiter correctly limits requests
 and handles burst scenarios using Redis and Lua scripts.
 """
 
+import json
 import sys
 import time
 
@@ -338,6 +339,158 @@ class TestRateLimitingIntegration:
         assert next_result["success"] is True, (
             "next consume should succeed after error cleanup released the slot"
         )
+
+    def test_expired_task_moved_to_dlq(self, redis_client, celery_app, func_path):
+        """Verify expired queued tasks are moved to DLQ and reported as expired."""
+        # Arrange
+        limiter = CeleryRateLimiter(
+            redis_client=redis_client,
+            celery_app=celery_app,
+            limiter_id="integration_expired_dlq",
+            limit=5,
+            window=60,
+            max_concurrency=2,
+            max_age=1,
+            lease_duration=30,
+        )
+        success, _ = limiter.schedule_task(func_path, {"index": 0})
+        assert success is True, "task should be scheduled successfully"
+        time.sleep(2.1)
+
+        # Act
+        result = limiter.consume()
+
+        # Assert
+        assert result["success"] is False, "expired task should not be consumed as success"
+        assert result["expired"] is True, "expired task should be flagged as expired"
+        assert result["task"] is None, "expired task should not be returned in consume result"
+        assert redis_client.llen(limiter.dlq_key) == 1, "expired task should be pushed to dlq"
+
+    def test_per_task_max_age_override_expires_sooner(
+        self, redis_client, celery_app, func_path
+    ):
+        """Verify per-task max_age override can expire earlier than global max_age."""
+        # Arrange
+        limiter = CeleryRateLimiter(
+            redis_client=redis_client,
+            celery_app=celery_app,
+            limiter_id="integration_per_task_max_age",
+            limit=5,
+            window=60,
+            max_concurrency=2,
+            max_age=3600,
+            lease_duration=30,
+        )
+        success, _ = limiter.schedule_task(func_path, {"index": 1}, max_age=1)
+        assert success is True, "task should be scheduled successfully"
+        time.sleep(2.1)
+
+        # Act
+        result = limiter.consume()
+
+        # Assert
+        assert result["success"] is False, "task should not be consumed after max_age override expiry"
+        assert result["expired"] is True, "task should be marked expired by per-task max_age override"
+        assert redis_client.llen(limiter.dlq_key) == 1, (
+            "expired override task should be moved to dlq"
+        )
+
+    def test_per_task_max_age_stored_in_buffer(self, redis_client, celery_app, func_path):
+        """Verify schedule_task(max_age=...) stores __meta_max_age in buffered payload."""
+        # Arrange
+        limiter = CeleryRateLimiter(
+            redis_client=redis_client,
+            celery_app=celery_app,
+            limiter_id="integration_meta_max_age",
+            limit=5,
+            window=60,
+            max_concurrency=2,
+            max_age=3600,
+            lease_duration=30,
+        )
+        expected_max_age = 7
+
+        # Act
+        success, _ = limiter.schedule_task(func_path, {"index": 2}, max_age=expected_max_age)
+
+        # Assert
+        assert success is True, "task should be scheduled successfully"
+        members = redis_client.zrange(limiter.buffer_key, 0, -1)
+        assert len(members) == 1, "buffer should contain exactly one task"
+        task_data = json.loads(members[0])
+        assert task_data["__meta_max_age"] == expected_max_age, (
+            "buffered task should store per-task max age override"
+        )
+
+    def test_expired_lease_cleaned_up_on_consume(
+        self, redis_client, celery_app, func_path
+    ):
+        """Verify stale concurrency lease entries are cleaned during consume."""
+        # Arrange
+        limiter = CeleryRateLimiter(
+            redis_client=redis_client,
+            celery_app=celery_app,
+            limiter_id="integration_stale_lease",
+            limit=5,
+            window=60,
+            max_concurrency=2,
+            max_age=3600,
+            lease_duration=30,
+        )
+        stale_task_id = "stale-task"
+        redis_client.zadd(limiter.concurrency_key, {stale_task_id: int(time.time()) - 100})
+        success, _ = limiter.schedule_task(func_path, {"index": 3})
+        assert success is True, "task should be scheduled successfully"
+
+        # Act
+        result = limiter.consume()
+
+        # Assert
+        assert result["success"] is True, "consume should succeed after stale lease cleanup"
+        assert redis_client.zscore(limiter.concurrency_key, stale_task_id) is None, (
+            "stale lease entry should be removed during consume"
+        )
+        assert result["task"] is not None, "consume should return a task after cleanup"
+        consumed_task_id = result["task"]["id"]
+        assert redis_client.zscore(limiter.concurrency_key, consumed_task_id) is not None, (
+            "newly consumed task should be present in concurrency set"
+        )
+
+    def test_get_status_reflects_live_state(
+        self, integration_limiter, redis_client, func_path
+    ):
+        """Verify get_status() mirrors current Redis-backed limiter state."""
+        # Arrange
+        for idx in range(3):
+            integration_limiter.schedule_task(func_path, {"index": idx})
+        integration_limiter.consume()
+
+        # Act
+        status = integration_limiter.get_status()
+
+        # Assert
+        current_concurrency = int(status["concurrency"]["current"])
+        assert status["limiter_id"] == integration_limiter.id, (
+            "status limiter id should match limiter instance"
+        )
+        assert int(status["buffer"]["count"]) == redis_client.zcard(integration_limiter.buffer_key), (
+            "status buffer count should match redis zcard"
+        )
+        assert current_concurrency == redis_client.zcard(integration_limiter.concurrency_key), (
+            "status concurrency current should match redis zcard"
+        )
+        assert status["concurrency"]["max"] == integration_limiter.max_concurrency, (
+            "status concurrency max should match limiter configuration"
+        )
+        assert status["concurrency"]["available"] == max(
+            0, integration_limiter.max_concurrency - current_concurrency
+        ), "status concurrency available should match computed capacity"
+        assert status["rate_limit"]["limit"] == integration_limiter.limit, (
+            "status rate-limit limit should match limiter configuration"
+        )
+        assert status["dispatcher"]["is_locked"] == redis_client.exists(
+            integration_limiter.lock_key
+        ), "status lock state should match redis lock key presence"
 
 
 @pytest.mark.skipif(
