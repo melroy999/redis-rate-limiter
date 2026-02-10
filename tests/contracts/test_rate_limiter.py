@@ -33,16 +33,16 @@ class RateLimiterContractTest:
         assert len(task_id) > 0, "task ID must not be empty"
 
     @staticmethod
-    def test_schedule_task_marks_task_as_active(limiter, redis_client, func_path, default_payload):
-        """Contract: scheduled tasks must be marked as active in Redis."""
+    def test_schedule_task_marks_task_as_inflight(limiter, redis_client, func_path, default_payload):
+        """Contract: scheduled tasks must be marked as in-flight in Redis."""
         # Act
         success, task_id = limiter.schedule_task(func_path, default_payload)
 
         # Assert
         assert success is True, "scheduling should succeed for first task"
-        active_key = limiter.get_active_key(task_id)
-        assert redis_client.exists(active_key) == 1, (
-            f"task {task_id} must be marked as active in Redis"
+        inflight_key = limiter.get_inflight_key(task_id)
+        assert redis_client.exists(inflight_key) == 1, (
+            f"task {task_id} must be marked as in-flight in Redis"
         )
 
     @staticmethod
@@ -69,18 +69,18 @@ class RateLimiterContractTest:
         assert task_id_1 == task_id_2, "same task should get same ID"
 
     @staticmethod
-    def test_get_active_key_format(limiter):
-        """Contract: get_active_key must return a consistent key format."""
+    def test_get_inflight_key_format(limiter):
+        """Contract: get_inflight_key must return a consistent key format."""
         # Arrange
         task_id = "test-task-123"
 
         # Act
-        active_key = limiter.get_active_key(task_id)
+        inflight_key = limiter.get_inflight_key(task_id)
 
         # Assert
-        assert isinstance(active_key, str), "active key must be a string"
-        assert task_id in active_key, "active key must contain the task ID"
-        assert limiter.id in active_key, "active key must contain the limiter ID"
+        assert isinstance(inflight_key, str), "inflight key must be a string"
+        assert task_id in inflight_key, "inflight key must contain the task ID"
+        assert limiter.id in inflight_key, "inflight key must contain the limiter ID"
 
     @staticmethod
     def test_limiter_has_required_attributes(limiter):

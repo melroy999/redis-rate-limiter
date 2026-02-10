@@ -653,7 +653,8 @@ class TestSlidingWindowBehavior:
             count_in_window = sum(1 for t in timestamps if ts <= t < ts + window)
             observed_max_burst = max(observed_max_burst, count_in_window)
 
-        observed_rate = total_consumed / actual_duration * window  # requests per window
+        # Requests per window.
+        observed_rate = total_consumed / actual_duration * window
 
         # Steady-state max: skip the first 2W (burst + recovery), then check
         # that no window-sized period exceeds limit+1.
@@ -728,21 +729,23 @@ class TestSlidingWindowBehavior:
         # Arrange
         limit = sliding_window_limiter.limit
         window = sliding_window_limiter.window
-        window_tail = 0.2  # Position at 80% through window
+        
+        # Position at 80% through window.
+        window_tail = 0.2
         verbose = request.config.getoption("verbose") > 0
 
-        # Schedule enough tasks for a potential 2x burst
+        # Schedule enough tasks for a potential 2x burst.
         for i in range(limit * 3):
             sliding_window_limiter.schedule_task(func_path, {"index": i})
 
-        # Position at 80% through window with empty previous window
+        # Position at 80% through window with empty previous window.
         pre_burst_result, actual_pct = position_at_window_percentage(
             sliding_window_limiter,
             target_pct=1 - window_tail,
             verbose=verbose
         )
 
-        # Complete the positioning consume and start timestamp tracking
+        # Complete the positioning consume and start timestamp tracking.
         if pre_burst_result["success"]:
             with sliding_window_limiter.task_lifecycle(pre_burst_result["task"]["id"]):
                 pass
@@ -753,7 +756,8 @@ class TestSlidingWindowBehavior:
         # Consume rapidly across the window boundary.
         # Use a time-based loop: tail of current window + enough windows to consume all tasks.
         # This ensures we capture the burst and verify subsequent windows don't cause issues.
-        num_task_windows = 3  # We scheduled limit * 3 tasks
+        # We scheduled limit * 3 tasks.
+        num_task_windows = 3
         burst_window = window * (num_task_windows + window_tail)
         start_time = time.time()
 
@@ -766,7 +770,7 @@ class TestSlidingWindowBehavior:
         total_consumed = len(timestamps)
         burst_duration = timestamps[-1] - timestamps[0] if len(timestamps) > 1 else 0
 
-        # Calculate max burst in any window-sized period
+        # Calculate max burst in any window-sized period.
         max_burst_in_window = 0
         max_burst_start_idx = 0
         for i, ts in enumerate(timestamps):
@@ -775,16 +779,16 @@ class TestSlidingWindowBehavior:
                 max_burst_in_window = count_in_window
                 max_burst_start_idx = i
 
-        # Verbose debug output
+        # Verbose debug output.
         if verbose:
-            # Analyze consumption gaps
+            # Analyze consumption gaps.
             if len(timestamps) >= 2:
                 first_10_gaps = [timestamps[i+1] - timestamps[i] for i in range(min(9, len(timestamps)-1))]
                 print(f"\n  [DEBUG] First 10 consumption gaps (ms): {[f'{g*1000:.1f}' for g in first_10_gaps]}")
                 print(f"    Fastest gap: {min(first_10_gaps)*1000:.1f}ms")
                 print(f"    Slowest gap in first 10: {max(first_10_gaps)*1000:.1f}ms")
 
-            # Analyze the max burst window
+            # Analyze the max burst window.
             if max_burst_in_window > 0:
                 burst_start = timestamps[max_burst_start_idx]
                 burst_end = burst_start + window
@@ -797,7 +801,7 @@ class TestSlidingWindowBehavior:
                     print(f"    Average gap in burst window: {sum(burst_gaps)/len(burst_gaps)*1000:.1f}ms")
                     print(f"    Burst window duration: {burst_timestamps[-1] - burst_timestamps[0]:.3f}s")
 
-        # Always report summary (visible even without -v)
+        # Always report summary (visible even without -v).
         print(f"\n  Window boundary burst test results:")
         print(f"    Config: limit={limit}, window={window}s")
         print(f"    Burst duration: {burst_duration:.3f}s")
@@ -980,8 +984,8 @@ class TestSlidingWindowBehaviorParametrized:
         if post_burst_timestamps:
             assert observed_steady_state_max <= limit + 1, (
                 f"exceeded limit+1 in steady state: {observed_steady_state_max} requests "
-                f"in {window}s window (limit={limit}, max_allowed={limit + 1}). "
-                f"the sliding window counter should approximate the limit after the initial burst phase."
+                f"in {window}s window (limit={limit}, max_allowed={limit + 1}), "
+                f"the sliding window counter should approximate the limit after the initial burst phase"
             )
 
     @pytest.mark.parametrize(
@@ -1001,21 +1005,23 @@ class TestSlidingWindowBehaviorParametrized:
         # Arrange
         limit = sliding_window_limiter.limit
         window = sliding_window_limiter.window
-        window_tail = 0.2  # Position at 80% through window
+
+        # Position at 80% through window.
+        window_tail = 0.2  
         verbose = request.config.getoption("verbose") > 0
 
-        # Schedule enough tasks for a potential 2x burst
+        # Schedule enough tasks for a potential 2x burst.
         for i in range(limit * 3):
             sliding_window_limiter.schedule_task(func_path, {"index": i})
 
-        # Position at 80% through window with empty previous window
+        # Position at 80% through window with empty previous window.
         pre_burst_result, actual_pct = position_at_window_percentage(
             sliding_window_limiter,
             target_pct=1 - window_tail,
             verbose=verbose
         )
 
-        # Complete the positioning consume and start timestamp tracking
+        # Complete the positioning consume and start timestamp tracking.
         if pre_burst_result["success"]:
             with sliding_window_limiter.task_lifecycle(pre_burst_result["task"]["id"]):
                 pass
@@ -1023,7 +1029,7 @@ class TestSlidingWindowBehaviorParametrized:
         else:
             timestamps = []
 
-        # Consume rapidly across the window boundary
+        # Consume rapidly across the window boundary.
         num_task_windows = 3
         burst_window = window * (num_task_windows + window_tail)
         start_time = time.time()
@@ -1054,10 +1060,10 @@ class TestSlidingWindowBehaviorParametrized:
         # Max burst should exceed limit (demonstrating burst capability) but never
         # exceed 2x limit (the algorithmic upper bound).
         assert max_burst_in_window > limit, (
-            f"expected burst to exceed limit ({limit}), got {max_burst_in_window}. "
-            f"this may indicate the test didn't trigger the burst scenario."
+            f"expected burst to exceed limit ({limit}), got {max_burst_in_window}, "
+            f"this may indicate the test didn't trigger the burst scenario"
         )
         assert max_burst_in_window <= 2 * limit, (
-            f"burst exceeded 2x limit: {max_burst_in_window} > {2 * limit}. "
-            f"this indicates a bug in the sliding window implementation."
+            f"burst exceeded 2x limit: {max_burst_in_window} > {2 * limit}, "
+            f"this indicates a bug in the sliding window implementation"
         )

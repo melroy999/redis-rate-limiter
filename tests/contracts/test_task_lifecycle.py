@@ -14,14 +14,14 @@ class TaskLifecycleContractTest:
         - redis_client: A fixture that returns a Redis client
         - mock_limiter: A fixture that returns a limiter (can be mocked)
         - task_id: A fixture that returns a task ID for testing
-        - active_key: A fixture that returns the active key for the task
+        - inflight_key: A fixture that returns the in-flight key for the task
     """
 
     # ==================== Contract Tests ====================
 
     @staticmethod
     def test_lifecycle_removes_task_from_concurrency_set(
-        redis_client, mock_limiter, task_id, active_key, lifecycle_class
+        redis_client, mock_limiter, task_id, inflight_key, lifecycle_class
     ):
         """Contract: task must be removed from concurrency set after completion."""
         # Arrange
@@ -34,7 +34,7 @@ class TaskLifecycleContractTest:
                 task_id: 100,
             },
         )
-        redis_client.set(active_key, "1")
+        redis_client.set(inflight_key, "1")
         initial_count = redis_client.zcard(mock_limiter.concurrency_key)
 
         # Act
@@ -55,12 +55,12 @@ class TaskLifecycleContractTest:
 
     @staticmethod
     def test_lifecycle_removes_active_marker(
-        redis_client, mock_limiter, task_id, active_key, lifecycle_class
+        redis_client, mock_limiter, task_id, inflight_key, lifecycle_class
     ):
-        """Contract: task active marker must be removed after completion."""
+        """Contract: task inflight marker must be removed after completion."""
         # Arrange
         redis_client.zadd(mock_limiter.concurrency_key, {task_id: 100})
-        redis_client.set(active_key, "1")
+        redis_client.set(inflight_key, "1")
 
         # Act
         with lifecycle_class(mock_limiter, task_id):
@@ -68,18 +68,18 @@ class TaskLifecycleContractTest:
             pass
 
         # Assert
-        assert redis_client.exists(active_key) == 0, (
-            f"active marker at {active_key} must be removed after completion"
+        assert redis_client.exists(inflight_key) == 0, (
+            f"inflight marker at {inflight_key} must be removed after completion"
         )
 
     @staticmethod
     def test_lifecycle_cleans_up_on_exception(
-        redis_client, mock_limiter, task_id, active_key, lifecycle_class
+        redis_client, mock_limiter, task_id, inflight_key, lifecycle_class
     ):
         """Contract: cleanup must happen even when task raises exception."""
         # Arrange
         redis_client.zadd(mock_limiter.concurrency_key, {task_id: 100})
-        redis_client.set(active_key, "1")
+        redis_client.set(inflight_key, "1")
 
         # Act
         with pytest.raises(ValueError, match="Task failed"):
@@ -91,18 +91,18 @@ class TaskLifecycleContractTest:
         assert redis_client.zcard(mock_limiter.concurrency_key) == 0, (
             "task must be removed from concurrency set even after exception"
         )
-        assert redis_client.exists(active_key) == 0, (
-            "active marker must be removed even after exception"
+        assert redis_client.exists(inflight_key) == 0, (
+            "inflight marker must be removed even after exception"
         )
 
     @staticmethod
     def test_lifecycle_triggers_consume(
-        redis_client, mock_limiter, task_id, active_key, lifecycle_class
+        redis_client, mock_limiter, task_id, inflight_key, lifecycle_class
     ):
         """Contract: lifecycle must trigger consume to process next tasks."""
         # Arrange
         redis_client.zadd(mock_limiter.concurrency_key, {task_id: 100})
-        redis_client.set(active_key, "1")
+        redis_client.set(inflight_key, "1")
 
         # Act
         with lifecycle_class(mock_limiter, task_id):
@@ -115,12 +115,12 @@ class TaskLifecycleContractTest:
 
     @staticmethod
     def test_lifecycle_triggers_consume_even_on_exception(
-        redis_client, mock_limiter, task_id, active_key, lifecycle_class
+        redis_client, mock_limiter, task_id, inflight_key, lifecycle_class
     ):
         """Contract: trigger_consume must be called even when task fails."""
         # Arrange
         redis_client.zadd(mock_limiter.concurrency_key, {task_id: 100})
-        redis_client.set(active_key, "1")
+        redis_client.set(inflight_key, "1")
 
         # Act
         with pytest.raises(RuntimeError):

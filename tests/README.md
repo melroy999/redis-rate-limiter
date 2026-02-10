@@ -23,6 +23,7 @@ tests/
 │   ├── test_smart_jitter.py            # Adaptive jitter calculation tests
 │   ├── test_metrics_callback.py        # Metrics callback observability tests
 │   ├── test_rate_limiter_class_api.py  # Class-level API (configure/create/get/update)
+│   ├── test_concurrent_access.py       # Multi-worker contention and atomicity tests
 │   └── celery/                         # Celery implementation (uses Redis + Lua)
 │       ├── test_celery_limiter.py      # Inherits contract + adds Celery tests
 │       ├── test_decorator.py           # Rate-limited decorator tests
@@ -425,6 +426,7 @@ Used for most tests. Clean state between tests:
 Defined in `implementations/conftest.py`. Provide non-Celery concrete implementations for testing abstract behavior:
 - `generic_limiter`: `MinimalRateLimiter` instance (no-op dispatch/schedule) for testing `AbstractDistributedRateLimiter` behavior
 - `tracking_limiter`: `TrackingRateLimiter` instance that records `_dispatch_task()` and `_schedule_drain()` calls, used by drain branch-coverage tests
+- `make_limiter_pool`: Factory fixture that creates N limiter instances sharing the same Redis-backed limiter ID, used by concurrent-access contention tests
 - `task_id`: Unique task ID string for testing
 
 ### Module-Scoped Fixtures

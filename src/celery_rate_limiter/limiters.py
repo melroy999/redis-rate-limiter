@@ -213,18 +213,18 @@ class TaskLifecycle:
                 self.limiter.concurrency_key, self.task_id
             )
 
-            # Clear the active lock of the task.
-            active_removed = 0
+            # Clear the in-flight marker of the task.
+            inflight_removed = 0
             if self.task_id:
-                active_key = self.limiter.get_active_key(self.task_id)
-                active_removed = self.limiter.redis.delete(active_key)
+                inflight_key = self.limiter.get_inflight_key(self.task_id)
+                inflight_removed = self.limiter.redis.delete(inflight_key)
 
             logger.debug(
-                "Concurrency slot released and active key cleared: limiter=%s, task_id=%s, removed_concurrency=%s, removed_active=%s.",
+                "Concurrency slot released and inflight key cleared: limiter=%s, task_id=%s, removed_concurrency=%s, removed_inflight=%s.",
                 self.limiter.id,
                 self.task_id,
                 removed_concurrency,
-                active_removed,
+                inflight_removed,
             )
         finally:
             logger.debug(
@@ -413,16 +413,19 @@ class AbstractDistributedRateLimiter(ABC):
             self._get_task_data(task_id, func_path, payload), sort_keys=True
         )
 
-    def get_active_key(self, task_id: str) -> str:
-        """Get the active key for the given task.
+    def get_inflight_key(self, task_id: str) -> str:
+        """Get the in-flight key for the given task.
+
+        The in-flight key tracks a task from the moment it is scheduled
+        through to completion, preventing duplicate scheduling.
 
         Args:
             task_id: The id of the task.
 
         Returns:
-            The Redis key for tracking active status of this task.
+            The Redis key for tracking in-flight status of this task.
         """
-        return f"{self.id}:active:{task_id}"
+        return f"{self.id}:inflight:{task_id}"
 
     def schedule_task(
         self,
@@ -460,14 +463,15 @@ class AbstractDistributedRateLimiter(ABC):
             max_age,
         )
 
-        # Track active tasks--skip if it is already active.
-        active_key = self.get_active_key(task_id)
-        if self.redis.exists(active_key):
+        # Atomically claim the scheduling right using SET NX. Only one caller
+        # can succeed; all others see the key and return early.
+        inflight_key = self.get_inflight_key(task_id)
+        if not self.redis.set(inflight_key, "1", ex=3600, nx=True):
             logger.debug(
-                "Task already in-flight, skipping schedule: limiter=%s, task_id=%s, active_key=%s.",
+                "Task already in-flight, skipping schedule: limiter=%s, task_id=%s, inflight_key=%s.",
                 self.id,
                 task_id,
-                active_key,
+                inflight_key,
             )
             self._emit_metric("schedule", {"scheduled": False, "task_id": task_id})
             return False, task_id
@@ -487,9 +491,6 @@ class AbstractDistributedRateLimiter(ABC):
                 priority,
                 max_age or "",
             )
-
-            # Mark as active only after scheduling.
-            self.redis.set(active_key, "1", ex=3600)
             logger.info(
                 "Task scheduled: limiter=%s, task_id=%s, func_path=%s, priority=%d.",
                 self.id,
@@ -502,6 +503,8 @@ class AbstractDistributedRateLimiter(ABC):
             # Redis cache is volatile, and hence, the sha may become invalid unexpectedly.
             # Check if we should retry or not; throw a runtime error if not.
             if not retry:
+                # Clean up the inflight key to avoid an orphaned lock.
+                self.redis.delete(inflight_key)
                 raise RuntimeError(
                     "Redis failed to retain the Lua script after a reload attempt."
                 )
@@ -516,6 +519,8 @@ class AbstractDistributedRateLimiter(ABC):
             self.schedule_script_sha = str(
                 self.redis.script_load(self._SCHEDULE_LUA_SCRIPT)
             )
+            # Release the claim so the retry can re-acquire it.
+            self.redis.delete(inflight_key)
             return self.schedule_task(
                 func_path, payload, priority, max_age=max_age, retry=False
             )

@@ -67,7 +67,7 @@ class TestConcurrencyInvariantProperties:
                 if active_task_ids:
                     task_id = active_task_ids.pop()
                     property_redis_client.zrem(property_limiter.concurrency_key, task_id)
-                    property_redis_client.delete(property_limiter.get_active_key(task_id))
+                    property_redis_client.delete(property_limiter.get_inflight_key(task_id))
 
             assert (
                 property_redis_client.zcard(property_limiter.concurrency_key)

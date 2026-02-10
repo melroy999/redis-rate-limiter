@@ -108,8 +108,8 @@ class TestSerializationProperties:
         assert success is True, f"scheduling should succeed for payload: {payload}"
         assert len(task_id) > 0, "task ID should not be empty"
         assert property_redis_client.exists(
-            property_limiter.get_active_key(task_id)
-        ), "task should be marked as active"
+            property_limiter.get_inflight_key(task_id)
+        ), "task should be marked as in-flight"
 
         # Cleanup
         property_redis_client.flushdb()

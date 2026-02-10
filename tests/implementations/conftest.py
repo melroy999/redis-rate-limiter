@@ -107,3 +107,40 @@ def tracking_limiter(redis_client, default_limiter_id):
     keys = redis_client.keys(f"{limiter_id}:*")
     if keys:
         redis_client.delete(*keys)
+
+
+@pytest.fixture
+def make_limiter_pool(redis_client, default_limiter_id):
+    """Factory fixture to create N limiter instances sharing the same Redis state.
+
+    Simulates N independent workers all using the same rate limiter, which
+    is the intended distributed deployment topology.
+
+    Args:
+        redis_client: The Redis client fixture from parent conftest.
+        default_limiter_id: Unique base ID for this test.
+
+    Yields:
+        A factory function that accepts (n, *, limiter_cls, **kwargs).
+    """
+    limiter_id = None
+
+    def _factory(n, *, limiter_cls=MinimalRateLimiter, **kwargs):
+        nonlocal limiter_id
+        limiter_id = f"{default_limiter_id}_concurrent"
+        defaults = dict(
+            limit=5, window=60, max_concurrency=2, max_age=3600, lease_duration=30
+        )
+        defaults.update(kwargs)
+        return [
+            limiter_cls(redis_client=redis_client, limiter_id=limiter_id, **defaults)
+            for _ in range(n)
+        ]
+
+    yield _factory
+
+    # Teardown
+    if limiter_id:
+        keys = redis_client.keys(f"{limiter_id}:*")
+        if keys:
+            redis_client.delete(*keys)

@@ -37,15 +37,15 @@ def mock_limiter(redis_client, task_id):
     limiter.concurrency_key = "test:concurrency"
     limiter.lease_duration = 0.2  # Short duration for fast tests
     limiter.id = "test_limiter"
-    limiter.get_active_key.side_effect = lambda _: f"test:active:{task_id}"
+    limiter.get_inflight_key.side_effect = lambda _: f"test:inflight:{task_id}"
     limiter.extend_lease.return_value = 1  # For background thread tests
     return limiter
 
 
 @pytest.fixture
-def active_key(mock_limiter, task_id):
-    """Provide the active key for the test task."""
-    return mock_limiter.get_active_key(task_id)
+def inflight_key(mock_limiter, task_id):
+    """Provide the in-flight key for the test task."""
+    return mock_limiter.get_inflight_key(task_id)
 
 
 @pytest.fixture
@@ -64,7 +64,7 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
     # ==================== Implementation-Specific Tests ====================
 
     def test_lifecycle_with_multiple_concurrent_tasks(
-        self, redis_client, mock_limiter, task_id, active_key
+        self, redis_client, mock_limiter, task_id, inflight_key
     ):
         """Verify lifecycle only removes the specific task from concurrency set."""
         # Arrange
@@ -77,7 +77,7 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
             task_id: 100,
         }
         redis_client.zadd(mock_limiter.concurrency_key, concurrent_tasks)
-        redis_client.set(active_key, "1")
+        redis_client.set(inflight_key, "1")
 
         # Act & Assert
         # Prevent heartbeat thread from starting.
@@ -90,10 +90,10 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
         assert redis_client.zcard(mock_limiter.concurrency_key) == 4
         assert redis_client.zscore(mock_limiter.concurrency_key, task_id) is None
         assert redis_client.zscore(mock_limiter.concurrency_key, "other_task_1") is not None
-        assert redis_client.exists(active_key) == 0
+        assert redis_client.exists(inflight_key) == 0
 
     def test_lifecycle_handles_redis_failure_during_cleanup(
-        self, redis_client, mock_limiter, task_id, active_key
+        self, redis_client, mock_limiter, task_id, inflight_key
     ):
         """Verify lifecycle raises exception but still triggers consume on Redis failure."""
         # Arrange

@@ -40,11 +40,11 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
         # Gather data needed to verify assertions.
         enhanced_payload = limiter._get_enhanced_payload(payload, True)
         full_data = limiter._get_task_data(task_id, func_path, enhanced_payload)
-        active_key = limiter.get_active_key(task_id)
+        inflight_key = limiter.get_inflight_key(task_id)
 
-        # Assert that the task is marked as active.
-        assert redis_client.exists(active_key) == 1, (
-            f"task {task_id} must be marked as active"
+        # Assert that the task is marked as in-flight.
+        assert redis_client.exists(inflight_key) == 1, (
+            f"task {task_id} must be marked as in-flight"
         )
 
         # Assert that the task is in the buffer only once.
@@ -254,10 +254,10 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
             # Verify retry attempt was made
             assert mock_eval.call_count == 2, "should attempt retry before failing"
 
-        # Verify cleanup: no tasks added and no active markers
-        task_wildcard = limiter.get_active_key("*")
-        active_keys = redis_client.keys(task_wildcard)
-        assert len(active_keys) == 0, "no active keys should remain after failure"
+        # Verify cleanup: no tasks added and no inflight markers
+        task_wildcard = limiter.get_inflight_key("*")
+        inflight_keys = redis_client.keys(task_wildcard)
+        assert len(inflight_keys) == 0, "no inflight keys should remain after failure"
         assert redis_client.zcard(limiter.buffer_key) == 0, "buffer should be empty after failure"
 
     def test_consume_lua_script_recovery_on_noscript_error(self, limiter, redis_client):
