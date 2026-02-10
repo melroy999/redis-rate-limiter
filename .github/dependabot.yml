@@ -3,6 +3,7 @@ updates:
   # Maintain Python dependencies (Poetry)
   - package-ecosystem: "pip"
     directory: "/"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
     # This ensures it respects your pyproject.toml constraints
@@ -11,5 +12,6 @@ updates:
   # Maintain GitHub Actions versions
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "dev"
     schedule:
       interval: "monthly"
