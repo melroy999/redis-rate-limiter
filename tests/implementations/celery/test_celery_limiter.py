@@ -10,9 +10,9 @@ from unittest.mock import patch
 
 import pytest
 import redis
-from tests.helpers.utils import is_subset
 
 from tests.contracts.test_rate_limiter import RateLimiterContractTest
+from tests.helpers.utils import is_subset
 
 
 class TestCeleryRateLimiter(RateLimiterContractTest):
@@ -70,16 +70,24 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
 
     # ==================== Implementation-Specific Tests ====================
 
-    def test_schedule_single_task_stores_correctly(self, limiter, redis_client, func_path, default_payload):
+    def test_schedule_single_task_stores_correctly(
+        self, limiter, redis_client, func_path, default_payload
+    ):
         """Verify a single task is stored with all required metadata."""
         # Act
         _, task_id = limiter.schedule_task(func_path, default_payload)
 
         # Assert
-        self.assert_task_existence(limiter, redis_client, func_path, default_payload, task_id)
-        assert redis_client.zcard(limiter.buffer_key) == 1, "buffer should contain exactly one task"
+        self.assert_task_existence(
+            limiter, redis_client, func_path, default_payload, task_id
+        )
+        assert redis_client.zcard(limiter.buffer_key) == 1, (
+            "buffer should contain exactly one task"
+        )
 
-    def test_schedule_duplicate_task_skips_second(self, limiter, redis_client, func_path, default_payload):
+    def test_schedule_duplicate_task_skips_second(
+        self, limiter, redis_client, func_path, default_payload
+    ):
         """Verify duplicate tasks are not scheduled twice."""
         # Act
         success_1, task_id_1 = limiter.schedule_task(func_path, default_payload)
@@ -89,9 +97,13 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
         assert success_1 is True, "first task should be scheduled successfully"
         assert success_2 is False, "duplicate task should not be scheduled"
         assert task_id_1 == task_id_2, "duplicate task should have same ID"
-        self.assert_task_existence(limiter, redis_client, func_path, default_payload, task_id_1)
+        self.assert_task_existence(
+            limiter, redis_client, func_path, default_payload, task_id_1
+        )
 
-    def test_schedule_multiple_tasks_with_one_duplicate(self, limiter, redis_client, func_path):
+    def test_schedule_multiple_tasks_with_one_duplicate(
+        self, limiter, redis_client, func_path
+    ):
         """Verify multiple different tasks can be scheduled with duplicate detection."""
         # Arrange
         payload_1 = {"user_id": 123}
@@ -99,18 +111,28 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
 
         # Act
         limiter.schedule_task(func_path, payload_1)
-        success_duplicate, task_id_duplicate = limiter.schedule_task(func_path, payload_1)
+        success_duplicate, task_id_duplicate = limiter.schedule_task(
+            func_path, payload_1
+        )
         success_new, task_id_new = limiter.schedule_task(func_path, payload_2)
 
         # Assert
         assert success_duplicate is False, "duplicate should not be scheduled"
         assert success_new is True, "new task should be scheduled"
 
-        self.assert_task_existence(limiter, redis_client, func_path, payload_1, task_id_duplicate)
-        self.assert_task_existence(limiter, redis_client, func_path, payload_2, task_id_new)
-        assert redis_client.zcard(limiter.buffer_key) == 2, "buffer should contain exactly two tasks"
+        self.assert_task_existence(
+            limiter, redis_client, func_path, payload_1, task_id_duplicate
+        )
+        self.assert_task_existence(
+            limiter, redis_client, func_path, payload_2, task_id_new
+        )
+        assert redis_client.zcard(limiter.buffer_key) == 2, (
+            "buffer should contain exactly two tasks"
+        )
 
-    def test_schedule_task_default_priority_is_100(self, limiter, redis_client, func_path, default_payload):
+    def test_schedule_task_default_priority_is_100(
+        self, limiter, redis_client, func_path, default_payload
+    ):
         """Verify tasks scheduled without explicit priority use the default priority of 100."""
         # Act
         success, _ = limiter.schedule_task(func_path, default_payload)
@@ -122,22 +144,30 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
         _, score = members[0]
         assert score == 100.0, f"default priority should be 100, got {score}"
 
-    def test_schedule_task_stores_custom_priority_as_score(self, limiter, redis_client, func_path, default_payload):
+    def test_schedule_task_stores_custom_priority_as_score(
+        self, limiter, redis_client, func_path, default_payload
+    ):
         """Verify tasks scheduled with a custom priority store it as the ZSET score."""
         # Arrange
         priority = 42
 
         # Act
-        success, _ = limiter.schedule_task(func_path, default_payload, priority=priority)
+        success, _ = limiter.schedule_task(
+            func_path, default_payload, priority=priority
+        )
 
         # Assert
         assert success is True, "scheduling should succeed"
         members = redis_client.zrange(limiter.buffer_key, 0, -1, withscores=True)
         assert len(members) == 1, "buffer should contain exactly one task"
         _, score = members[0]
-        assert score == float(priority), f"priority score should be {priority}, got {score}"
+        assert score == float(priority), (
+            f"priority score should be {priority}, got {score}"
+        )
 
-    def test_schedule_task_priority_determines_buffer_ordering(self, limiter, redis_client):
+    def test_schedule_task_priority_determines_buffer_ordering(
+        self, limiter, redis_client
+    ):
         """Verify tasks are ordered by priority in the buffer (lowest score consumed first)."""
         # Arrange
         tasks = [
@@ -192,7 +222,9 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
         ],
         ids=["simple_dict", "empty_dict", "nested_dict", "unicode_content"],
     )
-    def test_payload_serialization_preserves_data(self, limiter, redis_client, payload, func_path):
+    def test_payload_serialization_preserves_data(
+        self, limiter, redis_client, payload, func_path
+    ):
         """Property: any JSON-serializable payload should survive Redis round-trip."""
         # Act
         success, task_id = limiter.schedule_task(func_path, payload)
@@ -201,7 +233,9 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
         assert success is True, "task should be scheduled successfully"
         self.assert_task_existence(limiter, redis_client, func_path, payload, task_id)
 
-    def test_lua_script_recovery_on_noscript_error(self, limiter, redis_client, func_path, default_payload):
+    def test_lua_script_recovery_on_noscript_error(
+        self, limiter, redis_client, func_path, default_payload
+    ):
         """Verify limiter recovers from NoScriptError by reloading Lua script."""
         # Arrange
         real_evalsha = redis_client.evalsha
@@ -229,14 +263,20 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
 
             # Assert
             assert success is True, "task should be scheduled after recovery"
-            self.assert_task_existence(limiter, redis_client, func_path, default_payload, task_id)
+            self.assert_task_existence(
+                limiter, redis_client, func_path, default_payload, task_id
+            )
 
             # Verify recovery path was taken.
-            assert mock_eval.call_count == 2, "evalsha should be called twice (fail then retry)"
+            assert mock_eval.call_count == 2, (
+                "evalsha should be called twice (fail then retry)"
+            )
             assert mock_load.call_count == 1, "script_load should be called to recover"
 
         # Verify script was reloaded
-        assert limiter.schedule_script_sha is not None, "script SHA should be cached after reload"
+        assert limiter.schedule_script_sha is not None, (
+            "script SHA should be cached after reload"
+        )
 
     def test_lua_script_permanent_failure_raises_error(self, limiter, redis_client):
         """Verify permanent Lua script failure raises RuntimeError."""
@@ -248,7 +288,9 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
             side_effect=redis.exceptions.NoScriptError("Permanent Failure"),
         ) as mock_eval:
             # Act & Assert
-            with pytest.raises(RuntimeError, match="Redis failed to retain the Lua script"):
+            with pytest.raises(
+                RuntimeError, match="Redis failed to retain the Lua script"
+            ):
                 limiter.schedule_task("path", {})
 
             # Verify retry attempt was made
@@ -258,7 +300,9 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
         task_wildcard = limiter.get_inflight_key("*")
         inflight_keys = redis_client.keys(task_wildcard)
         assert len(inflight_keys) == 0, "no inflight keys should remain after failure"
-        assert redis_client.zcard(limiter.buffer_key) == 0, "buffer should be empty after failure"
+        assert redis_client.zcard(limiter.buffer_key) == 0, (
+            "buffer should be empty after failure"
+        )
 
     def test_consume_lua_script_recovery_on_noscript_error(self, limiter, redis_client):
         """Verify consume() recovers from NoScriptError by reloading Lua script."""
@@ -286,11 +330,17 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
             result = limiter.consume()
 
             # Assert
-            assert result["success"] is False, "consume should return unsuccessful on empty buffer"
-            assert mock_eval.call_count == 2, "evalsha should be called twice (fail then retry)"
+            assert result["success"] is False, (
+                "consume should return unsuccessful on empty buffer"
+            )
+            assert mock_eval.call_count == 2, (
+                "evalsha should be called twice (fail then retry)"
+            )
             assert mock_load.call_count == 1, "script_load should be called to recover"
 
-        assert limiter.consume_script_sha is not None, "script sha should be cached after reload"
+        assert limiter.consume_script_sha is not None, (
+            "script sha should be cached after reload"
+        )
 
     def test_consume_lua_script_permanent_failure_raises_error(self, limiter):
         """Verify permanent NoScriptError during consume() raises RuntimeError."""
@@ -301,10 +351,14 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
             side_effect=redis.exceptions.NoScriptError("Permanent Failure"),
         ) as mock_eval:
             # Act & Assert
-            with pytest.raises(RuntimeError, match="Redis failed to retain the Lua script"):
+            with pytest.raises(
+                RuntimeError, match="Redis failed to retain the Lua script"
+            ):
                 limiter.consume()
 
-            assert mock_eval.call_count == 2, "consume should attempt one retry before failing"
+            assert mock_eval.call_count == 2, (
+                "consume should attempt one retry before failing"
+            )
 
     def test_get_buffer_count_returns_zero_when_empty(self, limiter):
         """Verify get_buffer_count() returns zero when no tasks are scheduled."""

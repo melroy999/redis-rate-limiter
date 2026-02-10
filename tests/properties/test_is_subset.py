@@ -4,7 +4,8 @@ These tests use Hypothesis to verify mathematical properties of the
 is_subset function with arbitrary nested dictionaries.
 """
 
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from tests.helpers.strategies import nested_dict
 from tests.helpers.utils import is_subset
@@ -26,9 +27,7 @@ class TestIsSubsetProperties:
     def test_empty_dict_is_subset_of_any_dict(superset):
         """Property: empty dictionary is a subset of any dictionary."""
         empty = {}
-        assert is_subset(empty, superset), (
-            f"empty dict should be subset of: {superset}"
-        )
+        assert is_subset(empty, superset), f"empty dict should be subset of: {superset}"
 
     @staticmethod
     @given(

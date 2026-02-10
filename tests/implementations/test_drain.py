@@ -52,9 +52,15 @@ class TestDrain:
             tracking_limiter.drain()
 
         # Assert
-        assert consume_mock.call_count == 0, "drain should not consume when lock is contended"
-        assert tracking_limiter.dispatched_tasks == [], "drain should not dispatch when lock is contended"
-        assert tracking_limiter.scheduled_drains == [], "drain should not schedule follow-up when lock is contended"
+        assert consume_mock.call_count == 0, (
+            "drain should not consume when lock is contended"
+        )
+        assert tracking_limiter.dispatched_tasks == [], (
+            "drain should not dispatch when lock is contended"
+        )
+        assert tracking_limiter.scheduled_drains == [], (
+            "drain should not schedule follow-up when lock is contended"
+        )
 
     def test_drain_dispatches_task_and_schedules_follow_up(self, tracking_limiter):
         """Verify successful consume dispatches task and schedules next drain."""
@@ -62,7 +68,11 @@ class TestDrain:
         consume_result = {
             "success": True,
             "expired": False,
-            "task": {"id": "task-1", "func_path": "myapp.tasks.work", "payload": {"x": 1}},
+            "task": {
+                "id": "task-1",
+                "func_path": "myapp.tasks.work",
+                "payload": {"x": 1},
+            },
             "remaining_tokens": 4,
             "active_concurrency": 1,
             "reset_in_ms": 100,
@@ -169,7 +179,9 @@ class TestDrain:
             tracking_limiter.drain()
 
         # Assert
-        assert tracking_limiter.dispatched_tasks == [], "drain should not dispatch when buffer is empty"
+        assert tracking_limiter.dispatched_tasks == [], (
+            "drain should not dispatch when buffer is empty"
+        )
         assert tracking_limiter.scheduled_drains == [], (
             "drain should not schedule follow-up when buffer is empty"
         )
@@ -260,7 +272,9 @@ class TestDrain:
             tracking_limiter.drain()
 
         # Assert
-        assert mock_jitter.call_count == 1, "drain should compute jitter for rate-limited retry"
+        assert mock_jitter.call_count == 1, (
+            "drain should compute jitter for rate-limited retry"
+        )
         assert len(tracking_limiter.scheduled_drains) == 1, (
             "drain should schedule one delayed retry when rate-limited"
         )

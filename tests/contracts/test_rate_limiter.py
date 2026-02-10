@@ -5,6 +5,7 @@ AbstractDistributedRateLimiter. Any concrete implementation should inherit
 from RateLimiterContractTest and provide its own limiter fixture.
 """
 
+
 class RateLimiterContractTest:
     """Abstract test suite that any RateLimiter implementation must pass.
 
@@ -22,7 +23,9 @@ class RateLimiterContractTest:
     # ==================== Contract Tests ====================
 
     @staticmethod
-    def test_schedule_task_returns_success_and_task_id(limiter, func_path, default_payload):
+    def test_schedule_task_returns_success_and_task_id(
+        limiter, func_path, default_payload
+    ):
         """Contract: schedule_task must return (bool, str) tuple."""
         # Act
         success, task_id = limiter.schedule_task(func_path, default_payload)
@@ -33,7 +36,9 @@ class RateLimiterContractTest:
         assert len(task_id) > 0, "task ID must not be empty"
 
     @staticmethod
-    def test_schedule_task_marks_task_as_inflight(limiter, redis_client, func_path, default_payload):
+    def test_schedule_task_marks_task_as_inflight(
+        limiter, redis_client, func_path, default_payload
+    ):
         """Contract: scheduled tasks must be marked as in-flight in Redis."""
         # Act
         success, task_id = limiter.schedule_task(func_path, default_payload)
@@ -46,7 +51,9 @@ class RateLimiterContractTest:
         )
 
     @staticmethod
-    def test_schedule_task_adds_to_buffer(limiter, redis_client, func_path, default_payload):
+    def test_schedule_task_adds_to_buffer(
+        limiter, redis_client, func_path, default_payload
+    ):
         """Contract: scheduled tasks must be added to the buffer."""
         # Act
         success, task_id = limiter.schedule_task(func_path, default_payload)
@@ -89,15 +96,21 @@ class RateLimiterContractTest:
         assert hasattr(limiter, "id"), "limiter must have an 'id' attribute"
         assert hasattr(limiter, "redis"), "limiter must have a 'redis' attribute"
         assert hasattr(limiter, "buffer_key"), "limiter must have a 'buffer_key'"
-        assert hasattr(limiter, "concurrency_key"), "limiter must have a 'concurrency_key'"
+        assert hasattr(limiter, "concurrency_key"), (
+            "limiter must have a 'concurrency_key'"
+        )
         assert hasattr(limiter, "limit"), "limiter must have a 'limit' attribute"
         assert hasattr(limiter, "window"), "limiter must have a 'window' attribute"
-        assert hasattr(limiter, "max_concurrency"), "limiter must have a 'max_concurrency'"
+        assert hasattr(limiter, "max_concurrency"), (
+            "limiter must have a 'max_concurrency'"
+        )
 
         # Assert attributes have valid types.
         assert isinstance(limiter.limit, int), "limit must be an int"
         assert isinstance(limiter.window, int), "window must be an int"
-        assert isinstance(limiter.max_concurrency, int), "max_concurrency must be an int"
+        assert isinstance(limiter.max_concurrency, int), (
+            "max_concurrency must be an int"
+        )
 
         # Assert attributes have valid values.
         assert limiter.limit > 0, "limit must be positive"
@@ -154,14 +167,24 @@ class RateLimiterContractTest:
         assert result["task"] is None or isinstance(result["task"], dict), (
             "task must be None or a dict"
         )
-        assert isinstance(result["remaining_tokens"], int), "remaining_tokens must be an int"
-        assert isinstance(result["active_concurrency"], int), "active_concurrency must be an int"
+        assert isinstance(result["remaining_tokens"], int), (
+            "remaining_tokens must be an int"
+        )
+        assert isinstance(result["active_concurrency"], int), (
+            "active_concurrency must be an int"
+        )
         assert isinstance(result["reset_in_ms"], int), "reset_in_ms must be an int"
-        assert isinstance(result["remaining_tasks"], int), "remaining_tasks must be an int"
+        assert isinstance(result["remaining_tasks"], int), (
+            "remaining_tasks must be an int"
+        )
 
         # Assert values have valid bounds.
-        assert result["remaining_tokens"] >= 0, "remaining_tokens must be non-negative on empty buffer"
-        assert result["active_concurrency"] >= 0, "active_concurrency must be non-negative"
+        assert result["remaining_tokens"] >= 0, (
+            "remaining_tokens must be non-negative on empty buffer"
+        )
+        assert result["active_concurrency"] >= 0, (
+            "active_concurrency must be non-negative"
+        )
         assert result["reset_in_ms"] >= 0, "reset_in_ms must be non-negative"
         assert result["remaining_tasks"] >= 0, "remaining_tasks must be non-negative"
 

@@ -177,6 +177,7 @@ class TestRateLimitedDecorator:
 
     def test_decorator_preserves_function_metadata(self):
         """Verify functools.wraps preserves function metadata."""
+
         # Arrange
         def original_function():
             """original function docstring."""

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import hashlib
 import json
@@ -34,9 +34,9 @@ logger = logging.getLogger(__name__)
 class TaskData(TypedDict):
     """A class that holds the task data format."""
 
-    id: str # The id of the task.
-    func_path: str # Python path to the function to execute.
-    payload: dict # The parameters to pass on to the function.
+    id: str  # The id of the task.
+    func_path: str  # Python path to the function to execute.
+    payload: dict  # The parameters to pass on to the function.
 
 
 class ConsumeResult(TypedDict):
@@ -217,7 +217,12 @@ class TaskLifecycle:
             inflight_removed = 0
             if self.task_id:
                 inflight_key = self.limiter.get_inflight_key(self.task_id)
-                inflight_removed = self.limiter.redis.delete(inflight_key)
+
+                # noinspection PyUnnecessaryCast
+                # This cast is in fact necessary for mypy validation.
+                inflight_removed = cast(
+                    int, self.limiter.redis.delete(inflight_key)
+                )
 
             logger.debug(
                 "Concurrency slot released and inflight key cleared: limiter=%s, task_id=%s, removed_concurrency=%s, removed_inflight=%s.",
@@ -577,12 +582,13 @@ class AbstractDistributedRateLimiter(ABC):
                 "reset_in_ms": int(result[4]),
                 "remaining_tasks": int(result[5]),
             }
+            task_id = consume_result["task"]["id"] if consume_result["task"] else None
             logger.debug(
                 "Consume result: limiter=%s, success=%s, expired=%s, task_id=%s, remaining_tokens=%d, active_concurrency=%d, remaining_tasks=%d, reset_in_ms=%d.",
                 self.id,
                 consume_result["success"],
                 consume_result["expired"],
-                (consume_result["task"] or {}).get("id"),
+                task_id,
                 consume_result["remaining_tokens"],
                 consume_result["active_concurrency"],
                 consume_result["remaining_tasks"],
@@ -1149,7 +1155,9 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
             )
 
         config = json.loads(
-            raw_config.decode("utf-8") if isinstance(raw_config, bytes) else str(raw_config)
+            raw_config.decode("utf-8")
+            if isinstance(raw_config, bytes)
+            else str(raw_config)
         )
         instance = cls(
             redis_client=cls._redis_client,
@@ -1160,7 +1168,14 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
 
         raw_version = cls._redis_client.hget(cls._VERSION_KEY, limiter_id)
         if raw_version is not None:
-            instance._config_version = int(raw_version)
+            # noinspection PyUnnecessaryCast
+            # This cast is in fact necessary for mypy validation.
+            version_value = cast(str | bytes | int, raw_version)
+            instance._config_version = int(
+                version_value.decode("utf-8")
+                if isinstance(version_value, bytes)
+                else version_value
+            )
 
         cls._instances[limiter_id] = instance
         logger.debug("%s hydrated from Redis: limiter_id=%s.", cls.__name__, limiter_id)
@@ -1242,7 +1257,14 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
 
         raw_version = cls._redis_client.hget(cls._VERSION_KEY, instance.id)
         if raw_version is not None:
-            instance._config_version = int(raw_version)
+            # noinspection PyUnnecessaryCast
+            # This cast is in fact necessary for mypy validation.
+            version_value = cast(str | bytes | int, raw_version)
+            instance._config_version = int(
+                version_value.decode("utf-8")
+                if isinstance(version_value, bytes)
+                else version_value
+            )
 
     def refresh_config(self) -> bool:
         """Apply newer persisted config from Redis when version changes."""
@@ -1250,7 +1272,14 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
         if raw_version is None:
             return False
 
-        remote_version = int(raw_version)
+        # noinspection PyUnnecessaryCast
+        # This cast is in fact necessary for mypy validation.
+        version_value = cast(str | bytes | int, raw_version)
+        remote_version = int(
+            version_value.decode("utf-8")
+            if isinstance(version_value, bytes)
+            else version_value
+        )
         if remote_version <= self._config_version:
             return False
 
@@ -1462,4 +1491,3 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
             self.id,
             delay,
         )
-

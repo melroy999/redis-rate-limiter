@@ -162,11 +162,18 @@ class TestSmartJitter:
         monotonicity_violations = [
             (idx, low, medium, high)
             for idx, (low, medium, high) in enumerate(
-                zip(low_load_jitters, medium_load_jitters, high_load_jitters, strict=True)
+                zip(
+                    low_load_jitters,
+                    medium_load_jitters,
+                    high_load_jitters,
+                    strict=True,
+                )
             )
             if not (low <= medium <= high)
         ]
-        first_violation = monotonicity_violations[0] if monotonicity_violations else None
+        first_violation = (
+            monotonicity_violations[0] if monotonicity_violations else None
+        )
         assert not monotonicity_violations, (
             f"paired jitter monotonicity violated for load pressure; "
             f"violations={len(monotonicity_violations)}, first={first_violation}, "
@@ -311,7 +318,9 @@ class TestSmartJitter:
             )
             if high < low
         ]
-        first_violation = monotonicity_violations[0] if monotonicity_violations else None
+        first_violation = (
+            monotonicity_violations[0] if monotonicity_violations else None
+        )
         assert not monotonicity_violations, (
             f"paired jitter monotonicity violated for concurrency pressure; "
             f"violations={len(monotonicity_violations)}, first={first_violation}, "

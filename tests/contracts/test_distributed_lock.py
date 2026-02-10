@@ -6,8 +6,6 @@ All lock implementations should satisfy these behavioral contracts.
 
 import time
 
-import pytest
-
 SHORT_TIMEOUT_MS = 10
 
 
@@ -24,7 +22,9 @@ class DistributedLockContractTest:
     # ==================== Contract Tests ====================
 
     @staticmethod
-    def test_lock_acquires_and_releases_automatically(redis_client, lock_key, create_lock):
+    def test_lock_acquires_and_releases_automatically(
+        redis_client, lock_key, create_lock
+    ):
         """Contract: lock must acquire on enter and release on exit."""
         # Arrange
         lock = create_lock(redis_client, lock_key, timeout_ms=1000)
@@ -34,11 +34,15 @@ class DistributedLockContractTest:
         with lock as acquired:
             assert acquired is True, "lock should be acquired successfully"
             assert redis_client.exists(lock_key) == 1, "lock key must exist in Redis"
-            assert redis_client.get(lock_key) == lock.token, "lock must store correct token"
+            assert redis_client.get(lock_key) == lock.token, (
+                "lock must store correct token"
+            )
 
         # Assert
         # Lock should be released after context.
-        assert redis_client.exists(lock_key) == 0, "lock must be released after context exit"
+        assert redis_client.exists(lock_key) == 0, (
+            "lock must be released after context exit"
+        )
 
     @staticmethod
     def test_lock_prevents_concurrent_acquisition(redis_client, lock_key, create_lock):
@@ -52,7 +56,9 @@ class DistributedLockContractTest:
             assert acquired_1 is True, "first lock should acquire successfully"
 
             with lock_2 as acquired_2:
-                assert acquired_2 is False, "second lock must fail due to mutual exclusion"
+                assert acquired_2 is False, (
+                    "second lock must fail due to mutual exclusion"
+                )
                 assert redis_client.get(lock_key) == lock_1.token, (
                     "original lock must still hold the lock"
                 )
@@ -74,7 +80,9 @@ class DistributedLockContractTest:
 
             # Second lock should now succeed.
             with lock_2 as acquired_2:
-                assert acquired_2 is True, "second lock should acquire after first expires"
+                assert acquired_2 is True, (
+                    "second lock should acquire after first expires"
+                )
                 assert redis_client.get(lock_key) == lock_2.token
 
     @staticmethod

@@ -61,6 +61,7 @@ def generic_limiter(redis_client, default_limiter_id):
 
     Args:
         redis_client: The Redis client fixture from parent conftest.
+        default_limiter_id: A unique base limiter ID used to derive the fixture limiter ID.
 
     Yields:
         A configured MinimalRateLimiter instance for testing.

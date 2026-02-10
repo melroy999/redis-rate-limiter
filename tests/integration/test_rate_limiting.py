@@ -107,9 +107,7 @@ def wait_until_task_is_expired(redis_client, limiter: CeleryRateLimiter) -> None
 
 
 def position_at_window_percentage(
-    limiter,
-    target_pct: float,
-    verbose: bool = False
+    limiter, target_pct: float, verbose: bool = False
 ) -> tuple[dict, float]:
     """Position precisely at a target percentage through a rate limit window.
 
@@ -129,8 +127,10 @@ def position_at_window_percentage(
 
     # Phase 1: Coarse positioning - wait 2 windows for clean state.
     if verbose:
-        print(f"\n  [DEBUG] Initial positioning:")
-        print(f"    Waiting {window * 2:.1f}s (2 windows) to ensure empty previous window...")
+        print("\n  [DEBUG] Initial positioning:")
+        print(
+            f"    Waiting {window * 2:.1f}s (2 windows) to ensure empty previous window..."
+        )
 
     result = limiter.consume()
     if result["success"]:
@@ -149,7 +149,7 @@ def position_at_window_percentage(
     current_pct = (window * 1000 - reset_ms) / (window * 1000)
 
     if verbose:
-        print(f"\n  [DEBUG] Fine-tuning position:")
+        print("\n  [DEBUG] Fine-tuning position:")
         print(f"    Current position: {current_pct * 100:.1f}% through window")
         print(f"    Target position: {target_pct * 100:.1f}% through window")
         print(f"    reset_in_ms: {reset_ms}ms")
@@ -166,18 +166,22 @@ def position_at_window_percentage(
         wait_to_position = target_pct * window
         total_wait = wait_for_next + wait_to_position
         if verbose:
-            print(f"    Already past target, waiting {total_wait:.3f}s for next window + position...")
+            print(
+                f"    Already past target, waiting {total_wait:.3f}s for next window + position..."
+            )
         precise_sleep(total_wait)
 
     # Verify final position.
     final_result = limiter.consume()
-    actual_pct = (window * 1000 - final_result['reset_in_ms']) / (window * 1000)
+    actual_pct = (window * 1000 - final_result["reset_in_ms"]) / (window * 1000)
 
     if verbose:
-        print(f"\n  [DEBUG] State at target position:")
+        print("\n  [DEBUG] State at target position:")
         print(f"    remaining_tokens: {final_result['remaining_tokens']}")
         print(f"    reset_in_ms: {final_result['reset_in_ms']}ms")
-        print(f"    Position in window: {actual_pct * 100:.1f}% (target: {target_pct * 100:.0f}%)")
+        print(
+            f"    Position in window: {actual_pct * 100:.1f}% (target: {target_pct * 100:.0f}%)"
+        )
 
     return final_result, actual_pct
 
@@ -233,7 +237,9 @@ class TestRateLimitingIntegration:
         assert results[2]["active_concurrency"] == 2
 
     @pytest.mark.parametrize("num_tasks", [3, 5, 10, 20])
-    def test_accurate_telemetry_tracking(self, integration_limiter, num_tasks, func_path):
+    def test_accurate_telemetry_tracking(
+        self, integration_limiter, num_tasks, func_path
+    ):
         """Verify telemetry accurately tracks remaining tokens and tasks."""
         # Arrange
         for i in range(num_tasks):
@@ -256,7 +262,7 @@ class TestRateLimitingIntegration:
         if successful_results:
             expected_tokens = [4, 3, 2, 1, 0]
             actual_tokens = [r["remaining_tokens"] for r in successful_results]
-            assert actual_tokens == expected_tokens[:len(successful_results)]
+            assert actual_tokens == expected_tokens[: len(successful_results)]
 
     def test_empty_buffer_returns_no_task(self, integration_limiter):
         """Verify consuming from empty buffer returns unsuccessful result."""
@@ -388,10 +394,16 @@ class TestRateLimitingIntegration:
         result = limiter.consume()
 
         # Assert
-        assert result["success"] is False, "expired task should not be consumed as success"
+        assert result["success"] is False, (
+            "expired task should not be consumed as success"
+        )
         assert result["expired"] is True, "expired task should be flagged as expired"
-        assert result["task"] is None, "expired task should not be returned in consume result"
-        assert redis_client.llen(limiter.dlq_key) == 1, "expired task should be pushed to dlq"
+        assert result["task"] is None, (
+            "expired task should not be returned in consume result"
+        )
+        assert redis_client.llen(limiter.dlq_key) == 1, (
+            "expired task should be pushed to dlq"
+        )
 
         # Verify DLQ entry contains the original task data.
         dlq_entry = json.loads(redis_client.lindex(limiter.dlq_key, 0))
@@ -425,8 +437,12 @@ class TestRateLimitingIntegration:
         result = limiter.consume()
 
         # Assert
-        assert result["success"] is False, "task should not be consumed after max_age override expiry"
-        assert result["expired"] is True, "task should be marked expired by per-task max_age override"
+        assert result["success"] is False, (
+            "task should not be consumed after max_age override expiry"
+        )
+        assert result["expired"] is True, (
+            "task should be marked expired by per-task max_age override"
+        )
         assert redis_client.llen(limiter.dlq_key) == 1, (
             "expired override task should be moved to dlq"
         )
@@ -449,7 +465,9 @@ class TestRateLimitingIntegration:
         expected_max_age = 7
 
         # Act
-        success, _ = limiter.schedule_task(func_path, {"index": 2}, max_age=expected_max_age)
+        success, _ = limiter.schedule_task(
+            func_path, {"index": 2}, max_age=expected_max_age
+        )
 
         # Assert
         assert success is True, "task should be scheduled successfully"
@@ -476,7 +494,9 @@ class TestRateLimitingIntegration:
             lease_duration=30,
         )
         stale_task_id = "stale-task"
-        redis_client.zadd(limiter.concurrency_key, {stale_task_id: int(time.time()) - 100})
+        redis_client.zadd(
+            limiter.concurrency_key, {stale_task_id: int(time.time()) - 100}
+        )
         success, _ = limiter.schedule_task(func_path, {"index": 3})
         assert success is True, "task should be scheduled successfully"
 
@@ -484,15 +504,17 @@ class TestRateLimitingIntegration:
         result = limiter.consume()
 
         # Assert
-        assert result["success"] is True, "consume should succeed after stale lease cleanup"
+        assert result["success"] is True, (
+            "consume should succeed after stale lease cleanup"
+        )
         assert redis_client.zscore(limiter.concurrency_key, stale_task_id) is None, (
             "stale lease entry should be removed during consume"
         )
         assert result["task"] is not None, "consume should return a task after cleanup"
         consumed_task_id = result["task"]["id"]
-        assert redis_client.zscore(limiter.concurrency_key, consumed_task_id) is not None, (
-            "newly consumed task should be present in concurrency set"
-        )
+        assert (
+            redis_client.zscore(limiter.concurrency_key, consumed_task_id) is not None
+        ), "newly consumed task should be present in concurrency set"
 
     def test_get_status_reflects_live_state(
         self, integration_limiter, redis_client, func_path
@@ -511,12 +533,12 @@ class TestRateLimitingIntegration:
         assert status["limiter_id"] == integration_limiter.id, (
             "status limiter id should match limiter instance"
         )
-        assert int(status["buffer"]["count"]) == redis_client.zcard(integration_limiter.buffer_key), (
-            "status buffer count should match redis zcard"
-        )
-        assert current_concurrency == redis_client.zcard(integration_limiter.concurrency_key), (
-            "status concurrency current should match redis zcard"
-        )
+        assert int(status["buffer"]["count"]) == redis_client.zcard(
+            integration_limiter.buffer_key
+        ), "status buffer count should match redis zcard"
+        assert current_concurrency == redis_client.zcard(
+            integration_limiter.concurrency_key
+        ), "status concurrency current should match redis zcard"
         assert status["concurrency"]["max"] == integration_limiter.max_concurrency, (
             "status concurrency max should match limiter configuration"
         )
@@ -598,9 +620,7 @@ class TestSlidingWindowBehavior:
         if keys:
             redis_client.delete(*keys)
 
-    def test_long_term_rate_converges_to_limit(
-        self, sliding_window_limiter, func_path
-    ):
+    def test_long_term_rate_converges_to_limit(self, sliding_window_limiter, func_path):
         """Verify average consumption rate converges to configured limit.
 
         Over multiple windows, total successful consumptions should approximate
@@ -672,13 +692,19 @@ class TestSlidingWindowBehavior:
             observed_steady_state_max = max(observed_steady_state_max, count_in_window)
 
         # Report observed metrics.
-        print(f"\n  Sliding window test results:")
+        print("\n  Sliding window test results:")
         print(f"    Config: limit={limit}, window={window}s")
         print(f"    Duration: {actual_duration:.2f}s ({num_windows} windows)")
         print(f"    Total consumed: {total_consumed}")
-        print(f"    Observed rate: {observed_rate:.2f} requests/window (expected: {limit})")
-        print(f"    Max burst in any {window}s window: {observed_max_burst} (max allowed: {2 * limit})")
-        print(f"    Steady-state max (after {window * 2:.2f}s): {observed_steady_state_max} (max allowed: {limit + 1})")
+        print(
+            f"    Observed rate: {observed_rate:.2f} requests/window (expected: {limit})"
+        )
+        print(
+            f"    Max burst in any {window}s window: {observed_max_burst} (max allowed: {2 * limit})"
+        )
+        print(
+            f"    Steady-state max (after {window * 2:.2f}s): {observed_steady_state_max} (max allowed: {limit + 1})"
+        )
 
         # Assert
         # The sliding window algorithm can burst up to 2x limit at the start if we
@@ -686,10 +712,10 @@ class TestSlidingWindowBehavior:
         # burst, the algorithm spreads requests properly across successive windows.
         # Account for this by allowing up to 1 extra window's worth on the upper bound.
         expected = num_windows * limit
-        
+
         # 20% tolerance for timing variance.
         lower_bound = expected * 0.80
-        
+
         # Possible initial boundary burst.
         upper_bound = (num_windows + 1) * limit
 
@@ -729,7 +755,7 @@ class TestSlidingWindowBehavior:
         # Arrange
         limit = sliding_window_limiter.limit
         window = sliding_window_limiter.window
-        
+
         # Position at 80% through window.
         window_tail = 0.2
         verbose = request.config.getoption("verbose") > 0
@@ -740,9 +766,7 @@ class TestSlidingWindowBehavior:
 
         # Position at 80% through window with empty previous window.
         pre_burst_result, actual_pct = position_at_window_percentage(
-            sliding_window_limiter,
-            target_pct=1 - window_tail,
-            verbose=verbose
+            sliding_window_limiter, target_pct=1 - window_tail, verbose=verbose
         )
 
         # Complete the positioning consume and start timestamp tracking.
@@ -783,26 +807,44 @@ class TestSlidingWindowBehavior:
         if verbose:
             # Analyze consumption gaps.
             if len(timestamps) >= 2:
-                first_10_gaps = [timestamps[i+1] - timestamps[i] for i in range(min(9, len(timestamps)-1))]
-                print(f"\n  [DEBUG] First 10 consumption gaps (ms): {[f'{g*1000:.1f}' for g in first_10_gaps]}")
-                print(f"    Fastest gap: {min(first_10_gaps)*1000:.1f}ms")
-                print(f"    Slowest gap in first 10: {max(first_10_gaps)*1000:.1f}ms")
+                first_10_gaps = [
+                    timestamps[i + 1] - timestamps[i]
+                    for i in range(min(9, len(timestamps) - 1))
+                ]
+                print(
+                    f"\n  [DEBUG] First 10 consumption gaps (ms): {[f'{g * 1000:.1f}' for g in first_10_gaps]}"
+                )
+                print(f"    Fastest gap: {min(first_10_gaps) * 1000:.1f}ms")
+                print(f"    Slowest gap in first 10: {max(first_10_gaps) * 1000:.1f}ms")
 
             # Analyze the max burst window.
             if max_burst_in_window > 0:
                 burst_start = timestamps[max_burst_start_idx]
                 burst_end = burst_start + window
-                burst_timestamps = [t for t in timestamps if burst_start <= t < burst_end]
-                print(f"\n  [DEBUG] Max burst window analysis:")
-                print(f"    Started at index {max_burst_start_idx}, consumed {max_burst_in_window} tokens")
-                print(f"    Time span: {burst_timestamps[0] - timestamps[0]:.3f}s to {burst_timestamps[-1] - timestamps[0]:.3f}s into test")
+                burst_timestamps = [
+                    t for t in timestamps if burst_start <= t < burst_end
+                ]
+                print("\n  [DEBUG] Max burst window analysis:")
+                print(
+                    f"    Started at index {max_burst_start_idx}, consumed {max_burst_in_window} tokens"
+                )
+                print(
+                    f"    Time span: {burst_timestamps[0] - timestamps[0]:.3f}s to {burst_timestamps[-1] - timestamps[0]:.3f}s into test"
+                )
                 if len(burst_timestamps) >= 2:
-                    burst_gaps = [burst_timestamps[i+1] - burst_timestamps[i] for i in range(len(burst_timestamps)-1)]
-                    print(f"    Average gap in burst window: {sum(burst_gaps)/len(burst_gaps)*1000:.1f}ms")
-                    print(f"    Burst window duration: {burst_timestamps[-1] - burst_timestamps[0]:.3f}s")
+                    burst_gaps = [
+                        burst_timestamps[i + 1] - burst_timestamps[i]
+                        for i in range(len(burst_timestamps) - 1)
+                    ]
+                    print(
+                        f"    Average gap in burst window: {sum(burst_gaps) / len(burst_gaps) * 1000:.1f}ms"
+                    )
+                    print(
+                        f"    Burst window duration: {burst_timestamps[-1] - burst_timestamps[0]:.3f}s"
+                    )
 
         # Always report summary (visible even without -v).
-        print(f"\n  Window boundary burst test results:")
+        print("\n  Window boundary burst test results:")
         print(f"    Config: limit={limit}, window={window}s")
         print(f"    Burst duration: {burst_duration:.3f}s")
         print(f"    Total consumed: {total_consumed}")
@@ -825,14 +867,14 @@ class TestSlidingWindowBehavior:
 # Configuration matrix for slow tests: (limit, window_seconds).
 # These cover edge cases and various realistic configurations.
 SLIDING_WINDOW_CONFIGS = [
-    (3, 0.5),   # Small limit, very short window.
-    (5, 0.5),   # Medium limit, very short window.
-    (5, 1),     # Medium limit, short window.
-    (10, 1),    # Default-ish limit, short window.
-    (10, 2),    # Default config (matches fast test).
-    (20, 2),    # Higher limit, short window.
-    (5, 5),     # Medium limit, longer window.
-    (15, 5),    # Higher limit, longer window.
+    (3, 0.5),  # Small limit, very short window.
+    (5, 0.5),  # Medium limit, very short window.
+    (5, 1),  # Medium limit, short window.
+    (10, 1),  # Default-ish limit, short window.
+    (10, 2),  # Default config (matches fast test).
+    (20, 2),  # Higher limit, short window.
+    (5, 5),  # Medium limit, longer window.
+    (15, 5),  # Higher limit, longer window.
 ]
 
 
@@ -868,8 +910,9 @@ class TestSlidingWindowBehaviorParametrized:
         """
         limit, window = request.param
         limiter_id = (
-            f"{default_limiter_id}_sliding_window_param_{limit}_{window}"
-            .replace(".", "_")
+            f"{default_limiter_id}_sliding_window_param_{limit}_{window}".replace(
+                ".", "_"
+            )
         )
 
         limiter = CeleryRateLimiter(
@@ -893,10 +936,13 @@ class TestSlidingWindowBehaviorParametrized:
         "sliding_window_limiter",
         SLIDING_WINDOW_CONFIGS,
         indirect=True,
-        ids=[f"limit={l}, window={w}s" for l, w in SLIDING_WINDOW_CONFIGS],
+        ids=[
+            f"limit={limit_value}, window={window_value}s"
+            for limit_value, window_value in SLIDING_WINDOW_CONFIGS
+        ],
     )
     def test_long_term_rate_converges_to_limit(
-        self, sliding_window_limiter : CeleryRateLimiter, func_path
+        self, sliding_window_limiter: CeleryRateLimiter, func_path
     ):
         """Verify average consumption rate converges to configured limit.
 
@@ -950,21 +996,27 @@ class TestSlidingWindowBehaviorParametrized:
             observed_steady_state_max = max(observed_steady_state_max, count_in_window)
 
         # Report observed metrics.
-        print(f"\n  Parameterized sliding window test results:")
+        print("\n  Parameterized sliding window test results:")
         print(f"    Config: limit={limit}, window={window}s")
         print(f"    Duration: {actual_duration:.2f}s ({num_windows} windows)")
         print(f"    Total consumed: {total_consumed}")
-        print(f"    Observed rate: {observed_rate:.2f} requests/window (expected: {limit})")
-        print(f"    Max burst in any {window}s window: {observed_max_burst} (max allowed: {2 * limit})")
-        print(f"    Steady-state max (after {window * 2:.2f}s): {observed_steady_state_max} (max allowed: {limit + 1})")
+        print(
+            f"    Observed rate: {observed_rate:.2f} requests/window (expected: {limit})"
+        )
+        print(
+            f"    Max burst in any {window}s window: {observed_max_burst} (max allowed: {2 * limit})"
+        )
+        print(
+            f"    Steady-state max (after {window * 2:.2f}s): {observed_steady_state_max} (max allowed: {limit + 1})"
+        )
 
         # Assert
         # Account for possible initial boundary burst (up to 1 extra window's worth).
         expected = num_windows * limit
-        
+
         # 25% tolerance for timing variance (slightly more lenient for short windows).
         lower_bound = expected * 0.75
-        
+
         # Possible initial boundary burst.
         upper_bound = (num_windows + 1) * limit
 
@@ -992,7 +1044,10 @@ class TestSlidingWindowBehaviorParametrized:
         "sliding_window_limiter",
         SLIDING_WINDOW_CONFIGS,
         indirect=True,
-        ids=[f"limit={l}_window={w}s" for l, w in SLIDING_WINDOW_CONFIGS],
+        ids=[
+            f"limit={limit_value}_window={window_value}s"
+            for limit_value, window_value in SLIDING_WINDOW_CONFIGS
+        ],
     )
     def test_burst_at_window_boundary_after_empty_window(
         self, sliding_window_limiter: CeleryRateLimiter, func_path, request
@@ -1007,7 +1062,7 @@ class TestSlidingWindowBehaviorParametrized:
         window = sliding_window_limiter.window
 
         # Position at 80% through window.
-        window_tail = 0.2  
+        window_tail = 0.2
         verbose = request.config.getoption("verbose") > 0
 
         # Schedule enough tasks for a potential 2x burst.
@@ -1016,9 +1071,7 @@ class TestSlidingWindowBehaviorParametrized:
 
         # Position at 80% through window with empty previous window.
         pre_burst_result, actual_pct = position_at_window_percentage(
-            sliding_window_limiter,
-            target_pct=1 - window_tail,
-            verbose=verbose
+            sliding_window_limiter, target_pct=1 - window_tail, verbose=verbose
         )
 
         # Complete the positioning consume and start timestamp tracking.
@@ -1049,7 +1102,7 @@ class TestSlidingWindowBehaviorParametrized:
             max_burst_in_window = max(max_burst_in_window, count_in_window)
 
         # Report observed burst.
-        print(f"\n  Parameterized window boundary burst test results:")
+        print("\n  Parameterized window boundary burst test results:")
         print(f"    Config: limit={limit}, window={window}s")
         print(f"    Burst duration: {burst_duration:.3f}s")
         print(f"    Total consumed: {total_consumed}")

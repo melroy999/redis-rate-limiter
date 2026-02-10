@@ -6,7 +6,6 @@ property-based test files.
 
 from hypothesis import strategies as st
 
-
 # JSON-compatible strategy: recursive structure of primitives.
 # This generates arbitrary JSON-serializable Python objects.
 json_value = st.recursive(

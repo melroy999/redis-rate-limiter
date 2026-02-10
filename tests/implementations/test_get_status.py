@@ -65,7 +65,9 @@ class TestGetStatus:
         status = generic_limiter.get_status()
 
         # Assert
-        assert consume_result["success"] is True, "consume should succeed for scheduled task"
+        assert consume_result["success"] is True, (
+            "consume should succeed for scheduled task"
+        )
         assert status["rate_limit"]["limit"] == generic_limiter.limit, (
             "status should report configured rate limit"
         )
@@ -102,8 +104,12 @@ class TestGetStatus:
             assert status["limiter_id"] == generic_limiter.id, (
                 "status should still be returned after script recovery"
             )
-            assert mock_eval.call_count == 2, "evalsha should be called twice (fail then retry)"
-            assert mock_load.call_count == 1, "script_load should be called once to recover"
+            assert mock_eval.call_count == 2, (
+                "evalsha should be called twice (fail then retry)"
+            )
+            assert mock_load.call_count == 1, (
+                "script_load should be called once to recover"
+            )
 
     def test_get_status_permanent_failure_raises_error(self, generic_limiter):
         """Verify permanent NoScriptError during get_status() raises RuntimeError."""
@@ -114,7 +120,11 @@ class TestGetStatus:
             side_effect=redis.exceptions.NoScriptError("Permanent Failure"),
         ) as mock_eval:
             # Act & Assert
-            with pytest.raises(RuntimeError, match="Redis failed to retain the Lua script"):
+            with pytest.raises(
+                RuntimeError, match="Redis failed to retain the Lua script"
+            ):
                 generic_limiter.get_status()
 
-            assert mock_eval.call_count == 2, "get_status should retry exactly once before failing"
+            assert mock_eval.call_count == 2, (
+                "get_status should retry exactly once before failing"
+            )

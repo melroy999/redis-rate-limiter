@@ -29,7 +29,7 @@ def dict_equals_approx(left, right, relative_tolerance=1e-9, absolute_tolerance=
         return False
 
     # Handle different types.
-    if type(left) != type(right):
+    if type(left) is not type(right):
         return False
 
     # Handle floats with approximate equality.

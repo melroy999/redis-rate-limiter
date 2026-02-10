@@ -21,7 +21,9 @@ import pytest
 class TestInternalHelpers:
     """Test internal helper methods and Lua script loading."""
 
-    def test_load_lua_script_imports_only_once(self, generic_limiter, lua_script, target_key):
+    def test_load_lua_script_imports_only_once(
+        self, generic_limiter, lua_script, target_key
+    ):
         """Verify Lua scripts are only loaded from disk once (cached)."""
         # Arrange
         # Simulate script already loaded.

@@ -49,9 +49,10 @@ class TaskLifecycleContractTest:
         assert redis_client.zscore(mock_limiter.concurrency_key, task_id) is None, (
             f"task {task_id} must be removed from concurrency set"
         )
-        assert redis_client.zscore(mock_limiter.concurrency_key, "other_task_1") is not None, (
-            "other tasks must remain in concurrency set"
-        )
+        assert (
+            redis_client.zscore(mock_limiter.concurrency_key, "other_task_1")
+            is not None
+        ), "other tasks must remain in concurrency set"
 
     @staticmethod
     def test_lifecycle_removes_active_marker(
@@ -109,8 +110,9 @@ class TaskLifecycleContractTest:
             pass
 
         # Assert
-        mock_limiter.trigger_consume.assert_called_once(), (
-            "trigger_consume must be called to ensure processing doesn't stall"
+        (
+            mock_limiter.trigger_consume.assert_called_once(),
+            "trigger_consume must be called to ensure processing doesn't stall",
         )
 
     @staticmethod
@@ -128,6 +130,7 @@ class TaskLifecycleContractTest:
                 raise RuntimeError("Simulated crash")
 
         # Assert
-        mock_limiter.trigger_consume.assert_called_once(), (
-            "trigger_consume must be called even after exception"
+        (
+            mock_limiter.trigger_consume.assert_called_once(),
+            "trigger_consume must be called even after exception",
         )

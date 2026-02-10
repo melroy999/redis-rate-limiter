@@ -214,9 +214,7 @@ class TestConcurrentConsumption:
         # due to having more tasks than the limit, we expect exactly limit tasks to
         # be consumable (minus the probe attempt if it is in the same window).
         total = sum(len(batch) for batch in all_consumed) + probe_consumed
-        assert total == limit, (
-            f"expected exactly {limit} tasks consumed, got {total}"
-        )
+        assert total == limit, f"expected exactly {limit} tasks consumed, got {total}"
 
     def test_concurrency_limit_enforced_under_concurrent_consume(
         self, make_limiter_pool, redis_client
@@ -260,9 +258,7 @@ class TestConcurrentConsumption:
             f"exactly {max_conc} consumes should succeed, got {len(successful)}"
         )
 
-    def test_each_task_consumed_exactly_once(
-        self, make_limiter_pool, redis_client
-    ):
+    def test_each_task_consumed_exactly_once(self, make_limiter_pool, redis_client):
         """No task is consumed by more than one worker."""
         # Arrange
         num_tasks = 5
@@ -304,9 +300,7 @@ class TestConcurrentConsumption:
 class TestConcurrentDrain:
     """Full ``drain()`` path with the distributed lock under contention."""
 
-    def test_distributed_lock_serializes_drains(
-        self, make_limiter_pool, redis_client
-    ):
+    def test_distributed_lock_serializes_drains(self, make_limiter_pool, redis_client):
         """Each task is dispatched exactly once despite concurrent drainers.
 
         ``drain()`` acquires a distributed lock before consuming, so at most
@@ -372,8 +366,9 @@ class TestConcurrentDrain:
         # Act
         # Generous upper bound on rounds needed.
         for _ in range(num_tasks * 3):
-            def drain_once(limiter):
-                limiter.drain()
+
+            def drain_once(limiter_arg):
+                limiter_arg.drain()
 
             run_concurrently(drain_once, [(lim,) for lim in limiters])
 
@@ -404,9 +399,7 @@ class TestConcurrentLifecycle:
         """All concurrency slots are freed when multiple lifecycles exit concurrently."""
         # Arrange
         max_conc = 5
-        limiters = make_limiter_pool(
-            1, limit=1000, window=60, max_concurrency=max_conc
-        )
+        limiters = make_limiter_pool(1, limit=1000, window=60, max_concurrency=max_conc)
         limiter = limiters[0]
 
         # Schedule and consume tasks to fill all concurrency slots.
@@ -414,7 +407,9 @@ class TestConcurrentLifecycle:
         consumed_task_ids: list[str] = []
         for _ in range(max_conc):
             result = limiter.consume()
-            assert result["success"], f"consume should succeed with {max_conc} slots available"
+            assert result["success"], (
+                f"consume should succeed with {max_conc} slots available"
+            )
             consumed_task_ids.append(result["task"]["id"])
 
         # Verify all slots are filled.
@@ -499,10 +494,7 @@ class TestConcurrentFullPipeline:
 
         scheduled_results = run_concurrently(
             produce,
-            [
-                (lim, i * tasks_per_producer)
-                for i, lim in enumerate(producer_limiters)
-            ],
+            [(lim, i * tasks_per_producer) for i, lim in enumerate(producer_limiters)],
         )
         for batch in scheduled_results:
             all_scheduled.update(batch)
@@ -514,6 +506,7 @@ class TestConcurrentFullPipeline:
         # Phase 2: Concurrent drain + complete cycles.
         all_consumed: set[str] = set()
         for _ in range(num_tasks * 3):
+
             def drain_once(limiter):
                 limiter.drain()
 

@@ -13,7 +13,10 @@ import warnings
 
 import pytest
 
-from celery_rate_limiter.limiters import AbstractRedisManagedRateLimiter, CeleryRateLimiter
+from celery_rate_limiter.limiters import (
+    AbstractRedisManagedRateLimiter,
+    CeleryRateLimiter,
+)
 
 
 class TestRateLimiterClassApi:
@@ -216,9 +219,7 @@ class TestRateLimiterClassApi:
         assert (
             redis_client.hget(CeleryRateLimiter._REGISTRY_KEY, default_limiter_id)
             is None
-        ), (
-            "persist=False should skip config registry write"
-        )
+        ), "persist=False should skip config registry write"
 
     # ==================== get() ====================
 
@@ -435,9 +436,13 @@ class TestRateLimiterClassApi:
         changed = limiter.refresh_config()
 
         # Assert
-        assert changed is False, "refresh should report no change when version is current"
+        assert changed is False, (
+            "refresh should report no change when version is current"
+        )
 
-    def test_refresh_config_applies_remote_change(self, redis_client, default_limiter_id):
+    def test_refresh_config_applies_remote_change(
+        self, redis_client, default_limiter_id
+    ):
         """Verify refresh_config applies newer config written by another worker."""
         # Arrange
         limiter = self._create_limiter(default_limiter_id)
@@ -571,7 +576,9 @@ class TestRateLimiterClassApi:
             limiter.max_concurrency,
             limiter.max_age,
             limiter.lease_duration,
-        ) == original_state, "config fields should remain unchanged when payload is missing"
+        ) == original_state, (
+            "config fields should remain unchanged when payload is missing"
+        )
 
     # ==================== _reset() ====================
 
@@ -614,7 +621,9 @@ class TestRateLimiterClassApi:
                 max_concurrency=2,
             )
 
-    def test_class_api_create_does_not_emit_deprecation_warning(self, default_limiter_id):
+    def test_class_api_create_does_not_emit_deprecation_warning(
+        self, default_limiter_id
+    ):
         """Verify class API create path does not emit deprecation warnings."""
         # Act
         with warnings.catch_warnings(record=True) as captured:
@@ -655,7 +664,9 @@ class TestRateLimiterClassApi:
             def _configure_hint(cls) -> str:
                 return "isolated configure hint"
 
-            def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
+            def _dispatch_task(
+                self, func_path: str, payload: dict, task_id: str
+            ) -> None:
                 return None
 
             def _schedule_drain(self, delay: float = 0.0) -> None:
@@ -682,14 +693,18 @@ class TestRateLimiterClassApi:
             def _configure_hint(cls) -> str:
                 return "isolated configure hint"
 
-            def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
+            def _dispatch_task(
+                self, func_path: str, payload: dict, task_id: str
+            ) -> None:
                 return None
 
             def _schedule_drain(self, delay: float = 0.0) -> None:
                 return None
 
         # Arrange
-        isolated_limiter_a_cache_key = "isolated_limiter_a_instance_for_subclass_isolation_test"
+        isolated_limiter_a_cache_key = (
+            "isolated_limiter_a_instance_for_subclass_isolation_test"
+        )
         IsolatedLimiterA._instances[isolated_limiter_a_cache_key] = (
             IsolatedLimiterA.__new__(IsolatedLimiterA)
         )

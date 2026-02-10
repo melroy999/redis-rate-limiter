@@ -10,8 +10,8 @@ import pytest
 
 from celery_rate_limiter.limiters import DistributedLock
 from tests.contracts.test_distributed_lock import (
-    DistributedLockContractTest,
     SHORT_TIMEOUT_MS,
+    DistributedLockContractTest,
 )
 
 

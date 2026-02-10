@@ -47,5 +47,7 @@ def is_allowed(
     Returns:
         True if a request can be made, False otherwise.
     """
-    estimated = sliding_window_estimate(previous_count, current_count, window_ms, elapsed_ms)
+    estimated = sliding_window_estimate(
+        previous_count, current_count, window_ms, elapsed_ms
+    )
     return estimated < limit

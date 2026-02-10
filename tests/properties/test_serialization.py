@@ -61,7 +61,10 @@ class TestSerializationProperties:
             # Extract the payload from the stored task data.
             # The limiter wraps payloads with metadata: {'data': ..., 'meta': {...}}
             stored_enhanced_payload = task_data.get("payload")
-            if isinstance(stored_enhanced_payload, dict) and "data" in stored_enhanced_payload:
+            if (
+                isinstance(stored_enhanced_payload, dict)
+                and "data" in stored_enhanced_payload
+            ):
                 # Extract just the data portion.
                 stored_payload = stored_enhanced_payload["data"]
             else:

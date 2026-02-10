@@ -5,7 +5,8 @@ for ANY valid input, without re-implementing the formula itself.
 """
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from tests.algorithms.sliding_window_counter import is_allowed, sliding_window_estimate
 
@@ -30,7 +31,9 @@ class TestSlidingWindowProperties:
         elapsed_ms = elapsed_ms % (window_ms + 1)
 
         # Act
-        estimate = sliding_window_estimate(previous_count, current_count, window_ms, elapsed_ms)
+        estimate = sliding_window_estimate(
+            previous_count, current_count, window_ms, elapsed_ms
+        )
 
         # Assert
         lower = current_count
@@ -46,7 +49,9 @@ class TestSlidingWindowProperties:
         current_count=st.integers(min_value=0, max_value=1000),
         window_ms=st.integers(min_value=10, max_value=10000),
     )
-    def test_estimate_decreases_as_time_passes(previous_count, current_count, window_ms):
+    def test_estimate_decreases_as_time_passes(
+        previous_count, current_count, window_ms
+    ):
         """Property: estimate decreases monotonically as elapsed time increases."""
         # Act
         estimates = [
@@ -68,7 +73,9 @@ class TestSlidingWindowProperties:
         window_ms=st.integers(min_value=1, max_value=100000),
         elapsed_ms=st.integers(min_value=0, max_value=100000),
     )
-    def test_current_count_always_contributes_fully(current_count, window_ms, elapsed_ms):
+    def test_current_count_always_contributes_fully(
+        current_count, window_ms, elapsed_ms
+    ):
         """Property: current_count contributes fully regardless of elapsed time."""
         # Arrange
         elapsed_ms = elapsed_ms % (window_ms + 1)
@@ -98,8 +105,12 @@ class TestSlidingWindowProperties:
         elapsed_ms = elapsed_ms % (window_ms + 1)
 
         # Act
-        estimate = sliding_window_estimate(previous_count, current_count, window_ms, elapsed_ms)
-        allowed = is_allowed(previous_count, current_count, window_ms, elapsed_ms, limit)
+        estimate = sliding_window_estimate(
+            previous_count, current_count, window_ms, elapsed_ms
+        )
+        allowed = is_allowed(
+            previous_count, current_count, window_ms, elapsed_ms, limit
+        )
 
         # Assert
         expected = estimate < limit
@@ -133,10 +144,14 @@ class TestSlidingWindowProperties:
         current_count=st.integers(min_value=0, max_value=1000),
         window_ms=st.integers(min_value=1, max_value=100000),
     )
-    def test_estimate_equals_current_at_window_end(previous_count, current_count, window_ms):
+    def test_estimate_equals_current_at_window_end(
+        previous_count, current_count, window_ms
+    ):
         """Property: at elapsed=window_ms, estimate equals current_count only."""
         # Act
-        estimate = sliding_window_estimate(previous_count, current_count, window_ms, window_ms)
+        estimate = sliding_window_estimate(
+            previous_count, current_count, window_ms, window_ms
+        )
 
         # Assert
         assert estimate == pytest.approx(current_count), (

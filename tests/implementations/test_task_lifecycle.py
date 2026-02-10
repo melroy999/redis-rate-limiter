@@ -89,7 +89,10 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
         # After completion, only our task should be removed.
         assert redis_client.zcard(mock_limiter.concurrency_key) == 4
         assert redis_client.zscore(mock_limiter.concurrency_key, task_id) is None
-        assert redis_client.zscore(mock_limiter.concurrency_key, "other_task_1") is not None
+        assert (
+            redis_client.zscore(mock_limiter.concurrency_key, "other_task_1")
+            is not None
+        )
         assert redis_client.exists(inflight_key) == 0
 
     def test_lifecycle_handles_redis_failure_during_cleanup(
@@ -118,7 +121,7 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
     @pytest.mark.parametrize(
         "original, override",
         HEARTBEAT_OVERRIDE_CASES,
-        ids=["default_warn_override_kill", "default_kill_override_warn"]
+        ids=["default_warn_override_kill", "default_kill_override_warn"],
     )
     def test_heartbeat_failure_override_precedence(
         self,
@@ -177,7 +180,9 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
         )
 
         # Verify the correct parameters were passed.
-        mock_limiter.extend_lease.assert_called_with(task_id, mock_limiter.lease_duration)
+        mock_limiter.extend_lease.assert_called_with(
+            task_id, mock_limiter.lease_duration
+        )
 
     def test_heartbeat_interval_calculation(self, mock_limiter, task_id):
         """Verify heartbeat interval is correctly calculated as lease_duration / 2."""
@@ -239,9 +244,7 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
 
         # Act & Assert
         with patch("os.kill") as mock_kill:
-            with TaskLifecycle(
-                mock_limiter, task_id, on_heartbeat_failure="kill"
-            ):
+            with TaskLifecycle(mock_limiter, task_id, on_heartbeat_failure="kill"):
                 # Wait for heartbeat to fail and trigger termination.
                 time.sleep(0.75 * mock_limiter.lease_duration)
 
@@ -306,7 +309,9 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
     ):
         """Verify extend_lease() reloads Lua script and retries on NoScriptError."""
         # Arrange
-        redis_client.zadd(generic_limiter.concurrency_key, {task_id: int(time.time()) + 5})
+        redis_client.zadd(
+            generic_limiter.concurrency_key, {task_id: int(time.time()) + 5}
+        )
         real_evalsha = redis_client.evalsha
         real_script_load = redis_client.script_load
 
@@ -333,8 +338,12 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
             assert renewed == 0, (
                 "renewing an existing task lease should return redis zadd update count"
             )
-            assert mock_eval.call_count == 2, "evalsha should be called twice (fail then retry)"
-            assert mock_load.call_count == 1, "script_load should be called once for recovery"
+            assert mock_eval.call_count == 2, (
+                "evalsha should be called twice (fail then retry)"
+            )
+            assert mock_load.call_count == 1, (
+                "script_load should be called once for recovery"
+            )
 
     def test_extend_lease_permanent_failure_raises_error(self, generic_limiter):
         """Verify permanent NoScriptError during extend_lease() raises RuntimeError."""
@@ -345,7 +354,9 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
             side_effect=redis.exceptions.NoScriptError("Permanent Failure"),
         ) as mock_eval:
             # Act & Assert
-            with pytest.raises(RuntimeError, match="Redis failed to retain the Lua script"):
+            with pytest.raises(
+                RuntimeError, match="Redis failed to retain the Lua script"
+            ):
                 generic_limiter.extend_lease("task123", 30)
 
             assert mock_eval.call_count == 2, (

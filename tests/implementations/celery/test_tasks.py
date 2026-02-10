@@ -18,7 +18,9 @@ class TestImportString:
         resolved = import_string("json.dumps")
 
         # Assert
-        assert resolved is json.dumps, "import_string should resolve json.dumps callable"
+        assert resolved is json.dumps, (
+            "import_string should resolve json.dumps callable"
+        )
 
     def test_import_string_raises_type_error_for_non_callable(self):
         """Verify import_string raises TypeError for non-callable targets."""
@@ -38,16 +40,23 @@ class TestImportString:
         with pytest.raises(AttributeError):
             import_string("json.this_attribute_does_not_exist")
 
-
     @pytest.mark.parametrize(
-        "invalid_path",
-        ["", "no_dot_path", "  json.dumps  "],
+        ("invalid_path", "expected_exception"),
+        [
+            ("", ValueError),
+            ("no_dot_path", ValueError),
+            ("  json.dumps  ", ModuleNotFoundError),
+        ],
         ids=["empty_string", "no_dot", "whitespace_padded"],
     )
-    def test_import_string_raises_on_malformed_path(self, invalid_path):
+    def test_import_string_raises_on_malformed_path(
+        self,
+        invalid_path: str,
+        expected_exception: type[Exception],
+    ):
         """Verify import_string raises on structurally invalid import paths."""
         # Act & Assert
-        with pytest.raises((ValueError, ModuleNotFoundError)):
+        with pytest.raises(expected_exception):
             import_string(invalid_path)
 
 

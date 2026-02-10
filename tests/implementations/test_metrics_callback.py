@@ -109,7 +109,9 @@ class TestMetricsCallback:
 
         # Assert
         assert was_scheduled is False, "duplicate task should not be scheduled"
-        callback.assert_called_once_with("schedule", {"scheduled": False, "task_id": task_id})
+        callback.assert_called_once_with(
+            "schedule", {"scheduled": False, "task_id": task_id}
+        )
 
     def test_consume_metric_data_matches_result(self, limiter, callback):
         """Verify metric data values match the ConsumeResult."""
@@ -147,10 +149,14 @@ class TestMetricsCallback:
         result = limiter.consume()
 
         # Assert
-        assert result is not None, "consume should return a result despite callback failure"
+        assert result is not None, (
+            "consume should return a result despite callback failure"
+        )
         assert "success" in result, "consume result should contain expected keys"
 
-    def test_callback_exception_does_not_break_schedule(self, limiter, callback, func_path):
+    def test_callback_exception_does_not_break_schedule(
+        self, limiter, callback, func_path
+    ):
         """Verify schedule_task continues working when the callback raises an exception."""
         # Arrange
         callback.side_effect = RuntimeError("callback failure")
@@ -159,10 +165,16 @@ class TestMetricsCallback:
         was_scheduled, task_id = limiter.schedule_task(func_path, {"key": "value"})
 
         # Assert
-        assert was_scheduled is True, "task should be scheduled despite callback failure"
-        assert isinstance(task_id, str), "task_id should be returned despite callback failure"
+        assert was_scheduled is True, (
+            "task should be scheduled despite callback failure"
+        )
+        assert isinstance(task_id, str), (
+            "task_id should be returned despite callback failure"
+        )
 
-    def test_consume_after_schedule_emits_both_events(self, limiter, callback, func_path):
+    def test_consume_after_schedule_emits_both_events(
+        self, limiter, callback, func_path
+    ):
         """Verify both schedule and consume events are emitted in sequence."""
         # Arrange
         limiter.schedule_task(func_path, {"key": "value"})

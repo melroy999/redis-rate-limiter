@@ -1,7 +1,8 @@
 """Property-based tests for concurrency invariants."""
 
 import pytest
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 from celery_rate_limiter.limiters import CeleryRateLimiter
 
@@ -60,14 +61,20 @@ class TestConcurrencyInvariantProperties:
                 result = property_limiter.consume()
                 if result["success"] and result["task"] is not None:
                     active_task_ids.add(result["task"]["id"])
-                assert result["active_concurrency"] <= property_limiter.max_concurrency, (
+                assert (
+                    result["active_concurrency"] <= property_limiter.max_concurrency
+                ), (
                     "consume should never report active_concurrency above max_concurrency"
                 )
             else:
                 if active_task_ids:
                     task_id = active_task_ids.pop()
-                    property_redis_client.zrem(property_limiter.concurrency_key, task_id)
-                    property_redis_client.delete(property_limiter.get_inflight_key(task_id))
+                    property_redis_client.zrem(
+                        property_limiter.concurrency_key, task_id
+                    )
+                    property_redis_client.delete(
+                        property_limiter.get_inflight_key(task_id)
+                    )
 
             assert (
                 property_redis_client.zcard(property_limiter.concurrency_key)

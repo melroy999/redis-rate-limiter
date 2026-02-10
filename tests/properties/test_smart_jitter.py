@@ -14,10 +14,10 @@ artifact of one hand-picked random sequence.
 from unittest.mock import patch
 
 import pytest
-from hypothesis import HealthCheck, assume, given, settings, strategies as st
+from hypothesis import HealthCheck, assume, given, settings
+from hypothesis import strategies as st
 
 from celery_rate_limiter.limiters import CeleryRateLimiter
-
 
 # Random values used by jitter calculations.
 # `random.random()` yields values in [0.0, 1.0), so we exclude 1.0.
@@ -121,11 +121,18 @@ class TestSmartJitterProperties:
         monotonicity_violations = [
             (idx, low, medium, high)
             for idx, (low, medium, high) in enumerate(
-                zip(low_load_jitters, medium_load_jitters, high_load_jitters, strict=True)
+                zip(
+                    low_load_jitters,
+                    medium_load_jitters,
+                    high_load_jitters,
+                    strict=True,
+                )
             )
             if not (low <= medium <= high)
         ]
-        first_violation = monotonicity_violations[0] if monotonicity_violations else None
+        first_violation = (
+            monotonicity_violations[0] if monotonicity_violations else None
+        )
         assert not monotonicity_violations, (
             f"paired jitter monotonicity violated for load pressure; "
             f"violations={len(monotonicity_violations)}, first={first_violation}, "
@@ -185,7 +192,9 @@ class TestSmartJitterProperties:
             )
             if high < low
         ]
-        first_violation = monotonicity_violations[0] if monotonicity_violations else None
+        first_violation = (
+            monotonicity_violations[0] if monotonicity_violations else None
+        )
         assert not monotonicity_violations, (
             f"paired jitter monotonicity violated for concurrency pressure; "
             f"violations={len(monotonicity_violations)}, first={first_violation}, "

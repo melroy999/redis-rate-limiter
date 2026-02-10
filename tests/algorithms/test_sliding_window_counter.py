@@ -252,7 +252,9 @@ class TestRateLimitDecision:
         )
 
         # Assert
-        assert allowed is True, f"is_allowed should return True when under limit, got {allowed}"
+        assert allowed is True, (
+            f"is_allowed should return True when under limit, got {allowed}"
+        )
 
     @staticmethod
     def test_denied_when_at_limit():
@@ -270,7 +272,9 @@ class TestRateLimitDecision:
         )
 
         # Assert
-        assert allowed is False, f"is_allowed should return False when at limit, got {allowed}"
+        assert allowed is False, (
+            f"is_allowed should return False when at limit, got {allowed}"
+        )
 
     @staticmethod
     def test_denied_when_over_limit():
@@ -289,7 +293,9 @@ class TestRateLimitDecision:
 
         # Assert
         # estimated = 10 + (10 * 1.0) = 20.0, which exceeds limit of 10
-        assert allowed is False, f"is_allowed should return False when over limit, got {allowed}"
+        assert allowed is False, (
+            f"is_allowed should return False when over limit, got {allowed}"
+        )
 
     @staticmethod
     def test_previous_window_ages_out():
@@ -380,7 +386,9 @@ class TestBurstBoundProperty:
         # Each request requires weight to decay enough: weight < (limit - current) / limit
         consumed_in_window_n1 = 0
         for elapsed in range(1, window_ms + 1):
-            if is_allowed(previous_count, consumed_in_window_n1, window_ms, elapsed, limit):
+            if is_allowed(
+                previous_count, consumed_in_window_n1, window_ms, elapsed, limit
+            ):
                 consumed_in_window_n1 += 1
                 if consumed_in_window_n1 >= limit:
                     break
@@ -413,9 +421,15 @@ class TestBurstBoundProperty:
 
         # Assert
         total_burst = consumed_n + consumed_n1
-        assert consumed_n == limit, f"consumed in window N should be {limit}, got {consumed_n}"
-        assert consumed_n1 == limit, f"consumed in window N+1 should be {limit}, got {consumed_n1}"
-        assert total_burst == 2 * limit, f"total burst should be {2 * limit}, got {total_burst}"
+        assert consumed_n == limit, (
+            f"consumed in window N should be {limit}, got {consumed_n}"
+        )
+        assert consumed_n1 == limit, (
+            f"consumed in window N+1 should be {limit}, got {consumed_n1}"
+        )
+        assert total_burst == 2 * limit, (
+            f"total burst should be {2 * limit}, got {total_burst}"
+        )
 
         # Verify no more can be consumed: both windows at limit
         result = is_allowed(limit, limit, window_ms, 100, limit)
@@ -453,8 +467,12 @@ class TestBurstBoundProperty:
                     break
 
         # Assert
-        assert consumed_n == limit, f"consumed in window N should be {limit}, got {consumed_n}"
-        assert consumed_n1 == limit, f"consumed in window N+1 should be {limit}, got {consumed_n1}"
+        assert consumed_n == limit, (
+            f"consumed in window N should be {limit}, got {consumed_n}"
+        )
+        assert consumed_n1 == limit, (
+            f"consumed in window N+1 should be {limit}, got {consumed_n1}"
+        )
         assert consumed_n + consumed_n1 == 2 * limit, (
             f"total burst should be {2 * limit}, got {consumed_n + consumed_n1}"
         )
@@ -486,13 +504,21 @@ class TestSmoothingBehavior:
 
         # Assert
         # At t=0: can allow 0 (estimated=10, at limit)
-        assert allowed_at_times[0] == 0, f"allowed requests at t=0 should be 0, got {allowed_at_times[0]}"
+        assert allowed_at_times[0] == 0, (
+            f"allowed requests at t=0 should be 0, got {allowed_at_times[0]}"
+        )
         # At t=100: can allow 1 (estimated=9 after 1 request)
-        assert allowed_at_times[100] == 1, f"allowed requests at t=100 should be 1, got {allowed_at_times[100]}"
+        assert allowed_at_times[100] == 1, (
+            f"allowed requests at t=100 should be 1, got {allowed_at_times[100]}"
+        )
         # At t=500: can allow 5 (estimated=5 after 5 requests)
-        assert allowed_at_times[500] == 5, f"allowed requests at t=500 should be 5, got {allowed_at_times[500]}"
+        assert allowed_at_times[500] == 5, (
+            f"allowed requests at t=500 should be 5, got {allowed_at_times[500]}"
+        )
         # At t=1000: can allow 10 (previous fully aged out)
-        assert allowed_at_times[1000] == 10, f"allowed requests at t=1000 should be 10, got {allowed_at_times[1000]}"
+        assert allowed_at_times[1000] == 10, (
+            f"allowed requests at t=1000 should be 10, got {allowed_at_times[1000]}"
+        )
 
     @staticmethod
     def test_steady_state_maintains_limit():
@@ -508,7 +534,9 @@ class TestSmoothingBehavior:
         # At midpoint: estimated = current + (previous * 0.5) = 0 + 5 = 5
         # Can consume 5 more before hitting limit
         allowed_count = 0
-        while is_allowed(previous_count, current_count + allowed_count, window_ms, 500, limit):
+        while is_allowed(
+            previous_count, current_count + allowed_count, window_ms, 500, limit
+        ):
             allowed_count += 1
 
         # Assert
