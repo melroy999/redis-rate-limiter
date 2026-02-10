@@ -61,6 +61,9 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
         assert is_subset(full_data, full_data_server), (
             f"task with ID {task_id} has a data mismatch"
         )
+        assert full_data_server.get("inflight_key") == inflight_key, (
+            f"task with ID {task_id} should persist inflight_key for Lua-side cleanup"
+        )
         assert "__meta_arrived_at" in full_data_server, (
             f"the __meta_arrived_at tag is missing for task with ID {task_id}"
         )
@@ -143,6 +146,35 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
         assert len(members) == 1, "buffer should contain exactly one task"
         _, score = members[0]
         assert score == 100.0, f"default priority should be 100, got {score}"
+
+    def test_schedule_task_uses_max_age_to_set_inflight_ttl(
+        self, limiter, redis_client, func_path, default_payload
+    ):
+        """Verify inflight key TTL is derived from effective max_age."""
+        # Arrange
+        per_task_max_age = 17
+        expected_ttl = (
+            per_task_max_age + limiter.lease_duration + limiter.window
+        )
+        observed_ttl = {"value": None}
+        real_set = redis_client.set
+
+        def wrapped_set(*args, **kwargs):
+            observed_ttl["value"] = kwargs.get("ex")
+            return real_set(*args, **kwargs)
+
+        # Act
+        with patch.object(limiter.redis, "set", side_effect=wrapped_set) as mocked_set:
+            success, _ = limiter.schedule_task(
+                func_path, default_payload, max_age=per_task_max_age
+            )
+
+        # Assert
+        assert success is True, "task should be scheduled successfully"
+        assert mocked_set.call_count == 1, "inflight claim should call redis.set once"
+        assert observed_ttl["value"] == expected_ttl, (
+            "inflight key TTL should be derived from max_age + lease_duration + window"
+        )
 
     def test_schedule_task_stores_custom_priority_as_score(
         self, limiter, redis_client, func_path, default_payload
@@ -302,6 +334,34 @@ class TestCeleryRateLimiter(RateLimiterContractTest):
         assert len(inflight_keys) == 0, "no inflight keys should remain after failure"
         assert redis_client.zcard(limiter.buffer_key) == 0, (
             "buffer should be empty after failure"
+        )
+
+    def test_schedule_non_noscript_failure_cleans_inflight_and_reraises(
+        self, limiter, redis_client, func_path, default_payload
+    ):
+        """Verify non-NoScript schedule failures clean inflight marker before re-raising."""
+        # Arrange
+        with patch.object(
+            limiter.redis,
+            "evalsha",
+            side_effect=redis.exceptions.ConnectionError("redis down"),
+        ):
+            # Act
+            with pytest.raises(
+                redis.exceptions.ConnectionError, match="redis down"
+            ) as exc_info:
+                limiter.schedule_task(func_path, default_payload)
+
+        # Assert
+        assert "redis down" in str(exc_info.value), (
+            "schedule should re-raise the original redis connection error"
+        )
+        inflight_keys = redis_client.keys(limiter.get_inflight_key("*"))
+        assert inflight_keys == [], (
+            "inflight marker must be cleared on non-NoScript schedule failure"
+        )
+        assert redis_client.zcard(limiter.buffer_key) == 0, (
+            "failed schedule should not leave buffered tasks behind"
         )
 
     def test_consume_lua_script_recovery_on_noscript_error(self, limiter, redis_client):

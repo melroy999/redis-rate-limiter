@@ -386,7 +386,7 @@ class TestRateLimitingIntegration:
             max_age=1,
             lease_duration=30,
         )
-        success, _ = limiter.schedule_task(func_path, {"index": 0})
+        success, task_id = limiter.schedule_task(func_path, {"index": 0})
         assert success is True, "task should be scheduled successfully"
         wait_until_task_is_expired(redis_client, limiter)
 
@@ -403,6 +403,9 @@ class TestRateLimitingIntegration:
         )
         assert redis_client.llen(limiter.dlq_key) == 1, (
             "expired task should be pushed to dlq"
+        )
+        assert redis_client.exists(limiter.get_inflight_key(task_id)) == 0, (
+            "expired task should clear its inflight marker so it can be rescheduled"
         )
 
         # Verify DLQ entry contains the original task data.
@@ -429,7 +432,7 @@ class TestRateLimitingIntegration:
             max_age=3600,
             lease_duration=30,
         )
-        success, _ = limiter.schedule_task(func_path, {"index": 1}, max_age=1)
+        success, task_id = limiter.schedule_task(func_path, {"index": 1}, max_age=1)
         assert success is True, "task should be scheduled successfully"
         wait_until_task_is_expired(redis_client, limiter)
 
@@ -445,6 +448,9 @@ class TestRateLimitingIntegration:
         )
         assert redis_client.llen(limiter.dlq_key) == 1, (
             "expired override task should be moved to dlq"
+        )
+        assert redis_client.exists(limiter.get_inflight_key(task_id)) == 0, (
+            "expired override task should clear its inflight marker"
         )
 
     def test_per_task_max_age_stored_in_buffer(

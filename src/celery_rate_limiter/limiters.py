@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import random
 import signal
@@ -37,6 +38,7 @@ class TaskData(TypedDict):
     id: str  # The id of the task.
     func_path: str  # Python path to the function to execute.
     payload: dict  # The parameters to pass on to the function.
+    inflight_key: str  # The Redis key that tracks de-duplication/in-flight state.
 
 
 class ConsumeResult(TypedDict):
@@ -263,8 +265,12 @@ class AbstractDistributedRateLimiter(ABC):
     _HEALTH_LUA_SCRIPT: str
     _RENEW_LUA_SCRIPT: str
 
-    # Get the location of the lua package.
-    resource_package = "src.celery_rate_limiter.lua"
+    # Preferred package paths for Lua resources.
+    # The first value supports installed wheels; the fallback supports source-tree imports.
+    resource_packages: tuple[str, ...] = (
+        "celery_rate_limiter.lua",
+        "src.celery_rate_limiter.lua",
+    )
 
     def __init__(
         self,
@@ -386,29 +392,39 @@ class AbstractDistributedRateLimiter(ABC):
             key: The attribute key to store the script under.
         """
         if getattr(self, key, None) is None:
-            try:
-                source = resources.files(self.resource_package).joinpath(lua_script)
-                setattr(self, key, source.read_text(encoding="utf-8"))
-                logger.debug(
-                    "Lua script loaded from disk: limiter=%s, script=%s, attr=%s.",
-                    self.id,
-                    lua_script,
-                    key,
-                )
-            except Exception as e:
-                raise ImportError(
-                    f"Could not load {lua_script} from {self.resource_package}: {e}"
-                )
+            errors: list[str] = []
+            for resource_package in self.resource_packages:
+                try:
+                    source = resources.files(resource_package).joinpath(lua_script)
+                    setattr(self, key, source.read_text(encoding="utf-8"))
+                    logger.debug(
+                        "Lua script loaded from disk: limiter=%s, script=%s, attr=%s, package=%s.",
+                        self.id,
+                        lua_script,
+                        key,
+                        resource_package,
+                    )
+                    return
+                except Exception as error:
+                    errors.append(f"{resource_package}: {error}")
+
+            raise ImportError(
+                f"Could not load {lua_script}; attempted packages: {', '.join(errors)}"
+            )
 
     @staticmethod
     def _get_task_signature_str(func_path: str, payload: dict) -> str:
         """Get the signature of a task as a JSON string."""
         return json.dumps({"path": func_path, "payload": payload}, sort_keys=True)
 
-    @staticmethod
-    def _get_task_data(task_id: str, func_path: str, payload: dict) -> dict:
+    def _get_task_data(self, task_id: str, func_path: str, payload: dict) -> dict:
         """Get the data of a task."""
-        task_data = {"id": task_id, "func_path": func_path, "payload": payload}
+        task_data = {
+            "id": task_id,
+            "func_path": func_path,
+            "payload": payload,
+            "inflight_key": self.get_inflight_key(task_id),
+        }
 
         return task_data
 
@@ -417,6 +433,41 @@ class AbstractDistributedRateLimiter(ABC):
         return json.dumps(
             self._get_task_data(task_id, func_path, payload), sort_keys=True
         )
+
+    def _get_inflight_ttl(self, max_age_override: Optional[int] = None) -> int:
+        """Return a conservative TTL for in-flight deduplication keys.
+
+        TTL must cover queue residence (`max_age`) plus enough time for dispatch/cleanup.
+        """
+        effective_max_age = (
+            self.max_age if max_age_override is None else max_age_override
+        )
+        ttl_seconds = (
+            max(1.0, float(effective_max_age))
+            + max(1.0, float(self.lease_duration))
+            + max(1.0, float(self.window))
+        )
+        return int(math.ceil(ttl_seconds))
+
+    def _cleanup_inflight_key(self, inflight_key: str, task_id: str) -> None:
+        """Best-effort cleanup of an in-flight key after scheduling failures."""
+        try:
+            removed = self.redis.delete(inflight_key)
+            logger.debug(
+                "Inflight cleanup attempted: limiter=%s, task_id=%s, inflight_key=%s, removed=%s.",
+                self.id,
+                task_id,
+                inflight_key,
+                removed,
+            )
+        except Exception as cleanup_error:
+            logger.warning(
+                "Failed to cleanup inflight key after schedule failure: limiter=%s, task_id=%s, inflight_key=%s, error=%s.",
+                self.id,
+                task_id,
+                inflight_key,
+                cleanup_error,
+            )
 
     def get_inflight_key(self, task_id: str) -> str:
         """Get the in-flight key for the given task.
@@ -471,12 +522,14 @@ class AbstractDistributedRateLimiter(ABC):
         # Atomically claim the scheduling right using SET NX. Only one caller
         # can succeed; all others see the key and return early.
         inflight_key = self.get_inflight_key(task_id)
-        if not self.redis.set(inflight_key, "1", ex=3600, nx=True):
+        inflight_ttl = self._get_inflight_ttl(max_age_override=max_age)
+        if not self.redis.set(inflight_key, "1", ex=inflight_ttl, nx=True):
             logger.debug(
-                "Task already in-flight, skipping schedule: limiter=%s, task_id=%s, inflight_key=%s.",
+                "Task already in-flight, skipping schedule: limiter=%s, task_id=%s, inflight_key=%s, inflight_ttl_s=%d.",
                 self.id,
                 task_id,
                 inflight_key,
+                inflight_ttl,
             )
             self._emit_metric("schedule", {"scheduled": False, "task_id": task_id})
             return False, task_id
@@ -509,7 +562,7 @@ class AbstractDistributedRateLimiter(ABC):
             # Check if we should retry or not; throw a runtime error if not.
             if not retry:
                 # Clean up the inflight key to avoid an orphaned lock.
-                self.redis.delete(inflight_key)
+                self._cleanup_inflight_key(inflight_key, task_id)
                 raise RuntimeError(
                     "Redis failed to retain the Lua script after a reload attempt."
                 )
@@ -525,10 +578,15 @@ class AbstractDistributedRateLimiter(ABC):
                 self.redis.script_load(self._SCHEDULE_LUA_SCRIPT)
             )
             # Release the claim so the retry can re-acquire it.
-            self.redis.delete(inflight_key)
+            self._cleanup_inflight_key(inflight_key, task_id)
             return self.schedule_task(
                 func_path, payload, priority, max_age=max_age, retry=False
             )
+        except Exception:
+            # Any non-NOSCRIPT scheduling failure must release the claim so retries
+            # from callers are not blocked behind a stale in-flight marker.
+            self._cleanup_inflight_key(inflight_key, task_id)
+            raise
 
         # Attempt a consume.
         self.trigger_consume()

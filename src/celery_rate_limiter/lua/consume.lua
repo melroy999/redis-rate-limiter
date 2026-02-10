@@ -4,7 +4,7 @@
 -- KEYS[1]: Base key name (e.g., "rate_limit:api_global")
 -- KEYS[2]: Buffer key name (e.g., "rate_limit:api_buffer")
 -- KEYS[3]: Concurrency key name (e.g., "rate_limit:api_concurrency")
--- KEYS[3]: Dead letter queue key name (e.g., "rate_limit:dlq")
+-- KEYS[4]: Dead letter queue key name (e.g., "rate_limit:dlq")
 -- ARGV[1]: Window size in seconds (e.g., 60)
 -- ARGV[2]: Max requests allowed (e.g., 100)
 -- ARGV[3]: Max simultaneously running tasks allowed (e.g., 10)
@@ -71,12 +71,17 @@ if estimated_count < rate_limit and active_now < max_concurrency then
         -- Remove the task.
         redis.call('ZREM', buffer_key, raw_task_json)
 
+        local task_id = task_data.id
+
         -- Check if the task has expired.
         local effective_max_age = task_data['__meta_max_age'] or max_age
         local task_age = timestamp - math.floor(task_data['__meta_arrived_at'] / 1000)
         if task_age > effective_max_age then
             -- If it has, add the task to the DLQ.
             redis.call('RPUSH', dlq_key, raw_task_json)
+            -- Expired tasks will never execute, so clear their dedupe marker now.
+            local inflight_key = task_data['inflight_key']
+            redis.call('DEL', inflight_key)
 
             -- Signify expiration with a -1 value.
             return {-1, false, remaining, active_now, reset_in_ms, buffer_count - 1}
@@ -93,7 +98,6 @@ if estimated_count < rate_limit and active_now < max_concurrency then
         end
 
         -- Register the task in the concurrency set and set its expiration time.
-        local task_id = task_data.id
         local lease_expiry = timestamp + lease_duration
         redis.call('ZADD', concurrency_key, lease_expiry, task_id)
 

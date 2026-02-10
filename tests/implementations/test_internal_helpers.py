@@ -60,8 +60,10 @@ class TestInternalHelpers:
             with pytest.raises(ImportError, match=f"Could not load {lua_script}"):
                 generic_limiter._load_lua_script(lua_script=lua_script, key=target_key)
 
-            # Verify only one attempt was made.
-            mock_files.assert_called_once()
+            # Verify all configured package candidates were attempted.
+            assert mock_files.call_count == len(generic_limiter.resource_packages), (
+                "resource loader should try each configured package candidate"
+            )
 
 
 class TestTaskSignature:
@@ -85,4 +87,41 @@ class TestTaskSignature:
         # Assert
         assert signature_a == signature_b, (
             "task signature should be identical regardless of key insertion order"
+        )
+
+
+class TestInflightTtl:
+    """Tests for in-flight TTL calculation."""
+
+    @staticmethod
+    def test_inflight_ttl_defaults_to_limiter_max_age(generic_limiter):
+        """Verify inflight TTL includes max_age plus lease/window slack."""
+        # Arrange
+        expected = (
+            generic_limiter.max_age
+            + generic_limiter.lease_duration
+            + generic_limiter.window
+        )
+
+        # Act
+        ttl = generic_limiter._get_inflight_ttl()
+
+        # Assert
+        assert ttl == expected, (
+            "default inflight TTL should be max_age + lease_duration + window"
+        )
+
+    @staticmethod
+    def test_inflight_ttl_uses_per_task_override(generic_limiter):
+        """Verify per-task max_age drives inflight TTL calculation."""
+        # Arrange
+        override = 7
+        expected = override + generic_limiter.lease_duration + generic_limiter.window
+
+        # Act
+        ttl = generic_limiter._get_inflight_ttl(max_age_override=override)
+
+        # Assert
+        assert ttl == expected, (
+            "override inflight TTL should use task max_age + lease_duration + window"
         )
