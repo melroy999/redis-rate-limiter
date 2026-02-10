@@ -35,10 +35,14 @@ def mock_limiter(redis_client, task_id):
     limiter = MagicMock()
     limiter.redis = redis_client
     limiter.concurrency_key = "test:concurrency"
-    limiter.lease_duration = 0.2  # Short duration for fast tests
     limiter.id = "test_limiter"
     limiter.get_inflight_key.side_effect = lambda _: f"test:inflight:{task_id}"
-    limiter.extend_lease.return_value = 1  # For background thread tests
+
+    # Short duration for fast tests
+    limiter.lease_duration = 0.2  
+
+    # For background thread tests
+    limiter.extend_lease.return_value = None
     return limiter
 
 
@@ -163,9 +167,6 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
         self, redis_client, mock_limiter, task_id
     ):
         """Verify heartbeat loop extends lease at regular intervals."""
-        # Arrange
-        mock_limiter.extend_lease.return_value = 1
-
         # Act
         with TaskLifecycle(mock_limiter, task_id):
             # Wait for at least one heartbeat interval.
@@ -200,9 +201,6 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
         self, redis_client, mock_limiter, task_id
     ):
         """Verify heartbeat loop restores health status after recovering from failure."""
-        # Arrange
-        mock_limiter.extend_lease.return_value = 1
-
         # Act
         with TaskLifecycle(mock_limiter, task_id) as lifecycle:
             # Simulate an unhealthy state.
@@ -258,9 +256,6 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
 
     def test_heartbeat_loop_stops_on_exit(self, redis_client, mock_limiter, task_id):
         """Verify heartbeat loop stops when exiting lifecycle context."""
-        # Arrange
-        mock_limiter.extend_lease.return_value = 1
-
         # Act
         lifecycle = TaskLifecycle(mock_limiter, task_id)
         lifecycle.__enter__()
@@ -286,9 +281,6 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
         self, redis_client, mock_limiter, task_id
     ):
         """Verify heartbeat loop calls extend_lease with correct task_id and duration."""
-        # Arrange
-        mock_limiter.extend_lease.return_value = 1
-
         # Act
         with TaskLifecycle(mock_limiter, task_id):
             time.sleep(0.75 * mock_limiter.lease_duration)
@@ -332,12 +324,9 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
                 generic_limiter.redis, "script_load", side_effect=real_script_load
             ) as mock_load,
         ):
-            renewed = generic_limiter.extend_lease(task_id, 30)
+            generic_limiter.extend_lease(task_id, 30)
 
             # Assert
-            assert renewed == 0, (
-                "renewing an existing task lease should return redis zadd update count"
-            )
             assert mock_eval.call_count == 2, (
                 "evalsha should be called twice (fail then retry)"
             )
@@ -363,10 +352,10 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
                 "extend_lease should attempt one retry before failing"
             )
 
-    def test_extend_lease_returns_false_for_unknown_task(self, generic_limiter):
-        """Verify extend_lease() returns false for unknown task ids."""
-        # Act
-        renewed = generic_limiter.extend_lease("nonexistent", 30)
-
-        # Assert
-        assert not renewed, "unknown task should not renew lease"
+    def test_extend_lease_raises_key_error_for_unknown_task(self, generic_limiter):
+        """Verify extend_lease() raises KeyError for unknown task ids."""
+        # Act & Assert
+        with pytest.raises(
+            KeyError, match="task id was not found in the concurrency set"
+        ):
+            generic_limiter.extend_lease("nonexistent", 30)

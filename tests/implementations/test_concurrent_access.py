@@ -20,6 +20,19 @@ WORKERS = 8
 FUNC_PATH = "myapp.tasks.work"
 
 
+class SlowDispatchTrackingRateLimiter(TrackingRateLimiter):
+    """Tracking limiter that intentionally holds the dispatch lock a bit longer.
+
+    This keeps the critical section open long enough for concurrent contenders
+    to hit lock contention in a deterministic way.
+    """
+
+    def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
+        """Record dispatch after a brief delay to keep the lock held."""
+        time.sleep(0.2)
+        super()._dispatch_task(func_path, payload, task_id)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -301,16 +314,20 @@ class TestConcurrentDrain:
     """Full ``drain()`` path with the distributed lock under contention."""
 
     def test_distributed_lock_serializes_drains(self, make_limiter_pool, redis_client):
-        """Each task is dispatched exactly once despite concurrent drainers.
+        """Concurrent drainers should produce a single dispatch in one contention wave.
 
-        ``drain()`` acquires a distributed lock before consuming, so at most
-        one worker should dispatch per drain round.
+        The lock critical section is intentionally held briefly so all contenders
+        attempt lock acquisition while one worker owns the lock.
         """
         # Arrange
         num_tasks = 5
+        # Use the slow dispatch variant so the lock is held long enough for
+        # all contenders to overlap. With the default fast dispatch path, the
+        # lock can be released quickly and multiple sequential dispatches can
+        # happen in the same wave.
         limiters = make_limiter_pool(
             WORKERS,
-            limiter_cls=TrackingRateLimiter,
+            limiter_cls=SlowDispatchTrackingRateLimiter,
             limit=1000,
             window=60,
             max_concurrency=1000,
@@ -339,9 +356,9 @@ class TestConcurrentDrain:
             f"{len(set(dispatched_ids))} unique"
         )
 
-        # A single drain round dispatches at most 1 task.
-        assert len(dispatched_ids) <= 1, (
-            f"expected at most 1 dispatch from a single drain cycle, got {len(dispatched_ids)}"
+        # One contention wave should yield exactly one dispatched task.
+        assert len(dispatched_ids) == 1, (
+            f"expected exactly 1 dispatch from a single contended drain wave, got {len(dispatched_ids)}"
         )
 
     def test_all_tasks_eventually_consumed_under_contention(

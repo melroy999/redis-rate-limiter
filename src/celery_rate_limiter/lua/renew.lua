@@ -14,7 +14,8 @@ if score then
     local now = redis.call("TIME")
     local timestamp = tonumber(now[1])
     local new_expiry = timestamp + lease_duration
-    return redis.call("ZADD", concurrency_key, new_expiry, task_id)
+    redis.call("ZADD", concurrency_key, new_expiry, task_id)
+    return 1
 else
     return 0
 end

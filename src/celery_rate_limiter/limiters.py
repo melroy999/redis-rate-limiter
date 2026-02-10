@@ -684,7 +684,7 @@ class AbstractDistributedRateLimiter(ABC):
             )
             return self.consume(retry=False)
 
-    def extend_lease(self, task_id: str, duration: int, retry: bool = True) -> bool:
+    def extend_lease(self, task_id: str, duration: int, retry: bool = True) -> None:
         """Extend the lease on a concurrency slot.
 
         A lease-based concurrency system is used such that proper cleanup can be performed by other
@@ -699,33 +699,34 @@ class AbstractDistributedRateLimiter(ABC):
                 well before expiration.
             retry: Internal flag to perform the operation again if a script error occurs.
 
-        Returns:
-            The result of the lua renew script.
+        Raises:
+            KeyError: If the task id is not present in the concurrency set.
+            RuntimeError: If the renew Lua script cannot be reloaded after a NoScriptError.
         """
         try:
-            renewed = cast(
-                bool,
-                cast(
-                    object,
-                    self.redis.evalsha(
-                        self.renew_script_sha,
-                        1,
-                        # KEYS: [concurrency]
-                        self.concurrency_key,
-                        # ARGV: [task_id, duration]
-                        task_id,
-                        duration,
-                    ),
-                ),
+            renewed = int(
+                self.redis.evalsha(
+                    self.renew_script_sha,
+                    1,
+                    # KEYS: [concurrency]
+                    self.concurrency_key,
+                    # ARGV: [task_id, duration]
+                    task_id,
+                    duration,
+                )
             )
             logger.debug(
                 "Lease extension result: limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
                 self.id,
                 task_id,
                 duration,
-                renewed,
+                renewed == 1,
             )
-            return renewed
+            if renewed != 1:
+                raise KeyError(
+                    f"Could not extend lease for task '{task_id}' on limiter '{self.id}': "
+                    "task id was not found in the concurrency set."
+                )
         except redis.exceptions.NoScriptError:
             if not retry:
                 raise RuntimeError(
@@ -740,7 +741,7 @@ class AbstractDistributedRateLimiter(ABC):
                 task_id,
             )
             self.renew_script_sha = str(self.redis.script_load(self._RENEW_LUA_SCRIPT))
-            return self.extend_lease(task_id, duration, retry=False)
+            self.extend_lease(task_id, duration, retry=False)
 
     def _emit_metric(self, event: str, data: dict) -> None:
         """Safely invoke the metrics callback if one is configured.
