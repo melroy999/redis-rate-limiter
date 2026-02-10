@@ -1,10 +1,12 @@
 import random
 import time
 
-from config import factory
+from config import configure_limiter
 
-# Syncs the limiter settings with the worker
-limiter = factory.registry.get("test_api")
+from celery_rate_limiter.limiters import CeleryRateLimiter
+
+configure_limiter()
+limiter = CeleryRateLimiter.get("test_api")
 
 
 # Define a "Business Logic" function to be called
@@ -36,15 +38,15 @@ if __name__ == "__main__":
     # Test Deduplication: Add the same user 5 times
     print("Pushing 50 duplicate tasks...")
     for _ in range(50):
-        limiter.schedule_task("src.test_suite.mock_api_call", {"user_id": 1})
+        limiter.schedule_task("simulation.mock_api_call", {"user_id": 1})
 
     # Test Burst: Add 5 different users
     print("Pushing 5 unique tasks...")
     for i in range(2, 500):
-        limiter.schedule_task("src.test_suite.mock_api_call", {"user_id": i})
+        limiter.schedule_task("simulation.mock_api_call", {"user_id": i})
 
     limiter.schedule_task(
-        "src.test_suite.mock_api_call", {"user_id": 1000000, "error": True}
+        "simulation.mock_api_call", {"user_id": 1000000, "error": True}
     )
 
     print("--- Simulation Queued. Check Celery logs for staggered execution ---")

@@ -51,8 +51,9 @@ FROM base AS production
 # Caching.
 RUN poetry install --only main --no-interaction --no-ansi --no-root
 
-# Copy source folder only.
+# Copy source and examples.
 COPY src/ ./src/
+COPY examples/ ./examples/
 
 # Install only the main dependencies.
 RUN poetry install --only main --no-interaction --no-ansi
@@ -65,7 +66,7 @@ USER celery
 # Health check verifies the Celery worker is responsive.
 # Allows orchestrators (Docker Compose, Kubernetes) to detect and restart unhealthy containers.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD celery -A src.worker_init inspect ping -d celery@$HOSTNAME || exit 1
+    CMD celery -A examples.worker inspect ping -d celery@$HOSTNAME || exit 1
 
 # Start celery.
-CMD ["celery", "-A", "src.worker_init", "worker", "-c", "10", "--loglevel=info"]
+CMD ["celery", "-A", "examples.worker", "worker", "-c", "10", "--loglevel=info"]

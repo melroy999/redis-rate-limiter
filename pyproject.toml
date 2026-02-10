@@ -15,8 +15,9 @@ dependencies = [
 pytest = ">=9.0.2"
 pytest_cov = ">=7.0.0"
 fakeredis = ">=2.33.0"
-ruff = "^0.14.14"
+ruff = "^0.15.0"
 mypy = "^1.19.1"
+hypothesis = "^6.151.5"
 
 [tool.poetry]
 packages = [{include = "celery_rate_limiter", from = "src"}]
@@ -24,3 +25,17 @@ packages = [{include = "celery_rate_limiter", from = "src"}]
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.coverage.run]
+source = ["src/celery_rate_limiter"]
+
+[tool.pytest.ini_options]
+# Exclude slow tests by default. Run with: pytest -m slow (or pytest --run-slow).
+addopts = "-m 'not slow'"
+markers = [
+    "slow: marks tests as slow (use real time.sleep, multiple configurations). Run explicitly with: pytest -m slow",
+]
+filterwarnings = [
+    # Suppress deprecation warnings from legacy direct CeleryRateLimiter() construction in tests.
+    "ignore:Direct CeleryRateLimiter\\(\\) construction is deprecated:DeprecationWarning",
+]

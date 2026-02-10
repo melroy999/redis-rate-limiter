@@ -12,14 +12,15 @@ local override_max_age = tonumber(ARGV[3])
 local redis_time = redis.call('TIME')
 local now_ms = (tonumber(redis_time[1]) * 1000) + math.floor(tonumber(redis_time[2]) / 1000)
 
--- Inject the arrival time into the json.
-local task = cjson.decode(task_json)
-task['_arrived_at'] = now_ms
+-- Inject metadata into JSON using string manipulation to preserve array/object types.
+-- This avoids cjson decode/encode cycle which converts empty arrays [] to empty objects {}.
+local metadata_fields = ',"__meta_arrived_at":' .. now_ms
 if override_max_age then
-    -- Store the max age override if provided.
-    task['_max_age'] = override_max_age
+    metadata_fields = metadata_fields .. ',"__meta_max_age":' .. override_max_age
 end
-local final_json = cjson.encode(task)
+
+-- Inject before the final closing brace.
+local final_json = string.gsub(task_json, '}$', metadata_fields .. '}', 1)
 
 -- Queue the task.
 redis.call('ZADD', buffer_key, priority, final_json)
