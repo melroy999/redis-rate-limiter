@@ -2,17 +2,26 @@ import argparse
 import os
 import time
 
-from config import factory
+from config import configure_limiter
+
+from celery_rate_limiter.limiters import CeleryRateLimiter
 
 
 def run_inspector(refresh_rate: float) -> None:
-    # 1. Get the shared limiter instance
+    """Run the rate limiter inspector to monitor limiter status in real-time.
+
+    Args:
+        refresh_rate: The refresh rate in seconds for updating the display.
+    """
+    configure_limiter()
+
+    # Get the shared limiter instance.
     # This connects to the same Redis and uses the same keys as your worker
-    limiter = factory.registry.get("test_api")
+    limiter = CeleryRateLimiter.get("test_api")
 
     try:
         while True:
-            # 2. Fetch data from Redis via the limiter object
+            # Fetch data from Redis via the limiter object.
             status = limiter.get_status()
 
             os.system("clear" if os.name == "posix" else "cls")

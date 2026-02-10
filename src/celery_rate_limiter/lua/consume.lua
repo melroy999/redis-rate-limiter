@@ -72,8 +72,8 @@ if estimated_count < rate_limit and active_now < max_concurrency then
         redis.call('ZREM', buffer_key, raw_task_json)
 
         -- Check if the task has expired.
-        local effective_max_age = task_data['_max_age'] or max_age
-        local task_age = timestamp - math.floor(task_data['_arrived_at'] / 1000)
+        local effective_max_age = task_data['__meta_max_age'] or max_age
+        local task_age = timestamp - math.floor(task_data['__meta_arrived_at'] / 1000)
         if task_age > effective_max_age then
             -- If it has, add the task to the DLQ.
             redis.call('RPUSH', dlq_key, raw_task_json)

@@ -1,6 +1,7 @@
 # Git
 .git
 .gitignore
+.github/
 
 # Python
 __pycache__/
@@ -10,7 +11,31 @@ __pycache__/
 .pytest_cache/
 .tox/
 .coverage
+*.egg-info/
+dist/
+build/
+
+# Testing artifacts
+result.xml
+coverage.xml
+htmlcov/
+
+# Documentation
+*.md
+docs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
 # Poetry
 # poetry.lock
 # We keep pyproject.toml but ignore local virtualenvs
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
