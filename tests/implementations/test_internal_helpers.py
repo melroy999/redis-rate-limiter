@@ -62,17 +62,25 @@ class TestInternalHelpers:
             mock_files.assert_called_once()
 
 
-def test_task_signature_is_deterministic_across_key_orders(generic_limiter):
-    """Verify _get_task_signature_str is deterministic across dict key order."""
-    # Arrange
-    payload_a = {"user_id": 123, "flags": {"vip": True, "beta": False}}
-    payload_b = {"flags": {"beta": False, "vip": True}, "user_id": 123}
+class TestTaskSignature:
+    """Tests for task-signature helper behavior."""
 
-    # Act
-    signature_a = generic_limiter._get_task_signature_str("myapp.tasks.process", payload_a)
-    signature_b = generic_limiter._get_task_signature_str("myapp.tasks.process", payload_b)
+    @staticmethod
+    def test_task_signature_is_deterministic_across_key_orders(generic_limiter):
+        """Verify _get_task_signature_str is deterministic across dict key order."""
+        # Arrange
+        payload_a = {"user_id": 123, "flags": {"vip": True, "beta": False}}
+        payload_b = {"flags": {"beta": False, "vip": True}, "user_id": 123}
 
-    # Assert
-    assert signature_a == signature_b, (
-        "task signature should be identical regardless of key insertion order"
-    )
+        # Act
+        signature_a = generic_limiter._get_task_signature_str(
+            "myapp.tasks.process", payload_a
+        )
+        signature_b = generic_limiter._get_task_signature_str(
+            "myapp.tasks.process", payload_b
+        )
+
+        # Assert
+        assert signature_a == signature_b, (
+            "task signature should be identical regardless of key insertion order"
+        )

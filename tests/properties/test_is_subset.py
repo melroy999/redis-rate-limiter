@@ -6,8 +6,8 @@ is_subset function with arbitrary nested dictionaries.
 
 from hypothesis import given, strategies as st
 
-from helpers.strategies import nested_dict
-from helpers.utils import is_subset
+from tests.helpers.strategies import nested_dict
+from tests.helpers.utils import is_subset
 
 
 class TestIsSubsetProperties:
@@ -62,11 +62,12 @@ class TestIsSubsetProperties:
             f"superset: {superset}"
         )
 
+    @staticmethod
     @given(
         key=st.text(min_size=1, max_size=10),
         value=st.one_of(st.integers(), st.text(max_size=20)),
     )
-    def test_dict_with_extra_key_is_not_subset(self, key, value):
+    def test_dict_with_extra_key_is_not_subset(key, value):
         """Property: dictionary with key not in superset is not a subset."""
         # Arrange
         subset = {key: value, "extra": "value"}
@@ -79,12 +80,13 @@ class TestIsSubsetProperties:
             f"superset: {superset}"
         )
 
+    @staticmethod
     @given(
         key=st.text(min_size=1, max_size=10),
         value1=st.integers(),
         value2=st.integers(),
     )
-    def test_dict_with_different_value_is_not_subset(self, key, value1, value2):
+    def test_dict_with_different_value_is_not_subset(key, value1, value2):
         """Property: if values differ for same key, not a subset."""
         # Arrange
         # Ensure values are actually different.
@@ -101,6 +103,7 @@ class TestIsSubsetProperties:
             f"superset: {superset}"
         )
 
+    @staticmethod
     @given(
         dict1=st.dictionaries(
             st.text(min_size=1, max_size=5),
@@ -121,7 +124,7 @@ class TestIsSubsetProperties:
             max_size=3,
         ),
     )
-    def test_transitivity(self, dict1, dict2, dict3):
+    def test_transitivity(dict1, dict2, dict3):
         """Property: if A ⊆ B and B ⊆ C, then A ⊆ C (transitivity)."""
         # Arrange
         # Build nested relationship: dict1 ⊆ dict2 ⊆ dict3.

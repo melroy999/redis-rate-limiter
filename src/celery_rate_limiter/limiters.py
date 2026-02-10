@@ -402,20 +402,8 @@ class AbstractDistributedRateLimiter(ABC):
 
     @staticmethod
     def _get_task_data(task_id: str, func_path: str, payload: dict) -> dict:
-        """Get the data of a task.
-
-        Raises:
-            ValueError: If task data contains reserved __meta_ keys.
-        """
+        """Get the data of a task."""
         task_data = {"id": task_id, "func_path": func_path, "payload": payload}
-
-        # Ensure no collision with Lua metadata injection.
-        # The __meta_ prefix is reserved for internal metadata added by Lua scripts.
-        if any(key.startswith("__meta_") for key in task_data.keys()):
-            raise ValueError(
-                "task data contains reserved __meta_ prefix keys. "
-                "keys starting with __meta_ are reserved for internal use."
-            )
 
         return task_data
 
@@ -898,7 +886,7 @@ class AbstractDistributedRateLimiter(ABC):
             payload: The task payload.
             task_id: The unique task identifier.
         """
-        pass
+        pass  # pragma: no cover
 
     @abstractmethod
     def _schedule_drain(self, delay: float = 0.0) -> None:
@@ -907,7 +895,7 @@ class AbstractDistributedRateLimiter(ABC):
         Args:
             delay: The amount of time to sleep before scheduling.
         """
-        pass
+        pass  # pragma: no cover
 
     def trigger_consume(self) -> None:
         """Trigger the consumption of the task queue."""
@@ -1265,9 +1253,20 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
         if raw_config is None:
             return False
 
-        config = json.loads(
-            raw_config.decode("utf-8") if isinstance(raw_config, bytes) else str(raw_config)
-        )
+        try:
+            config = json.loads(
+                raw_config.decode("utf-8")
+                if isinstance(raw_config, bytes)
+                else str(raw_config)
+            )
+        except (json.JSONDecodeError, TypeError) as error:
+            logger.warning(
+                "Config refresh skipped due to malformed persisted config: limiter=%s, error=%s.",
+                self.id,
+                error,
+            )
+            return False
+
         new_window = config.get("window", self.window)
         if new_window != self.window:
             pause_duration = max(self.window, new_window)

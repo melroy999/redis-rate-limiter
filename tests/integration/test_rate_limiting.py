@@ -14,7 +14,7 @@ from celery_rate_limiter.limiters import CeleryRateLimiter
 
 
 @pytest.fixture
-def integration_limiter(redis_client, celery_app):
+def integration_limiter(redis_client, celery_app, default_limiter_id):
     """Create a limiter with explicit configuration for integration tests.
 
     Config:
@@ -27,7 +27,7 @@ def integration_limiter(redis_client, celery_app):
     limiter = CeleryRateLimiter(
         redis_client=redis_client,
         celery_app=celery_app,
-        limiter_id="integration_test_limiter",
+        limiter_id=f"{default_limiter_id}_integration_default",
         limit=5,
         window=60,
         max_concurrency=2,
@@ -79,6 +79,31 @@ def precise_sleep(duration_seconds: float) -> None:
     # Use 1ms sleep intervals to avoid busy-waiting while maintaining precision.
     while time.time() < target_time:
         time.sleep(0.001)
+
+
+def wait_until_task_is_expired(redis_client, limiter: CeleryRateLimiter) -> None:
+    """Wait until the oldest queued task is guaranteed expired by Redis time.
+
+    consume.lua computes age in integer seconds using Redis server time and
+    expires only when age > max_age. This helper waits against that same clock
+    to avoid fixed-sleep flakiness under variable CI/container load.
+    """
+    members = redis_client.zrange(limiter.buffer_key, 0, 0)
+    assert len(members) == 1, "expected one queued task before expiry wait"
+    task_data = json.loads(members[0])
+
+    arrived_sec = int(task_data["__meta_arrived_at"]) // 1000
+    effective_max_age = int(task_data.get("__meta_max_age", limiter.max_age))
+    target_expired_sec = arrived_sec + effective_max_age + 1
+
+    deadline = time.time() + 8.0
+    while time.time() < deadline:
+        redis_sec = int(redis_client.time()[0])
+        if redis_sec >= target_expired_sec:
+            return
+        time.sleep(0.05)
+
+    pytest.fail("timed out waiting for task to become expired by redis server clock")
 
 
 def position_at_window_percentage(
@@ -340,13 +365,15 @@ class TestRateLimitingIntegration:
             "next consume should succeed after error cleanup released the slot"
         )
 
-    def test_expired_task_moved_to_dlq(self, redis_client, celery_app, func_path):
+    def test_expired_task_moved_to_dlq(
+        self, redis_client, celery_app, func_path, default_limiter_id
+    ):
         """Verify expired queued tasks are moved to DLQ and reported as expired."""
         # Arrange
         limiter = CeleryRateLimiter(
             redis_client=redis_client,
             celery_app=celery_app,
-            limiter_id="integration_expired_dlq",
+            limiter_id=f"{default_limiter_id}_integration_expired_dlq",
             limit=5,
             window=60,
             max_concurrency=2,
@@ -355,7 +382,7 @@ class TestRateLimitingIntegration:
         )
         success, _ = limiter.schedule_task(func_path, {"index": 0})
         assert success is True, "task should be scheduled successfully"
-        time.sleep(2.1)
+        wait_until_task_is_expired(redis_client, limiter)
 
         # Act
         result = limiter.consume()
@@ -366,15 +393,24 @@ class TestRateLimitingIntegration:
         assert result["task"] is None, "expired task should not be returned in consume result"
         assert redis_client.llen(limiter.dlq_key) == 1, "expired task should be pushed to dlq"
 
+        # Verify DLQ entry contains the original task data.
+        dlq_entry = json.loads(redis_client.lindex(limiter.dlq_key, 0))
+        assert dlq_entry["func_path"] == func_path, (
+            "dlq entry should preserve original func_path"
+        )
+        assert dlq_entry["payload"]["data"] == {"index": 0}, (
+            "dlq entry should preserve original payload"
+        )
+
     def test_per_task_max_age_override_expires_sooner(
-        self, redis_client, celery_app, func_path
+        self, redis_client, celery_app, func_path, default_limiter_id
     ):
         """Verify per-task max_age override can expire earlier than global max_age."""
         # Arrange
         limiter = CeleryRateLimiter(
             redis_client=redis_client,
             celery_app=celery_app,
-            limiter_id="integration_per_task_max_age",
+            limiter_id=f"{default_limiter_id}_integration_per_task_max_age",
             limit=5,
             window=60,
             max_concurrency=2,
@@ -383,7 +419,7 @@ class TestRateLimitingIntegration:
         )
         success, _ = limiter.schedule_task(func_path, {"index": 1}, max_age=1)
         assert success is True, "task should be scheduled successfully"
-        time.sleep(2.1)
+        wait_until_task_is_expired(redis_client, limiter)
 
         # Act
         result = limiter.consume()
@@ -395,13 +431,15 @@ class TestRateLimitingIntegration:
             "expired override task should be moved to dlq"
         )
 
-    def test_per_task_max_age_stored_in_buffer(self, redis_client, celery_app, func_path):
+    def test_per_task_max_age_stored_in_buffer(
+        self, redis_client, celery_app, func_path, default_limiter_id
+    ):
         """Verify schedule_task(max_age=...) stores __meta_max_age in buffered payload."""
         # Arrange
         limiter = CeleryRateLimiter(
             redis_client=redis_client,
             celery_app=celery_app,
-            limiter_id="integration_meta_max_age",
+            limiter_id=f"{default_limiter_id}_integration_meta_max_age",
             limit=5,
             window=60,
             max_concurrency=2,
@@ -423,14 +461,14 @@ class TestRateLimitingIntegration:
         )
 
     def test_expired_lease_cleaned_up_on_consume(
-        self, redis_client, celery_app, func_path
+        self, redis_client, celery_app, func_path, default_limiter_id
     ):
         """Verify stale concurrency lease entries are cleaned during consume."""
         # Arrange
         limiter = CeleryRateLimiter(
             redis_client=redis_client,
             celery_app=celery_app,
-            limiter_id="integration_stale_lease",
+            limiter_id=f"{default_limiter_id}_integration_stale_lease",
             limit=5,
             window=60,
             max_concurrency=2,
@@ -535,7 +573,7 @@ class TestSlidingWindowBehavior:
     """
 
     @pytest.fixture
-    def sliding_window_limiter(self, redis_client, celery_app):
+    def sliding_window_limiter(self, redis_client, celery_app, default_limiter_id):
         """Limiter with production-realistic settings for sliding window behavior tests.
 
         Config:
@@ -546,7 +584,7 @@ class TestSlidingWindowBehavior:
         limiter = CeleryRateLimiter(
             redis_client=redis_client,
             celery_app=celery_app,
-            limiter_id="sliding_window_test_limiter",
+            limiter_id=f"{default_limiter_id}_sliding_window",
             limit=25,
             window=1.0,
             max_concurrency=100,
@@ -816,14 +854,19 @@ class TestSlidingWindowBehaviorParametrized:
     """
 
     @pytest.fixture
-    def sliding_window_limiter(self, request, redis_client, celery_app):
+    def sliding_window_limiter(
+        self, request, redis_client, celery_app, default_limiter_id
+    ):
         """Parameterized limiter fixture for sliding window behavior tests.
 
         The limit and window are injected via indirect parametrization,
         allowing the same test logic to run across multiple configurations.
         """
         limit, window = request.param
-        limiter_id = f"sliding_window_param_{limit}_{window}".replace(".", "_")
+        limiter_id = (
+            f"{default_limiter_id}_sliding_window_param_{limit}_{window}"
+            .replace(".", "_")
+        )
 
         limiter = CeleryRateLimiter(
             redis_client=redis_client,

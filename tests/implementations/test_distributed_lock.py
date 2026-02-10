@@ -16,9 +16,9 @@ from tests.contracts.test_distributed_lock import (
 
 
 @pytest.fixture
-def lock_key():
-    """Provide a consistent lock key for testing."""
-    return "test_lock"
+def lock_key(default_lock_key):
+    """Provide a unique lock key for testing."""
+    return default_lock_key
 
 
 @pytest.fixture

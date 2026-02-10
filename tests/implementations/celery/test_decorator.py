@@ -134,6 +134,47 @@ class TestRateLimitedDecorator:
         # Assert
         assert result == {"sum": 7}, "decorator should not alter wrapped return value"
 
+    def test_decorator_propagates_wrapped_function_exception(self, limiter_mock):
+        """Verify wrapped-function exceptions propagate and lifecycle cleanup runs."""
+        # Arrange
+        limiter, lifecycle_context = limiter_mock
+
+        @rate_limited("error_limiter")
+        def wrapped_function() -> None:
+            raise RuntimeError("wrapped function failed")
+
+        # Act & Assert
+        with patch(
+            "celery_rate_limiter.decorators.CeleryRateLimiter.get",
+            return_value=limiter,
+        ):
+            with pytest.raises(RuntimeError, match="wrapped function failed"):
+                wrapped_function(_rate_limit_task_id="task-error")
+
+        lifecycle_context.__enter__.assert_called_once()
+        lifecycle_context.__exit__.assert_called_once()
+
+    def test_decorator_raises_when_task_id_missing(self, limiter_mock):
+        """Verify missing _rate_limit_task_id raises KeyError."""
+        # Arrange
+        limiter, lifecycle_context = limiter_mock
+
+        @rate_limited("missing_task_id_limiter")
+        def wrapped_function(**kwargs):
+            return kwargs
+
+        # Act & Assert
+        with patch(
+            "celery_rate_limiter.decorators.CeleryRateLimiter.get",
+            return_value=limiter,
+        ) as mock_get:
+            with pytest.raises(KeyError, match="_rate_limit_task_id"):
+                wrapped_function(alpha=1)
+
+        mock_get.assert_called_once_with("missing_task_id_limiter")
+        limiter.task_lifecycle.assert_not_called()
+        lifecycle_context.__enter__.assert_not_called()
+
     def test_decorator_preserves_function_metadata(self):
         """Verify functools.wraps preserves function metadata."""
         # Arrange

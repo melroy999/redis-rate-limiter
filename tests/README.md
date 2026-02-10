@@ -16,19 +16,25 @@ tests/
 ├── implementations/                    # Implementation-specific tests
 │   ├── conftest.py                     # Shared fixtures for implementation tests
 │   ├── test_distributed_lock.py        # Redis-backed lock implementation tests
+│   ├── test_drain.py                   # Drain and trigger_consume branch tests
+│   ├── test_get_status.py             # Status reporting tests
 │   ├── test_internal_helpers.py        # Lua script loading and helpers
 │   ├── test_task_lifecycle.py          # Lifecycle manager implementation tests
 │   ├── test_smart_jitter.py            # Adaptive jitter calculation tests
 │   ├── test_metrics_callback.py        # Metrics callback observability tests
 │   ├── test_rate_limiter_class_api.py  # Class-level API (configure/create/get/update)
 │   └── celery/                         # Celery implementation (uses Redis + Lua)
-│       └── test_celery_limiter.py      # Inherits contract + adds Celery tests
+│       ├── test_celery_limiter.py      # Inherits contract + adds Celery tests
+│       ├── test_decorator.py           # Rate-limited decorator tests
+│       └── test_tasks.py              # Celery task helper tests
 │
 ├── algorithms/                         # Pure algorithm/spec tests (no backend)
 │   ├── sliding_window_counter.py       # Shared pure algorithm used by tests
 │   └── test_sliding_window_counter.py  # Deterministic algorithm/spec tests
 │
 ├── properties/                         # Property-based tests (Hypothesis)
+│   ├── conftest.py                     # Shared property-test fixtures
+│   ├── test_concurrency_invariants.py  # Concurrency bound invariants
 │   ├── test_serialization.py           # Payload serialization properties
 │   ├── test_is_subset.py               # Mathematical subset properties
 │   ├── test_sliding_window_counter.py  # Sliding window invariants (Hypothesis)
@@ -72,7 +78,8 @@ Contract tests define the **expected behavior** for interfaces, ensuring all imp
 class RateLimiterContractTest:
     """Abstract test suite that any RateLimiter must pass."""
 
-    def test_schedule_task_returns_success_and_task_id(self, limiter, redis_client):
+    @staticmethod
+    def test_schedule_task_returns_success_and_task_id(limiter, redis_client):
         """Contract: schedule_task must return (bool, str) tuple."""
         success, task_id = limiter.schedule_task("path", {})
         assert isinstance(success, bool)
@@ -141,10 +148,10 @@ Integration tests verify end-to-end behavior of the rate limiter with real Redis
 ```python
 # integration/test_rate_limiting.py
 @pytest.fixture
-def integration_limiter(redis_client, celery_app):
+def integration_limiter(redis_client, celery_app, default_limiter_id):
     """Create a limiter with explicit configuration for integration tests."""
     return CeleryRateLimiter.create(
-        limiter_id="integration_test_limiter",
+        limiter_id=f"{default_limiter_id}_integration_default",
         limit=5,
         window=60,
         max_concurrency=2,
@@ -271,10 +278,10 @@ class TestInMemoryRateLimiter(RateLimiterContractTest):
     """
 
     @pytest.fixture
-    def limiter(self):
+    def limiter(self, default_limiter_id):
         """Provide the in-memory limiter instance."""
         return InMemoryRateLimiter(
-            limiter_id="test_limiter",
+            limiter_id=f"{default_limiter_id}_inmemory_default",
             limit=100,
             window=60,
             max_concurrency=10,
@@ -410,10 +417,19 @@ Used for expensive, one-time setup:
 Used for most tests. Clean state between tests:
 - `redis_client`: Wraps `_redis_connection` with `flushall()` before and after each test
 - `limiter`: Fresh `CeleryRateLimiter` instance created via the class API (`CeleryRateLimiter.create(...)`)
+- `default_limiter_id`: Unique limiter ID per test (UUID-backed) for fixtures/tests that need a limiter name
+- `default_lock_key`: Unique lock key per test for distributed lock tests
 - `_reset_limiter_class_state` (autouse): Resets class-level singleton cache and calls `configure()` with test fixtures before each test, preventing state pollution between tests
+
+### Implementation-Scoped Fixtures
+Defined in `implementations/conftest.py`. Provide non-Celery concrete implementations for testing abstract behavior:
+- `generic_limiter`: `MinimalRateLimiter` instance (no-op dispatch/schedule) for testing `AbstractDistributedRateLimiter` behavior
+- `tracking_limiter`: `TrackingRateLimiter` instance that records `_dispatch_task()` and `_schedule_drain()` calls, used by drain branch-coverage tests
+- `task_id`: Unique task ID string for testing
 
 ### Module-Scoped Fixtures
 Used for property-based tests to improve performance:
+- `default_module_limiter_id`: Unique limiter ID per module for module-scoped limiter fixtures
 - `property_redis_client`: Shared Redis client for Hypothesis tests
 - `property_limiter`: Shared limiter for Hypothesis tests
 
@@ -439,6 +455,18 @@ Use `unittest.mock` for Celery-specific behavior to avoid needing full Celery wo
 
 ### 4. Clean Up Resources
 Use fixtures with proper teardown or context managers to ensure resources are cleaned up even if tests fail.
+
+### 5. Use Unique IDs in Fixtures
+Prefer fixture-provided unique IDs over hardcoded IDs for limiter names, lock keys, and task IDs.
+This reduces accidental coupling and keeps tests robust if fixture scope or cleanup behavior changes.
+
+```python
+def test_example(default_limiter_id, default_lock_key):
+    limiter_id = f"{default_limiter_id}_example"
+    lock_key = default_lock_key
+```
+
+Use explicit hardcoded IDs only when the test is specifically about ID identity or readability of a known failure case.
 
 ## Troubleshooting
 

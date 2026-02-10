@@ -176,6 +176,25 @@ class RateLimiterContractTest:
         assert result["task"] is None, "consume should return no task on empty buffer"
 
     @staticmethod
+    def test_consume_expired_field_is_boolean(limiter, func_path, default_payload):
+        """Contract: consume() expired flag must always be a boolean."""
+        # Arrange
+        limiter.schedule_task(func_path, default_payload)
+
+        # Act
+        result = limiter.consume()
+
+        # Assert
+        assert isinstance(result["expired"], bool), "expired must be a bool"
+
+    @staticmethod
+    def test_execution_lock_context_manager_yields_boolean(limiter):
+        """Contract: execution_lock() yields a boolean acquisition result."""
+        # Act & Assert
+        with limiter.execution_lock(timeout_ms=50) as acquired:
+            assert isinstance(acquired, bool), "execution_lock must yield a boolean"
+
+    @staticmethod
     def test_get_buffer_count_returns_nonnegative_integer(limiter):
         """Contract: get_buffer_count() returns a non-negative integer."""
         # Act

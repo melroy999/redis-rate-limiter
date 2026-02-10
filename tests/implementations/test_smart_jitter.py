@@ -23,12 +23,12 @@ class TestSmartJitter:
         return [seeded_rng.random() for _ in range(samples)]
 
     @pytest.fixture
-    def limiter(self, redis_client, celery_app):
+    def limiter(self, redis_client, celery_app, default_limiter_id):
         """Create a limiter with default jitter settings for testing."""
         return CeleryRateLimiter(
             redis_client=redis_client,
             celery_app=celery_app,
-            limiter_id="test_jitter",
+            limiter_id=f"{default_limiter_id}_jitter_default",
             limit=10,
             window=1,
             max_concurrency=5,
@@ -52,13 +52,15 @@ class TestSmartJitter:
         # Assert
         assert jitter == 0.0, "disabled jitter should return 0"
 
-    def test_jitter_scales_with_window_size(self, redis_client, celery_app):
+    def test_jitter_scales_with_window_size(
+        self, redis_client, celery_app, default_limiter_id
+    ):
         """Verify average jitter is proportional to window size."""
         # Arrange
         short_limiter = CeleryRateLimiter(
             redis_client=redis_client,
             celery_app=celery_app,
-            limiter_id="test_short",
+            limiter_id=f"{default_limiter_id}_jitter_short_window",
             limit=10,
             window=1,
             max_concurrency=5,
@@ -66,7 +68,7 @@ class TestSmartJitter:
         long_limiter = CeleryRateLimiter(
             redis_client=redis_client,
             celery_app=celery_app,
-            limiter_id="test_long",
+            limiter_id=f"{default_limiter_id}_jitter_long_window",
             limit=10,
             window=60,
             max_concurrency=5,
@@ -173,7 +175,7 @@ class TestSmartJitter:
 
     @pytest.mark.parametrize(
         "remaining_tasks, active_concurrency",
-        itertools.product([0, 5, 50, 200], [0, 2, 5]),
+        itertools.product([0, 5, 25, 75, 200], [0, 2, 5]),
     )
     def test_jitter_within_configured_bounds(
         self, limiter, remaining_tasks, active_concurrency
@@ -232,13 +234,15 @@ class TestSmartJitter:
             f"expected mean ({expected_mean:.4f})"
         )
 
-    def test_custom_jitter_percentages(self, redis_client, celery_app):
+    def test_custom_jitter_percentages(
+        self, redis_client, celery_app, default_limiter_id
+    ):
         """Verify custom jitter percentages are respected."""
         # Arrange
         custom_limiter = CeleryRateLimiter(
             redis_client=redis_client,
             celery_app=celery_app,
-            limiter_id="test_custom",
+            limiter_id=f"{default_limiter_id}_jitter_custom_percentages",
             limit=10,
             window=10,
             max_concurrency=5,

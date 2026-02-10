@@ -35,29 +35,16 @@ random_stream_strategy = st.lists(
 
 
 @pytest.fixture(scope="module")
-def property_redis_client(_redis_connection):
-    """Module-scoped Redis client for property-based tests (performance)."""
-    yield _redis_connection
-    _redis_connection.flushdb()
-
-
-@pytest.fixture(scope="module")
-def property_celery_app(celery_config):
-    """Module-scoped Celery app for property-based tests."""
-    from celery import Celery
-
-    app = Celery("test_jitter_property_app")
-    app.config_from_object(celery_config)
-    return app
-
-
-@pytest.fixture(scope="module")
-def property_limiter(property_redis_client, property_celery_app):
+def property_limiter(
+    property_redis_client,
+    property_celery_app,
+    default_module_limiter_id,
+):
     """Module-scoped limiter for jitter property tests."""
     return CeleryRateLimiter(
         redis_client=property_redis_client,
         celery_app=property_celery_app,
-        limiter_id="property_jitter_limiter",
+        limiter_id=f"{default_module_limiter_id}_property_jitter",
         limit=10,
         window=1,
         max_concurrency=5,

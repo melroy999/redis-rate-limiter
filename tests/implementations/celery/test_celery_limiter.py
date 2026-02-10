@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 import redis
-from helpers.utils import is_subset
+from tests.helpers.utils import is_subset
 
 from tests.contracts.test_rate_limiter import RateLimiterContractTest
 

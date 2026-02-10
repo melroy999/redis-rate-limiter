@@ -8,6 +8,7 @@ implementation-specific tests that work with any rate limiter implementation.
 import os
 import signal
 import time
+from typing import Literal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,6 +17,12 @@ import redis
 from celery_rate_limiter.limiters import TaskLifecycle
 from tests.contracts.test_task_lifecycle import TaskLifecycleContractTest
 from tests.implementations.conftest import MinimalRateLimiter
+
+HeartbeatFailureMode = Literal["warn", "kill"]
+HEARTBEAT_OVERRIDE_CASES: list[tuple[HeartbeatFailureMode, HeartbeatFailureMode]] = [
+    ("warn", "kill"),
+    ("kill", "warn"),
+]
 
 
 @pytest.fixture
@@ -110,18 +117,23 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
 
     @pytest.mark.parametrize(
         "original, override",
-        [("warn", "kill"), ("kill", "warn")],
+        HEARTBEAT_OVERRIDE_CASES,
         ids=["default_warn_override_kill", "default_kill_override_warn"]
     )
     def test_heartbeat_failure_override_precedence(
-        self, redis_client, task_id, original, override
+        self,
+        redis_client,
+        task_id,
+        default_limiter_id,
+        original: HeartbeatFailureMode,
+        override: HeartbeatFailureMode,
     ):
         """Verify that override parameter takes precedence over limiter default."""
         # Arrange
         # Use real limiter to test override mechanism.
         limiter = MinimalRateLimiter(
             redis_client=redis_client,
-            limiter_id="test_id",
+            limiter_id=f"{default_limiter_id}_task_lifecycle_heartbeat_override_precedence",
             limit=1,
             window=1,
             max_concurrency=1,
@@ -184,7 +196,7 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
     ):
         """Verify heartbeat loop restores health status after recovering from failure."""
         # Arrange
-        mock_limiter.extend_lease.return_value  = 1
+        mock_limiter.extend_lease.return_value = 1
 
         # Act
         with TaskLifecycle(mock_limiter, task_id) as lifecycle:

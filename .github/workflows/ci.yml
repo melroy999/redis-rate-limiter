@@ -115,8 +115,7 @@ jobs:
 
               if coverage < threshold:
                   print(f"FAILED: Coverage below {threshold}%")
-                  # Disabled temporarily.
-                  # sys.exit(1)
+                  sys.exit(1)
           except Exception as e:
               print(f"Error parsing coverage: {e}")
               sys.exit(1)

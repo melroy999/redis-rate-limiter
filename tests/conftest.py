@@ -1,4 +1,5 @@
 import os
+from uuid import uuid4
 
 import pytest
 import redis
@@ -12,6 +13,11 @@ pytest_plugins = ("celery.contrib.pytest",)
 # Defaults to localhost:6379, but can be overridden for Docker Compose.
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+
+
+def _safe_id_component(value: str) -> str:
+    """Sanitize string values for Redis key/id readability."""
+    return "".join(char if char.isalnum() else "_" for char in value)
 
 
 @pytest.fixture(scope="session")
@@ -96,6 +102,27 @@ def default_payload():
     return {"user_id": 123}
 
 
+@pytest.fixture
+def default_limiter_id(request) -> str:
+    """Provide a unique limiter id per test to reduce accidental coupling."""
+    test_name = _safe_id_component(request.node.name)
+    return f"limiter_{test_name}_{uuid4().hex[:8]}"
+
+
+@pytest.fixture(scope="module")
+def default_module_limiter_id(request) -> str:
+    """Provide a unique limiter id per module for module-scoped fixtures."""
+    module_name = _safe_id_component(request.module.__name__)
+    return f"module_limiter_{module_name}_{uuid4().hex[:8]}"
+
+
+@pytest.fixture
+def default_lock_key(request) -> str:
+    """Provide a unique lock key per test."""
+    test_name = _safe_id_component(request.node.name)
+    return f"lock_{test_name}_{uuid4().hex[:8]}"
+
+
 # noinspection PyProtectedMember
 @pytest.fixture(autouse=True)
 def _reset_limiter_class_state(redis_client, celery_app):
@@ -111,14 +138,14 @@ def _reset_limiter_class_state(redis_client, celery_app):
 
 
 @pytest.fixture
-def limiter(redis_client, celery_app):
+def limiter(redis_client, celery_app, default_limiter_id):
     """Setup and teardown for the CeleryRateLimiter.
 
     Yields:
         A configured CeleryRateLimiter instance for testing.
     """
     # Setup
-    limiter_id = "test_limiter"
+    limiter_id = default_limiter_id
     test_limiter = CeleryRateLimiter.create(
         limiter_id=limiter_id,
         limit=5,

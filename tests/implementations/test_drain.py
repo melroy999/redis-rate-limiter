@@ -4,6 +4,8 @@ import time
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 class TestDrain:
     """Test suite for branch coverage in drain()."""
@@ -87,6 +89,63 @@ class TestDrain:
             "drain should schedule an immediate follow-up when tasks remain"
         )
 
+    def test_drain_handles_consume_exception(self, tracking_limiter):
+        """Verify consume exceptions propagate without dispatching or rescheduling."""
+        # Act & Assert
+        with (
+            patch.object(
+                tracking_limiter, "execution_lock", return_value=self.lock_result(True)
+            ),
+            patch.object(
+                tracking_limiter, "consume", side_effect=RuntimeError("consume failed")
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="consume failed"):
+                tracking_limiter.drain()
+
+        assert tracking_limiter.dispatched_tasks == [], (
+            "drain should not dispatch if consume fails"
+        )
+        assert tracking_limiter.scheduled_drains == [], (
+            "drain should not schedule follow-up if consume fails"
+        )
+
+    def test_drain_handles_dispatch_exception(self, tracking_limiter):
+        """Verify dispatch exceptions propagate and no follow-up is scheduled."""
+        # Arrange
+        consume_result = {
+            "success": True,
+            "expired": False,
+            "task": {
+                "id": "task-dispatch-error",
+                "func_path": "myapp.tasks.work",
+                "payload": {"x": 1},
+            },
+            "remaining_tokens": 4,
+            "active_concurrency": 1,
+            "reset_in_ms": 100,
+            "remaining_tasks": 2,
+        }
+
+        # Act & Assert
+        with (
+            patch.object(
+                tracking_limiter, "execution_lock", return_value=self.lock_result(True)
+            ),
+            patch.object(tracking_limiter, "consume", return_value=consume_result),
+            patch.object(
+                tracking_limiter,
+                "_dispatch_task",
+                side_effect=RuntimeError("dispatch failed"),
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="dispatch failed"):
+                tracking_limiter.drain()
+
+        assert tracking_limiter.scheduled_drains == [], (
+            "drain should not schedule follow-up when dispatch fails"
+        )
+
     def test_drain_stops_when_buffer_empty(self, tracking_limiter):
         """Verify drain() stops without follow-up when no tasks remain."""
         # Arrange
@@ -113,6 +172,36 @@ class TestDrain:
         assert tracking_limiter.dispatched_tasks == [], "drain should not dispatch when buffer is empty"
         assert tracking_limiter.scheduled_drains == [], (
             "drain should not schedule follow-up when buffer is empty"
+        )
+
+    def test_drain_handles_expired_task_without_dispatch(self, tracking_limiter):
+        """Verify expired consume result is not dispatched or rescheduled."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": True,
+            "task": None,
+            "remaining_tokens": 5,
+            "active_concurrency": 0,
+            "reset_in_ms": 100,
+            "remaining_tasks": 0,
+        }
+
+        # Act
+        with (
+            patch.object(
+                tracking_limiter, "execution_lock", return_value=self.lock_result(True)
+            ),
+            patch.object(tracking_limiter, "consume", return_value=consume_result),
+        ):
+            tracking_limiter.drain()
+
+        # Assert
+        assert tracking_limiter.dispatched_tasks == [], (
+            "drain should not dispatch expired task results"
+        )
+        assert tracking_limiter.scheduled_drains == [], (
+            "drain should not schedule follow-up when expired result has no remaining tasks"
         )
 
     def test_drain_stops_when_concurrency_at_capacity(self, tracking_limiter):

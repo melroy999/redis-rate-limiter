@@ -4,6 +4,8 @@ This module provides fixtures for testing implementations that don't require
 Celery-specific functionality.
 """
 
+from uuid import uuid4
+
 import pytest
 
 from src.celery_rate_limiter.limiters import AbstractDistributedRateLimiter
@@ -46,12 +48,12 @@ class TrackingRateLimiter(MinimalRateLimiter):
 
 @pytest.fixture
 def task_id():
-    """Provide a consistent task ID for testing."""
-    return "task123"
+    """Provide a unique task ID for testing to reduce accidental coupling."""
+    return f"task_{uuid4().hex[:8]}"
 
 
 @pytest.fixture
-def generic_limiter(redis_client):
+def generic_limiter(redis_client, default_limiter_id):
     """Create a minimal rate limiter for testing abstract behavior.
 
     This limiter provides a concrete implementation without Celery dependencies,
@@ -64,7 +66,7 @@ def generic_limiter(redis_client):
         A configured MinimalRateLimiter instance for testing.
     """
     # Setup
-    limiter_id = "test_limiter"
+    limiter_id = f"{default_limiter_id}_generic"
     test_limiter = MinimalRateLimiter(
         redis_client=redis_client,
         limiter_id=limiter_id,
@@ -85,10 +87,10 @@ def generic_limiter(redis_client):
 
 
 @pytest.fixture
-def tracking_limiter(redis_client):
+def tracking_limiter(redis_client, default_limiter_id):
     """Create a tracking limiter that records dispatch and schedule calls."""
     # Setup
-    limiter_id = "tracking_limiter"
+    limiter_id = f"{default_limiter_id}_tracking"
     test_limiter = TrackingRateLimiter(
         redis_client=redis_client,
         limiter_id=limiter_id,
