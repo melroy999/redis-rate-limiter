@@ -129,10 +129,10 @@ class TaskLifecycle:
     """Context manager that handles concurrency slot cleanup."""
 
     def __init__(
-        self,
-        limiter: AbstractDistributedRateLimiter,
-        task_id: str,
-        on_heartbeat_failure: Literal["warn", "kill"] = "warn",
+            self,
+            limiter: AbstractDistributedRateLimiter,
+            task_id: str,
+            on_heartbeat_failure: Literal["warn", "kill"] = "warn",
     ):
         """Create a lifecycle context manager that cleans up concurrency slots.
 
@@ -273,19 +273,19 @@ class AbstractDistributedRateLimiter(ABC):
     )
 
     def __init__(
-        self,
-        redis_client: Redis,
-        limiter_id: str,
-        limit: int,
-        window: int,
-        max_concurrency: int,
-        max_age: int = 3600,
-        lease_duration: int = 30,
-        on_heartbeat_failure: Literal["warn", "kill"] = "warn",
-        jitter_enabled: bool = True,
-        jitter_min_pct: float = 0.02,
-        jitter_max_pct: float = 0.08,
-        metrics_callback: Optional[Callable[[str, dict], None]] = None,
+            self,
+            redis_client: Redis,
+            limiter_id: str,
+            limit: int,
+            window: int,
+            max_concurrency: int,
+            max_age: int = 3600,
+            lease_duration: int = 30,
+            on_heartbeat_failure: Literal["warn", "kill"] = "warn",
+            jitter_enabled: bool = True,
+            jitter_min_pct: float = 0.02,
+            jitter_max_pct: float = 0.08,
+            metrics_callback: Optional[Callable[[str, dict], None]] = None,
     ):
         """Create an abstract rate limiter instance with the given parameters and import the appropriate lua scripts.
 
@@ -443,9 +443,9 @@ class AbstractDistributedRateLimiter(ABC):
             self.max_age if max_age_override is None else max_age_override
         )
         ttl_seconds = (
-            max(1.0, float(effective_max_age))
-            + max(1.0, float(self.lease_duration))
-            + max(1.0, float(self.window))
+                max(1.0, float(effective_max_age))
+                + max(1.0, float(self.lease_duration))
+                + max(1.0, float(self.window))
         )
         return int(math.ceil(ttl_seconds))
 
@@ -484,12 +484,12 @@ class AbstractDistributedRateLimiter(ABC):
         return f"{self.id}:inflight:{task_id}"
 
     def schedule_task(
-        self,
-        func_path: str,
-        payload: dict,
-        priority: int = 100,
-        max_age: Optional[int] = None,
-        retry: bool = True,
+            self,
+            func_path: str,
+            payload: dict,
+            priority: int = 100,
+            max_age: Optional[int] = None,
+            retry: bool = True,
     ) -> tuple[bool, str]:
         """Schedule a task to run once rate limiting allows for it.
 
@@ -705,16 +705,21 @@ class AbstractDistributedRateLimiter(ABC):
         """
         try:
             renewed = int(
-                self.redis.evalsha(
-                    self.renew_script_sha,
-                    1,
-                    # KEYS: [concurrency]
-                    self.concurrency_key,
-                    # ARGV: [task_id, duration]
-                    task_id,
-                    duration,
+                # noinspection PyUnnecessaryCast
+                # This cast is in fact necessary for mypy validation.
+                cast(str,
+                    self.redis.evalsha(
+                        self.renew_script_sha,
+                        1,
+                        # KEYS: [concurrency]
+                        self.concurrency_key,
+                        # ARGV: [task_id, duration]
+                        task_id,
+                        duration,
+                    )
                 )
             )
+
             logger.debug(
                 "Lease extension result: limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
                 self.id,
@@ -767,10 +772,10 @@ class AbstractDistributedRateLimiter(ABC):
             )
 
     def _calculate_smart_jitter(
-        self,
-        remaining_tasks: int,
-        remaining_tokens: int,
-        active_concurrency: int,
+            self,
+            remaining_tasks: int,
+            remaining_tokens: int,
+            active_concurrency: int,
     ) -> float:
         """Calculate adaptive jitter to reduce thundering herd at window resets.
 
@@ -994,9 +999,9 @@ class AbstractDistributedRateLimiter(ABC):
         )
 
     def task_lifecycle(
-        self,
-        task_id: str,
-        on_heartbeat_failure_override: Optional[Literal["warn", "kill"]] = None,
+            self,
+            task_id: str,
+            on_heartbeat_failure_override: Optional[Literal["warn", "kill"]] = None,
     ) -> TaskLifecycle:
         """Create a context manager to ensure the concurrency slot is released.
 
@@ -1145,16 +1150,16 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
 
     @classmethod
     def create(
-        cls,
-        limiter_id: str,
-        limit: int,
-        window: int,
-        max_concurrency: int,
-        max_age: int = 3600,
-        lease_duration: int = 30,
-        override: bool = False,
-        persist: bool = True,
-        **kwargs: Any,
+            cls,
+            limiter_id: str,
+            limit: int,
+            window: int,
+            max_concurrency: int,
+            max_age: int = 3600,
+            lease_duration: int = 30,
+            override: bool = False,
+            persist: bool = True,
+            **kwargs: Any,
     ) -> "AbstractRedisManagedRateLimiter":
         """Create and cache a limiter instance, optionally persisting config."""
         cls._require_configured()
@@ -1242,13 +1247,13 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
 
     @classmethod
     def update(
-        cls,
-        limiter_id: str,
-        limit: Optional[int] = None,
-        window: Optional[int] = None,
-        max_concurrency: Optional[int] = None,
-        max_age: Optional[int] = None,
-        lease_duration: Optional[int] = None,
+            cls,
+            limiter_id: str,
+            limit: Optional[int] = None,
+            window: Optional[int] = None,
+            max_concurrency: Optional[int] = None,
+            max_age: Optional[int] = None,
+            lease_duration: Optional[int] = None,
     ) -> "AbstractRedisManagedRateLimiter":
         """Update limiter config, persist it to Redis, and bump version."""
         instance = cls.get(limiter_id)
@@ -1443,12 +1448,12 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
     # ------------------------------------------------------------------
 
     def __init__(
-        self,
-        redis_client: Redis,
-        celery_app: Celery,
-        *args: Any,
-        _sentinel: Any = None,
-        **kwargs: Any,
+            self,
+            redis_client: Redis,
+            celery_app: Celery,
+            *args: Any,
+            _sentinel: Any = None,
+            **kwargs: Any,
     ):
         """Create a Celery rate limiter instance.
 
@@ -1487,13 +1492,13 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
         return {"data": payload, "meta": {"use_executor": use_executor}}
 
     def schedule_task(
-        self,
-        func_path: str,
-        payload: dict,
-        priority: int = 100,
-        max_age: Optional[int] = None,
-        retry: bool = True,
-        use_executor: bool = True,
+            self,
+            func_path: str,
+            payload: dict,
+            priority: int = 100,
+            max_age: Optional[int] = None,
+            retry: bool = True,
+            use_executor: bool = True,
     ) -> tuple[bool, str]:
         # Add the use executor flag to the payload.
         # Only add this if we aren't re-trying--the payload is already present otherwise.

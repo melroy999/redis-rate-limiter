@@ -39,7 +39,7 @@ def mock_limiter(redis_client, task_id):
     limiter.get_inflight_key.side_effect = lambda _: f"test:inflight:{task_id}"
 
     # Short duration for fast tests
-    limiter.lease_duration = 0.2  
+    limiter.lease_duration = 0.2
 
     # For background thread tests
     limiter.extend_lease.return_value = None
