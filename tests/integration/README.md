@@ -55,12 +55,12 @@ The tests in `TestSlidingWindowBehavior` validate real-world behavior of the sli
 
 **Standard run (excludes @pytest.mark.slow):**
 ```bash
-pytest tests/integration/celery/test_rate_limiting.py -v
+pytest tests/integration/test_rate_limiting.py -v
 ```
 
 **All tests including slow parameterized matrix:**
 ```bash
-pytest --override-ini='addopts=' tests/integration/celery/test_rate_limiting.py -v
+pytest --override-ini='addopts=' tests/integration/test_rate_limiting.py -v
 ```
 
 **In Docker (recommended):**

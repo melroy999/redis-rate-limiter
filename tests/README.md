@@ -1,40 +1,56 @@
 # Test Suite Documentation
 
-This directory contains a comprehensive test suite for the celery-rate-limiter project, organized using **contract-based**, **property-based**, **algorithm/spec**, and **integration** testing patterns.
+This directory contains a comprehensive test suite for the `celery-rate-limiter` project, organized using **contract-based**, **property-based**, **algorithm/spec**, and **integration** testing patterns.
 
 All test categories assume a real Redis instance is available, because the core limiter logic is implemented in Redis Lua scripts.
 
+## Backend Structuring (Important)
+
+The suite is now structured around **both** test type and backend scope:
+
+- `tests/<category>/...` contains backend-agnostic core behavior.
+- `tests/<category>/<backend>/...` contains backend-specific behavior.
+
+Current backend example:
+
+- `tests/implementations/celery/...` for Celery-specific assertions.
+
+This lets core behavior stay decoupled from Celery while still allowing backend-specific test coverage.
+
 ## Directory Structure
 
-```
+```text
 tests/
 ├── contracts/                          # Abstract interface contracts
 │   ├── test_rate_limiter.py            # Tests any limiter must satisfy
 │   ├── test_distributed_lock.py        # Tests any lock must satisfy
 │   └── test_task_lifecycle.py          # Tests any lifecycle manager must satisfy
 │
-├── implementations/                    # Implementation-specific tests
-│   ├── conftest.py                     # Shared fixtures for implementation tests
+├── implementations/                    # Core implementation tests (backend-agnostic)
+│   ├── conftest.py                     # Shared core test fixtures/limiters
+│   ├── test_rate_limiter_impl.py       # Generic limiter implementation behavior
+│   ├── test_rate_limiter_class_api.py  # Managed class API behavior (generic backend)
 │   ├── test_distributed_lock.py        # Redis-backed lock implementation tests
-│   ├── test_drain.py                   # Drain and trigger_consume branch tests
-│   ├── test_get_status.py             # Status reporting tests
-│   ├── test_internal_helpers.py        # Lua script loading and helpers
 │   ├── test_task_lifecycle.py          # Lifecycle manager implementation tests
+│   ├── test_drain.py                   # Drain and trigger_consume branch tests
+│   ├── test_get_status.py              # Status reporting tests
+│   ├── test_internal_helpers.py        # Lua script loading and helpers
 │   ├── test_smart_jitter.py            # Adaptive jitter calculation tests
 │   ├── test_metrics_callback.py        # Metrics callback observability tests
-│   ├── test_rate_limiter_class_api.py  # Class-level API (configure/create/get/update)
 │   ├── test_concurrent_access.py       # Multi-worker contention and atomicity tests
-│   └── celery/                         # Celery implementation (uses Redis + Lua)
-│       ├── test_celery_limiter.py      # Inherits contract + adds Celery tests
-│       ├── test_decorator.py           # Rate-limited decorator tests
-│       └── test_tasks.py              # Celery task helper tests
+│   ├── test_decorator.py               # Decorator behavior (core)
+│   ├── test_importing.py               # Dynamic import helper behavior
+│   └── celery/                         # Celery-specific implementation tests
+│       ├── conftest.py                 # Imports Celery backend fixtures
+│       ├── test_celery_limiter.py      # Celery payload/dispatch behavior
+│       ├── test_rate_limiter_class_api.py
+│       └── test_tasks.py               # Celery task helper tests
 │
 ├── algorithms/                         # Pure algorithm/spec tests (no backend)
 │   ├── sliding_window_counter.py       # Shared pure algorithm used by tests
 │   └── test_sliding_window_counter.py  # Deterministic algorithm/spec tests
 │
 ├── properties/                         # Property-based tests (Hypothesis)
-│   ├── conftest.py                     # Shared property-test fixtures
 │   ├── test_concurrency_invariants.py  # Concurrency bound invariants
 │   ├── test_serialization.py           # Payload serialization properties
 │   ├── test_is_subset.py               # Mathematical subset properties
@@ -42,24 +58,30 @@ tests/
 │   └── test_smart_jitter.py            # Smart jitter invariants (Hypothesis)
 │
 ├── integration/                        # End-to-end integration tests
-│   ├── test_rate_limiting.py           # Rate limiting behavior verification
-│   └── README.md                       # Platform requirements and timing notes
+│   ├── test_rate_limiting.py           # Core Redis/Lua integration behavior
+│   ├── README.md                       # Platform requirements and timing notes
+│   └── celery/                         # Reserved for Celery-specific integration tests
+│
+├── fixtures/                           # Shared backend fixture modules
+│   └── celery_backend.py               # Celery backend fixture definitions
 │
 ├── helpers/                            # Shared test utilities and strategies
 │   ├── utils.py                        # Subset checker and approximate equality
 │   └── strategies.py                   # Shared Hypothesis strategies
 │
-├── conftest.py                         # Pytest fixtures and configuration
+├── conftest.py                         # Global pytest fixtures and configuration
 └── README.md                           # This file
 ```
 
 ## Quick Placement Rules
 
 1. Contract tests define interface guarantees and live in `contracts/`.
-1. Implementation tests verify backend-specific behavior and live in `implementations/<backend>/` (or directly in `implementations/` when shared).
-1. Algorithm/spec tests validate pure logic with no Redis/Celery dependency in the test code and live in `algorithms/`.
+1. Implementation tests that are backend-agnostic live in `implementations/`.
+1. Implementation tests that assert backend-specific behavior live in `implementations/<backend>/`.
+1. Algorithm/spec tests validate pure logic with no Redis/Celery dependency in test code and live in `algorithms/`.
 1. Property-based tests use Hypothesis to check invariants and live in `properties/`.
-1. Integration tests verify end-to-end behavior with real Redis/Lua/Celery wiring and live in `integration/`.
+1. Integration tests verify end-to-end behavior with real Redis/Lua wiring and live in `integration/`.
+1. If an integration scenario depends on backend dispatch/wiring details, place it under `integration/<backend>/`.
 
 ## Testing Philosophy
 
@@ -86,10 +108,10 @@ class RateLimiterContractTest:
         assert isinstance(success, bool)
         assert isinstance(task_id, str)
 
-# implementations/celery/test_celery_limiter.py
-class TestCeleryRateLimiter(RateLimiterContractTest):
-    """Inherits all contract tests + adds Celery-specific tests."""
-    pass  # Automatically runs all contract tests!
+# implementations/test_rate_limiter_impl.py
+class TestRateLimiterImplementation(RateLimiterContractTest):
+    """Inherits all contract tests + adds generic implementation tests."""
+    pass
 ```
 
 ### 2. Property-Based Testing
@@ -147,28 +169,28 @@ Integration tests verify end-to-end behavior of the rate limiter with real Redis
 
 **Example:**
 ```python
-# integration/celery/test_rate_limiting.py
+# integration/test_rate_limiting.py
 @pytest.fixture
-def integration_limiter(redis_client, celery_app, default_limiter_id):
-    """Create a limiter with explicit configuration for integration tests."""
-    return CeleryRateLimiter.create(
+def integration_limiter(redis_client, default_limiter_id):
+    """Create a backend-agnostic limiter for integration tests."""
+    return MinimalRateLimiter(
+        redis_client=redis_client,
         limiter_id=f"{default_limiter_id}_integration_default",
         limit=5,
         window=60,
         max_concurrency=2,
         max_age=3600,
         lease_duration=30,
-        override=True,
     )
 
-def test_basic_rate_limit_enforcement(self, integration_limiter, redis_client):
+
+def test_basic_rate_limit_enforcement(self, integration_limiter):
     """Verify rate limiter enforces the configured limit."""
-    # Schedule 10 tasks, consume up to limit (5), verify remaining queued
     for i in range(10):
         integration_limiter.schedule_task("path", {"index": i})
 
     consumed = sum(1 for _ in range(10) if integration_limiter.consume()["success"])
-    assert consumed == 5  # Only 5 consumed due to rate limit
+    assert consumed == 5
 ```
 
 ### 5. Arrange-Act-Assert Pattern
@@ -179,15 +201,12 @@ All tests follow the AAA pattern for clarity:
 def test_example(self, limiter, redis_client):
     """Clear description of what this test verifies."""
     # Arrange
-    # Setup test data and preconditions.
     payload = {"user_id": 123}
 
     # Act
-    # Execute the operation being tested.
     success, task_id = limiter.schedule_task("path", payload)
 
     # Assert
-    # Verify the expected outcome.
     assert success is True, "task should be scheduled successfully"
 ```
 
@@ -228,6 +247,12 @@ pytest tests/contracts/
 # Implementation tests only
 pytest tests/implementations/
 
+# Core implementation tests only
+pytest tests/implementations -k 'not celery'
+
+# Celery-specific implementation tests only
+pytest tests/implementations/celery/
+
 # Property-based tests only
 pytest tests/properties/
 
@@ -236,9 +261,6 @@ pytest tests/algorithms/
 
 # Integration tests only
 pytest tests/integration/
-
-# Specific implementation
-pytest tests/implementations/celery/
 ```
 
 ### Run with Coverage
@@ -257,49 +279,60 @@ pytest tests/properties/ --hypothesis-max-examples=200
 
 ## Adding a New Limiter Implementation
 
-When adding a new rate limiter implementation (e.g., in-memory, different backend), follow these steps:
+When adding a new backend limiter implementation, follow these steps:
 
-### Step 1: Create Implementation Directory
+### Step 1: Create Backend Test Directory
 ```bash
-mkdir -p tests/implementations/inmemory
-touch tests/implementations/inmemory/__init__.py
+mkdir -p tests/implementations/mybackend
+touch tests/implementations/mybackend/__init__.py
 ```
 
-### Step 2: Create Test File Inheriting from Contracts
+### Step 2: Add Backend Fixtures (if needed)
+
+If the backend needs shared fixtures, add a fixture module and import it from backend conftests:
+
+```text
+tests/fixtures/mybackend_backend.py
+tests/implementations/mybackend/conftest.py
+```
+
+This keeps backend fixtures centralized and reusable across categories.
+
+### Step 3: Add Contract-Inheriting Tests
 ```python
-# tests/implementations/inmemory/test_inmemory_limiter.py
+# tests/implementations/mybackend/test_mybackend_limiter.py
 import pytest
-from your_module import InMemoryRateLimiter
+from your_module import MyBackendRateLimiter
 from tests.contracts.test_rate_limiter import RateLimiterContractTest
 
-class TestInMemoryRateLimiter(RateLimiterContractTest):
-    """Test in-memory limiter implementation.
+
+class TestMyBackendRateLimiter(RateLimiterContractTest):
+    """Test my backend limiter implementation.
 
     Inherits all contract tests automatically.
     """
 
     @pytest.fixture
     def limiter(self, default_limiter_id):
-        """Provide the in-memory limiter instance."""
-        return InMemoryRateLimiter(
-            limiter_id=f"{default_limiter_id}_inmemory_default",
+        return MyBackendRateLimiter(
+            limiter_id=f"{default_limiter_id}_mybackend_default",
             limit=100,
             window=60,
             max_concurrency=10,
         )
-
-    # Add implementation-specific tests
-    def test_inmemory_specific_behavior(self, limiter):
-        """Test something specific to the in-memory implementation."""
-        # ...
 ```
 
-### Step 3: Run Tests
+### Step 4: Add Backend-Specific Integration/Property Tests Only Where Needed
+
+If behavior depends on backend internals, place those tests under:
+
+- `tests/integration/mybackend/`
+- `tests/properties/mybackend/` (only if backend internals alter invariants)
+
+### Step 5: Run Backend Tests
 ```bash
-pytest tests/implementations/inmemory/
+pytest tests/implementations/mybackend/
 ```
-
-All contract tests will run automatically against your new implementation!
 
 ## Shared Resources
 
@@ -313,8 +346,8 @@ Contains shared utility functions used across multiple tests:
 ```python
 from tests.helpers.utils import is_subset, dict_equals_approx
 
-assert is_subset({"a": 1}, {"a": 1, "b": 2})  # True
-assert dict_equals_approx({"x": 1.0000001}, {"x": 1.0})  # True
+assert is_subset({"a": 1}, {"a": 1, "b": 2})
+assert dict_equals_approx({"x": 1.0000001}, {"x": 1.0})
 ```
 
 ### helpers/strategies.py
@@ -331,7 +364,6 @@ from tests.helpers.strategies import json_value, nested_dict
 
 @given(payload=json_value)
 def test_something(self, payload):
-    # Test with arbitrary JSON value
     pass
 ```
 
@@ -352,13 +384,13 @@ def test_something(self, payload):
 - `test_payload_survives_redis_round_trip`
 
 **Poor examples:**
-- `test_schedule` (too vague)
-- `test_1` (meaningless)
-- `test_lock` (what about the lock?)
+- `test_schedule`
+- `test_1`
+- `test_lock`
 
 ### Docstrings
-- Contract tests: Start with "Contract: " to clarify the requirement
-- Property tests: Start with "Property: " to clarify the invariant
+- Contract tests: Start with `Contract: ` to clarify the requirement
+- Property tests: Start with `Property: ` to clarify the invariant
 - Implementation tests: Describe the specific behavior being tested
 
 **Examples:**
@@ -409,31 +441,35 @@ redis_client.flushdb()  # Clean state
 ### Session-Scoped Fixtures
 Used for expensive, one-time setup:
 - `_redis_connection`: Single Redis connection for the entire test suite (configurable via `REDIS_HOST`/`REDIS_PORT` environment variables)
-- `celery_app`: Celery application instance (provided by `celery.contrib.pytest`)
-- `celery_config`: Celery configuration with Redis broker
 - `func_path`: Fictional function path for test task scheduling
 - `default_payload`: Default payload `{"user_id": 123}` for tests
 
 ### Function-Scoped Fixtures (Default)
 Used for most tests. Clean state between tests:
 - `redis_client`: Wraps `_redis_connection` with `flushall()` before and after each test
-- `limiter`: Fresh `CeleryRateLimiter` instance created via the class API (`CeleryRateLimiter.create(...)`)
-- `default_limiter_id`: Unique limiter ID per test (UUID-backed) for fixtures/tests that need a limiter name
+- `default_limiter_id`: Unique limiter ID per test (UUID-backed)
 - `default_lock_key`: Unique lock key per test for distributed lock tests
-- `_reset_limiter_class_state` (autouse): Resets class-level singleton cache and calls `configure()` with test fixtures before each test, preventing state pollution between tests
 
-### Implementation-Scoped Fixtures
-Defined in `implementations/conftest.py`. Provide non-Celery concrete implementations for testing abstract behavior:
+### Core Implementation Fixtures
+Defined in `implementations/conftest.py`:
 - `generic_limiter`: `MinimalRateLimiter` instance (no-op dispatch/schedule) for testing `AbstractDistributedRateLimiter` behavior
-- `tracking_limiter`: `TrackingRateLimiter` instance that records `_dispatch_task()` and `_schedule_drain()` calls, used by drain branch-coverage tests
-- `make_limiter_pool`: Factory fixture that creates N limiter instances sharing the same Redis-backed limiter ID, used by concurrent-access contention tests
+- `tracking_limiter`: `TrackingRateLimiter` instance that records `_dispatch_task()` and `_schedule_drain()` calls
+- `make_limiter_pool`: Factory fixture that creates N limiter instances sharing the same Redis-backed limiter ID
 - `task_id`: Unique task ID string for testing
 
+### Backend Fixture Modules
+Backend fixtures are centralized in `tests/fixtures/` and imported where needed:
+
+- `tests/fixtures/celery_backend.py` defines Celery fixtures (`celery_app`, `celery_config`, `limiter`, class-state reset fixture)
+- Backend-local conftests (for example `tests/implementations/celery/conftest.py`) import from that module
+
+This avoids leaking backend fixtures into unrelated test categories.
+
 ### Module-Scoped Fixtures
-Used for property-based tests to improve performance:
-- `default_module_limiter_id`: Unique limiter ID per module for module-scoped limiter fixtures
-- `property_redis_client`: Shared Redis client for Hypothesis tests
-- `property_limiter`: Shared limiter for Hypothesis tests
+Used in property tests to improve performance:
+- `default_module_limiter_id`: Unique limiter ID per module
+- `property_redis_client`: Shared Redis client for a module's Hypothesis runs
+- `property_limiter`: Shared limiter for a module's Hypothesis runs
 
 ## Best Practices
 
@@ -448,19 +484,17 @@ Each test should verify **one specific behavior**. If you need multiple assertio
     ids=["simple", "empty", "nested"],
 )
 def test_various_payloads(self, limiter, payload):
-    # Test runs 3 times with different payloads
     pass
 ```
 
 ### 3. Mock External Dependencies
-Use `unittest.mock` for Celery-specific behavior to avoid needing full Celery workers in tests.
+Use `unittest.mock` for backend-specific behavior where full worker execution is not required.
 
 ### 4. Clean Up Resources
 Use fixtures with proper teardown or context managers to ensure resources are cleaned up even if tests fail.
 
 ### 5. Use Unique IDs in Fixtures
 Prefer fixture-provided unique IDs over hardcoded IDs for limiter names, lock keys, and task IDs.
-This reduces accidental coupling and keeps tests robust if fixture scope or cleanup behavior changes.
 
 ```python
 def test_example(default_limiter_id, default_lock_key):
@@ -479,13 +513,13 @@ redis-cli ping  # Should return "PONG"
 ```
 
 ### Hypothesis Tests Are Slow
-Reduce the number of examples for faster iteration:
+Reduce examples for faster iteration:
 ```bash
 pytest tests/properties/ --hypothesis-max-examples=10
 ```
 
 ### Import Errors
-Ensure you're running pytest from the project root:
+Ensure pytest runs from project root:
 ```bash
 cd /path/to/celery-rate-limiter
 pytest tests/
@@ -495,10 +529,11 @@ pytest tests/
 
 When adding new tests:
 1. Follow the existing structure (contracts, implementations, algorithms, properties, integration)
-2. Use the AAA pattern (Arrange-Act-Assert)
-3. Add descriptive docstrings
-4. Follow naming conventions
-5. Update this README if adding new patterns or conventions
+2. Respect backend scoping rules (`<category>/` core vs `<category>/<backend>/` backend-specific)
+3. Use the AAA pattern (Arrange-Act-Assert)
+4. Add descriptive docstrings
+5. Follow naming conventions
+6. Update this README if adding new patterns or conventions
 
 ## Resources
 

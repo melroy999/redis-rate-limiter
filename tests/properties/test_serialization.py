@@ -6,12 +6,37 @@ survives the round-trip through Redis storage, regardless of structure.
 
 import json
 
+import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
+from tests.implementations.conftest import MinimalRateLimiter
 from tests.helpers.strategies import nested_dict
 from tests.helpers.utils import dict_equals_approx
+
+
+@pytest.fixture(scope="module")
+def property_redis_client(_redis_connection):
+    """Module-scoped Redis client for property-based tests."""
+    yield _redis_connection
+    _redis_connection.flushdb()
+
+
+@pytest.fixture(scope="module")
+def property_limiter(
+    property_redis_client,
+    default_module_limiter_id,
+):
+    """Default module-scoped limiter for property-based tests."""
+    return MinimalRateLimiter(
+        redis_client=property_redis_client,
+        limiter_id=f"{default_module_limiter_id}_property_default",
+        limit=100,
+        window=60,
+        max_concurrency=50,
+        max_age=3600,
+        lease_duration=30,
+    )
 
 
 class TestSerializationProperties:
@@ -124,10 +149,10 @@ class TestSerializationProperties:
     def test_task_signature_is_deterministic(self, payload):
         """Property: repeated signature generation for same payload is deterministic."""
         # Act
-        signature_1 = CeleryRateLimiter._get_task_signature_str(
+        signature_1 = MinimalRateLimiter._get_task_signature_str(
             "myapp.tasks.process", payload
         )
-        signature_2 = CeleryRateLimiter._get_task_signature_str(
+        signature_2 = MinimalRateLimiter._get_task_signature_str(
             "myapp.tasks.process", payload
         )
 

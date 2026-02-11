@@ -1,1 +1,0 @@
-"""Celery backend integration tests."""

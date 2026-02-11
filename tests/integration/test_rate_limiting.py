@@ -10,11 +10,12 @@ import time
 
 import pytest
 
-from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
+from celery_rate_limiter.core.limiters import AbstractDistributedRateLimiter
+from tests.implementations.conftest import MinimalRateLimiter
 
 
 @pytest.fixture
-def integration_limiter(redis_client, celery_app, default_limiter_id):
+def integration_limiter(redis_client, default_limiter_id):
     """Create a limiter with explicit configuration for integration tests.
 
     Config:
@@ -24,9 +25,8 @@ def integration_limiter(redis_client, celery_app, default_limiter_id):
         - max_age: 3600 seconds (1 hour)
         - lease_duration: 30 seconds
     """
-    limiter = CeleryRateLimiter(
+    limiter = MinimalRateLimiter(
         redis_client=redis_client,
-        celery_app=celery_app,
         limiter_id=f"{default_limiter_id}_integration_default",
         limit=5,
         window=60,
@@ -81,7 +81,9 @@ def precise_sleep(duration_seconds: float) -> None:
         time.sleep(0.001)
 
 
-def wait_until_task_is_expired(redis_client, limiter: CeleryRateLimiter) -> None:
+def wait_until_task_is_expired(
+    redis_client, limiter: AbstractDistributedRateLimiter
+) -> None:
     """Wait until the oldest queued task is guaranteed expired by Redis time.
 
     consume.lua computes age in integer seconds using Redis server time and
@@ -372,13 +374,12 @@ class TestRateLimitingIntegration:
         )
 
     def test_expired_task_moved_to_dlq(
-        self, redis_client, celery_app, func_path, default_limiter_id
+        self, redis_client, func_path, default_limiter_id
     ):
         """Verify expired queued tasks are moved to DLQ and reported as expired."""
         # Arrange
-        limiter = CeleryRateLimiter(
+        limiter = MinimalRateLimiter(
             redis_client=redis_client,
-            celery_app=celery_app,
             limiter_id=f"{default_limiter_id}_integration_expired_dlq",
             limit=5,
             window=60,
@@ -413,18 +414,17 @@ class TestRateLimitingIntegration:
         assert dlq_entry["func_path"] == func_path, (
             "dlq entry should preserve original func_path"
         )
-        assert dlq_entry["payload"]["data"] == {"index": 0}, (
+        assert dlq_entry["payload"] == {"index": 0}, (
             "dlq entry should preserve original payload"
         )
 
     def test_per_task_max_age_override_expires_sooner(
-        self, redis_client, celery_app, func_path, default_limiter_id
+        self, redis_client, func_path, default_limiter_id
     ):
         """Verify per-task max_age override can expire earlier than global max_age."""
         # Arrange
-        limiter = CeleryRateLimiter(
+        limiter = MinimalRateLimiter(
             redis_client=redis_client,
-            celery_app=celery_app,
             limiter_id=f"{default_limiter_id}_integration_per_task_max_age",
             limit=5,
             window=60,
@@ -454,13 +454,12 @@ class TestRateLimitingIntegration:
         )
 
     def test_per_task_max_age_stored_in_buffer(
-        self, redis_client, celery_app, func_path, default_limiter_id
+        self, redis_client, func_path, default_limiter_id
     ):
         """Verify schedule_task(max_age=...) stores __meta_max_age in buffered payload."""
         # Arrange
-        limiter = CeleryRateLimiter(
+        limiter = MinimalRateLimiter(
             redis_client=redis_client,
-            celery_app=celery_app,
             limiter_id=f"{default_limiter_id}_integration_meta_max_age",
             limit=5,
             window=60,
@@ -485,13 +484,12 @@ class TestRateLimitingIntegration:
         )
 
     def test_expired_lease_cleaned_up_on_consume(
-        self, redis_client, celery_app, func_path, default_limiter_id
+        self, redis_client, func_path, default_limiter_id
     ):
         """Verify stale concurrency lease entries are cleaned during consume."""
         # Arrange
-        limiter = CeleryRateLimiter(
+        limiter = MinimalRateLimiter(
             redis_client=redis_client,
-            celery_app=celery_app,
             limiter_id=f"{default_limiter_id}_integration_stale_lease",
             limit=5,
             window=60,
@@ -601,7 +599,7 @@ class TestSlidingWindowBehavior:
     """
 
     @pytest.fixture
-    def sliding_window_limiter(self, redis_client, celery_app, default_limiter_id):
+    def sliding_window_limiter(self, redis_client, default_limiter_id):
         """Limiter with production-realistic settings for sliding window behavior tests.
 
         Config:
@@ -609,9 +607,8 @@ class TestSlidingWindowBehavior:
             - window: 1.0 seconds (production setting, less timing-sensitive than 0.5s)
             - max_concurrency: 50 (high to isolate rate limiting behavior)
         """
-        limiter = CeleryRateLimiter(
+        limiter = MinimalRateLimiter(
             redis_client=redis_client,
-            celery_app=celery_app,
             limiter_id=f"{default_limiter_id}_sliding_window",
             limit=25,
             window=1.0,
@@ -907,7 +904,7 @@ class TestSlidingWindowBehaviorParametrized:
 
     @pytest.fixture
     def sliding_window_limiter(
-        self, request, redis_client, celery_app, default_limiter_id
+        self, request, redis_client, default_limiter_id
     ):
         """Parameterized limiter fixture for sliding window behavior tests.
 
@@ -921,9 +918,8 @@ class TestSlidingWindowBehaviorParametrized:
             )
         )
 
-        limiter = CeleryRateLimiter(
+        limiter = MinimalRateLimiter(
             redis_client=redis_client,
-            celery_app=celery_app,
             limiter_id=limiter_id,
             limit=limit,
             window=window,
@@ -948,7 +944,7 @@ class TestSlidingWindowBehaviorParametrized:
         ],
     )
     def test_long_term_rate_converges_to_limit(
-        self, sliding_window_limiter: CeleryRateLimiter, func_path
+        self, sliding_window_limiter: MinimalRateLimiter, func_path
     ):
         """Verify average consumption rate converges to configured limit.
 
@@ -1056,7 +1052,7 @@ class TestSlidingWindowBehaviorParametrized:
         ],
     )
     def test_burst_at_window_boundary_after_empty_window(
-        self, sliding_window_limiter: CeleryRateLimiter, func_path, request
+        self, sliding_window_limiter: MinimalRateLimiter, func_path, request
     ):
         """Verify burst behavior across multiple configurations.
 

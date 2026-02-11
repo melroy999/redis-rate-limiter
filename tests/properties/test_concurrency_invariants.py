@@ -4,19 +4,24 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
+from tests.implementations.conftest import MinimalRateLimiter
+
+
+@pytest.fixture(scope="module")
+def property_redis_client(_redis_connection):
+    """Module-scoped Redis client for property-based tests."""
+    yield _redis_connection
+    _redis_connection.flushdb()
 
 
 @pytest.fixture(scope="module")
 def property_limiter(
     property_redis_client,
-    property_celery_app,
     default_module_limiter_id,
 ):
     """Module-scoped limiter for concurrency-invariant property tests."""
-    return CeleryRateLimiter(
+    return MinimalRateLimiter(
         redis_client=property_redis_client,
-        celery_app=property_celery_app,
         limiter_id=f"{default_module_limiter_id}_property_concurrency",
         limit=10_000,
         window=60,

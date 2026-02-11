@@ -17,7 +17,7 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
-from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
+from tests.implementations.conftest import MinimalRateLimiter
 
 # Random values used by jitter calculations.
 # `random.random()` yields values in [0.0, 1.0), so we exclude 1.0.
@@ -35,15 +35,17 @@ random_stream_strategy = st.lists(
 
 
 @pytest.fixture(scope="module")
-def property_limiter(
-    property_redis_client,
-    property_celery_app,
-    default_module_limiter_id,
-):
+def property_redis_client(_redis_connection):
+    """Module-scoped Redis client for property-based tests."""
+    yield _redis_connection
+    _redis_connection.flushdb()
+
+
+@pytest.fixture(scope="module")
+def property_limiter(property_redis_client, default_module_limiter_id):
     """Module-scoped limiter for jitter property tests."""
-    return CeleryRateLimiter(
+    return MinimalRateLimiter(
         redis_client=property_redis_client,
-        celery_app=property_celery_app,
         limiter_id=f"{default_module_limiter_id}_property_jitter",
         limit=10,
         window=1,

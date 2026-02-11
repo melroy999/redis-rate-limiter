@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
+from tests.implementations.conftest import MinimalRateLimiter
 
 
 class TestMetricsCallback:
@@ -20,11 +20,10 @@ class TestMetricsCallback:
         return MagicMock()
 
     @pytest.fixture
-    def limiter(self, redis_client, celery_app, callback, default_limiter_id):
-        """Create a limiter with a metrics callback for testing."""
-        return CeleryRateLimiter(
+    def limiter(self, redis_client, callback, default_limiter_id):
+        """Create a generic limiter with a metrics callback for testing."""
+        return MinimalRateLimiter(
             redis_client=redis_client,
-            celery_app=celery_app,
             limiter_id=f"{default_limiter_id}_with_metrics",
             limit=10,
             window=60,
@@ -33,11 +32,10 @@ class TestMetricsCallback:
         )
 
     @pytest.fixture
-    def limiter_no_callback(self, redis_client, celery_app, default_limiter_id):
-        """Create a limiter without a metrics callback."""
-        return CeleryRateLimiter(
+    def limiter_no_callback(self, redis_client, default_limiter_id):
+        """Create a generic limiter without a metrics callback."""
+        return MinimalRateLimiter(
             redis_client=redis_client,
-            celery_app=celery_app,
             limiter_id=f"{default_limiter_id}_without_metrics",
             limit=10,
             window=60,
@@ -45,7 +43,7 @@ class TestMetricsCallback:
         )
 
     def test_metrics_callback_none_by_default(self, limiter_no_callback):
-        """Verify metrics_callback defaults to None and does not cause errors."""
+        """Verify metrics_callback defaults to `None` and does not cause errors."""
         # Arrange
         limiter = limiter_no_callback
 
@@ -83,7 +81,7 @@ class TestMetricsCallback:
         was_scheduled, task_id = limiter.schedule_task(func_path, {"key": "value"})
 
         # Assert
-        # The schedule_task method also calls trigger_consume which calls consume.
+        # Backend implementations may trigger follow-up consume asynchronously.
         # Filter to just the schedule event.
         schedule_calls = [
             call for call in callback.call_args_list if call[0][0] == "schedule"
