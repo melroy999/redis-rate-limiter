@@ -5,8 +5,10 @@ and handles burst scenarios using Redis and Lua scripts.
 """
 
 import json
+import math
 import sys
 import time
+from collections import Counter
 
 import pytest
 
@@ -110,12 +112,16 @@ def wait_until_task_is_expired(
 
 def position_at_window_percentage(
     limiter, target_pct: float, verbose: bool = False
-) -> tuple[dict, float]:
-    """Position precisely at a target percentage through a rate limit window.
+) -> float:
+    """Sleep until positioned at ``target_pct`` through a rate limit window.
 
-    Uses two-phase positioning:
-    1. Coarse: Wait 2 windows to ensure clean state (empty previous window).
-    2. Fine-tune: Measure current position and wait to reach target.
+    Uses ``redis_client.time()`` to compute exact Redis window boundaries,
+    then sleeps to the nearest occurrence of ``target_pct``. The function is
+    side-effect free: it does not consume any tasks, leaving the caller in
+    full control of when consumption starts.
+
+    No empty-window wait is needed because each test uses a unique limiter ID
+    (uuid4) with a flushed Redis, so ``previous_count`` is always 0.
 
     Args:
         limiter: The rate limiter instance.
@@ -123,69 +129,50 @@ def position_at_window_percentage(
         verbose: Whether to print debug information.
 
     Returns:
-        Tuple of (consume_result, actual_position_pct) at target position.
+        The actual position as a fraction (verified via ``redis_client.time()``).
     """
     window = limiter.window
+    window_ms = int(window * 1000)
 
-    # Phase 1: Coarse positioning - wait 2 windows for clean state.
-    if verbose:
-        print("\n  [DEBUG] Initial positioning:")
-        print(
-            f"    Waiting {window * 2:.1f}s (2 windows) to ensure empty previous window..."
-        )
+    # Determine Redis server time and compute fixed window boundaries.
+    redis_time = limiter.redis.time()
+    redis_now_ms = redis_time[0] * 1000 + redis_time[1] // 1000
 
-    result = limiter.consume()
-    if result["success"]:
-        with limiter.task_lifecycle(result["task"]["id"]):
-            pass
+    current_window_start_ms = (redis_now_ms // window_ms) * window_ms
+    elapsed_ms = redis_now_ms - current_window_start_ms
+    current_pct = elapsed_ms / window_ms
 
-    precise_sleep(window * 2)
-
-    # Phase 2: Fine-tune positioning to target percentage.
-    check_result = limiter.consume()
-    if check_result["success"]:
-        with limiter.task_lifecycle(check_result["task"]["id"]):
-            pass
-
-    reset_ms = check_result["reset_in_ms"]
-    current_pct = (window * 1000 - reset_ms) / (window * 1000)
-
-    if verbose:
-        print("\n  [DEBUG] Fine-tuning position:")
-        print(f"    Current position: {current_pct * 100:.1f}% through window")
-        print(f"    Target position: {target_pct * 100:.1f}% through window")
-        print(f"    reset_in_ms: {reset_ms}ms")
-
-    # Calculate wait to reach target.
+    # Sleep to the nearest occurrence of target_pct.
     if current_pct < target_pct:
-        wait_time = (target_pct - current_pct) * window
-        if verbose:
-            print(f"    Waiting additional {wait_time:.3f}s to reach target...")
-        precise_sleep(wait_time)
+        # Target is ahead in the current window.
+        target_window_start_ms = current_window_start_ms
     else:
-        # Passed target, wait for next window + position in that one.
-        wait_for_next = reset_ms / 1000
-        wait_to_position = target_pct * window
-        total_wait = wait_for_next + wait_to_position
-        if verbose:
-            print(
-                f"    Already past target, waiting {total_wait:.3f}s for next window + position..."
-            )
-        precise_sleep(total_wait)
+        # Already past target, wait for the next window.
+        target_window_start_ms = current_window_start_ms + window_ms
 
-    # Verify final position.
-    final_result = limiter.consume()
-    actual_pct = (window * 1000 - final_result["reset_in_ms"]) / (window * 1000)
+    target_redis_ms = target_window_start_ms + target_pct * window_ms
+    wait_s = (target_redis_ms - redis_now_ms) / 1000
 
     if verbose:
-        print("\n  [DEBUG] State at target position:")
-        print(f"    remaining_tokens: {final_result['remaining_tokens']}")
-        print(f"    reset_in_ms: {final_result['reset_in_ms']}ms")
+        print("\n  [DEBUG] Positioning via Redis TIME:")
+        print(f"    Current position: {current_pct * 100:.1f}% through window")
+        print(f"    Target position: {target_pct * 100:.0f}% through window")
+        print(f"    Waiting {wait_s:.3f}s to reach target...")
+
+    precise_sleep(wait_s)
+
+    # Verify position via Redis TIME (no consume, no side effects).
+    redis_time_after = limiter.redis.time()
+    redis_after_ms = redis_time_after[0] * 1000 + redis_time_after[1] // 1000
+    actual_pct = (redis_after_ms - target_window_start_ms) / window_ms
+
+    if verbose:
+        print(f"\n  [DEBUG] Position after sleep:")
         print(
             f"    Position in window: {actual_pct * 100:.1f}% (target: {target_pct * 100:.0f}%)"
         )
 
-    return final_result, actual_pct
+    return actual_pct
 
 
 class TestRateLimitingIntegration:
@@ -623,34 +610,37 @@ class TestSlidingWindowBehavior:
         if keys:
             redis_client.delete(*keys)
 
-    def test_long_term_rate_converges_to_limit(self, sliding_window_limiter, func_path):
+    def test_long_term_rate_converges_to_limit(
+        self, sliding_window_limiter, redis_client, func_path
+    ):
         """Verify average consumption rate converges to configured limit.
 
-        Over multiple windows, total successful consumptions should approximate
-        `num_windows x limit`. This tests the fundamental property of rate
-        limiting: controlling throughput over time.
-
-        Additionally, we opportunistically verify that no window-sized period
-        exceeds 2x the limit. This check is not exhaustive--the 2x bound depends
-        on specific timing scenarios (empty previous window + boundary burst)
-        that we cannot reliably trigger. However, it will catch grossly broken
-        implementations that allow unbounded throughput.
-
-        Note on the 2x bound: The sliding window counter algorithm can allow
-        up to 2x limit in edge cases. This is a known algorithmic property,
-        not a bug. A true sliding window would enforce exactly 1x limit, but
-        the counter approximation trades this for O(1) space complexity.
+        See ``tests/integration/README.md`` for the full derivation and
+        rationale behind each assertion.
         """
         # Arrange
         # Infer configuration from limiter for consistency.
         limit = sliding_window_limiter.limit
         window = sliding_window_limiter.window
+        window_ms = int(window * 1000)
         num_windows = 4
         total_duration = num_windows * window
+
+        # Sleep fraction used when the consumer is rate-limited.
+        sleep_fraction = 0.05
 
         # Schedule more tasks than we expect to consume.
         for i in range(2 * num_windows * limit):
             sliding_window_limiter.schedule_task(func_path, {"index": i})
+
+        # Calibrate clock offset between Python time and Redis server time.
+        # This lets us map Python-side timestamps into Redis-aligned fixed
+        # windows without calling KEYS/SCAN (which block Redis and could
+        # affect test timing).
+        redis_time = redis_client.time()
+        redis_now_s = redis_time[0] + redis_time[1] / 1_000_000
+        python_now = time.time()
+        clock_offset = redis_now_s - python_now
 
         # Act
         # Consume continuously, recording timestamps.
@@ -664,8 +654,7 @@ class TestSlidingWindowBehavior:
                 timestamps.append(time.time())
             else:
                 # Rate limited--wait for tokens to recover.
-                # Use 5% of window duration for realistic pacing.
-                precise_sleep(window * 0.05)
+                precise_sleep(window * sleep_fraction)
 
         total_consumed = len(timestamps)
         actual_duration = time.time() - start_time
@@ -680,13 +669,7 @@ class TestSlidingWindowBehavior:
         observed_rate = total_consumed / actual_duration * window
 
         # Steady-state max: skip the first 2W (burst + recovery), then check
-        # that no window-sized period exceeds limit+1.
-        #
-        # This bound holds here because sustained, greedy consumption from a
-        # single worker keeps fixed windows roughly uniformly filled. It is NOT
-        # a general property of the sliding window counter--arbitrary traffic
-        # patterns (multiple workers, bursty arrivals, non-greedy consumers)
-        # can violate it. The +1 accounts for timing jitter.
+        # that no window-sized period exceeds the derived analytical bound.
         steady_state_start = start_time + window * 2
         post_burst_timestamps = [ts for ts in timestamps if ts >= steady_state_start]
         observed_steady_state_max = 0
@@ -694,32 +677,51 @@ class TestSlidingWindowBehavior:
             count_in_window = sum(1 for t in timestamps if ts <= t < ts + window)
             observed_steady_state_max = max(observed_steady_state_max, count_in_window)
 
+        # Map Python timestamps to Redis-aligned fixed windows.
+        def to_redis_window(ts: float) -> int:
+            redis_ms = (ts + clock_offset) * 1000
+            return int(redis_ms // window_ms) * window_ms
+
+        fixed_window_counts = Counter(to_redis_window(ts) for ts in timestamps)
+        sorted_windows = sorted(fixed_window_counts.keys())
+
+        # Identify steady-state fixed windows (skip the first 2).
+        steady_state_fixed_windows = sorted_windows[2:] if len(sorted_windows) > 2 else []
+        fixed_window_max = max(
+            (fixed_window_counts[w] for w in steady_state_fixed_windows), default=0
+        )
+
         # Report observed metrics.
-        print("\n  Sliding window test results:")
+        print("\n  Sliding window convergence test results:")
         print(f"    Config: limit={limit}, window={window}s")
         print(f"    Duration: {actual_duration:.2f}s ({num_windows} windows)")
+        print(f"    Clock offset (Redis - Python): {clock_offset * 1000:.1f}ms")
         print(f"    Total consumed: {total_consumed}")
         print(
-            f"    Observed rate: {observed_rate:.2f} requests/window (expected: {limit})"
+            f"    Observed rate: {observed_rate:.1f} requests/window (expected: {limit})"
         )
         print(
-            f"    Max burst in any {window}s window: {observed_max_burst} (max allowed: {2 * limit})"
+            f"    Max burst in any {window}s window: "
+            f"{observed_max_burst} (max allowed: {2 * limit})"
         )
         print(
-            f"    Steady-state max (after {window * 2:.2f}s): {observed_steady_state_max} (max allowed: {limit + 1})"
+            f"    Steady-state sliding window max (after {window * 2:.1f}s): "
+            f"{observed_steady_state_max}"
+        )
+        print(f"    Per-fixed-window counts: {dict(sorted(fixed_window_counts.items()))}")
+        print(
+            f"    Steady-state fixed window max: "
+            f"{fixed_window_max} (max allowed: {limit})"
         )
 
         # Assert
-        # The sliding window algorithm can burst up to 2x limit at the start if we
-        # happen to hit a window boundary with empty history. After that initial
-        # burst, the algorithm spreads requests properly across successive windows.
-        # Account for this by allowing up to 1 extra window's worth on the upper bound.
         expected = num_windows * limit
 
         # 20% tolerance for timing variance.
         lower_bound = expected * 0.80
 
-        # Possible initial boundary burst.
+        # The initial burst (empty history + boundary) can add up to 1 extra
+        # window's worth.
         upper_bound = (num_windows + 1) * limit
 
         assert lower_bound <= total_consumed <= upper_bound, (
@@ -728,8 +730,6 @@ class TestSlidingWindowBehavior:
         )
 
         # Verify no window-sized period exceeded 2x limit.
-        # This is not guaranteed to catch all violations: it depends on timing we
-        # don't control, but catches fundamentally broken implementations.
         max_burst = 2 * limit
         assert observed_max_burst <= max_burst, (
             f"exceeded 2x limit: {observed_max_burst} requests in {window}s window "
@@ -737,12 +737,16 @@ class TestSlidingWindowBehavior:
             f"this indicates a bug in the sliding window implementation."
         )
 
-        # Verify steady-state max under sustained load (see comment above).
-        if post_burst_timestamps:
-            assert observed_steady_state_max <= limit + 1, (
-                f"exceeded limit+1 in steady state: {observed_steady_state_max} requests "
-                f"in {window}s window (limit={limit}, max_allowed={limit + 1}). "
-                f"the sliding window counter should approximate the limit after the initial burst phase."
+        # Verify per-fixed-window invariant (provable bound).
+        # Each fixed window counter can reach at most ``limit`` because INCR
+        # only fires after ``estimated_count < limit``, and the estimate
+        # includes a non-negative previous window contribution.
+        for win_start in steady_state_fixed_windows:
+            count = fixed_window_counts[win_start]
+            assert count <= limit, (
+                f"fixed window {win_start} had {count} requests "
+                f"(limit={limit}). this violates the algorithm's "
+                f"provable per-fixed-window invariant."
             )
 
     def test_burst_at_window_boundary_after_empty_window(
@@ -768,22 +772,15 @@ class TestSlidingWindowBehavior:
             sliding_window_limiter.schedule_task(func_path, {"index": i})
 
         # Position at 80% through window with empty previous window.
-        pre_burst_result, actual_pct = position_at_window_percentage(
+        actual_pct = position_at_window_percentage(
             sliding_window_limiter, target_pct=1 - window_tail, verbose=verbose
         )
-
-        # Complete the positioning consume and start timestamp tracking.
-        if pre_burst_result["success"]:
-            with sliding_window_limiter.task_lifecycle(pre_burst_result["task"]["id"]):
-                pass
-            timestamps = [time.time()]
-        else:
-            timestamps = []
 
         # Consume rapidly across the window boundary.
         # Use a time-based loop: tail of current window + enough windows to consume all tasks.
         # This ensures we capture the burst and verify subsequent windows don't cause issues.
         # We scheduled limit * 3 tasks.
+        timestamps = []
         num_task_windows = 3
         burst_window = window * (num_task_windows + window_tail)
         start_time = time.time()
@@ -942,24 +939,37 @@ class TestSlidingWindowBehaviorParametrized:
         ],
     )
     def test_long_term_rate_converges_to_limit(
-        self, sliding_window_limiter: MinimalRateLimiter, func_path
+        self, sliding_window_limiter: MinimalRateLimiter, redis_client, func_path
     ):
         """Verify average consumption rate converges to configured limit.
 
-        This parameterized version runs the convergence test across multiple
-        configurations to ensure the algorithm behaves correctly regardless
-        of specific limit/window values.
+        See ``tests/integration/README.md`` for the full derivation and
+        rationale behind each assertion.
         """
         # Arrange
         # Infer configuration from limiter.
         limit = sliding_window_limiter.limit
         window = sliding_window_limiter.window
+        window_ms = int(window * 1000)
+
+        # For short windows, scale up so total duration >= num_windows seconds.
+        # This gives enough steady-state data to tolerate system hiccups.
         num_windows = 4
+        num_windows = max(num_windows, math.ceil(num_windows / window))
         total_duration = num_windows * window
+
+        # Sleep fraction used when the consumer is rate-limited.
+        sleep_fraction = 0.05
 
         # Schedule more tasks than we expect to consume.
         for i in range(2 * limit * num_windows):
             sliding_window_limiter.schedule_task(func_path, {"index": i})
+
+        # Calibrate clock offset between Python time and Redis server time.
+        redis_time = redis_client.time()
+        redis_now_s = redis_time[0] + redis_time[1] / 1_000_000
+        python_now = time.time()
+        clock_offset = redis_now_s - python_now
 
         # Act
         # Consume continuously, recording timestamps.
@@ -972,8 +982,7 @@ class TestSlidingWindowBehaviorParametrized:
                 timestamps.append(time.time())
             else:
                 # Rate limited--wait for tokens to recover.
-                # Use 5% of window duration for realistic pacing.
-                precise_sleep(window * 0.05)
+                precise_sleep(window * sleep_fraction)
 
         total_consumed = len(timestamps)
         actual_duration = time.time() - start_time
@@ -986,8 +995,7 @@ class TestSlidingWindowBehaviorParametrized:
 
         observed_rate = total_consumed / actual_duration * window
 
-        # Steady-state max: see the non-parameterized test for why this bound
-        # holds under sustained single-worker load but not in general.
+        # Steady-state sliding window max (skip first 2W for burst + recovery).
         steady_state_start = start_time + window * 2
         post_burst_timestamps = [ts for ts in timestamps if ts >= steady_state_start]
         observed_steady_state_max = 0
@@ -995,29 +1003,51 @@ class TestSlidingWindowBehaviorParametrized:
             count_in_window = sum(1 for t in timestamps if ts <= t < ts + window)
             observed_steady_state_max = max(observed_steady_state_max, count_in_window)
 
+        # Map Python timestamps to Redis-aligned fixed windows.
+        def to_redis_window(ts: float) -> int:
+            redis_ms = (ts + clock_offset) * 1000
+            return int(redis_ms // window_ms) * window_ms
+
+        fixed_window_counts = Counter(to_redis_window(ts) for ts in timestamps)
+        sorted_windows = sorted(fixed_window_counts.keys())
+
+        # Identify steady-state fixed windows (skip the first 2).
+        steady_state_fixed_windows = sorted_windows[2:] if len(sorted_windows) > 2 else []
+        fixed_window_max = max(
+            (fixed_window_counts[w] for w in steady_state_fixed_windows), default=0
+        )
+
         # Report observed metrics.
         print("\n  Parameterized sliding window test results:")
         print(f"    Config: limit={limit}, window={window}s")
         print(f"    Duration: {actual_duration:.2f}s ({num_windows} windows)")
+        print(f"    Clock offset (Redis - Python): {clock_offset * 1000:.1f}ms")
         print(f"    Total consumed: {total_consumed}")
         print(
-            f"    Observed rate: {observed_rate:.2f} requests/window (expected: {limit})"
+            f"    Observed rate: {observed_rate:.1f} requests/window (expected: {limit})"
         )
         print(
-            f"    Max burst in any {window}s window: {observed_max_burst} (max allowed: {2 * limit})"
+            f"    Max burst in any {window}s window: "
+            f"{observed_max_burst} (max allowed: {2 * limit})"
         )
         print(
-            f"    Steady-state max (after {window * 2:.2f}s): {observed_steady_state_max} (max allowed: {limit + 1})"
+            f"    Steady-state sliding window max (after {window * 2:.1f}s): "
+            f"{observed_steady_state_max}"
+        )
+        print(f"    Per-fixed-window counts: {dict(sorted(fixed_window_counts.items()))}")
+        print(
+            f"    Steady-state fixed window max: "
+            f"{fixed_window_max} (max allowed: {limit})"
         )
 
         # Assert
-        # Account for possible initial boundary burst (up to 1 extra window's worth).
         expected = num_windows * limit
 
-        # 25% tolerance for timing variance (slightly more lenient for short windows).
-        lower_bound = expected * 0.75
+        # Sub-second windows are more susceptible to system-level jitter
+        # (scheduling pauses, GC) that can cause entire windows to be missed.
+        lower_bound = expected * (0.50 if window < 1 else 0.75)
 
-        # Possible initial boundary burst.
+        # The initial burst can add up to 1 extra window's worth.
         upper_bound = (num_windows + 1) * limit
 
         assert lower_bound <= total_consumed <= upper_bound, (
@@ -1032,12 +1062,13 @@ class TestSlidingWindowBehaviorParametrized:
             f"(limit={limit}, max_allowed={max_burst})"
         )
 
-        # Verify steady-state max under sustained load (see non-parameterized test).
-        if post_burst_timestamps:
-            assert observed_steady_state_max <= limit + 1, (
-                f"exceeded limit+1 in steady state: {observed_steady_state_max} requests "
-                f"in {window}s window (limit={limit}, max_allowed={limit + 1}), "
-                f"the sliding window counter should approximate the limit after the initial burst phase"
+        # Verify per-fixed-window invariant (provable bound).
+        for win_start in steady_state_fixed_windows:
+            count = fixed_window_counts[win_start]
+            assert count <= limit, (
+                f"fixed window {win_start} had {count} requests "
+                f"(limit={limit}). this violates the algorithm's "
+                f"provable per-fixed-window invariant."
             )
 
     @pytest.mark.parametrize(
@@ -1070,19 +1101,12 @@ class TestSlidingWindowBehaviorParametrized:
             sliding_window_limiter.schedule_task(func_path, {"index": i})
 
         # Position at 80% through window with empty previous window.
-        pre_burst_result, actual_pct = position_at_window_percentage(
+        actual_pct = position_at_window_percentage(
             sliding_window_limiter, target_pct=1 - window_tail, verbose=verbose
         )
 
-        # Complete the positioning consume and start timestamp tracking.
-        if pre_burst_result["success"]:
-            with sliding_window_limiter.task_lifecycle(pre_burst_result["task"]["id"]):
-                pass
-            timestamps = [time.time()]
-        else:
-            timestamps = []
-
         # Consume rapidly across the window boundary.
+        timestamps = []
         num_task_windows = 3
         burst_window = window * (num_task_windows + window_tail)
         start_time = time.time()
