@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import warnings
 from typing import Any, ClassVar, Optional, cast
 
 from celery import Celery
@@ -50,7 +49,7 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
     def _get_instance_context(cls) -> dict[str, Any]:
         """Expose constructor context for concrete instance creation."""
         assert cls._celery_app is not None
-        return {"celery_app": cls._celery_app, "_sentinel": cls._SENTINEL}
+        return {"celery_app": cls._celery_app}
 
     @classmethod
     def _reset_backend_context(cls) -> None:
@@ -74,27 +73,16 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
             _sentinel: Any = None,
             **kwargs: Any,
     ):
-        """Create a Celery rate limiter instance.
-
-        Deprecated:
-            Direct construction is deprecated.  Use ``CeleryRateLimiter.create()`` or
-            ``CeleryRateLimiter.get()`` instead.
+        """Create a Celery rate limiter instance via the managed class API.
 
         Args:
             redis_client: The Redis client.
             celery_app: The Celery app to use for task dispatch.
-            _sentinel: Internal — passed by classmethods to suppress the deprecation warning.
+            _sentinel: Internal sentinel passed by class API methods.
 
         Other parameters are inherited from AbstractDistributedRateLimiter.
         """
-        if _sentinel is not self.__class__._SENTINEL:
-            warnings.warn(
-                "Direct CeleryRateLimiter() construction is deprecated. "
-                "Use CeleryRateLimiter.configure() + .create() or .get() instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-        super().__init__(redis_client, *args, **kwargs)
+        super().__init__(redis_client, *args, _sentinel=_sentinel, **kwargs)
         self.app = celery_app
 
     @staticmethod

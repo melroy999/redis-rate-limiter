@@ -4,8 +4,6 @@ Core class-API behavior is covered by `tests/implementations/test_rate_limiter_c
 This module keeps only tests that are specific to Celery backend context.
 """
 
-import warnings
-
 import pytest
 
 from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
@@ -69,12 +67,12 @@ class TestCeleryRateLimiterClassApi:
             "reset should clear shared celery app"
         )
 
-    def test_direct_construction_emits_deprecation_warning(
+    def test_direct_construction_raises_runtime_error(
         self, redis_client, celery_app, default_limiter_id
     ):
-        """Verify direct construction emits a deprecation warning."""
+        """Verify direct constructor usage is rejected."""
         # Act & Assert
-        with pytest.warns(DeprecationWarning, match="deprecated"):
+        with pytest.raises(RuntimeError, match="Direct CeleryRateLimiter"):
             CeleryRateLimiter(
                 redis_client=redis_client,
                 celery_app=celery_app,
@@ -84,30 +82,23 @@ class TestCeleryRateLimiterClassApi:
                 max_concurrency=2,
             )
 
-    def test_class_api_create_does_not_emit_deprecation_warning(
+    def test_class_api_create_succeeds(
         self, redis_client, celery_app, default_limiter_id
     ):
-        """Verify class API create path does not emit deprecation warnings."""
+        """Verify class API create path remains valid."""
         # Arrange
         self._configure(redis_client, celery_app)
 
         # Act
-        with warnings.catch_warnings(record=True) as captured:
-            warnings.simplefilter("always")
-            CeleryRateLimiter.create(
-                default_limiter_id,
-                limit=10,
-                window=60,
-                max_concurrency=5,
-                override=True,
-            )
+        created = CeleryRateLimiter.create(
+            default_limiter_id,
+            limit=10,
+            window=60,
+            max_concurrency=5,
+            override=True,
+        )
 
         # Assert
-        deprecation_warnings = [
-            warning
-            for warning in captured
-            if issubclass(warning.category, DeprecationWarning)
-        ]
-        assert not deprecation_warnings, (
-            "class API create should not emit deprecation warnings"
+        assert created.id == default_limiter_id, (
+            "create should return the requested limiter instance"
         )

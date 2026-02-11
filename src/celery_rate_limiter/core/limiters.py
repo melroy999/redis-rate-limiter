@@ -1147,6 +1147,26 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
         logger.info("%s configured.", cls.__name__)
 
     @classmethod
+    def _require_internal_construction(cls, sentinel: Any) -> None:
+        """Reject direct constructor calls that bypass the managed class API."""
+        if sentinel is not cls._SENTINEL:
+            raise RuntimeError(
+                f"Direct {cls.__name__}() construction is not supported. "
+                f"Use {cls._configure_hint()} then {cls.__name__}.create() or {cls.__name__}.get()."
+            )
+
+    def __init__(
+            self,
+            redis_client: Redis,
+            *args: Any,
+            _sentinel: Any = None,
+            **kwargs: Any,
+    ) -> None:
+        """Construct a managed limiter instance from internal class API flows."""
+        self.__class__._require_internal_construction(_sentinel)
+        super().__init__(redis_client, *args, **kwargs)
+
+    @classmethod
     def create(
             cls,
             limiter_id: str,
@@ -1176,6 +1196,7 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
             max_concurrency=max_concurrency,
             max_age=max_age,
             lease_duration=lease_duration,
+            _sentinel=cls._SENTINEL,
             **cls._get_instance_context(),
             **kwargs,
         )
@@ -1224,6 +1245,7 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
         instance = cls(
             redis_client=cls._redis_client,
             limiter_id=limiter_id,
+            _sentinel=cls._SENTINEL,
             **cls._get_instance_context(),
             **config,
         )

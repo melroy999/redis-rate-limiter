@@ -17,7 +17,14 @@ class RateLimiterContractTest:
         class TestCeleryLimiter(RateLimiterContractTest):
             @pytest.fixture
             def limiter(self, redis_client, celery_app):
-                return CeleryRateLimiter(redis_client, celery_app, ...)
+                CeleryRateLimiter.configure(redis_client, celery_app=celery_app)
+                return CeleryRateLimiter.create(
+                    "example",
+                    limit=10,
+                    window=60,
+                    max_concurrency=5,
+                    override=True,
+                )
     """
 
     # ==================== Contract Tests ====================
