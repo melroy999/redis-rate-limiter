@@ -1,7 +1,7 @@
 # Load shared infrastructure and configure the limiter for this process.
 from config import celery_app, configure_limiter
 
-from celery_rate_limiter.limiters import CeleryRateLimiter
+from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
 
 configure_limiter()
 

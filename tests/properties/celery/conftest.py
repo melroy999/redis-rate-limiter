@@ -2,7 +2,13 @@
 
 import pytest
 
-from celery_rate_limiter.limiters import CeleryRateLimiter
+from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
+from tests.fixtures import celery_backend as _celery_backend
+
+celery_app = _celery_backend.celery_app
+celery_config = _celery_backend.celery_config
+limiter = _celery_backend.limiter
+_reset_limiter_class_state = _celery_backend._reset_limiter_class_state
 
 
 @pytest.fixture(scope="module")

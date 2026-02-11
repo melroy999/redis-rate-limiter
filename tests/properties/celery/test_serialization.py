@@ -9,7 +9,7 @@ import json
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from celery_rate_limiter.limiters import CeleryRateLimiter
+from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
 from tests.helpers.strategies import nested_dict
 from tests.helpers.utils import dict_equals_approx
 

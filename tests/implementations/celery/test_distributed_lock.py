@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from celery_rate_limiter.limiters import DistributedLock
+from celery_rate_limiter.core.limiters import DistributedLock
 from tests.contracts.test_distributed_lock import (
     SHORT_TIMEOUT_MS,
     DistributedLockContractTest,
@@ -86,7 +86,8 @@ class TestDistributedLock(DistributedLockContractTest):
                 new_token = lock_2.token
                 assert new_token != original_token
 
-                # Manually trigger lock_1's exit, effectively simulating its task finishing after lock expiration.
+                # Manually trigger lock_1's exit, effectively simulating
+                # its task finishing after lock expiration.
                 lock_1.__exit__(None, None, None)
 
                 # Assert lock_2's token is still in Redis.

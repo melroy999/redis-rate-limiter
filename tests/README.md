@@ -147,7 +147,7 @@ Integration tests verify end-to-end behavior of the rate limiter with real Redis
 
 **Example:**
 ```python
-# integration/test_rate_limiting.py
+# integration/celery/test_rate_limiting.py
 @pytest.fixture
 def integration_limiter(redis_client, celery_app, default_limiter_id):
     """Create a limiter with explicit configuration for integration tests."""

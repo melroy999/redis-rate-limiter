@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from celery_rate_limiter.tasks.dispatcher import attempt_consume
-from celery_rate_limiter.tasks.worker import generic_rate_limited_worker, import_string
+from celery_rate_limiter.backends.celery.tasks.dispatcher import attempt_consume
+from celery_rate_limiter.backends.celery.tasks.worker import generic_rate_limited_worker, import_string
 
 
 class TestImportString:
@@ -70,7 +70,7 @@ class TestAttemptConsumeTask:
 
         # Act
         with patch(
-            "celery_rate_limiter.tasks.dispatcher.CeleryRateLimiter.get",
+            "celery_rate_limiter.backends.celery.tasks.dispatcher.CeleryRateLimiter.get",
             return_value=limiter,
         ) as mock_get:
             attempt_consume.run("my_limiter")
@@ -83,7 +83,7 @@ class TestAttemptConsumeTask:
         """Verify ValueError from CeleryRateLimiter.get() propagates."""
         # Act & Assert
         with patch(
-            "celery_rate_limiter.tasks.dispatcher.CeleryRateLimiter.get",
+            "celery_rate_limiter.backends.celery.tasks.dispatcher.CeleryRateLimiter.get",
             side_effect=ValueError("not found"),
         ):
             with pytest.raises(ValueError, match="not found"):
@@ -107,11 +107,11 @@ class TestGenericWorkerTask:
         # Act
         with (
             patch(
-                "celery_rate_limiter.decorators.CeleryRateLimiter.get",
+                "celery_rate_limiter.core.decorators._get_default_limiter",
                 return_value=limiter,
             ) as mock_get,
             patch(
-                "celery_rate_limiter.tasks.worker.import_string",
+                "celery_rate_limiter.backends.celery.tasks.worker.import_string",
                 return_value=target_func,
             ) as mock_import,
         ):

@@ -4,7 +4,7 @@ from typing import Any, Callable, cast
 
 from celery import shared_task
 
-from celery_rate_limiter.decorators import rate_limited
+from celery_rate_limiter.core.decorators import rate_limited
 
 logger = logging.getLogger(__name__)
 

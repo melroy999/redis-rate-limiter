@@ -67,7 +67,7 @@ def run_concurrently(fn, args_list):
 
 
 def schedule_n_tasks(limiter, n):
-    """Pre-load the limiter buffer with *n* unique tasks.
+    """Preload the limiter buffer with *n* unique tasks.
 
     Returns:
         A list of task IDs in scheduling order.
@@ -189,7 +189,7 @@ class TestConcurrentConsumption:
             WORKERS, limit=limit, window=60, max_concurrency=1000
         )
 
-        # Pre-load buffer with many more tasks than the limit.
+        # Preload buffer with many more tasks than the limit.
         schedule_n_tasks(limiters[0], n=limit * 5)
 
         # Probe the window state with a single consume. If the window is
@@ -239,7 +239,7 @@ class TestConcurrentConsumption:
             WORKERS, limit=1000, window=60, max_concurrency=max_conc
         )
 
-        # Pre-load buffer with plenty of tasks.
+        # Preload buffer with plenty of tasks.
         schedule_n_tasks(limiters[0], n=50)
 
         def consume_once(limiter):

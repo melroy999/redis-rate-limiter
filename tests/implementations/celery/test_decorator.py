@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from celery_rate_limiter.decorators import rate_limited
+from celery_rate_limiter.core.decorators import rate_limited
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ class TestRateLimitedDecorator:
 
         # Act
         with patch(
-            "celery_rate_limiter.decorators.CeleryRateLimiter.get",
+            "celery_rate_limiter.core.decorators._get_default_limiter",
             return_value=limiter,
         ):
             result = wrapped_function(4, _rate_limit_task_id="task-123")
@@ -57,7 +57,7 @@ class TestRateLimitedDecorator:
 
         # Act
         with patch(
-            "celery_rate_limiter.decorators.CeleryRateLimiter.get",
+            "celery_rate_limiter.core.decorators._get_default_limiter",
             return_value=limiter,
         ):
             result = wrapped_function(alpha=1, _rate_limit_task_id="task-456")
@@ -80,7 +80,7 @@ class TestRateLimitedDecorator:
 
         # Act
         with patch(
-            "celery_rate_limiter.decorators.CeleryRateLimiter.get",
+            "celery_rate_limiter.core.decorators._get_default_limiter",
             return_value=limiter,
         ) as mock_get:
             wrapped_function(
@@ -103,7 +103,7 @@ class TestRateLimitedDecorator:
 
         # Act
         with patch(
-            "celery_rate_limiter.decorators.CeleryRateLimiter.get",
+            "celery_rate_limiter.core.decorators._get_default_limiter",
             return_value=limiter,
         ) as mock_get:
             wrapped_function(
@@ -126,7 +126,7 @@ class TestRateLimitedDecorator:
 
         # Act
         with patch(
-            "celery_rate_limiter.decorators.CeleryRateLimiter.get",
+            "celery_rate_limiter.core.decorators._get_default_limiter",
             return_value=limiter,
         ):
             result = wrapped_function(2, 5, _rate_limit_task_id="task-111")
@@ -145,7 +145,7 @@ class TestRateLimitedDecorator:
 
         # Act & Assert
         with patch(
-            "celery_rate_limiter.decorators.CeleryRateLimiter.get",
+            "celery_rate_limiter.core.decorators._get_default_limiter",
             return_value=limiter,
         ):
             with pytest.raises(RuntimeError, match="wrapped function failed"):
@@ -165,7 +165,7 @@ class TestRateLimitedDecorator:
 
         # Act & Assert
         with patch(
-            "celery_rate_limiter.decorators.CeleryRateLimiter.get",
+            "celery_rate_limiter.core.decorators._get_default_limiter",
             return_value=limiter,
         ) as mock_get:
             with pytest.raises(KeyError, match="_rate_limit_task_id"):
@@ -193,3 +193,20 @@ class TestRateLimitedDecorator:
         assert decorated.__doc__ == original_function.__doc__, (
             "decorator should preserve function __doc__"
         )
+
+    def test_decorator_uses_injected_limiter_resolver(self, limiter_mock):
+        """Verify decorator can resolve limiters via injected backend resolver."""
+        # Arrange
+        limiter, _ = limiter_mock
+        resolver = MagicMock(return_value=limiter)
+
+        @rate_limited("resolver_limiter", get_limiter=resolver)
+        def wrapped_function(value: int) -> int:
+            return value
+
+        # Act
+        result = wrapped_function(9, _rate_limit_task_id="task-resolver")
+
+        # Assert
+        assert result == 9, "decorator should preserve return value with custom resolver"
+        resolver.assert_called_once_with("resolver_limiter")

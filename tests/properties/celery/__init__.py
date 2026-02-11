@@ -1,0 +1,1 @@
+"""Celery backend property tests."""

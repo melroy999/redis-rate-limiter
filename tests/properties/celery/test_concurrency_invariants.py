@@ -4,7 +4,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from celery_rate_limiter.limiters import CeleryRateLimiter
+from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
 
 
 @pytest.fixture(scope="module")

@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from celery_rate_limiter.limiters import CeleryRateLimiter
+from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
 
 
 class TestSmartJitter:
@@ -79,7 +79,7 @@ class TestSmartJitter:
         samples = 100
         random_values = self._seeded_random_values(samples, seed=20260207)
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             short_jitters = [
@@ -89,7 +89,7 @@ class TestSmartJitter:
                 for _ in range(samples)
             ]
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             long_jitters = [
@@ -118,7 +118,7 @@ class TestSmartJitter:
         # Act
         # Take multiple samples at each load level.
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             low_load_jitters = [
@@ -130,7 +130,7 @@ class TestSmartJitter:
                 for _ in range(samples)
             ]
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             medium_load_jitters = [
@@ -142,7 +142,7 @@ class TestSmartJitter:
                 for _ in range(samples)
             ]
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             high_load_jitters = [
@@ -212,7 +212,7 @@ class TestSmartJitter:
         samples = 100
         random_values = self._seeded_random_values(samples, seed=20260209)
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             jitters = [
@@ -284,7 +284,7 @@ class TestSmartJitter:
         # Reuse the exact same random values for both levels so any difference
         # comes from concurrency pressure, not random chance.
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             low_concurrency_jitters = [
@@ -296,7 +296,7 @@ class TestSmartJitter:
                 for _ in range(samples)
             ]
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             high_concurrency_jitters = [

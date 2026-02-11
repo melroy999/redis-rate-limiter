@@ -13,10 +13,8 @@ import warnings
 
 import pytest
 
-from celery_rate_limiter.limiters import (
-    AbstractRedisManagedRateLimiter,
-    CeleryRateLimiter,
-)
+from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
+from celery_rate_limiter.core.limiters import AbstractRedisManagedRateLimiter
 
 
 class TestRateLimiterClassApi:

@@ -1,7 +1,7 @@
 import redis
 from celery import Celery
 
-from celery_rate_limiter.limiters import CeleryRateLimiter
+from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
 
 # Create the redis and celery instances here so everyone can use the same configuration.
 redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)

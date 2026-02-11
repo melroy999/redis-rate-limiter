@@ -32,7 +32,7 @@ class TestInternalHelpers:
 
         # Act
         # Mock the resource loader to track the number of calls.
-        with patch("src.celery_rate_limiter.limiters.resources.files") as mock_files:
+        with patch("celery_rate_limiter.core.limiters.resources.files") as mock_files:
             generic_limiter._load_lua_script(lua_script=lua_script, key=target_key)
 
             # Assert
@@ -54,7 +54,7 @@ class TestInternalHelpers:
         # Act & Assert
         # Mock the resource loader to simulate file system error.
         with patch(
-            "src.celery_rate_limiter.limiters.resources.files",
+            "celery_rate_limiter.core.limiters.resources.files",
             side_effect=Exception("File system error"),
         ) as mock_files:
             with pytest.raises(ImportError, match=f"Could not load {lua_script}"):

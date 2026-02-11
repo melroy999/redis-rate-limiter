@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from celery_rate_limiter.limiters import CeleryRateLimiter
+from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
 
 
 @pytest.fixture

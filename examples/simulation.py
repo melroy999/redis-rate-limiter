@@ -3,7 +3,7 @@ import time
 
 from config import configure_limiter
 
-from celery_rate_limiter.limiters import CeleryRateLimiter
+from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
 
 configure_limiter()
 limiter = CeleryRateLimiter.get("test_api")
