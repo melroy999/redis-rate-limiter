@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from celery_rate_limiter.core.limiters import AbstractDistributedRateLimiter
+from celery_rate_limiter import AbstractDistributedRateLimiter
 from tests.implementations.conftest import MinimalRateLimiter
 
 
@@ -903,9 +903,7 @@ class TestSlidingWindowBehaviorParametrized:
     """
 
     @pytest.fixture
-    def sliding_window_limiter(
-        self, request, redis_client, default_limiter_id
-    ):
+    def sliding_window_limiter(self, request, redis_client, default_limiter_id):
         """Parameterized limiter fixture for sliding window behavior tests.
 
         The limit and window are injected via indirect parametrization,

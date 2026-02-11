@@ -127,10 +127,10 @@ class TaskLifecycle:
     """Context manager that handles concurrency slot cleanup."""
 
     def __init__(
-            self,
-            limiter: AbstractDistributedRateLimiter,
-            task_id: str,
-            on_heartbeat_failure: Literal["warn", "kill"] = "warn",
+        self,
+        limiter: AbstractDistributedRateLimiter,
+        task_id: str,
+        on_heartbeat_failure: Literal["warn", "kill"] = "warn",
     ):
         """Create a lifecycle context manager that cleans up concurrency slots.
 
@@ -220,9 +220,7 @@ class TaskLifecycle:
 
                 # noinspection PyUnnecessaryCast
                 # This cast is in fact necessary for mypy validation.
-                inflight_removed = cast(
-                    int, self.limiter.redis.delete(inflight_key)
-                )
+                inflight_removed = cast(int, self.limiter.redis.delete(inflight_key))
 
             logger.debug(
                 "Concurrency slot released and inflight key cleared: limiter=%s, task_id=%s, removed_concurrency=%s, removed_inflight=%s.",
@@ -271,19 +269,19 @@ class AbstractDistributedRateLimiter(ABC):
     )
 
     def __init__(
-            self,
-            redis_client: Redis,
-            limiter_id: str,
-            limit: int,
-            window: int,
-            max_concurrency: int,
-            max_age: int = 3600,
-            lease_duration: int = 30,
-            on_heartbeat_failure: Literal["warn", "kill"] = "warn",
-            jitter_enabled: bool = True,
-            jitter_min_pct: float = 0.02,
-            jitter_max_pct: float = 0.08,
-            metrics_callback: Optional[Callable[[str, dict], None]] = None,
+        self,
+        redis_client: Redis,
+        limiter_id: str,
+        limit: int,
+        window: int,
+        max_concurrency: int,
+        max_age: int = 3600,
+        lease_duration: int = 30,
+        on_heartbeat_failure: Literal["warn", "kill"] = "warn",
+        jitter_enabled: bool = True,
+        jitter_min_pct: float = 0.02,
+        jitter_max_pct: float = 0.08,
+        metrics_callback: Optional[Callable[[str, dict], None]] = None,
     ):
         """Create an abstract rate limiter instance with the given parameters and import the appropriate lua scripts.
 
@@ -441,9 +439,9 @@ class AbstractDistributedRateLimiter(ABC):
             self.max_age if max_age_override is None else max_age_override
         )
         ttl_seconds = (
-                max(1.0, float(effective_max_age))
-                + max(1.0, float(self.lease_duration))
-                + max(1.0, float(self.window))
+            max(1.0, float(effective_max_age))
+            + max(1.0, float(self.lease_duration))
+            + max(1.0, float(self.window))
         )
         return int(math.ceil(ttl_seconds))
 
@@ -482,12 +480,12 @@ class AbstractDistributedRateLimiter(ABC):
         return f"{self.id}:inflight:{task_id}"
 
     def schedule_task(
-            self,
-            func_path: str,
-            payload: dict,
-            priority: int = 100,
-            max_age: Optional[int] = None,
-            retry: bool = True,
+        self,
+        func_path: str,
+        payload: dict,
+        priority: int = 100,
+        max_age: Optional[int] = None,
+        retry: bool = True,
     ) -> tuple[bool, str]:
         """Schedule a task to run once rate limiting allows for it.
 
@@ -705,7 +703,8 @@ class AbstractDistributedRateLimiter(ABC):
             # noinspection PyUnnecessaryCast
             # This cast is in fact necessary for mypy validation.
             renewed = int(
-                cast(str,
+                cast(
+                    str,
                     self.redis.evalsha(
                         self.renew_script_sha,
                         1,
@@ -714,7 +713,7 @@ class AbstractDistributedRateLimiter(ABC):
                         # ARGV: [task_id, duration]
                         task_id,
                         duration,
-                    )
+                    ),
                 )
             )
 
@@ -770,10 +769,10 @@ class AbstractDistributedRateLimiter(ABC):
             )
 
     def _calculate_smart_jitter(
-            self,
-            remaining_tasks: int,
-            remaining_tokens: int,
-            active_concurrency: int,
+        self,
+        remaining_tasks: int,
+        remaining_tokens: int,
+        active_concurrency: int,
     ) -> float:
         """Calculate adaptive jitter to reduce thundering herd at window resets.
 
@@ -997,9 +996,9 @@ class AbstractDistributedRateLimiter(ABC):
         )
 
     def task_lifecycle(
-            self,
-            task_id: str,
-            on_heartbeat_failure_override: Optional[Literal["warn", "kill"]] = None,
+        self,
+        task_id: str,
+        on_heartbeat_failure_override: Optional[Literal["warn", "kill"]] = None,
     ) -> TaskLifecycle:
         """Create a context manager to ensure the concurrency slot is released.
 
@@ -1156,11 +1155,11 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
             )
 
     def __init__(
-            self,
-            redis_client: Redis,
-            *args: Any,
-            _sentinel: Any = None,
-            **kwargs: Any,
+        self,
+        redis_client: Redis,
+        *args: Any,
+        _sentinel: Any = None,
+        **kwargs: Any,
     ) -> None:
         """Construct a managed limiter instance from internal class API flows."""
         self.__class__._require_internal_construction(_sentinel)
@@ -1168,16 +1167,16 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
 
     @classmethod
     def create(
-            cls,
-            limiter_id: str,
-            limit: int,
-            window: int,
-            max_concurrency: int,
-            max_age: int = 3600,
-            lease_duration: int = 30,
-            override: bool = False,
-            persist: bool = True,
-            **kwargs: Any,
+        cls,
+        limiter_id: str,
+        limit: int,
+        window: int,
+        max_concurrency: int,
+        max_age: int = 3600,
+        lease_duration: int = 30,
+        override: bool = False,
+        persist: bool = True,
+        **kwargs: Any,
     ) -> "AbstractRedisManagedRateLimiter":
         """Create and cache a limiter instance, optionally persisting config."""
         cls._require_configured()
@@ -1267,13 +1266,13 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
 
     @classmethod
     def update(
-            cls,
-            limiter_id: str,
-            limit: Optional[int] = None,
-            window: Optional[int] = None,
-            max_concurrency: Optional[int] = None,
-            max_age: Optional[int] = None,
-            lease_duration: Optional[int] = None,
+        cls,
+        limiter_id: str,
+        limit: Optional[int] = None,
+        window: Optional[int] = None,
+        max_concurrency: Optional[int] = None,
+        max_age: Optional[int] = None,
+        lease_duration: Optional[int] = None,
     ) -> "AbstractRedisManagedRateLimiter":
         """Update limiter config, persist it to Redis, and bump version."""
         instance = cls.get(limiter_id)

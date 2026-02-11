@@ -4,7 +4,7 @@ import time
 
 from config import configure_limiter
 
-from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
+from celery_rate_limiter import CeleryRateLimiter
 
 
 def run_inspector(refresh_rate: float) -> None:

@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import redis
 
-from celery_rate_limiter.core.limiters import TaskLifecycle
+from celery_rate_limiter import TaskLifecycle
 from tests.contracts.test_task_lifecycle import TaskLifecycleContractTest
 from tests.implementations.conftest import MinimalRateLimiter
 

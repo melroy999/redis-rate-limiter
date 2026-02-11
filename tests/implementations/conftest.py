@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from celery_rate_limiter.core.limiters import AbstractDistributedRateLimiter
+from celery_rate_limiter import AbstractDistributedRateLimiter
 
 
 class MinimalRateLimiter(AbstractDistributedRateLimiter):

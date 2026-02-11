@@ -6,7 +6,7 @@ This module keeps only tests that are specific to Celery backend context.
 
 import pytest
 
-from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
+from celery_rate_limiter import CeleryRateLimiter
 
 
 class TestCeleryRateLimiterClassApi:

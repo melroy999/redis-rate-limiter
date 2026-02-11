@@ -155,9 +155,7 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
         """Verify inflight key TTL is derived from effective max_age."""
         # Arrange
         per_task_max_age = 17
-        expected_ttl = (
-            per_task_max_age + limiter.lease_duration + limiter.window
-        )
+        expected_ttl = per_task_max_age + limiter.lease_duration + limiter.window
         observed_ttl = {"value": None}
         real_set = redis_client.set
 

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from celery_rate_limiter.core.decorators import rate_limited
+from celery_rate_limiter import rate_limited
 
 
 @pytest.fixture
@@ -208,5 +208,7 @@ class TestRateLimitedDecorator:
         result = wrapped_function(9, _rate_limit_task_id="task-resolver")
 
         # Assert
-        assert result == 9, "decorator should preserve return value with custom resolver"
+        assert result == 9, (
+            "decorator should preserve return value with custom resolver"
+        )
         resolver.assert_called_once_with("resolver_limiter")

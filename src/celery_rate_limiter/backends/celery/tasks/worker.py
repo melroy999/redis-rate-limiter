@@ -3,8 +3,7 @@ from typing import Any
 
 from celery import shared_task
 
-from celery_rate_limiter.core.decorators import rate_limited
-from celery_rate_limiter.core.importing import import_string
+from celery_rate_limiter.core import import_string, rate_limited
 
 logger = logging.getLogger(__name__)
 

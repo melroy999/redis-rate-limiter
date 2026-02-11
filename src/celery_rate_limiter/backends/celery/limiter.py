@@ -6,7 +6,7 @@ from typing import Any, ClassVar, Optional, cast
 from celery import Celery
 from redis import Redis
 
-from celery_rate_limiter.core.limiters import AbstractRedisManagedRateLimiter
+from celery_rate_limiter.core import AbstractRedisManagedRateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +66,12 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
     # ------------------------------------------------------------------
 
     def __init__(
-            self,
-            redis_client: Redis,
-            celery_app: Celery,
-            *args: Any,
-            _sentinel: Any = None,
-            **kwargs: Any,
+        self,
+        redis_client: Redis,
+        celery_app: Celery,
+        *args: Any,
+        _sentinel: Any = None,
+        **kwargs: Any,
     ):
         """Create a Celery rate limiter instance via the managed class API.
 
@@ -99,13 +99,13 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
         return {"data": payload, "meta": {"use_executor": use_executor}}
 
     def schedule_task(
-            self,
-            func_path: str,
-            payload: dict,
-            priority: int = 100,
-            max_age: Optional[int] = None,
-            retry: bool = True,
-            use_executor: bool = True,
+        self,
+        func_path: str,
+        payload: dict,
+        priority: int = 100,
+        max_age: Optional[int] = None,
+        retry: bool = True,
+        use_executor: bool = True,
     ) -> tuple[bool, str]:
         # Add the use executor flag to the payload.
         # Only add this if we aren't re-trying--the payload is already present otherwise.
@@ -118,7 +118,9 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
         # This cast is in fact necessary for mypy validation.
         return cast(
             tuple[bool, str],
-            super().schedule_task(func_path, enhanced_payload, priority, max_age, retry),
+            super().schedule_task(
+                func_path, enhanced_payload, priority, max_age, retry
+            ),
         )
 
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:

@@ -15,7 +15,7 @@ def _get_default_limiter(limiter_id: str) -> AbstractDistributedRateLimiter:
     Celery-specific imports stay local so this module remains importable when
     Celery is not installed and an alternative limiter resolver is supplied.
     """
-    from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
+    from celery_rate_limiter.backends.celery import CeleryRateLimiter
 
     return cast(AbstractDistributedRateLimiter, CeleryRateLimiter.get(limiter_id))
 
@@ -32,6 +32,7 @@ def rate_limited(
         get_limiter: Optional resolver used to fetch limiter instances by id.
             Defaults to lazy Celery-backed resolution for backward compatibility.
     """
+
     def decorator(func: T) -> T:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:

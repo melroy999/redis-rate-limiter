@@ -99,4 +99,3 @@ def default_lock_key(request) -> str:
     """Provide a unique lock key per test."""
     test_name = _safe_id_component(request.node.name)
     return f"lock_{test_name}_{uuid4().hex[:8]}"
-

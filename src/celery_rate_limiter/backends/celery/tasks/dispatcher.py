@@ -2,7 +2,7 @@ import logging
 
 from celery import shared_task
 
-from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
+from celery_rate_limiter.backends.celery import CeleryRateLimiter
 
 logger = logging.getLogger(__name__)
 

@@ -13,7 +13,7 @@ from typing import Any, ClassVar, Optional
 
 import pytest
 
-from celery_rate_limiter.core.limiters import AbstractRedisManagedRateLimiter
+from celery_rate_limiter import AbstractRedisManagedRateLimiter
 
 
 class ManagedTestRateLimiter(AbstractRedisManagedRateLimiter):
@@ -498,7 +498,9 @@ class TestRateLimiterClassApi:
             "lease_duration": 30,
         }
         redis_client.hset(
-            ManagedTestRateLimiter._REGISTRY_KEY, default_limiter_id, json.dumps(new_config)
+            ManagedTestRateLimiter._REGISTRY_KEY,
+            default_limiter_id,
+            json.dumps(new_config),
         )
         redis_client.hincrby(ManagedTestRateLimiter._VERSION_KEY, default_limiter_id, 1)
 
@@ -526,7 +528,9 @@ class TestRateLimiterClassApi:
             "lease_duration": 30,
         }
         redis_client.hset(
-            ManagedTestRateLimiter._REGISTRY_KEY, default_limiter_id, json.dumps(new_config)
+            ManagedTestRateLimiter._REGISTRY_KEY,
+            default_limiter_id,
+            json.dumps(new_config),
         )
         redis_client.hincrby(ManagedTestRateLimiter._VERSION_KEY, default_limiter_id, 1)
 

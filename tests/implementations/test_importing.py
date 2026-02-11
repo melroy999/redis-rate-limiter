@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from celery_rate_limiter.core.importing import import_string
+from celery_rate_limiter import import_string
 
 
 class TestImportString:

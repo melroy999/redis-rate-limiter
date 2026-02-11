@@ -1,14 +1,14 @@
 # Load shared infrastructure and configure the limiter for this process.
 from config import celery_app, configure_limiter
 
-from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
+from celery_rate_limiter import CeleryRateLimiter
 
 configure_limiter()
 
 # Register the tasks.
 celery_app.conf.imports = [
-    "celery_rate_limiter.tasks.dispatcher",
-    "celery_rate_limiter.tasks.worker",
+    "celery_rate_limiter.backends.celery.tasks.dispatcher",
+    "celery_rate_limiter.backends.celery.tasks.worker",
 ]
 
 # Self-initialize: create the limiter (idempotent via override=True).

@@ -7,9 +7,11 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "celery (>=5.6.2,<5.7.0)",
     "redis (>=7.1.0,<7.2.0)",
 ]
+
+[project.optional-dependencies]
+celery = ["celery (>=5.6.2,<5.7.0)"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=9.0.2"
@@ -34,8 +36,4 @@ source = ["src/celery_rate_limiter"]
 addopts = "-m 'not slow'"
 markers = [
     "slow: marks tests as slow (use real time.sleep, multiple configurations). Run explicitly with: pytest -m slow",
-]
-filterwarnings = [
-    # Suppress deprecation warnings from legacy direct CeleryRateLimiter() construction in tests.
-    "ignore:Direct CeleryRateLimiter\\(\\) construction is deprecated:DeprecationWarning",
 ]
