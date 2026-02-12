@@ -242,6 +242,11 @@ class TaskLifecycle:
 class AbstractDistributedRateLimiter(ABC):
     """A class that rate limits distributed task execution.
 
+    "Distributed" refers to the rate limiting state, not task execution: multiple
+    processes and machines sharing the same limiter ID will be collectively rate-limited
+    via Redis. How tasks are actually dispatched (Celery, threads, asyncio, etc.) is
+    determined by the concrete backend subclass.
+
     Rate limiting relies on atomic Lua scripts executed on a single Redis instance.
     All rate limit state (window counters, buffer, concurrency set) must reside on the
     same Redis node to guarantee correctness.
