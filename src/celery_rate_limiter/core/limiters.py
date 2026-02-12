@@ -273,7 +273,7 @@ class AbstractDistributedRateLimiter(ABC):
         redis_client: Redis,
         limiter_id: str,
         limit: int,
-        window: int,
+        window: float,
         max_concurrency: int,
         max_age: int = 3600,
         lease_duration: int = 30,
@@ -324,7 +324,7 @@ class AbstractDistributedRateLimiter(ABC):
         self._config_version: int = 0
         self._paused_until: float = 0.0
         logger.info(
-            "Rate limiter initialized: id=%s, limit=%d, window_s=%d, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s.",
+            "Rate limiter initialized: id=%s, limit=%d, window_s=%g, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s.",
             self.id,
             self.limit,
             self.window,
@@ -1170,7 +1170,7 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
         cls,
         limiter_id: str,
         limit: int,
-        window: int,
+        window: float,
         max_concurrency: int,
         max_age: int = 3600,
         lease_duration: int = 30,
@@ -1205,7 +1205,7 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
             cls._persist_config(instance)
 
         logger.info(
-            "%s created: limiter_id=%s, window_s=%d, limit=%d, max_concurrency=%d, persist=%s.",
+            "%s created: limiter_id=%s, window_s=%g, limit=%d, max_concurrency=%d, persist=%s.",
             cls.__name__,
             limiter_id,
             window,
@@ -1269,7 +1269,7 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
         cls,
         limiter_id: str,
         limit: Optional[int] = None,
-        window: Optional[int] = None,
+        window: Optional[float] = None,
         max_concurrency: Optional[int] = None,
         max_age: Optional[int] = None,
         lease_duration: Optional[int] = None,
@@ -1282,7 +1282,7 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
             instance._paused_until = time.time() + pause_duration
             instance.window = window
             logger.info(
-                "Window changed for limiter %s: new_window=%d, paused_for_s=%d.",
+                "Window changed for limiter %s: new_window=%g, paused_for_s=%g.",
                 limiter_id,
                 window,
                 pause_duration,
@@ -1300,7 +1300,7 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
         cls._persist_config(instance)
 
         logger.info(
-            "%s updated: limiter_id=%s, limit=%d, window=%d, max_concurrency=%d.",
+            "%s updated: limiter_id=%s, limit=%d, window=%g, max_concurrency=%d.",
             cls.__name__,
             limiter_id,
             instance.limit,
@@ -1390,7 +1390,7 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
             self._paused_until = time.time() + pause_duration
             self.window = new_window
             logger.info(
-                "Window change detected via refresh for limiter %s: new_window=%d, paused_for_s=%d.",
+                "Window change detected via refresh for limiter %s: new_window=%g, paused_for_s=%g.",
                 self.id,
                 new_window,
                 pause_duration,
@@ -1402,7 +1402,7 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
         self.lease_duration = config.get("lease_duration", self.lease_duration)
         self._config_version = remote_version
         logger.info(
-            "Config refreshed for limiter %s: version=%d, limit=%d, window=%d, max_concurrency=%d.",
+            "Config refreshed for limiter %s: version=%d, limit=%d, window=%g, max_concurrency=%d.",
             self.id,
             remote_version,
             self.limit,

@@ -114,7 +114,7 @@ class RateLimiterContractTest:
 
         # Assert attributes have valid types.
         assert isinstance(limiter.limit, int), "limit must be an int"
-        assert isinstance(limiter.window, int), "window must be an int"
+        assert isinstance(limiter.window, (int, float)), "window must be numeric"
         assert isinstance(limiter.max_concurrency, int), (
             "max_concurrency must be an int"
         )
