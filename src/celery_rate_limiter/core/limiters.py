@@ -11,7 +11,7 @@ import time
 import uuid
 from abc import ABC, abstractmethod
 from importlib import resources
-from threading import Event, Thread
+from threading import Condition, Event, Lock, Thread
 from typing import (
     Any,
     Callable,
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class TaskData(TypedDict):
-    """A class that holds the task data format."""
+    """Structured task data returned by the buffer during consumption."""
 
     id: str  # The id of the task.
     func_path: str  # Python path to the function to execute.
@@ -40,7 +40,7 @@ class TaskData(TypedDict):
 
 
 class ConsumeResult(TypedDict):
-    """A class to hold the result of a consume.lua call."""
+    """Structured result returned by the consume Lua script."""
 
     success: bool  # Whether a task was actually consumed.
     expired: bool  # Whether a task has expired.
@@ -49,12 +49,15 @@ class ConsumeResult(TypedDict):
     active_concurrency: int  # Concurrency telemetry.
     reset_in_ms: int  # Time until window shift.
     remaining_tasks: int  # The number of tasks that remain to be processed.
+    val_previous: int  # Raw counter for the previous fixed window.
+    val_current: int  # Raw counter for the current fixed window.
 
 
 class DistributedLock:
-    """A dedicated class for the execution lock (instead of a @contextmanager) to keep the IDE happy.
+    """Context manager for the distributed dispatch lock.
 
-    Requests a dispatch lock and perform cleanup after task completion.
+    Acquires a Redis-backed lock before draining and releases it on exit,
+    ensuring only one drainer operates at a time.
     """
 
     def __init__(self, redis_client: Redis, lock_key: str, timeout_ms: int):
@@ -72,10 +75,10 @@ class DistributedLock:
         self.acquired = False
 
     def __enter__(self) -> bool:
-        """Enter the context manager.
+        """Attempt to acquire the dispatch lock via Redis SET NX.
 
         Returns:
-            The status of the lock such that the task knows if it should proceed.
+            True if the lock was acquired, False if another drainer holds it.
         """
         # Acquire the lock.
         self.acquired = bool(
@@ -96,8 +99,7 @@ class DistributedLock:
         return bool(self.acquired)
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Leave the context manager."""
-        # This runs even if the task crashes.
+        """Release the dispatch lock if it is still owned by this instance."""
         if self.acquired:
             # Only delete if locks match.
             # This prevents deleting locks created after a timeout.
@@ -171,9 +173,9 @@ class TaskLifecycle:
                 self.is_healthy = False
 
                 if self.on_failure_action == "kill":
-                    # Log that the worker is now dead and break the loop so the child-thread stops as well.
+                    # Terminate the worker process and stop the heartbeat thread.
                     logger.critical(
-                        "Heartbeat failed for task %s: %s - terminating worker (suicide pact).",
+                        "Heartbeat failed for task %s: %s - terminating worker.",
                         self.task_id,
                         e,
                     )
@@ -187,7 +189,7 @@ class TaskLifecycle:
                     )
 
     def __enter__(self) -> TaskLifecycle:
-        """Enter the context manager."""
+        """Start the heartbeat thread that renews the concurrency lease."""
         # Start the keep-alive thread.
         self._thread = Thread(target=self._heartbeat_loop, daemon=True)
         self._thread.start()
@@ -200,15 +202,14 @@ class TaskLifecycle:
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Leave the context manager."""
-        # Stop the heartbeat.
+        """Stop the heartbeat, release the concurrency slot, and trigger a follow-up drain."""
         self._stop_event.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=1.0)
 
         # Perform cleanup.
         try:
-            # Always decrement the counter when leaving the 'with' block.
+            # Release the concurrency slot.
             removed_concurrency = self.limiter.redis.zrem(
                 self.limiter.concurrency_key, self.task_id
             )
@@ -237,6 +238,81 @@ class TaskLifecycle:
             )
             # Re-trigger the dispatcher to fill the empty slot.
             self.limiter.trigger_consume()
+
+
+class DrainLoop:
+    """Single persistent thread that executes ``drain()`` on a managed schedule.
+
+    Multiple ``wake()`` calls naturally coalesce--if a sooner drain is
+    already pending, later requests are no-ops. A watchdog timeout fires
+    periodic drains even when no explicit ``wake()`` arrives, recovering
+    from crashed tasks, lost recovery chains, or stale concurrency slots.
+    """
+
+    def __init__(
+        self,
+        limiter: AbstractDistributedRateLimiter,
+        watchdog_interval: float,
+    ) -> None:
+        self._limiter = limiter
+        self._lock = Lock()
+        self._condition = Condition(self._lock)
+        self._next_wake: float | None = None
+        self._shutdown = False
+        self._watchdog_interval = watchdog_interval
+        self._thread: Thread | None = None
+
+    def wake(self, delay: float = 0.0) -> None:
+        """Request a drain at ``delay`` seconds from now.
+
+        If an earlier drain is already pending, this call is a no-op.
+        The drain thread is lazily started on the first ``wake()`` call.
+        """
+        target = time.monotonic() + delay
+        with self._condition:
+            self._ensure_started()
+            if self._next_wake is None or target < self._next_wake:
+                self._next_wake = target
+                self._condition.notify()
+
+    def shutdown(self) -> None:
+        """Signal the drain thread to exit and wait for it to finish."""
+        with self._condition:
+            self._shutdown = True
+            self._condition.notify()
+        if self._thread is not None:
+            self._thread.join(timeout=5.0)
+
+    def _ensure_started(self) -> None:
+        """Lazily start the drain thread on first wake.
+
+        Must be called while holding ``self._condition``.
+        """
+        if self._thread is None:
+            self._thread = Thread(target=self._run, daemon=True)
+            self._thread.start()
+
+    def _run(self) -> None:
+        """Main loop: sleep until the next scheduled wake or watchdog timeout."""
+        while True:
+            with self._condition:
+                if self._shutdown:
+                    return
+                if self._next_wake is None:
+                    # No work scheduled--use watchdog timeout so the loop
+                    # periodically checks for stranded buffer items.
+                    self._condition.wait(timeout=self._watchdog_interval)
+                    if self._next_wake is not None:
+                        # A real wake arrived during the wait.
+                        continue
+                else:
+                    remaining = self._next_wake - time.monotonic()
+                    if remaining > 0:
+                        self._condition.wait(timeout=remaining)
+                        continue
+                self._next_wake = None
+            # Execute drain outside the condition lock.
+            self._limiter.drain()
 
 
 class AbstractDistributedRateLimiter(ABC):
@@ -288,7 +364,7 @@ class AbstractDistributedRateLimiter(ABC):
         jitter_max_pct: float = 0.08,
         metrics_callback: Optional[Callable[[str, dict], None]] = None,
     ):
-        """Create an abstract rate limiter instance with the given parameters and import the appropriate lua scripts.
+        """Initialize the rate limiter with the given parameters.
 
         Args:
             redis_client: The redis client to use.
@@ -298,10 +374,10 @@ class AbstractDistributedRateLimiter(ABC):
             max_concurrency: The maximum number of concurrent tasks.
             max_age: The maximum time a task may exist in the queue before it expires.
             lease_duration: The time in seconds after which the lease to a concurrency slot will expire.
-            on_heartbeat_failure: How to handle heartbeat failures. 'warn' lets the job proceed,
-                whereas 'kill' makes the worker forcefully exit its execution, effectively killing it.
+            on_heartbeat_failure: How to handle heartbeat failures. ``"warn"`` lets the job proceed,
+                whereas ``"kill"`` makes the worker forcefully exit its execution, effectively killing it.
             jitter_enabled: Whether to add randomized jitter to retry delays to reduce thundering herd.
-                Recommended: True (default).
+                Recommended: ``True`` (default).
             jitter_min_pct: Minimum jitter as percentage of window size (default: 2% = 20ms for 1s window).
                 Lower bound ensures some spread even under low load.
             jitter_max_pct: Maximum jitter as percentage of window size (default: 8% = 80ms for 1s window).
@@ -328,6 +404,8 @@ class AbstractDistributedRateLimiter(ABC):
         self.metrics_callback = metrics_callback
         self._config_version: int = 0
         self._paused_until: float = 0.0
+        self._consecutive_drain_failures: int = 0
+        self._drain_loop = DrainLoop(self, watchdog_interval=self.window * 2)
         logger.info(
             "Rate limiter initialized: id=%s, limit=%d, window_s=%g, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s.",
             self.id,
@@ -438,7 +516,7 @@ class AbstractDistributedRateLimiter(ABC):
     def _get_inflight_ttl(self, max_age_override: Optional[int] = None) -> int:
         """Return a conservative TTL for in-flight deduplication keys.
 
-        TTL must cover queue residence (`max_age`) plus enough time for dispatch/cleanup.
+        TTL must cover queue residence (``max_age``) plus enough time for dispatch/cleanup.
         """
         effective_max_age = (
             self.max_age if max_age_override is None else max_age_override
@@ -502,8 +580,8 @@ class AbstractDistributedRateLimiter(ABC):
             retry: Whether to retry the scheduling on no script error (Redis outage).
 
         Returns:
-            A tuple of (was_scheduled, task_id). was_scheduled is False if the task was skipped
-            because it's already in-flight.
+            A tuple of (``was_scheduled``, ``task_id``). ``was_scheduled`` is ``False`` if the
+            task was skipped because it is already in-flight.
 
         Raises:
             RuntimeError: If the necessary lua scripts cannot be (re)loaded.
@@ -640,6 +718,8 @@ class AbstractDistributedRateLimiter(ABC):
                 "active_concurrency": int(result[3]),
                 "reset_in_ms": int(result[4]),
                 "remaining_tasks": int(result[5]),
+                "val_previous": int(result[6]),
+                "val_current": int(result[7]),
             }
             task_id = consume_result["task"]["id"] if consume_result["task"] else None
             logger.debug(
@@ -773,6 +853,54 @@ class AbstractDistributedRateLimiter(ABC):
                 e,
             )
 
+    def _calculate_token_recovery_delay(
+        self,
+        val_previous: int,
+        val_current: int,
+        reset_in_ms: int,
+    ) -> float:
+        """Calculate when the next rate limit token will become available.
+
+        The sliding window estimate decays linearly as time passes::
+
+            estimated = val_previous * weight + val_current
+
+        where ``weight`` decreases from ``reset_in_ms / window_ms`` to 0.
+
+        This method solves for the earliest time at which ``estimated < limit``,
+        i.e. when one token frees up via previous-window decay.
+
+        Falls back to ``reset_in_ms`` when decay cannot free a token in the
+        current window (``val_previous == 0`` or ``val_current >= limit``).
+
+        Args:
+            val_previous: Raw counter for the previous fixed window.
+            val_current: Raw counter for the current fixed window.
+            reset_in_ms: Milliseconds until the current window expires.
+
+        Returns:
+            Delay in seconds until the next token is expected to be available.
+        """
+        window_ms = self.window * 1000
+
+        # No previous window to decay, or current window alone is at the limit.
+        # Wait for the next window.
+        if val_previous <= 0 or val_current >= self.limit:
+            return (reset_in_ms / 1000.0) + 0.001
+
+        # Find the earliest point where previous-window decay frees a token.
+        #   estimated = val_previous * (window_ms - t) / window_ms + val_current
+        #   estimated < limit  =>  t > window_ms * (1 - (limit - val_current) / val_previous)
+        time_passed_ms = window_ms - reset_in_ms
+        t_needed_ms = window_ms * (1.0 - (self.limit - val_current) / val_previous)
+        wait_ms = t_needed_ms - time_passed_ms
+
+        if wait_ms <= 0:
+            # Decay has already freed a token; retry immediately.
+            return 0.001
+
+        return wait_ms / 1000.0
+
     def _calculate_smart_jitter(
         self,
         remaining_tasks: int,
@@ -847,7 +975,13 @@ class AbstractDistributedRateLimiter(ABC):
         return int(str(self.redis.zcard(self.buffer_key)))
 
     def drain(self) -> None:
-        """Attempt to drain an item from the queue."""
+        """Attempt to drain an item from the queue.
+
+        Wraps ``_drain_inner`` with exception handling so that a failure in any
+        step (consume, dispatch, schedule) does not permanently kill the drain
+        loop. On failure, a recovery drain is scheduled with exponential
+        backoff (100ms, 200ms, 400ms, ... capped at ``window``).
+        """
         # Check for dynamic config updates before draining.
         if hasattr(self, "refresh_config"):
             self.refresh_config()
@@ -864,6 +998,39 @@ class AbstractDistributedRateLimiter(ABC):
             self._schedule_drain(delay=remaining)
             return
 
+        try:
+            self._drain_inner()
+            self._consecutive_drain_failures = 0
+        except Exception:
+            self._consecutive_drain_failures += 1
+            delay = min(
+                self.window,
+                0.1 * (2 ** (self._consecutive_drain_failures - 1)),
+            )
+            logger.error(
+                "Drain failed (attempt #%d), scheduling recovery in %.3fs: limiter=%s.",
+                self._consecutive_drain_failures,
+                delay,
+                self.id,
+                exc_info=True,
+            )
+            try:
+                self._schedule_drain(delay=delay)
+            except Exception:
+                logger.critical(
+                    "Recovery scheduling also failed: limiter=%s. "
+                    "Drain loop will resume on next trigger_consume() or task completion.",
+                    self.id,
+                    exc_info=True,
+                )
+
+    def _drain_inner(self) -> None:
+        """Core drain logic--consume, dispatch, and schedule follow-up.
+
+        Separated from ``drain()`` so that the outer method can catch and
+        recover from exceptions without duplicating the pause/config-refresh
+        preamble.
+        """
         logger.debug("Drain loop start: limiter=%s.", self.id)
         # Lock the execution to avoid the thundering herd problem.
         with self.execution_lock() as acquired:
@@ -873,11 +1040,13 @@ class AbstractDistributedRateLimiter(ABC):
                 acquired,
             )
             if not acquired:
-                # Someone is already executing an attempt; hence skip.
+                # Someone is already executing an attempt. Schedule a backup
+                # drain so the loop isn't lost if the winner fails.
                 logger.debug(
                     "Drain skipped because lock is held by another drainer: limiter=%s.",
                     self.id,
                 )
+                self._schedule_backup_drain()
                 return
 
             # Perform a consume.
@@ -890,12 +1059,12 @@ class AbstractDistributedRateLimiter(ABC):
                     self.id,
                 )
 
-            # Execute the task if the green light is given.
+            # Dispatch the task if consumption succeeded.
             if result["success"] and result["task"]:
                 task = result["task"]
                 task_id = task.get("id", "")
 
-                # Send to the generic worker.
+                # Dispatch the consumed task to the backend.
                 self._dispatch_task(
                     func_path=task["func_path"],
                     payload=task["payload"],
@@ -932,27 +1101,60 @@ class AbstractDistributedRateLimiter(ABC):
                 )
 
             elif result["remaining_tokens"] <= 0:
-                # Wait for the rate window to reset.
-                ms_to_reset = result.get("reset_in_ms", 0)
-                base_delay = (ms_to_reset / 1000.0) + 0.001
-
-                # Add smart jitter to prevent thundering herd when window resets.
-                jitter = self._calculate_smart_jitter(
-                    remaining_tasks=result["remaining_tasks"],
-                    remaining_tokens=result["remaining_tokens"],
-                    active_concurrency=result["active_concurrency"],
+                # Calculate when the next token becomes available via
+                # sliding window decay, instead of waiting for the full
+                # window reset.
+                val_previous = result["val_previous"]
+                val_current = result["val_current"]
+                base_delay = self._calculate_token_recovery_delay(
+                    val_previous=val_previous,
+                    val_current=val_current,
+                    reset_in_ms=result.get("reset_in_ms", 0),
                 )
+
+                # Only add jitter on the fallback path (full window reset),
+                # where multiple workers may wake simultaneously. On the
+                # token-recovery path, drains are already naturally staggered
+                # by the sliding window position--jitter would only waste
+                # throughput.
+                is_fallback = val_previous <= 0 or val_current >= self.limit
+                if is_fallback:
+                    jitter = self._calculate_smart_jitter(
+                        remaining_tasks=result["remaining_tasks"],
+                        remaining_tokens=result["remaining_tokens"],
+                        active_concurrency=result["active_concurrency"],
+                    )
+                else:
+                    jitter = 0.0
 
                 delay_seconds = round(max(0.001, base_delay + jitter), 3)
                 logger.info(
-                    "Rate limited, scheduling retry: limiter=%s, delay_s=%.3f, reset_in_ms=%d, jitter_s=%.3f, remaining_tasks=%d.",
+                    "Rate limited, scheduling retry: limiter=%s, delay_s=%.3f, base_delay_s=%.3f, jitter_s=%.3f, remaining_tasks=%d, val_previous=%d, val_current=%d, fallback=%s.",
                     self.id,
                     delay_seconds,
-                    ms_to_reset,
+                    base_delay,
                     jitter,
                     result["remaining_tasks"],
+                    val_previous,
+                    val_current,
+                    is_fallback,
                 )
                 self._schedule_drain(delay=delay_seconds)
+
+    def _schedule_backup_drain(self) -> None:
+        """Schedule a safety-net drain after losing the dispatch lock.
+
+        The delay is one token interval (``window / limit``)--long enough for
+        the winner to finish, short enough to keep throughput up. The
+        ``DrainLoop`` naturally coalesces multiple backup requests.
+        """
+        token_interval = self.window / self.limit if self.limit > 0 else self.window
+        logger.debug(
+            "Backup drain scheduled: limiter=%s, delay_s=%.3f.",
+            self.id,
+            token_interval,
+        )
+        self._schedule_drain(delay=token_interval)
 
     @abstractmethod
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
@@ -965,27 +1167,26 @@ class AbstractDistributedRateLimiter(ABC):
         """
         pass  # pragma: no cover
 
-    @abstractmethod
     def _schedule_drain(self, delay: float = 0.0) -> None:
-        """Schedule the drain method to run again after delay seconds.
+        """Schedule the drain method to run again after ``delay`` seconds.
 
-        Args:
-            delay: The amount of time to sleep before scheduling.
+        The default implementation wakes the ``DrainLoop``. Subclasses used
+        in tests may override this to record calls without starting the loop.
         """
-        pass  # pragma: no cover
+        self._drain_loop.wake(delay)
 
     def trigger_consume(self) -> None:
-        """Trigger the consumption of the task queue."""
-        if self.redis.exists(self.lock_key):
-            logger.debug(
-                "Trigger consume skipped because dispatch lock is currently held: limiter=%s, lock_key=%s.",
-                self.id,
-                self.lock_key,
-            )
-            return
+        """Trigger the consumption of the task queue.
 
+        Wakes the drain loop to check for available work. The ``DrainLoop``
+        naturally coalesces near-simultaneous triggers.
+        """
         logger.debug("Trigger consume scheduling drain: limiter=%s.", self.id)
         self._schedule_drain()
+
+    def shutdown(self) -> None:
+        """Stop the drain loop for clean shutdown."""
+        self._drain_loop.shutdown()
 
     def execution_lock(self, timeout_ms: int = 5000) -> ContextManager[bool]:
         """Request the dispatch lock and perform cleanup after task completion.
@@ -1014,7 +1215,7 @@ class AbstractDistributedRateLimiter(ABC):
             on_heartbeat_failure_override: An optional override to pass to the task lifecycle function.
 
         Returns:
-            A TaskLifecycle context manager.
+            A ``TaskLifecycle`` context manager.
         """
         strategy = on_heartbeat_failure_override or self.on_heartbeat_failure
 
@@ -1121,7 +1322,7 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
     @classmethod
     @abstractmethod
     def _configure_backend(cls, **backend_context: Any) -> None:
-        """Store backend-specific class context during configure()."""
+        """Store backend-specific class context during ``configure()``."""
 
     @classmethod
     @abstractmethod
@@ -1141,7 +1342,7 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
     @classmethod
     @abstractmethod
     def _configure_hint(cls) -> str:
-        """Return a human-readable configure() usage hint for error messages."""
+        """Return a human-readable ``configure()`` usage hint for error messages."""
 
     @classmethod
     def configure(cls, redis_client: Redis, **backend_context: Any) -> None:
@@ -1323,7 +1524,7 @@ class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
 
     @classmethod
     def _require_configured(cls) -> None:
-        """Raise if configure() has not been called with required context."""
+        """Raise if ``configure()`` has not been called with required context."""
         if cls._redis_client is None or not cls._has_backend_context():
             raise RuntimeError(
                 f"{cls._configure_hint()} must be called before create() or get()."

@@ -2,40 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from celery_rate_limiter.backends.celery.tasks.dispatcher import attempt_consume
 from celery_rate_limiter.backends.celery.tasks.worker import generic_rate_limited_worker
-
-
-class TestAttemptConsumeTask:
-    """Test suite for attempt_consume task behavior."""
-
-    def test_attempt_consume_calls_drain(self):
-        """Verify attempt_consume resolves limiter and calls drain()."""
-        # Arrange
-        limiter = MagicMock()
-
-        # Act
-        with patch(
-            "celery_rate_limiter.backends.celery.tasks.dispatcher.CeleryRateLimiter.get",
-            return_value=limiter,
-        ) as mock_get:
-            attempt_consume.run("my_limiter")
-
-        # Assert
-        mock_get.assert_called_once_with("my_limiter")
-        limiter.drain.assert_called_once_with()
-
-    def test_attempt_consume_raises_on_unknown_limiter(self):
-        """Verify ValueError from CeleryRateLimiter.get() propagates."""
-        # Act & Assert
-        with patch(
-            "celery_rate_limiter.backends.celery.tasks.dispatcher.CeleryRateLimiter.get",
-            side_effect=ValueError("not found"),
-        ):
-            with pytest.raises(ValueError, match="not found"):
-                attempt_consume.run("missing_limiter")
 
 
 class TestGenericWorkerTask:

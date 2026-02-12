@@ -1,4 +1,4 @@
-"""Tests for get_status() on the generic rate limiter implementation."""
+"""Tests for ``get_status()`` on the generic rate limiter implementation."""
 
 from unittest.mock import patch
 
@@ -7,10 +7,10 @@ import redis
 
 
 class TestGetStatus:
-    """Test suite for get_status() behavior on AbstractDistributedRateLimiter."""
+    """Test suite for ``get_status()`` behavior on AbstractDistributedRateLimiter."""
 
     def test_get_status_returns_expected_structure(self, generic_limiter):
-        """Verify get_status() returns required sections and subsection keys."""
+        """Verify ``get_status()`` returns required sections and subsection keys."""
         # Act
         status = generic_limiter.get_status()
 
@@ -42,7 +42,7 @@ class TestGetStatus:
         )
 
     def test_get_status_reflects_scheduled_tasks(self, generic_limiter, func_path):
-        """Verify get_status() buffer count reflects scheduled task count."""
+        """Verify ``get_status()`` buffer count reflects scheduled task count."""
         # Arrange
         for idx in range(3):
             generic_limiter.schedule_task(func_path, {"idx": idx})
@@ -56,7 +56,7 @@ class TestGetStatus:
         )
 
     def test_get_status_reflects_rate_limit_state(self, generic_limiter, func_path):
-        """Verify get_status() reflects rate-limit telemetry after consume()."""
+        """Verify ``get_status()`` reflects rate-limit telemetry after ``consume()``."""
         # Arrange
         generic_limiter.schedule_task(func_path, {"idx": 1})
         consume_result = generic_limiter.consume()
@@ -76,7 +76,7 @@ class TestGetStatus:
         )
 
     def test_get_status_recovery_on_noscript_error(self, generic_limiter, redis_client):
-        """Verify get_status() reloads Lua script and retries on NoScriptError."""
+        """Verify ``get_status()`` reloads Lua script and retries on ``NoScriptError``."""
         # Arrange
         real_evalsha = redis_client.evalsha
         real_script_load = redis_client.script_load
@@ -112,7 +112,7 @@ class TestGetStatus:
             )
 
     def test_get_status_permanent_failure_raises_error(self, generic_limiter):
-        """Verify permanent NoScriptError during get_status() raises RuntimeError."""
+        """Verify permanent ``NoScriptError`` during ``get_status()`` raises RuntimeError."""
         # Arrange
         with patch.object(
             generic_limiter.redis,

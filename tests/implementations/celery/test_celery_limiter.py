@@ -26,11 +26,10 @@ class TestCeleryRateLimiter:
         )
 
     def test_dispatch_task_use_executor_true_sends_generic_worker(
-        self, limiter, default_payload
+        self, limiter, default_payload, task_id
     ):
         """Verify _dispatch_task sends generic worker when use_executor is true."""
         # Arrange
-        task_id = "task-id-generic"
         payload = limiter._get_enhanced_payload(default_payload, use_executor=True)
 
         # Act
@@ -49,11 +48,10 @@ class TestCeleryRateLimiter:
             )
 
     def test_dispatch_task_use_executor_false_sends_custom_task(
-        self, limiter, default_payload
+        self, limiter, default_payload, task_id
     ):
         """Verify _dispatch_task sends custom task when use_executor is false."""
         # Arrange
-        task_id = "task-id-custom"
         func_path = "myapp.tasks.custom"
         payload = limiter._get_enhanced_payload(default_payload, use_executor=False)
 
@@ -68,21 +66,17 @@ class TestCeleryRateLimiter:
                 kwargs={"_rate_limit_task_id": task_id},
             )
 
-    def test_schedule_drain_sends_celery_task_with_correct_args(self, limiter):
-        """Verify _schedule_drain sends attempt_consume with expected args."""
+    def test_schedule_drain_wakes_drain_loop(self, limiter):
+        """Verify _schedule_drain delegates to the base class DrainLoop."""
         # Arrange
         delay = 1.75
 
         # Act
-        with patch.object(limiter.app, "send_task") as mock_send_task:
+        with patch.object(limiter._drain_loop, "wake") as mock_wake:
             limiter._schedule_drain(delay=delay)
 
-            # Assert
-            mock_send_task.assert_called_once_with(
-                "celery_rate_limiter.attempt_consume",
-                args=[limiter.id],
-                countdown=delay,
-            )
+        # Assert
+        mock_wake.assert_called_once_with(delay)
 
     def test_enhanced_payload_structure(self, limiter, default_payload):
         """Verify _get_enhanced_payload wraps payload in data/meta structure."""

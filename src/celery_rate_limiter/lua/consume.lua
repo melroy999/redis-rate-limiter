@@ -62,7 +62,7 @@ if estimated_count < rate_limit and active_now < max_concurrency then
     -- Get the task at the top of the priority queue.
     local tasks = redis.call('ZRANGE', buffer_key, 0, 0)
 
-    -- Do all of the bookkeeping if a the task exists.
+    -- Do all of the bookkeeping if the task exists.
     if #tasks > 0 then
         -- Get the task's data.
         local raw_task_json = tasks[1]
@@ -84,7 +84,7 @@ if estimated_count < rate_limit and active_now < max_concurrency then
             redis.call('DEL', inflight_key)
 
             -- Signify expiration with a -1 value.
-            return {-1, false, remaining, active_now, reset_in_ms, buffer_count - 1}
+            return {-1, false, remaining, active_now, reset_in_ms, buffer_count - 1, previous_count, current_count}
         end
 
         -- Consume a token by incrementing the window counter.
@@ -102,9 +102,9 @@ if estimated_count < rate_limit and active_now < max_concurrency then
         redis.call('ZADD', concurrency_key, lease_expiry, task_id)
 
         -- Return the task and telemetry information.
-        return {1, tasks[1], remaining - 1, active_now + 1, reset_in_ms, buffer_count - 1}
+        return {1, tasks[1], remaining - 1, active_now + 1, reset_in_ms, buffer_count - 1, previous_count, current_count + 1}
     end
 end
 
 -- Return nothing and deny the request.
-return {0, false, remaining, active_now, reset_in_ms, buffer_count}
+return {0, false, remaining, active_now, reset_in_ms, buffer_count, previous_count, current_count}

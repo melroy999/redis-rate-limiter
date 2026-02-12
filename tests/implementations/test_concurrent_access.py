@@ -39,7 +39,7 @@ class SlowDispatchTrackingRateLimiter(TrackingRateLimiter):
 
 
 def run_concurrently(fn, args_list):
-    r"""Run *fn(\*args)* for every *args* in *args_list* with a synchronized start.
+    r"""Run ``fn(*args)`` for every ``args`` in ``args_list`` with a synchronized start.
 
     A ``threading.Barrier`` ensures all threads begin their work at the same
     instant, maximizing the probability of true contention on the Redis side.
@@ -67,7 +67,7 @@ def run_concurrently(fn, args_list):
 
 
 def schedule_n_tasks(limiter, n):
-    """Preload the limiter buffer with *n* unique tasks.
+    """Preload the limiter buffer with ``n`` unique tasks.
 
     Returns:
         A list of task IDs in scheduling order.

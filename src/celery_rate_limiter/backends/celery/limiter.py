@@ -80,7 +80,7 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
             celery_app: The Celery app to use for task dispatch.
             _sentinel: Internal sentinel passed by class API methods.
 
-        Other parameters are inherited from AbstractDistributedRateLimiter.
+        Other parameters are inherited from ``AbstractDistributedRateLimiter``.
         """
         super().__init__(redis_client, *args, _sentinel=_sentinel, **kwargs)
         self.app = celery_app
@@ -156,14 +156,3 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
                 task_id,
                 func_path,
             )
-
-    def _schedule_drain(self, delay: float = 0.0) -> None:
-        # Schedule an attempt at consuming a token.
-        self.app.send_task(
-            "celery_rate_limiter.attempt_consume", args=[self.id], countdown=delay
-        )
-        logger.debug(
-            "Drain scheduled via Celery: limiter=%s, countdown_s=%.3f.",
-            self.id,
-            delay,
-        )

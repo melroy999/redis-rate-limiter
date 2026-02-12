@@ -23,7 +23,7 @@ class TestRateLimitedDecorator:
     """Test suite for decorator-driven task lifecycle wrapping."""
 
     def test_decorator_wraps_function_in_task_lifecycle(self, limiter_mock):
-        """Verify decorated function execution is wrapped in task_lifecycle()."""
+        """Verify decorated function execution is wrapped in ``task_lifecycle()``."""
         # Arrange
         limiter, lifecycle_context = limiter_mock
 

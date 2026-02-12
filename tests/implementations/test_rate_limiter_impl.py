@@ -156,23 +156,17 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
         # Arrange
         per_task_max_age = 17
         expected_ttl = per_task_max_age + limiter.lease_duration + limiter.window
-        observed_ttl = {"value": None}
-        real_set = redis_client.set
-
-        def wrapped_set(*args, **kwargs):
-            observed_ttl["value"] = kwargs.get("ex")
-            return real_set(*args, **kwargs)
 
         # Act
-        with patch.object(limiter.redis, "set", side_effect=wrapped_set) as mocked_set:
+        with patch.object(limiter.redis, "set", wraps=redis_client.set) as mocked_set:
             success, _ = limiter.schedule_task(
                 func_path, default_payload, max_age=per_task_max_age
             )
 
         # Assert
         assert success is True, "task should be scheduled successfully"
-        assert mocked_set.call_count == 1, "inflight claim should call redis.set once"
-        assert observed_ttl["value"] == expected_ttl, (
+        mocked_set.assert_called_once()
+        assert mocked_set.call_args.kwargs["ex"] == expected_ttl, (
             "inflight key TTL should be derived from max_age + lease_duration + window"
         )
 
@@ -268,7 +262,7 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
     def test_lua_script_recovery_on_noscript_error(
         self, limiter, redis_client, func_path, default_payload
     ):
-        """Verify limiter recovers from NoScriptError by reloading Lua script."""
+        """Verify limiter recovers from ``NoScriptError`` by reloading Lua script."""
         # Arrange
         real_evalsha = redis_client.evalsha
         real_script_load = redis_client.script_load
@@ -365,7 +359,7 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
         )
 
     def test_consume_lua_script_recovery_on_noscript_error(self, limiter, redis_client):
-        """Verify consume() recovers from NoScriptError by reloading Lua script."""
+        """Verify ``consume()`` recovers from ``NoScriptError`` by reloading Lua script."""
         # Arrange
         real_evalsha = redis_client.evalsha
         real_script_load = redis_client.script_load
@@ -403,7 +397,7 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
         )
 
     def test_consume_lua_script_permanent_failure_raises_error(self, limiter):
-        """Verify permanent NoScriptError during consume() raises RuntimeError."""
+        """Verify permanent ``NoScriptError`` during ``consume()`` raises RuntimeError."""
         # Arrange
         with patch.object(
             limiter.redis,
@@ -421,7 +415,7 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
             )
 
     def test_get_buffer_count_returns_zero_when_empty(self, limiter):
-        """Verify get_buffer_count() returns zero when no tasks are scheduled."""
+        """Verify ``get_buffer_count()`` returns zero when no tasks are scheduled."""
         # Act
         count = limiter.get_buffer_count()
 
@@ -429,7 +423,7 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
         assert count == 0, "empty buffer should report zero tasks"
 
     def test_get_buffer_count_reflects_scheduled_tasks(self, limiter, func_path):
-        """Verify get_buffer_count() reflects number of scheduled tasks."""
+        """Verify ``get_buffer_count()`` reflects number of scheduled tasks."""
         # Arrange
         for idx in range(3):
             limiter.schedule_task(func_path, {"idx": idx})

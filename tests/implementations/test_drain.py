@@ -1,4 +1,4 @@
-"""Tests for drain() and trigger_consume() branch behavior."""
+"""Tests for ``drain()`` and ``trigger_consume()`` branch behavior."""
 
 import time
 from contextlib import contextmanager
@@ -8,7 +8,7 @@ import pytest
 
 
 class TestDrain:
-    """Test suite for branch coverage in drain()."""
+    """Test suite for branch coverage in ``drain()``."""
 
     @staticmethod
     @contextmanager
@@ -17,7 +17,7 @@ class TestDrain:
         yield acquired
 
     def test_drain_defers_when_paused(self, tracking_limiter):
-        """Verify drain() defers and schedules follow-up when limiter is paused."""
+        """Verify ``drain()`` defers and schedules follow-up when limiter is paused."""
         # Arrange
         tracking_limiter._paused_until = time.time() + 0.2
         consume_mock = MagicMock()
@@ -35,8 +35,8 @@ class TestDrain:
             "paused follow-up delay should be positive"
         )
 
-    def test_drain_skips_when_lock_contended(self, tracking_limiter):
-        """Verify drain() exits early when dispatch lock is not acquired."""
+    def test_drain_schedules_backup_when_lock_contended(self, tracking_limiter):
+        """Verify ``drain()`` schedules a backup drain when dispatch lock is not acquired."""
         # Arrange
         consume_mock = MagicMock()
 
@@ -58,8 +58,12 @@ class TestDrain:
         assert tracking_limiter.dispatched_tasks == [], (
             "drain should not dispatch when lock is contended"
         )
-        assert tracking_limiter.scheduled_drains == [], (
-            "drain should not schedule follow-up when lock is contended"
+        assert len(tracking_limiter.scheduled_drains) == 1, (
+            "drain should schedule a backup drain when lock is contended"
+        )
+        expected_delay = tracking_limiter.window / tracking_limiter.limit
+        assert tracking_limiter.scheduled_drains[0] == expected_delay, (
+            "backup drain delay should be one token interval"
         )
 
     def test_drain_dispatches_task_and_schedules_follow_up(self, tracking_limiter):
@@ -100,8 +104,8 @@ class TestDrain:
         )
 
     def test_drain_handles_consume_exception(self, tracking_limiter):
-        """Verify consume exceptions propagate without dispatching or rescheduling."""
-        # Act & Assert
+        """Verify consume exceptions are caught and a recovery drain is scheduled."""
+        # Act
         with (
             patch.object(
                 tracking_limiter, "execution_lock", return_value=self.lock_result(True)
@@ -110,18 +114,24 @@ class TestDrain:
                 tracking_limiter, "consume", side_effect=RuntimeError("consume failed")
             ),
         ):
-            with pytest.raises(RuntimeError, match="consume failed"):
-                tracking_limiter.drain()
+            tracking_limiter.drain()
 
+        # Assert
         assert tracking_limiter.dispatched_tasks == [], (
             "drain should not dispatch if consume fails"
         )
-        assert tracking_limiter.scheduled_drains == [], (
-            "drain should not schedule follow-up if consume fails"
+        assert len(tracking_limiter.scheduled_drains) == 1, (
+            "drain should schedule a recovery drain after consume failure"
+        )
+        assert tracking_limiter.scheduled_drains[0] > 0, (
+            "recovery drain delay should be positive"
+        )
+        assert tracking_limiter._consecutive_drain_failures == 1, (
+            "failure counter should be incremented to 1"
         )
 
     def test_drain_handles_dispatch_exception(self, tracking_limiter):
-        """Verify dispatch exceptions propagate and no follow-up is scheduled."""
+        """Verify dispatch exceptions are caught and a recovery drain is scheduled."""
         # Arrange
         consume_result = {
             "success": True,
@@ -137,7 +147,7 @@ class TestDrain:
             "remaining_tasks": 2,
         }
 
-        # Act & Assert
+        # Act
         with (
             patch.object(
                 tracking_limiter, "execution_lock", return_value=self.lock_result(True)
@@ -149,15 +159,21 @@ class TestDrain:
                 side_effect=RuntimeError("dispatch failed"),
             ),
         ):
-            with pytest.raises(RuntimeError, match="dispatch failed"):
-                tracking_limiter.drain()
+            tracking_limiter.drain()
 
-        assert tracking_limiter.scheduled_drains == [], (
-            "drain should not schedule follow-up when dispatch fails"
+        # Assert
+        assert len(tracking_limiter.scheduled_drains) == 1, (
+            "drain should schedule a recovery drain after dispatch failure"
+        )
+        assert tracking_limiter.scheduled_drains[0] > 0, (
+            "recovery drain delay should be positive"
+        )
+        assert tracking_limiter._consecutive_drain_failures == 1, (
+            "failure counter should be incremented to 1"
         )
 
     def test_drain_stops_when_buffer_empty(self, tracking_limiter):
-        """Verify drain() stops without follow-up when no tasks remain."""
+        """Verify ``drain()`` stops without follow-up when no tasks remain."""
         # Arrange
         consume_result = {
             "success": False,
@@ -217,7 +233,7 @@ class TestDrain:
         )
 
     def test_drain_stops_when_concurrency_at_capacity(self, tracking_limiter):
-        """Verify drain() stops without follow-up when concurrency is saturated."""
+        """Verify ``drain()`` stops without follow-up when concurrency is saturated."""
         # Arrange
         consume_result = {
             "success": False,
@@ -247,7 +263,7 @@ class TestDrain:
         )
 
     def test_drain_schedules_delayed_retry_when_rate_limited(self, tracking_limiter):
-        """Verify drain() schedules delayed retry when remaining tokens are exhausted."""
+        """Verify ``drain()`` schedules delayed retry when remaining tokens are exhausted."""
         # Arrange
         consume_result = {
             "success": False,
@@ -257,6 +273,8 @@ class TestDrain:
             "active_concurrency": 1,
             "reset_in_ms": 250,
             "remaining_tasks": 4,
+            "val_previous": 0,
+            "val_current": 5,
         }
 
         # Act
@@ -283,7 +301,7 @@ class TestDrain:
         )
 
     def test_drain_calls_refresh_config_if_available(self, tracking_limiter):
-        """Verify drain() calls refresh_config() when attribute exists."""
+        """Verify ``drain()`` calls ``refresh_config()`` when attribute exists."""
         # Arrange
         tracking_limiter.refresh_config = MagicMock()
         consume_result = {
@@ -308,14 +326,73 @@ class TestDrain:
         # Assert
         tracking_limiter.refresh_config.assert_called_once()
 
-    def test_trigger_consume_skips_when_lock_held(self, tracking_limiter, redis_client):
-        """Verify trigger_consume() does not schedule drain when dispatch lock exists."""
+    def test_drain_resets_failure_counter_on_success(self, tracking_limiter):
+        """Verify consecutive failure counter resets to 0 after a successful drain."""
         # Arrange
-        redis_client.set(tracking_limiter.lock_key, "1")
+        tracking_limiter._consecutive_drain_failures = 3
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "task": None,
+            "remaining_tokens": 5,
+            "active_concurrency": 0,
+            "reset_in_ms": 100,
+            "remaining_tasks": 0,
+        }
 
         # Act
-        with patch.object(tracking_limiter, "_schedule_drain") as mock_schedule:
-            tracking_limiter.trigger_consume()
+        with (
+            patch.object(
+                tracking_limiter, "execution_lock", return_value=self.lock_result(True)
+            ),
+            patch.object(tracking_limiter, "consume", return_value=consume_result),
+        ):
+            tracking_limiter.drain()
 
         # Assert
-        mock_schedule.assert_not_called()
+        assert tracking_limiter._consecutive_drain_failures == 0, (
+            "failure counter should reset to 0 after successful drain"
+        )
+
+    def test_drain_backoff_increases_with_consecutive_failures(self, tracking_limiter):
+        """Verify recovery delay doubles with each consecutive failure."""
+        # Act
+        with (
+            patch.object(
+                tracking_limiter,
+                "execution_lock",
+                side_effect=lambda: self.lock_result(True),
+            ),
+            patch.object(
+                tracking_limiter, "consume", side_effect=RuntimeError("fail")
+            ),
+        ):
+            # Two consecutive failures to verify escalating backoff.
+            tracking_limiter.drain()
+            tracking_limiter.drain()
+
+        # Assert
+        assert tracking_limiter._consecutive_drain_failures == 2, (
+            "failure counter should reflect two consecutive failures"
+        )
+        assert len(tracking_limiter.scheduled_drains) == 2, (
+            "each failure should schedule a recovery drain"
+        )
+        first_delay = tracking_limiter.scheduled_drains[0]
+        second_delay = tracking_limiter.scheduled_drains[1]
+        assert first_delay == pytest.approx(0.1), (
+            "first recovery delay should be 100ms"
+        )
+        assert second_delay == pytest.approx(0.2), (
+            "second recovery delay should be 200ms"
+        )
+
+    def test_trigger_consume_schedules_drain(self, tracking_limiter):
+        """Verify ``trigger_consume()`` schedules a drain."""
+        # Act
+        tracking_limiter.trigger_consume()
+
+        # Assert
+        assert len(tracking_limiter.scheduled_drains) == 1, (
+            "trigger_consume should schedule exactly one drain"
+        )

@@ -10,7 +10,7 @@ import time
 import pytest
 
 from celery_rate_limiter import AbstractDistributedRateLimiter
-from tests.implementations.conftest import MinimalRateLimiter
+from tests.implementations.conftest import MinimalRateLimiter, TrackingRateLimiter
 
 
 @pytest.fixture
@@ -440,7 +440,7 @@ class TestRateLimitingIntegration:
     def test_per_task_max_age_stored_in_buffer(
         self, redis_client, func_path, default_limiter_id
     ):
-        """Verify schedule_task(max_age=...) stores __meta_max_age in buffered payload."""
+        """Verify ``schedule_task()`` with ``max_age`` stores __meta_max_age in buffered payload."""
         # Arrange
         limiter = MinimalRateLimiter(
             redis_client=redis_client,
@@ -507,7 +507,7 @@ class TestRateLimitingIntegration:
     def test_get_status_reflects_live_state(
         self, integration_limiter, redis_client, func_path
     ):
-        """Verify get_status() mirrors current Redis-backed limiter state."""
+        """Verify ``get_status()`` mirrors current Redis-backed limiter state."""
         # Arrange
         for idx in range(3):
             integration_limiter.schedule_task(func_path, {"index": idx})
@@ -817,3 +817,92 @@ class TestSlidingWindowBehavior:
             f"burst exceeded 2x limit: {max_burst_in_window} > {2 * limit}. "
             f"this indicates a bug in the sliding window implementation."
         )
+
+    def test_drain_retry_delay_reflects_token_recovery_not_window_reset(
+        self, redis_client, default_limiter_id, func_path
+    ):
+        """Verify drain schedules retry at token recovery interval, not window reset.
+
+        After exhausting the rate limit in window N and crossing into
+        window N+1, the previous window's count (val_previous=limit) decays
+        linearly. The drain should schedule its retry for when the first
+        token becomes available via that decay (~window/limit), not for the
+        full window reset time (~window).
+
+        With limit=25, window=1.0s:
+        - Token recovery interval: 1.0/25 = 40ms
+        - Window reset time (reset_in_ms): up to ~1000ms
+        """
+        # Arrange
+        limit = 25
+        window = 1.0
+        token_interval = window / limit  # 0.04s
+
+        limiter = TrackingRateLimiter(
+            redis_client=redis_client,
+            limiter_id=f"{default_limiter_id}_drain_delay",
+            limit=limit,
+            window=window,
+            max_concurrency=100,
+            max_age=3600,
+            lease_duration=30,
+            jitter_enabled=False,  # Isolate the base delay calculation.
+        )
+
+        # Schedule enough tasks to keep the buffer populated after exhaustion.
+        for i in range(limit * 3):
+            limiter.schedule_task(func_path, {"index": i})
+
+        # Exhaust the rate limit (release concurrency after each consume).
+        for _ in range(limit):
+            result = consume_and_complete(limiter)
+            assert result["success"] is True
+
+        # Verify rate limit is exhausted within the current window.
+        probe = limiter.consume()
+        assert probe["success"] is False, "rate limit should be exhausted"
+        assert probe["remaining_tokens"] == 0
+
+        # Cross the window boundary so the current window's count becomes
+        # the previous window's count. Now val_previous=25, val_current=0,
+        # and the sliding window decay is the only path to token recovery.
+        precise_sleep(probe["reset_in_ms"] / 1000 + 0.01)
+
+        # Position early in the new window so reset_in_ms is large.
+        position_at_window_percentage(limiter, target_pct=0.05)
+
+        # Act
+        # drain() will call consume() → rate limited → _schedule_drain(delay).
+        limiter.scheduled_drains.clear()
+        limiter.drain()
+
+        # Assert
+        assert len(limiter.scheduled_drains) == 1, (
+            "drain should schedule exactly one retry when rate limited"
+        )
+
+        scheduled_delay = limiter.scheduled_drains[0]
+
+        # The delay should reflect token recovery time (~40ms), not the
+        # window reset time (~950ms after positioning at 5% of the window).
+        # 400ms -- generous 10x tolerance.
+        max_acceptable = token_interval * 10
+
+        print(f"\n  Drain retry delay test results:")
+        print(f"    Config: limit={limit}, window={window}s")
+        print(f"    Token recovery interval: {token_interval * 1000:.1f}ms")
+        print(f"    Scheduled drain delay: {scheduled_delay * 1000:.1f}ms")
+        print(f"    Max acceptable: {max_acceptable * 1000:.1f}ms")
+
+        assert scheduled_delay < max_acceptable, (
+            f"drain delay {scheduled_delay * 1000:.1f}ms exceeds "
+            f"{max_acceptable * 1000:.1f}ms (= 10 * token_interval of "
+            f"{token_interval * 1000:.1f}ms). "
+            f"the drain should calculate token recovery time from the "
+            f"sliding window, not use the full window reset time."
+        )
+
+        # Cleanup
+        keys = redis_client.keys(f"{limiter.id}:*")
+        if keys:
+            redis_client.delete(*keys)

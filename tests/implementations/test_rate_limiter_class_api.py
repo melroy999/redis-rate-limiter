@@ -109,7 +109,7 @@ class TestRateLimiterClassApi:
         )
 
     def test_configure_without_backend_label_raises_error(self, redis_client):
-        """Verify configure() fails when backend context is missing."""
+        """Verify ``configure()`` fails when backend context is missing."""
         # Arrange
         ManagedTestRateLimiter._reset()
 
@@ -452,7 +452,7 @@ class TestRateLimiterClassApi:
         assert limiter.jitter_max_pct == 0.22, "jitter_max_pct should remain unchanged"
 
     def test_get_status_reflects_updated_config(self, default_limiter_id):
-        """Verify get_status() returns updated values after update() changes config."""
+        """Verify ``get_status()`` returns updated values after ``update()`` changes config."""
         # Arrange
         self._create_limiter(default_limiter_id, limit=10, max_concurrency=5)
 
@@ -631,7 +631,7 @@ class TestRateLimiterClassApi:
     # ==================== _reset() ====================
 
     def test_reset_clears_cached_instances_and_configuration(self, default_limiter_id):
-        """Verify _reset clears class cache and shared configuration."""
+        """Verify ``_reset()`` clears class cache and shared configuration."""
         # Arrange
         self._create_limiter(default_limiter_id)
 

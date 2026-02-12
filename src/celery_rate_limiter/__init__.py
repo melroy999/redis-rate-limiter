@@ -15,6 +15,7 @@ __all__ = [
     "CeleryRateLimiter",
     "DistributedLock",
     "TaskLifecycle",
+    "ThreadPoolRateLimiter",
     "import_string",
     "rate_limited",
 ]
@@ -24,3 +25,7 @@ try:
     from celery_rate_limiter.backends.celery import CeleryRateLimiter
 except ImportError:
     pass
+
+# Threading backend uses only the stdlib, which doesn't require external libraries.
+# Hence, include it by default.
+from celery_rate_limiter.backends.threading import ThreadPoolRateLimiter

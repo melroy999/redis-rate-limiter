@@ -33,7 +33,7 @@ class RateLimiterContractTest:
     def test_schedule_task_returns_success_and_task_id(
         limiter, func_path, default_payload
     ):
-        """Contract: schedule_task must return (bool, str) tuple."""
+        """Contract: ``schedule_task()`` must return ``(bool, str)`` tuple."""
         # Act
         success, task_id = limiter.schedule_task(func_path, default_payload)
 
@@ -149,7 +149,7 @@ class RateLimiterContractTest:
 
     @staticmethod
     def test_consume_returns_expected_structure(limiter):
-        """Contract: consume() returns all required consume result keys."""
+        """Contract: ``consume()`` returns all required consume result keys."""
         # Act
         result = limiter.consume()
 
@@ -162,6 +162,8 @@ class RateLimiterContractTest:
             "active_concurrency",
             "reset_in_ms",
             "remaining_tasks",
+            "val_current",
+            "val_previous"
         }
         assert isinstance(result, dict), "consume result must be a dictionary"
         assert set(result.keys()) == expected_keys, (
@@ -184,6 +186,8 @@ class RateLimiterContractTest:
         assert isinstance(result["remaining_tasks"], int), (
             "remaining_tasks must be an int"
         )
+        assert isinstance(result["val_previous"], int), "val_previous must be an int"
+        assert isinstance(result["val_current"], int), "val_current must be an int"
 
         # Assert values have valid bounds.
         assert result["remaining_tokens"] >= 0, (
@@ -207,7 +211,7 @@ class RateLimiterContractTest:
 
     @staticmethod
     def test_consume_expired_field_is_boolean(limiter, func_path, default_payload):
-        """Contract: consume() expired flag must always be a boolean."""
+        """Contract: ``consume()`` expired flag must always be a boolean."""
         # Arrange
         limiter.schedule_task(func_path, default_payload)
 
@@ -226,7 +230,7 @@ class RateLimiterContractTest:
 
     @staticmethod
     def test_get_buffer_count_returns_nonnegative_integer(limiter):
-        """Contract: get_buffer_count() returns a non-negative integer."""
+        """Contract: ``get_buffer_count()`` returns a non-negative integer."""
         # Act
         count = limiter.get_buffer_count()
 
@@ -236,7 +240,7 @@ class RateLimiterContractTest:
 
     @staticmethod
     def test_get_status_returns_dict_with_required_sections(limiter):
-        """Contract: get_status() returns required top-level status sections."""
+        """Contract: ``get_status()`` returns required top-level status sections."""
         # Act
         result = limiter.get_status()
 

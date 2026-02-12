@@ -11,11 +11,13 @@ The suite is now structured around **both** test type and backend scope:
 - `tests/<category>/...` contains backend-agnostic core behavior.
 - `tests/<category>/<backend>/...` contains backend-specific behavior.
 
-Current backend example:
+Current backends:
 
 - `tests/implementations/celery/...` for Celery-specific assertions.
+- `tests/implementations/threadpool/...` for ThreadPool-specific assertions.
 
-This lets core behavior stay decoupled from Celery while still allowing backend-specific test coverage.
+Each backend inherits the shared contract suite (via `RateLimiterContractTest`) and only
+adds tests for behavior that is unique to that backend.
 
 ## Directory Structure
 
@@ -33,6 +35,7 @@ tests/
 │   ├── test_distributed_lock.py        # Redis-backed lock implementation tests
 │   ├── test_task_lifecycle.py          # Lifecycle manager implementation tests
 │   ├── test_drain.py                   # Drain and trigger_consume branch tests
+│   ├── test_drain_loop.py             # DrainLoop scheduling and coalescing tests
 │   ├── test_get_status.py              # Status reporting tests
 │   ├── test_internal_helpers.py        # Lua script loading and helpers
 │   ├── test_smart_jitter.py            # Adaptive jitter calculation tests
@@ -40,11 +43,17 @@ tests/
 │   ├── test_concurrent_access.py       # Multi-worker contention and atomicity tests
 │   ├── test_decorator.py               # Decorator behavior (core)
 │   ├── test_importing.py               # Dynamic import helper behavior
-│   └── celery/                         # Celery-specific implementation tests
-│       ├── conftest.py                 # Imports Celery backend fixtures
-│       ├── test_celery_limiter.py      # Celery payload/dispatch behavior
-│       ├── test_rate_limiter_class_api.py
-│       └── test_tasks.py               # Celery task helper tests
+│   ├── celery/                         # Celery-specific implementation tests
+│   │   ├── conftest.py                 # Imports Celery backend fixtures
+│   │   ├── test_contracts.py           # Contract suite against real CeleryRateLimiter
+│   │   ├── test_celery_limiter.py      # Celery payload/dispatch behavior
+│   │   ├── test_rate_limiter_class_api.py  # Celery-only class API tests
+│   │   └── test_tasks.py              # Celery task helper tests
+│   └── threadpool/                     # ThreadPool-specific implementation tests
+│       ├── conftest.py                 # Imports ThreadPool backend fixtures
+│       ├── test_contracts.py           # Contract suite against real ThreadPoolRateLimiter
+│       ├── test_threadpool_limiter.py  # ThreadPool dispatch behavior
+│       └── test_rate_limiter_class_api.py  # ThreadPool-only class API tests
 │
 ├── algorithms/                         # Pure algorithm/spec tests (no backend)
 │   ├── sliding_window_counter.py       # Shared pure algorithm used by tests
@@ -63,7 +72,8 @@ tests/
 │   └── celery/                         # Reserved for Celery-specific integration tests
 │
 ├── fixtures/                           # Shared backend fixture modules
-│   └── celery_backend.py               # Celery backend fixture definitions
+│   ├── celery_backend.py               # Celery backend fixture definitions
+│   └── threadpool_backend.py           # ThreadPool backend fixture definitions
 │
 ├── helpers/                            # Shared test utilities and strategies
 │   ├── utils.py                        # Subset checker and approximate equality
@@ -99,18 +109,23 @@ Contract tests define the **expected behavior** for interfaces, ensuring all imp
 ```python
 # contracts/test_rate_limiter.py
 class RateLimiterContractTest:
-    """Abstract test suite that any RateLimiter must pass."""
+    """Abstract test suite that any rate limiter implementation must pass."""
 
     @staticmethod
     def test_schedule_task_returns_success_and_task_id(limiter, redis_client):
-        """Contract: schedule_task must return (bool, str) tuple."""
+        """Contract: ``schedule_task()`` must return ``(bool, str)`` tuple."""
         success, task_id = limiter.schedule_task("path", {})
         assert isinstance(success, bool)
         assert isinstance(task_id, str)
 
-# implementations/test_rate_limiter_impl.py
+# implementations/test_rate_limiter_impl.py -- generic backend
 class TestRateLimiterImplementation(RateLimiterContractTest):
     """Inherits all contract tests + adds generic implementation tests."""
+    pass
+
+# implementations/threadpool/test_contracts.py -- real backend
+class TestThreadPoolContracts(RateLimiterContractTest):
+    """Verify ``ThreadPoolRateLimiter`` satisfies all rate limiter contracts."""
     pass
 ```
 
@@ -130,12 +145,12 @@ Property-based tests use [Hypothesis](https://hypothesis.readthedocs.io/) to aut
 from hypothesis import given
 from tests.helpers.strategies import json_value
 
-
-@given(payload=json_value)  # Generates arbitrary JSON structures
+# Generates arbitrary JSON structures.
+@given(payload=json_value)  
 def test_json_payload_survives_redis_round_trip(self, limiter, redis_client, payload):
-    """Property: ANY JSON payload survives Redis round-trip."""
+    """Property: any JSON payload survives Redis round-trip."""
     success, task_id = limiter.schedule_task("path", payload)
-    # Verify payload was preserved...
+    # Verify payload was preserved.
 ```
 
 ### 3. Algorithm/Spec Testing
@@ -154,7 +169,10 @@ from tests.algorithms.sliding_window_counter import sliding_window_estimate
 
 
 def test_weight_is_half_at_midpoint():
-    assert sliding_window_estimate(10, 0, 1000, 500) == 5.0
+    # Assert
+    assert sliding_window_estimate(10, 0, 1000, 500) == 5.0, (
+        "estimate should halve previous-window count at midpoint"
+    )
 ```
 
 ### 4. Integration Testing
@@ -186,11 +204,15 @@ def integration_limiter(redis_client, default_limiter_id):
 
 def test_basic_rate_limit_enforcement(self, integration_limiter):
     """Verify rate limiter enforces the configured limit."""
+    # Arrange
     for i in range(10):
         integration_limiter.schedule_task("path", {"index": i})
 
+    # Act
     consumed = sum(1 for _ in range(10) if integration_limiter.consume()["success"])
-    assert consumed == 5
+
+    # Assert
+    assert consumed == 5, "consumed count should equal the configured limit"
 ```
 
 ### 5. Arrange-Act-Assert Pattern
@@ -225,41 +247,47 @@ pytest tests/
 Slow tests use real `time.sleep()` calls and run parameterized configurations.
 They are excluded by default for faster local development.
 ```bash
-# Run only slow tests
+# Run only slow tests.
 pytest -m slow tests/
 
-# Run ALL tests including slow tests (as in CI)
+# Run all tests including slow tests (as in CI).
 pytest --override-ini='addopts=' tests/
 ```
 
 ### Run via Docker (recommended for integration tests)
 Sliding window timing tests are skipped on Windows. Use Docker for reliable results:
 ```bash
-docker compose --profile test up       # fast tests only
-docker compose --profile test-all up   # includes @pytest.mark.slow
+# Fast tests only.
+docker compose --profile test up
+
+# Includes @pytest.mark.slow.
+docker compose --profile test-all up
 ```
 
 ### Run Specific Test Categories
 ```bash
-# Contract tests only
+# Contract tests only.
 pytest tests/contracts/
 
-# Implementation tests only
+# Implementation tests only.
 pytest tests/implementations/
 
-# Core implementation tests only
-pytest tests/implementations -k 'not celery'
+# Core implementation tests only (no backend-specific).
+pytest tests/implementations/ --ignore=tests/implementations/celery --ignore=tests/implementations/threadpool
 
-# Celery-specific implementation tests only
+# Celery-specific implementation tests only.
 pytest tests/implementations/celery/
 
-# Property-based tests only
+# ThreadPool-specific implementation tests only.
+pytest tests/implementations/threadpool/
+
+# Property-based tests only.
 pytest tests/properties/
 
-# Algorithm/spec tests only
+# Algorithm/spec tests only.
 pytest tests/algorithms/
 
-# Integration tests only
+# Integration tests only.
 pytest tests/integration/
 ```
 
@@ -270,10 +298,10 @@ pytest tests/ --cov=celery_rate_limiter --cov-report=html
 
 ### Run Property Tests with More Examples
 ```bash
-# Default: 50 examples per property
+# Default: 50 examples per property.
 pytest tests/properties/
 
-# More thorough: 200 examples
+# More thorough: 200 examples.
 pytest tests/properties/ --hypothesis-max-examples=200
 ```
 
@@ -403,7 +431,7 @@ def test_payload_survives_round_trip(self, payload):
     """Property: any JSON-serializable payload survives Redis round-trip."""
 
 def test_lua_script_recovery_on_noscript_error(self, limiter):
-    """Verify limiter recovers from NoScriptError by reloading Lua script."""
+    """Verify limiter recovers from ``NoScriptError`` by reloading Lua script."""
 ```
 
 ## Assertion Style
@@ -461,7 +489,8 @@ Defined in `implementations/conftest.py`:
 Backend fixtures are centralized in `tests/fixtures/` and imported where needed:
 
 - `tests/fixtures/celery_backend.py` defines Celery fixtures (`celery_app`, `celery_config`, `limiter`, class-state reset fixture)
-- Backend-local conftests (for example `tests/implementations/celery/conftest.py`) import from that module
+- `tests/fixtures/threadpool_backend.py` defines ThreadPool fixtures (`executor`, `limiter`, class-state reset fixture)
+- Backend-local conftests (e.g. `tests/implementations/celery/conftest.py`) import from the corresponding fixture module
 
 This avoids leaking backend fixtures into unrelated test categories.
 
@@ -509,7 +538,8 @@ Use explicit hardcoded IDs only when the test is specifically about ID identity 
 ### Tests Fail Due to Redis Connection
 Ensure Redis is running:
 ```bash
-redis-cli ping  # Should return "PONG"
+# Should return "PONG".
+redis-cli ping
 ```
 
 ### Hypothesis Tests Are Slow
