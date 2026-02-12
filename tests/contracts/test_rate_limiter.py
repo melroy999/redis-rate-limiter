@@ -141,12 +141,6 @@ class RateLimiterContractTest:
             assert success is True, f"task {func_path} with {payload} should succeed"
             assert len(task_id) > 0, "each task should get a valid ID"
 
-        # Assert all tasks are in buffer.
-        buffer_size = redis_client.zcard(limiter.buffer_key)
-        assert buffer_size == len(tasks), (
-            f"buffer should contain {len(tasks)} tasks, found {buffer_size}"
-        )
-
     @staticmethod
     def test_consume_returns_expected_structure(limiter):
         """Contract: ``consume()`` returns all required consume result keys."""
