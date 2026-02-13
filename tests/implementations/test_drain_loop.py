@@ -11,7 +11,7 @@ class TestDrainLoop:
     """Test suite for ``DrainLoop`` wake, coalesce, watchdog, and shutdown behavior."""
 
     def test_wake_fires_drain_immediately(self):
-        """Verify ``wake(0)`` causes ``drain()`` to be called promptly."""
+        """Verify that ``wake(0)`` causes ``drain()`` to be called promptly."""
         # Arrange
         limiter = MagicMock()
         drain_called = Event()
@@ -28,7 +28,7 @@ class TestDrainLoop:
         limiter.drain.assert_called()
 
     def test_wake_with_delay_fires_after_delay(self):
-        """Verify ``wake(delay)`` waits approximately the right amount of time."""
+        """Verify that ``wake(delay)`` waits approximately the specified duration before firing."""
         # Arrange
         limiter = MagicMock()
         drain_called = Event()
@@ -47,7 +47,7 @@ class TestDrainLoop:
         assert elapsed >= 0.1, "drain should not fire before the delay"
 
     def test_wake_coalesces_to_sooner_time(self):
-        """Verify ``wake(0)`` overrides a pending ``wake(large_delay)``."""
+        """Verify that ``wake(0)`` overrides a pending ``wake(large_delay)``."""
         # Arrange
         limiter = MagicMock()
         drain_called = Event()
@@ -55,7 +55,7 @@ class TestDrainLoop:
         loop = DrainLoop(limiter, watchdog_interval=60.0)
 
         # Act
-        # Schedule a far-future wake, then override with immediate.
+        # Schedule a far-future wake, then override it with an immediate one.
         loop.wake(10.0)
         loop.wake(0)
         fired = drain_called.wait(timeout=2.0)
@@ -65,7 +65,7 @@ class TestDrainLoop:
         assert fired, "immediate wake should override far-future wake"
 
     def test_wake_ignores_later_time(self):
-        """Verify ``wake(large_delay)`` does not override a pending ``wake(0)``."""
+        """Verify that ``wake(large_delay)`` does not override a pending ``wake(0)``."""
         # Arrange
         limiter = MagicMock()
         drain_called = Event()
@@ -82,19 +82,19 @@ class TestDrainLoop:
         assert fired, "immediate wake should not be overridden by later wake"
 
     def test_watchdog_fires_drain_when_idle(self):
-        """Verify the watchdog timeout fires ``drain()`` even without explicit ``wake()``."""
+        """Verify that the watchdog timeout fires ``drain()`` even without an explicit ``wake()`` call."""
         # Arrange
         limiter = MagicMock()
         drain_called = Event()
         limiter.drain.side_effect = lambda: drain_called.set()
-        # Short watchdog to avoid a slow test.
+        # A short watchdog interval is used to avoid a slow test.
         loop = DrainLoop(limiter, watchdog_interval=0.15)
 
         # Act
-        # Start the thread by calling wake once, then let the watchdog fire.
+        # Start the thread by calling wake once, then allow the watchdog to fire.
         loop.wake(0)
         drain_called.wait(timeout=1.0)
-        # Reset and wait for watchdog to fire again without any wake.
+        # Reset and wait for the watchdog to fire again without any explicit wake.
         drain_called.clear()
         limiter.drain.reset_mock()
         fired = drain_called.wait(timeout=1.0)
@@ -105,7 +105,7 @@ class TestDrainLoop:
         limiter.drain.assert_called()
 
     def test_shutdown_stops_thread(self):
-        """Verify shutdown stops the drain thread cleanly."""
+        """Verify that ``shutdown()`` stops the drain thread cleanly."""
         # Arrange
         limiter = MagicMock()
         loop = DrainLoop(limiter, watchdog_interval=60.0)
@@ -120,7 +120,7 @@ class TestDrainLoop:
         assert not loop._thread.is_alive(), "thread should be stopped after shutdown"
 
     def test_lazy_start(self):
-        """Verify the drain thread is not started until first ``wake()``."""
+        """Verify that the drain thread is not started until the first ``wake()`` call."""
         # Arrange
         limiter = MagicMock()
         loop = DrainLoop(limiter, watchdog_interval=60.0)

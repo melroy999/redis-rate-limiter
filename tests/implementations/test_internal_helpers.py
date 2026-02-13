@@ -1,6 +1,6 @@
-"""Tests for internal helper methods of the rate limiter.
+"""Tests for the internal helper methods of the rate limiter.
 
-This module tests internal implementation details like Lua script loading,
+This module tests internal implementation details such as Lua script loading,
 task data formatting, and other utility methods.
 """
 
@@ -13,25 +13,25 @@ import pytest
     "lua_script, target_key",
     [
         ("schedule.lua", "_SCHEDULE_LUA_SCRIPT"),
-        # Fictional non-existent file.
+        # A fictional non-existent file for testing the failure path.
         ("missing.lua", "_MISSING_LUA_SCRIPT"),
     ],
     ids=["existing_script", "missing_script"],
 )
 class TestInternalHelpers:
-    """Test internal helper methods and Lua script loading."""
+    """Tests for internal helper methods and Lua script loading."""
 
     def test_load_lua_script_imports_only_once(
         self, generic_limiter, lua_script, target_key
     ):
-        """Verify Lua scripts are only loaded from disk once (cached)."""
+        """Verify that Lua scripts are loaded from disk only once and are subsequently cached."""
         # Arrange
-        # Simulate script already loaded.
+        # Simulate a script that has already been loaded.
         existing_content = "return 1"
         setattr(generic_limiter, target_key, existing_content)
 
         # Act
-        # Mock the resource loader to track the number of calls.
+        # Mock the resource loader to track the number of invocations.
         with patch("celery_rate_limiter.core.limiters.resources.files") as mock_files:
             generic_limiter._load_lua_script(lua_script=lua_script, key=target_key)
 
@@ -45,14 +45,14 @@ class TestInternalHelpers:
     def test_load_lua_script_raises_import_error_on_failure(
         self, generic_limiter, lua_script, target_key
     ):
-        """Verify ImportError is raised when Lua script cannot be loaded."""
+        """Verify that an ImportError is raised when the Lua script cannot be loaded."""
         # Arrange
-        # Ensure the attribute doesn't exist.
+        # Ensure the attribute does not exist.
         if hasattr(generic_limiter, target_key):
             delattr(generic_limiter, target_key)
 
         # Act & Assert
-        # Mock the resource loader to simulate file system error.
+        # Mock the resource loader to simulate a file system error.
         with patch(
             "celery_rate_limiter.core.limiters.resources.files",
             side_effect=FileNotFoundError("File system error"),
@@ -60,18 +60,18 @@ class TestInternalHelpers:
             with pytest.raises(ImportError, match=f"Could not load {lua_script}"):
                 generic_limiter._load_lua_script(lua_script=lua_script, key=target_key)
 
-            # Verify all configured package candidates were attempted.
+            # Verify that all configured package candidates were attempted.
             assert mock_files.call_count == len(generic_limiter.resource_packages), (
                 "resource loader should try each configured package candidate"
             )
 
 
 class TestTaskSignature:
-    """Tests for task-signature helper behavior."""
+    """Tests for the task-signature helper behavior."""
 
     @staticmethod
     def test_task_signature_is_deterministic_across_key_orders(generic_limiter):
-        """Verify _get_task_signature_str is deterministic across dict key order."""
+        """Verify that ``_get_task_signature_str`` is deterministic regardless of dictionary key order."""
         # Arrange
         payload_a = {"user_id": 123, "flags": {"vip": True, "beta": False}}
         payload_b = {"flags": {"beta": False, "vip": True}, "user_id": 123}
@@ -91,11 +91,11 @@ class TestTaskSignature:
 
 
 class TestInflightTtl:
-    """Tests for in-flight TTL calculation."""
+    """Tests for the in-flight TTL calculation."""
 
     @staticmethod
     def test_inflight_ttl_defaults_to_limiter_max_age(generic_limiter):
-        """Verify inflight TTL includes max_age plus lease/window slack."""
+        """Verify that the in-flight TTL includes max_age plus the lease and window slack."""
         # Arrange
         expected = (
             generic_limiter.max_age
@@ -113,7 +113,7 @@ class TestInflightTtl:
 
     @staticmethod
     def test_inflight_ttl_uses_per_task_override(generic_limiter):
-        """Verify per-task max_age drives inflight TTL calculation."""
+        """Verify that a per-task max_age override drives the in-flight TTL calculation."""
         # Arrange
         override = 7
         expected = override + generic_limiter.lease_duration + generic_limiter.window
@@ -128,11 +128,11 @@ class TestInflightTtl:
 
 
 class TestCleanupInflightKey:
-    """Tests for best-effort in-flight key cleanup on scheduling failures."""
+    """Tests for the best-effort in-flight key cleanup on scheduling failures."""
 
     @staticmethod
     def test_cleanup_inflight_key_suppresses_redis_failure(generic_limiter):
-        """Verify ``_cleanup_inflight_key`` does not propagate Redis exceptions."""
+        """Verify that ``_cleanup_inflight_key`` does not propagate Redis exceptions."""
         # Arrange
         inflight_key = f"{generic_limiter.id}:inflight:cleanup-test"
 
@@ -140,18 +140,18 @@ class TestCleanupInflightKey:
         with patch.object(
             generic_limiter.redis, "delete", side_effect=ConnectionError("redis down")
         ):
-            # Must not raise.
+            # This invocation must not raise.
             generic_limiter._cleanup_inflight_key(inflight_key, "cleanup-test")
 
 
 class TestTokenRecoveryDelay:
-    """Tests for sliding-window token recovery delay calculation."""
+    """Tests for the sliding-window token recovery delay calculation."""
 
     @staticmethod
     def test_token_recovery_returns_fractional_wait_when_decay_applies(generic_limiter):
-        """Verify positive fractional delay when previous-window decay can free a token."""
+        """Verify that a positive fractional delay is returned when previous-window decay can free a token."""
         # Arrange
-        # Use a 1s window so the math is easy to verify.
+        # A 1-second window is used so the arithmetic is straightforward to verify.
         generic_limiter.window = 1.0
         generic_limiter.limit = 5
 
@@ -168,7 +168,7 @@ class TestTokenRecoveryDelay:
     def test_token_recovery_returns_immediate_when_decay_already_freed_token(
         generic_limiter,
     ):
-        """Verify immediate retry when previous-window decay has already freed a token."""
+        """Verify that an immediate retry is returned when previous-window decay has already freed a token."""
         # Arrange
         generic_limiter.window = 1.0
         generic_limiter.limit = 5

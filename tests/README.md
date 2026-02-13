@@ -1,23 +1,22 @@
 # Test Suite Documentation
 
-This directory contains a comprehensive test suite for the `celery-rate-limiter` project, organized using **contract-based**, **property-based**, **algorithm/spec**, and **integration** testing patterns.
+This directory contains the test suite for the `celery-rate-limiter` project, organized using **contract-based**, **property-based**, **algorithm/spec** and **integration** testing patterns.
 
-All test categories assume a real Redis instance is available, because the core limiter logic is implemented in Redis Lua scripts.
+All test categories assume that a real Redis instance is available, given that the core limiter logic is implemented in Redis Lua scripts.
 
 ## Backend Structuring (Important)
 
-The suite is now structured around **both** test type and backend scope:
+The suite is structured around both test type and backend scope:
 
 - `tests/<category>/...` contains backend-agnostic core behavior.
 - `tests/<category>/<backend>/...` contains backend-specific behavior.
 
-Current backends:
+The following backends are currently supported:
 
 - `tests/implementations/celery/...` for Celery-specific assertions.
 - `tests/implementations/threadpool/...` for ThreadPool-specific assertions.
 
-Each backend inherits the shared contract suite (via `RateLimiterContractTest`) and only
-adds tests for behavior that is unique to that backend.
+Each backend inherits the shared contract suite via `RateLimiterContractTest` and only adds tests for behavior that is unique to that backend.
 
 ## Directory Structure
 
@@ -85,25 +84,26 @@ tests/
 
 ## Quick Placement Rules
 
-1. Contract tests define interface guarantees and live in `contracts/`.
-1. Implementation tests that are backend-agnostic live in `implementations/`.
-1. Implementation tests that assert backend-specific behavior live in `implementations/<backend>/`.
-1. Algorithm/spec tests validate pure logic with no Redis/Celery dependency in test code and live in `algorithms/`.
-1. Property-based tests use Hypothesis to check invariants and live in `properties/`.
-1. Integration tests verify end-to-end behavior with real Redis/Lua wiring and live in `integration/`.
-1. If an integration scenario depends on backend dispatch/wiring details, place it under `integration/<backend>/`.
+1. Contract tests define interface guarantees and are placed in `contracts/`.
+2. Implementation tests that are backend-agnostic are placed in `implementations/`.
+3. Implementation tests that assert backend-specific behavior are placed in `implementations/<backend>/`.
+4. Algorithm/spec tests validate pure logic with no Redis/Celery dependency in the test code and are placed in `algorithms/`.
+5. Property-based tests use Hypothesis to check invariants and are placed in `properties/`.
+6. Integration tests verify end-to-end behavior with real Redis/Lua wiring and are placed in `integration/`.
+7. If an integration scenario depends on backend dispatch/wiring details, it should be placed under `integration/<backend>/`.
 
 ## Testing Philosophy
 
 ### 1. Contract-Based Testing
 
-Contract tests define the **expected behavior** for interfaces, ensuring all implementations satisfy the same requirements.
+Contract tests define the expected behavior for interfaces, ensuring that all implementations satisfy the same requirements.
 
 **Benefits:**
-- New implementations automatically inherit all contract tests
-- Ensures consistency across different limiter implementations
-- Documents the required interface behavior
-- Makes it easy to verify Liskov Substitution Principle
+
+- New implementations automatically inherit all contract tests.
+- Consistency across different limiter implementations is ensured.
+- The required interface behavior is documented through the tests themselves.
+- The Liskov Substitution Principle can be verified straightforwardly.
 
 **Example:**
 ```python
@@ -131,13 +131,14 @@ class TestThreadPoolContracts(RateLimiterContractTest):
 
 ### 2. Property-Based Testing
 
-Property-based tests use [Hypothesis](https://hypothesis.readthedocs.io/) to automatically generate hundreds of test cases, verifying invariants hold for **any** input.
+Property-based tests use [Hypothesis](https://hypothesis.readthedocs.io/) to automatically generate hundreds of test cases, verifying that invariants hold for any input.
 
 **Benefits:**
-- Discovers edge cases you wouldn't think to test manually
-- Tests mathematical properties (reflexivity, transitivity, etc.)
-- Provides stronger guarantees than example-based tests
-- Automatically shrinks failing cases to minimal examples
+
+- Edge cases that would not be considered in manual testing are discovered automatically.
+- Mathematical properties (reflexivity, transitivity, etc.) can be verified.
+- Stronger guarantees are provided compared to example-based tests.
+- Failing cases are automatically shrunk to minimal examples.
 
 **Example:**
 
@@ -146,7 +147,7 @@ from hypothesis import given
 from tests.helpers.strategies import json_value
 
 # Generates arbitrary JSON structures.
-@given(payload=json_value)  
+@given(payload=json_value)
 def test_json_payload_survives_redis_round_trip(self, limiter, redis_client, payload):
     """Property: any JSON payload survives Redis round-trip."""
     success, task_id = limiter.schedule_task("path", payload)
@@ -155,12 +156,13 @@ def test_json_payload_survives_redis_round_trip(self, limiter, redis_client, pay
 
 ### 3. Algorithm/Spec Testing
 
-Algorithm/spec tests validate pure logic extracted from Redis/Lua behavior, without any backend dependencies.
+Algorithm/spec tests validate pure logic extracted from the Redis/Lua behavior, without any backend dependencies.
 
 **Benefits:**
-- Verifies core math and edge cases deterministically
-- Keeps tricky logic testable without Redis time control
-- Acts as a spec for the Lua implementation
+
+- Core mathematical logic and edge cases are verified deterministically.
+- Complex logic remains testable without the need for Redis time control.
+- The tests serve as a specification for the Lua implementation.
 
 **Example:**
 
@@ -177,13 +179,14 @@ def test_weight_is_half_at_midpoint():
 
 ### 4. Integration Testing
 
-Integration tests verify end-to-end behavior of the rate limiter with real Redis and Lua scripts.
+Integration tests verify the end-to-end behavior of the rate limiter with real Redis and Lua scripts.
 
 **Benefits:**
-- Tests the full system including Redis interactions and Lua script execution
-- Verifies rate limiting behavior in realistic scenarios
-- Tests burst handling, concurrency limits, and telemetry tracking
-- Uses explicit fixture configuration to maintain test independence
+
+- The full system is tested, including Redis interactions and Lua script execution.
+- Rate limiting behavior is verified in realistic scenarios.
+- Burst handling, concurrency limits and telemetry tracking are tested.
+- Explicit fixture configuration is used to maintain test independence.
 
 **Example:**
 ```python
@@ -235,17 +238,17 @@ def test_example(self, limiter, redis_client):
 ## Running Tests
 
 All test runs expect a real Redis instance to be available. The Redis connection is configurable via environment variables:
+
 - `REDIS_HOST` (default: `localhost`)
 - `REDIS_PORT` (default: `6379`)
 
-### Run All Tests (excluding slow tests)
+### Run All Tests (Excluding Slow Tests)
 ```bash
 pytest tests/
 ```
 
 ### Run Slow Tests
-Slow tests use real `time.sleep()` calls and run parameterized configurations.
-They are excluded by default for faster local development.
+Slow tests use real `time.sleep()` calls and run parameterized configurations. They are excluded by default for faster local development.
 ```bash
 # Run only slow tests.
 pytest -m slow tests/
@@ -254,8 +257,8 @@ pytest -m slow tests/
 pytest --override-ini='addopts=' tests/
 ```
 
-### Run via Docker (recommended for integration tests)
-Sliding window timing tests are skipped on Windows. Use Docker for reliable results:
+### Run via Docker (Recommended for Integration Tests)
+Sliding window timing tests are skipped on Windows. Docker should be used for reliable results:
 ```bash
 # Fast tests only.
 docker compose --profile test up
@@ -307,24 +310,24 @@ pytest tests/properties/ --hypothesis-max-examples=200
 
 ## Adding a New Limiter Implementation
 
-When adding a new backend limiter implementation, follow these steps:
+When adding a new backend limiter implementation, the following steps should be taken:
 
-### Step 1: Create Backend Test Directory
+### Step 1: Create the Backend Test Directory
 ```bash
 mkdir -p tests/implementations/mybackend
 touch tests/implementations/mybackend/__init__.py
 ```
 
-### Step 2: Add Backend Fixtures (if needed)
+### Step 2: Add Backend Fixtures (If Needed)
 
-If the backend needs shared fixtures, add a fixture module and import it from backend conftests:
+If the backend requires shared fixtures, a fixture module should be added and imported from the backend conftests:
 
 ```text
 tests/fixtures/mybackend_backend.py
 tests/implementations/mybackend/conftest.py
 ```
 
-This keeps backend fixtures centralized and reusable across categories.
+This keeps the backend fixtures centralized and reusable across categories.
 
 ### Step 3: Add Contract-Inheriting Tests
 ```python
@@ -352,12 +355,12 @@ class TestMyBackendRateLimiter(RateLimiterContractTest):
 
 ### Step 4: Add Backend-Specific Integration/Property Tests Only Where Needed
 
-If behavior depends on backend internals, place those tests under:
+If the behavior depends on backend internals, those tests should be placed under:
 
 - `tests/integration/mybackend/`
 - `tests/properties/mybackend/` (only if backend internals alter invariants)
 
-### Step 5: Run Backend Tests
+### Step 5: Run the Backend Tests
 ```bash
 pytest tests/implementations/mybackend/
 ```
@@ -365,9 +368,11 @@ pytest tests/implementations/mybackend/
 ## Shared Resources
 
 ### helpers/utils.py
+
 Contains shared utility functions used across multiple tests:
-- `is_subset(target, superset)`: Recursive dictionary subset checker
-- `dict_equals_approx(left, right)`: Approximate equality for nested structures, with configurable tolerance for float comparisons
+
+- `is_subset(target, superset)`: a recursive dictionary subset checker.
+- `dict_equals_approx(left, right)`: approximate equality for nested structures, with configurable tolerance for float comparisons.
 
 **Usage:**
 
@@ -379,9 +384,11 @@ assert dict_equals_approx({"x": 1.0000001}, {"x": 1.0})
 ```
 
 ### helpers/strategies.py
+
 Contains shared Hypothesis strategies for generating test data:
-- `json_value`: Generates arbitrary JSON-serializable values (recursive structure of primitives, lists, and dicts)
-- `nested_dict`: Generates arbitrary nested dictionaries (filtered from `json_value`)
+
+- `json_value`: generates arbitrary JSON-serializable values (recursive structure of primitives, lists and dicts).
+- `nested_dict`: generates arbitrary nested dictionaries (filtered from `json_value`).
 
 **Usage:**
 
@@ -398,28 +405,29 @@ def test_something(self, payload):
 ## Test Naming Conventions
 
 ### Test Class Names
-- **Contract classes**: `{Component}ContractTest` (e.g., `RateLimiterContractTest`)
-- **Implementation classes**: `Test{Implementation}{Component}` (e.g., `TestCeleryRateLimiter`)
+
+- **Contract classes**: `{Component}ContractTest` (e.g., `RateLimiterContractTest`).
+- **Implementation classes**: `Test{Implementation}{Component}` (e.g., `TestCeleryRateLimiter`).
 
 ### Test Method Names
-- Use descriptive names that read like sentences
-- Start with `test_`
-- Include what is being tested and expected outcome
 
-**Good examples:**
+Test method names should be descriptive and read like sentences. They should start with `test_` and include both what is being tested and the expected outcome.
+
+**Recommended:**
 - `test_schedule_task_returns_success_and_task_id`
 - `test_lock_releases_on_exception`
 - `test_payload_survives_redis_round_trip`
 
-**Poor examples:**
+**Avoid:**
 - `test_schedule`
 - `test_1`
 - `test_lock`
 
 ### Docstrings
-- Contract tests: Start with `Contract: ` to clarify the requirement
-- Property tests: Start with `Property: ` to clarify the invariant
-- Implementation tests: Describe the specific behavior being tested
+
+- *Contract tests*: start with `Contract: ` to clarify the requirement.
+- *Property tests*: start with `Property: ` to clarify the invariant.
+- *Implementation tests*: describe the specific behavior being tested.
 
 **Examples:**
 ```python
@@ -438,72 +446,82 @@ def test_lua_script_recovery_on_noscript_error(self, limiter):
 
 ### Use Lowercase for Messages
 ```python
-# Good
+# Recommended.
 assert success is True, "task should be scheduled successfully"
 
-# Bad
+# Avoid.
 assert success is True, "Task should be scheduled successfully"
 ```
 
 ### Provide Context in Failure Messages
 ```python
-# Good
+# Recommended.
 assert len(results) > 0, f"task with ID {task_id} not found in buffer"
 
-# Bad
+# Avoid.
 assert len(results) > 0
 ```
 
 ### Comments Before Lines, Not After
 ```python
-# Good
+# Recommended.
 # Clean state for each example.
 redis_client.flushdb()
 
-# Bad
+# Avoid.
 redis_client.flushdb()  # Clean state
 ```
 
 ## Fixtures
 
 ### Session-Scoped Fixtures
+
 Used for expensive, one-time setup:
-- `_redis_connection`: Single Redis connection for the entire test suite (configurable via `REDIS_HOST`/`REDIS_PORT` environment variables)
-- `func_path`: Fictional function path for test task scheduling
-- `default_payload`: Default payload `{"user_id": 123}` for tests
+
+- `_redis_connection`: a single Redis connection for the entire test suite (configurable via `REDIS_HOST`/`REDIS_PORT` environment variables).
+- `func_path`: a fictional function path for test task scheduling.
+- `default_payload`: the default payload `{"user_id": 123}` for tests.
 
 ### Function-Scoped Fixtures (Default)
-Used for most tests. Clean state between tests:
-- `redis_client`: Wraps `_redis_connection` with `flushall()` before and after each test
-- `default_limiter_id`: Unique limiter ID per test (UUID-backed)
-- `default_lock_key`: Unique lock key per test for distributed lock tests
+
+Used for most tests to ensure a clean state between tests:
+
+- `redis_client`: wraps `_redis_connection` with `flushall()` before and after each test.
+- `default_limiter_id`: a unique limiter ID per test (UUID-backed).
+- `default_lock_key`: a unique lock key per test for distributed lock tests.
 
 ### Core Implementation Fixtures
+
 Defined in `implementations/conftest.py`:
-- `generic_limiter`: `MinimalRateLimiter` instance (no-op dispatch/schedule) for testing `AbstractDistributedRateLimiter` behavior
-- `tracking_limiter`: `TrackingRateLimiter` instance that records `_dispatch_task()` and `_schedule_drain()` calls
-- `make_limiter_pool`: Factory fixture that creates N limiter instances sharing the same Redis-backed limiter ID
-- `task_id`: Unique task ID string for testing
+
+- `generic_limiter`: a `MinimalRateLimiter` instance (no-op dispatch/schedule) for testing `AbstractDistributedRateLimiter` behavior.
+- `tracking_limiter`: a `TrackingRateLimiter` instance that records `_dispatch_task()` and `_schedule_drain()` calls.
+- `make_limiter_pool`: a factory fixture that creates N limiter instances sharing the same Redis-backed limiter ID.
+- `task_id`: a unique task ID string for testing.
 
 ### Backend Fixture Modules
+
 Backend fixtures are centralized in `tests/fixtures/` and imported where needed:
 
-- `tests/fixtures/celery_backend.py` defines Celery fixtures (`celery_app`, `celery_config`, `limiter`, class-state reset fixture)
-- `tests/fixtures/threadpool_backend.py` defines ThreadPool fixtures (`executor`, `limiter`, class-state reset fixture)
-- Backend-local conftests (e.g. `tests/implementations/celery/conftest.py`) import from the corresponding fixture module
+- `tests/fixtures/celery_backend.py` defines Celery fixtures (`celery_app`, `celery_config`, `limiter`, class-state reset fixture).
+- `tests/fixtures/threadpool_backend.py` defines ThreadPool fixtures (`executor`, `limiter`, class-state reset fixture).
+- Backend-local conftests (e.g., `tests/implementations/celery/conftest.py`) import from the corresponding fixture module.
 
 This avoids leaking backend fixtures into unrelated test categories.
 
 ### Module-Scoped Fixtures
+
 Used in property tests to improve performance:
-- `default_module_limiter_id`: Unique limiter ID per module
-- `property_redis_client`: Shared Redis client for a module's Hypothesis runs
-- `property_limiter`: Shared limiter for a module's Hypothesis runs
+
+- `default_module_limiter_id`: a unique limiter ID per module.
+- `property_redis_client`: a shared Redis client for a module's Hypothesis runs.
+- `property_limiter`: a shared limiter for a module's Hypothesis runs.
 
 ## Best Practices
 
 ### 1. Keep Tests Focused
-Each test should verify **one specific behavior**. If you need multiple assertions, they should all relate to the same behavior.
+
+Each test should verify one specific behavior. If multiple assertions are needed, they should all relate to the same behavior.
 
 ### 2. Use Parametrize for Variations
 ```python
@@ -517,13 +535,16 @@ def test_various_payloads(self, limiter, payload):
 ```
 
 ### 3. Mock External Dependencies
-Use `unittest.mock` for backend-specific behavior where full worker execution is not required.
+
+`unittest.mock` should be used for backend-specific behavior where full worker execution is not required.
 
 ### 4. Clean Up Resources
-Use fixtures with proper teardown or context managers to ensure resources are cleaned up even if tests fail.
+
+Fixtures with proper teardown or context managers should be used to ensure that resources are cleaned up even if tests fail.
 
 ### 5. Use Unique IDs in Fixtures
-Prefer fixture-provided unique IDs over hardcoded IDs for limiter names, lock keys, and task IDs.
+
+Fixture-provided unique IDs should be preferred over hardcoded IDs for limiter names, lock keys and task IDs.
 
 ```python
 def test_example(default_limiter_id, default_lock_key):
@@ -531,25 +552,28 @@ def test_example(default_limiter_id, default_lock_key):
     lock_key = default_lock_key
 ```
 
-Use explicit hardcoded IDs only when the test is specifically about ID identity or readability of a known failure case.
+Explicit hardcoded IDs should only be used when the test is specifically about ID identity or the readability of a known failure case.
 
 ## Troubleshooting
 
 ### Tests Fail Due to Redis Connection
-Ensure Redis is running:
+
+Ensure that Redis is running:
 ```bash
 # Should return "PONG".
 redis-cli ping
 ```
 
 ### Hypothesis Tests Are Slow
-Reduce examples for faster iteration:
+
+The number of examples can be reduced for faster iteration:
 ```bash
 pytest tests/properties/ --hypothesis-max-examples=10
 ```
 
 ### Import Errors
-Ensure pytest runs from project root:
+
+Ensure that pytest is run from the project root:
 ```bash
 cd /path/to/celery-rate-limiter
 pytest tests/
@@ -557,13 +581,14 @@ pytest tests/
 
 ## Contributing
 
-When adding new tests:
-1. Follow the existing structure (contracts, implementations, algorithms, properties, integration)
-2. Respect backend scoping rules (`<category>/` core vs `<category>/<backend>/` backend-specific)
-3. Use the AAA pattern (Arrange-Act-Assert)
-4. Add descriptive docstrings
-5. Follow naming conventions
-6. Update this README if adding new patterns or conventions
+When adding new tests, the following should be kept in mind:
+
+1. Follow the existing structure (contracts, implementations, algorithms, properties, integration).
+2. Respect the backend scoping rules (`<category>/` for core, `<category>/<backend>/` for backend-specific).
+3. Use the AAA pattern (Arrange-Act-Assert).
+4. Add descriptive docstrings.
+5. Follow the naming conventions.
+6. Update this README if adding new patterns or conventions.
 
 ## Resources
 

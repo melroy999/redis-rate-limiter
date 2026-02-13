@@ -1,7 +1,7 @@
-"""Celery-specific class API behavior tests.
+"""Celery-specific class API behavioural tests.
 
-Core class-API behavior is covered by ``tests/implementations/test_rate_limiter_class_api.py``.
-This module keeps only tests that are specific to Celery backend context.
+Core class-API behaviour is covered by ``tests/implementations/test_rate_limiter_class_api.py``.
+This module contains only those tests that are specific to the Celery backend context.
 """
 
 import pytest
@@ -10,10 +10,10 @@ from celery_rate_limiter import CeleryRateLimiter
 
 
 class TestCeleryRateLimiterClassApi:
-    """Celery-only tests for class API/backend context behavior."""
+    """Celery-specific tests for class API and backend context behaviour."""
 
     def test_configure_without_celery_app_raises_error(self, redis_client):
-        """Verify configure fails when celery_app is missing."""
+        """Verify that ``configure`` raises an error when the ``celery_app`` argument is not provided."""
         # Arrange
         CeleryRateLimiter._reset()
 

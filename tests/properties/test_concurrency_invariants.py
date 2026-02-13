@@ -1,4 +1,8 @@
-"""Property-based tests for concurrency invariants."""
+"""Property-based tests for concurrency invariants.
+
+These tests employ Hypothesis to verify that the concurrency bound is never
+exceeded under arbitrary sequences of schedule, consume, and complete operations.
+"""
 
 import pytest
 from hypothesis import HealthCheck, given, settings
@@ -9,7 +13,7 @@ from tests.implementations.conftest import MinimalRateLimiter
 
 @pytest.fixture(scope="module")
 def property_redis_client(_redis_connection):
-    """Module-scoped Redis client for property-based tests."""
+    """Provide a module-scoped Redis client for property-based tests."""
     yield _redis_connection
     _redis_connection.flushdb()
 
@@ -19,7 +23,7 @@ def property_limiter(
     property_redis_client,
     default_module_limiter_id,
 ):
-    """Module-scoped limiter for concurrency-invariant property tests."""
+    """Provide a module-scoped rate limiter for concurrency-invariant property tests."""
     return MinimalRateLimiter(
         redis_client=property_redis_client,
         limiter_id=f"{default_module_limiter_id}_property_concurrency",
@@ -32,7 +36,7 @@ def property_limiter(
 
 
 class TestConcurrencyInvariantProperties:
-    """Property-based tests for concurrency bound behavior."""
+    """Property-based tests verifying that the concurrency bound is never violated."""
 
     @staticmethod
     @given(
@@ -48,7 +52,7 @@ class TestConcurrencyInvariantProperties:
     def test_active_concurrency_never_exceeds_max(
         property_limiter, property_redis_client, operations
     ):
-        """Property: active concurrency never exceeds configured max_concurrency."""
+        """Property: the active concurrency never exceeds the configured max_concurrency."""
         # Arrange
         property_redis_client.flushdb()
         next_payload_id = 0

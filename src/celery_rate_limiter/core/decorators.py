@@ -4,19 +4,19 @@ from typing import Any, Callable, Optional, TypeVar, cast
 
 from celery_rate_limiter.core.limiters import AbstractDistributedRateLimiter
 
-# Use generic types.
+# Generic type variable used to preserve the decorated callable's signature.
 T = TypeVar("T", bound=Callable[..., Any])
 logger = logging.getLogger(__name__)
 
 
 def _get_default_limiter(limiter_id: str) -> AbstractDistributedRateLimiter:
-    """Resolve the default limiter implementation.
+    """Resolve the default rate limiter implementation.
 
-    Uses the ThreadPool backend by default so this module works without Celery.
-    Pass a custom ``get_limiter`` to ``@rate_limited()`` if you need a
-    different backend.
+    The ThreadPool backend is used by default such that this module remains
+    functional without a Celery installation. A custom ``get_limiter`` callable
+    may be passed to ``@rate_limited()`` to specify an alternative backend.
     """
-    # Avoid circular imports by performing a lazy import here.
+    # A lazy import is performed here to avoid circular import dependencies.
     from celery_rate_limiter.backends.threading import ThreadPoolRateLimiter
 
     return ThreadPoolRateLimiter.get(limiter_id)
@@ -27,18 +27,23 @@ def rate_limited(
     *,
     get_limiter: Optional[Callable[[str], AbstractDistributedRateLimiter]] = None,
 ) -> Callable[[T], T]:
-    """Decorator to apply rate limiter lifecycle handling around a task.
+    """Decorator that applies rate limiter lifecycle handling around a task.
+
+    The decorated function is executed within the context of a rate limiter's
+    task lifecycle manager, ensuring that acquisition and release semantics
+    are observed.
 
     Args:
-        limiter_id: The id of the rate limiter instance to use.
-        get_limiter: Optional resolver used to fetch limiter instances by id.
-            Defaults to ThreadPool-backed resolution.
+        limiter_id: The identifier of the rate limiter instance to be used.
+        get_limiter: An optional resolver callable used to retrieve limiter
+            instances by their identifier. If not provided, the default
+            ThreadPool-backed resolution is used.
     """
 
     def decorator(func: T) -> T:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            # Resolve the limiter id.
+            # Resolve the limiter identifier.
             l_id = limiter_id or kwargs.get("limiter_id")
             if l_id is None:
                 raise ValueError(
@@ -46,7 +51,7 @@ def rate_limited(
                     "or provide limiter_id in function kwargs."
                 )
 
-            # Fetch the limiter and the task id.
+            # Retrieve the limiter instance and the associated task identifier.
             limiter_getter = get_limiter or _get_default_limiter
             limiter = limiter_getter(l_id)
             task_id = kwargs.pop("_rate_limit_task_id")
@@ -57,7 +62,7 @@ def rate_limited(
                 func.__qualname__,
             )
 
-            # Wrap task execution in the lifecycle manager.
+            # Execute the task within the rate limiter's lifecycle context manager.
             with limiter.task_lifecycle(task_id):
                 result = func(*args, **kwargs)
 
@@ -70,7 +75,7 @@ def rate_limited(
             return result
 
         # noinspection PyUnnecessaryCast
-        # This is, in fact, necessary to pass mypy validation.
+        # This cast is, in fact, necessary to satisfy mypy type validation.
         return cast(T, wrapper)
 
     return decorator

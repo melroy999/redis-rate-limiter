@@ -13,19 +13,19 @@ logger = logging.getLogger(__name__)
 
 
 class ThreadPoolRateLimiter(AbstractRedisManagedRateLimiter):
-    """A rate limiter that dispatches tasks to a thread pool.
+    """A rate limiter that dispatches tasks to a local thread pool.
 
-    Use the classmethods ``configure``, ``create``, ``get``, and ``update``
-    instead of constructing instances directly.
+    Instances should be obtained through the class methods ``configure``,
+    ``create``, ``get``, and ``update`` rather than through direct construction.
     """
 
     _executor: ClassVar[Optional[ThreadPoolExecutor]] = None
 
-    # No backend-specific configure() override needed; the base class handles it.
+    # No backend-specific ``configure`` override is required; the base class implementation suffices.
 
     @classmethod
     def _configure_backend(cls, **backend_context: Any) -> None:
-        """Store backend-specific context for thread pool limiter instances."""
+        """Store the backend-specific context required by thread pool limiter instances."""
         executor = backend_context.get("executor")
         if executor is None:
             raise RuntimeError(
@@ -36,23 +36,23 @@ class ThreadPoolRateLimiter(AbstractRedisManagedRateLimiter):
 
     @classmethod
     def _has_backend_context(cls) -> bool:
-        """Check if executor context has been configured."""
+        """Determine whether the executor context has been configured."""
         return cls._executor is not None
 
     @classmethod
     def _get_instance_context(cls) -> dict[str, Any]:
-        """Expose constructor context for concrete instance creation."""
+        """Provide the constructor context required for concrete instance creation."""
         assert cls._executor is not None
         return {"executor": cls._executor}
 
     @classmethod
     def _reset_backend_context(cls) -> None:
-        """Clear executor class context."""
+        """Clear the executor context held at the class level."""
         cls._executor = None
 
     @classmethod
     def _configure_hint(cls) -> str:
-        """Return configure usage for runtime errors."""
+        """Return the ``configure`` usage hint to be included in runtime error messages."""
         return "ThreadPoolRateLimiter.configure(redis_client, executor=executor)"
 
     # ------------------------------------------------------------------
@@ -67,14 +67,14 @@ class ThreadPoolRateLimiter(AbstractRedisManagedRateLimiter):
         _sentinel: Any = None,
         **kwargs: Any,
     ):
-        """Create a thread pool rate limiter instance via the managed class API.
+        """Construct a thread pool rate limiter instance through the managed class API.
 
         Args:
-            redis_client: The Redis client.
-            executor: The ThreadPoolExecutor to use for task dispatch.
-            _sentinel: Internal sentinel passed by class API methods.
+            redis_client: The Redis client used for state management.
+            executor: The ``ThreadPoolExecutor`` instance used for task dispatch.
+            _sentinel: An internal sentinel value supplied by the class API methods.
 
-        Other parameters are inherited from ``AbstractDistributedRateLimiter``.
+        All remaining parameters are inherited from ``AbstractDistributedRateLimiter``.
         """
         super().__init__(redis_client, *args, _sentinel=_sentinel, **kwargs)
         self.executor = executor

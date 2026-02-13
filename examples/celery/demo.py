@@ -1,9 +1,9 @@
-"""Self-contained CeleryRateLimiter demo.
+"""Self-contained CeleryRateLimiter demonstration.
 
-Spawns a Celery worker subprocess, schedules rate-limited tasks, and
-monitors progress via the shared dashboard.  Unlike the threadpool demo,
-Celery requires a separate worker process--this script manages its full
-lifecycle automatically.
+This script spawns a Celery worker subprocess, schedules rate-limited tasks,
+and monitors progress via the shared dashboard.  Unlike the thread pool
+demonstration, Celery requires a separate worker process; hence, this script
+manages the full worker lifecycle automatically.
 
 Usage (Docker Redis on 6380):
     REDIS_HOST=localhost REDIS_PORT=6380 poetry run python -m examples.celery.demo
@@ -45,7 +45,7 @@ LIMITER_ID = "celery_demo"
 REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
 
 # ---------------------------------------------------------------------------
-# Celery app (imported by the worker subprocess via -A flag)
+# Celery application (imported by the worker subprocess via the -A flag)
 # ---------------------------------------------------------------------------
 
 celery_app = Celery("celery_demo", broker=REDIS_URL)
@@ -62,10 +62,11 @@ celery_app.conf.imports = [
 
 @worker_init.connect
 def _init_worker(**_kwargs):
-    """Configure the rate limiter inside the worker subprocess.
+    """Configure the rate limiter within the worker subprocess.
 
-    The ``@rate_limited`` decorator resolves the limiter via ``.get()``, so
-    both ``configure()`` and ``create()`` must run in every process.
+    The ``@rate_limited`` decorator resolves the limiter via ``.get()``; as
+    such, both ``configure()`` and ``create()`` must be invoked in every
+    process.
     """
     client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
     CeleryRateLimiter.configure(client, celery_app=celery_app)
@@ -98,7 +99,7 @@ def main() -> None:
         override=True,
     )
 
-    # Start an embedded Celery worker as a subprocess.
+    # Start an embedded Celery worker as a subprocess
     logger.info("Starting Celery worker subprocess...")
     worker_proc = subprocess.Popen(
         [
@@ -114,7 +115,7 @@ def main() -> None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    time.sleep(3)  # Give the worker time to connect to the broker.
+    time.sleep(3)  # Allow the worker sufficient time to connect to the broker.
     logger.info("Worker ready.")
 
     def cleanup():

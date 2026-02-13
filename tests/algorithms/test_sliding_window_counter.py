@@ -1,24 +1,25 @@
 """Property and unit tests for the sliding window counter algorithm.
 
 These tests verify the mathematical correctness of the sliding window counter
-algorithm independently of the Redis/Lua implementation. This serves as a
-"peace of mind" validation that the core algorithm logic is correct.
+algorithm independently of the Redis/Lua implementation. As such, they serve
+as a validation that the core algorithmic logic is correct.
 
-Why these tests exist:
+Motivation:
 
-The actual rate limiting logic runs in Lua on Redis, using Redis server time
-(via the TIME command). This makes it impractical to unit test the Lua code
-directly with mocked time--we cannot control Redis's clock.
+The production rate limiting logic is executed in Lua on Redis, relying on
+Redis server time (obtained via the TIME command). This makes it impractical
+to unit test the Lua code directly with mocked time, as the Redis clock
+cannot be controlled externally.
 
-Instead, we extract the pure algorithm into Python and test it exhaustively
-here. This gives us confidence that:
+Instead, the pure algorithm is extracted into Python and tested exhaustively
+in this module. This approach provides confidence that:
 
-1. The mathematical formula is correct for all configurations
-2. Edge cases (window boundaries, empty windows) behave as expected
-3. The 2x burst bound is maintained across all scenarios
+1. The mathematical formula is correct for all configurations.
+2. Edge cases (i.e., window boundaries, empty windows) behave as expected.
+3. The 2x burst bound is maintained across all scenarios.
 
-The integration tests then verify that the Lua implementation matches this
-expected behavior, using real time with short windows.
+The integration tests subsequently verify that the Lua implementation matches
+the expected behavior, using real time with short windows.
 
 Algorithm reference (from consume.lua):
 
@@ -26,14 +27,14 @@ Algorithm reference (from consume.lua):
     weight = (window_size_ms - time_passed_in_current) / window_size_ms
     estimated_count = current_count + (previous_count * weight)
 
-The sliding window counter allows requests when estimated_count < limit.
+The sliding window counter permits requests when estimated_count < limit.
 
-Sliding window counter vs fixed window:
+Sliding window counter versus fixed window:
 
 The sliding window counter approximates a true sliding window using two
-adjacent fixed windows. A simple fixed window algorithm would allow 2x limit
-instantly at a window boundary. The counter instead weights the previous
-window's contribution, providing smoother rate limiting.
+adjacent fixed windows. A simple fixed window algorithm would permit 2x the
+limit instantaneously at a window boundary. The counter instead weights the
+previous window's contribution, thereby providing smoother rate limiting.
 """
 
 import pytest
@@ -44,14 +45,14 @@ from tests.algorithms.sliding_window_counter import is_allowed, sliding_window_e
 class TestWeightCalculation:
     """Tests for the weight calculation that distinguishes the counter algorithm.
 
-    The counter's core innovation is the weight applied to the previous window.
-    This weight decreases linearly as time progresses, creating a smooth
-    approximation of a true sliding window.
+    The central mechanism of the counter is the weight applied to the previous
+    window. This weight decreases linearly as time progresses, producing a
+    smooth approximation of a true sliding window.
     """
 
     @staticmethod
     def test_weight_is_one_at_window_start():
-        """At the start of a window, previous window has full weight (1.0)."""
+        """At the start of a window, the previous window is assigned full weight (1.0)."""
         # Arrange
         window_ms = 1000
         elapsed_ms = 0
@@ -72,7 +73,7 @@ class TestWeightCalculation:
 
     @staticmethod
     def test_weight_is_half_at_window_midpoint():
-        """At the midpoint of a window, previous window has half weight (0.5)."""
+        """At the midpoint of a window, the previous window is assigned half weight (0.5)."""
         # Arrange
         window_ms = 1000
         elapsed_ms = 500
@@ -93,7 +94,7 @@ class TestWeightCalculation:
 
     @staticmethod
     def test_weight_is_zero_at_window_end():
-        """At the end of a window, previous window has zero weight (0.0)."""
+        """At the end of a window, the previous window is assigned zero weight (0.0)."""
         # Arrange
         window_ms = 1000
         elapsed_ms = 1000
@@ -114,7 +115,7 @@ class TestWeightCalculation:
 
     @staticmethod
     def test_current_window_always_has_full_weight():
-        """Property: current window count is always added with weight 1.0."""
+        """Property: the current window count is always added with a weight of 1.0."""
         # Arrange
         current_count = 5
         time_positions = [0, 250, 500, 750, 999]
@@ -149,7 +150,7 @@ class TestWeightCalculation:
         ],
     )
     def test_weight_decreases_linearly(elapsed_ms, expected_weight):
-        """Property: weight decreases linearly from 1.0 to 0.0 across the window."""
+        """Property: the weight decreases linearly from 1.0 to 0.0 across the window."""
         # Arrange
         previous_count = 100
 
@@ -169,11 +170,11 @@ class TestWeightCalculation:
 
 
 class TestEstimateFormula:
-    """Tests for the combined estimate calculation."""
+    """Tests for the combined estimate calculation formula."""
 
     @staticmethod
     def test_combined_counts_at_midpoint():
-        """Both previous and current counts contribute to the estimate."""
+        """Both the previous and current counts contribute to the estimate."""
         # Arrange
         previous_count = 10
         current_count = 5
@@ -194,7 +195,7 @@ class TestEstimateFormula:
 
     @staticmethod
     def test_empty_windows_yield_zero_estimate():
-        """Property: empty windows result in zero estimate at any time position."""
+        """Property: empty windows yield a zero estimate at any time position."""
         # Act & Assert
         for elapsed in [0, 500, 1000]:
             estimated = sliding_window_estimate(
@@ -222,7 +223,7 @@ class TestEstimateFormula:
         ],
     )
     def test_formula_across_configurations(prev, curr, window, elapsed, expected):
-        """Formula produces correct results for various configurations."""
+        """The formula produces correct results across various configurations."""
         # Act
         estimated = sliding_window_estimate(prev, curr, window, elapsed)
 
@@ -234,11 +235,11 @@ class TestEstimateFormula:
 
 
 class TestRateLimitDecision:
-    """Tests for the is_allowed decision function."""
+    """Tests for the is_allowed decision function that governs rate limit admission."""
 
     @staticmethod
     def test_allowed_when_under_limit():
-        """Requests are allowed when estimate is below limit."""
+        """Requests are permitted when the estimate is below the limit."""
         # Arrange
         limit = 10
 
@@ -258,7 +259,7 @@ class TestRateLimitDecision:
 
     @staticmethod
     def test_denied_when_at_limit():
-        """Requests are denied when estimate equals limit."""
+        """Requests are denied when the estimate equals the limit."""
         # Arrange
         limit = 10
 
@@ -278,7 +279,7 @@ class TestRateLimitDecision:
 
     @staticmethod
     def test_denied_when_over_limit():
-        """Requests are denied when estimate exceeds limit."""
+        """Requests are denied when the estimate exceeds the limit."""
         # Arrange
         limit = 10
 
@@ -299,23 +300,23 @@ class TestRateLimitDecision:
 
     @staticmethod
     def test_previous_window_ages_out():
-        """Requests become allowed as previous window ages out."""
+        """Requests become permitted as the previous window ages out."""
         # Arrange
         limit = 10
 
-        # At window start: estimated = 0 + (10 * 1.0) = 10.0, denied
+        # At the window start: estimated = 0 + (10 * 1.0) = 10.0, denied
         result = is_allowed(10, 0, 1000, 0, limit)
         assert result is False, (
             f"is_allowed should return False at elapsed=0ms (estimate=10, limit=10), got {result}"
         )
 
-        # After 100ms: estimated = 0 + (10 * 0.9) = 9.0, allowed
+        # After 100ms: estimated = 0 + (10 * 0.9) = 9.0, permitted
         result = is_allowed(10, 0, 1000, 100, limit)
         assert result is True, (
             f"is_allowed should return True at elapsed=100ms (estimate=9, limit=10), got {result}"
         )
 
-        # At midpoint: estimated = 0 + (10 * 0.5) = 5.0, allowed
+        # At the midpoint: estimated = 0 + (10 * 0.5) = 5.0, permitted
         result = is_allowed(10, 0, 1000, 500, limit)
         assert result is True, (
             f"is_allowed should return True at elapsed=500ms (estimate=5, limit=10), got {result}"
@@ -323,28 +324,29 @@ class TestRateLimitDecision:
 
 
 class TestBurstBoundProperty:
-    """Tests verifying the 2x burst bound property.
+    """Tests verifying the 2x burst bound property of the algorithm.
 
-    The algorithm can allow up to 2x limit in a window-sized period when:
+    The algorithm can permit up to 2x the limit within a window-sized period
+    when the following conditions are met:
 
-    1. Previous window is empty (no requests)
-    2. Requests arrive at the very end of the current (empty) window
-    3. Requests continue into the next window
+    1. The previous window is empty (i.e., no requests were recorded).
+    2. Requests arrive at the very end of the current (empty) window.
+    3. Requests continue into the subsequent window.
 
     In this scenario:
-    - End of window N: up to `limit` requests can be consumed (previous empty)
-    - Start of window N+1: `limit` more as previous weight decays
+    - End of window N: up to `limit` requests can be consumed (previous empty).
+    - Start of window N+1: `limit` additional requests as the previous weight decays.
 
-    This is a known algorithmic property, not a bug. These tests verify
-    the bound is respected and document the expected behavior.
+    This is a known algorithmic property, not a defect. These tests verify
+    that the bound is respected and document the expected behavior.
 
     See also: tests/integration/test_rate_limiting.py for behavioral tests
-    that verify this property with the real Redis/Lua implementation.
+    that verify this property with the actual Redis/Lua implementation.
     """
 
     @staticmethod
     def test_max_burst_at_boundary_with_empty_history():
-        """Demonstrate 2x burst scenario: empty previous allows limit at window end."""
+        """Demonstration of the 2x burst scenario: an empty previous window permits the full limit at the window end."""
         # Arrange
         limit = 10
         window_ms = 1000
@@ -363,11 +365,11 @@ class TestBurstBoundProperty:
 
     @staticmethod
     def test_second_window_allows_more_after_first_window_burst():
-        """After bursting at window end, more requests allowed as weight decays."""
+        """After a burst at the window end, additional requests are permitted as the weight decays."""
         # Arrange
         limit = 10
         window_ms = 1000
-        # Previous window (N) had limit requests consumed at its end
+        # The previous window (N) had the full limit of requests consumed at its end
         previous_count = limit
 
         # At window N+1 start: estimated = 0 + (10 * 1.0) = 10.0, exactly at limit
@@ -382,8 +384,8 @@ class TestBurstBoundProperty:
             f"is_allowed should return True at elapsed=1ms (estimate=9.99, limit=10), got {result}"
         )
 
-        # Consume more requests in window N+1, spread throughout the window
-        # Each request requires weight to decay enough: weight < (limit - current) / limit
+        # Consume additional requests in window N+1, spread throughout the window.
+        # Each request requires the weight to decay sufficiently: weight < (limit - current) / limit
         consumed_in_window_n1 = 0
         for elapsed in range(1, window_ms + 1):
             if is_allowed(
@@ -400,18 +402,18 @@ class TestBurstBoundProperty:
 
     @staticmethod
     def test_burst_cannot_exceed_2x_limit():
-        """Property: total burst in worst case scenario is exactly 2x limit."""
+        """Property: the total burst in the worst-case scenario is exactly 2x the limit."""
         # Arrange
         limit = 10
         window_ms = 1000
 
-        # Window N: empty previous, consume at end
+        # Window N: the previous window is empty; consume at the end
         consumed_n = 0
         for _ in range(limit * 2):
             if is_allowed(0, consumed_n, window_ms, window_ms - 1, limit):
                 consumed_n += 1
 
-        # Window N+1: previous has consumed_n, consume as weight decays over full window
+        # Window N+1: the previous window has consumed_n; consume as the weight decays over the full window
         consumed_n1 = 0
         for elapsed in range(1, window_ms + 1):
             if is_allowed(consumed_n, consumed_n1, window_ms, elapsed, limit):
@@ -431,7 +433,7 @@ class TestBurstBoundProperty:
             f"total burst should be {2 * limit}, got {total_burst}"
         )
 
-        # Verify no more can be consumed: both windows at limit
+        # Verify that no additional requests can be consumed when both windows are at the limit
         result = is_allowed(limit, limit, window_ms, 100, limit)
         assert result is False, (
             f"is_allowed should return False when both windows at limit, got {result}"
@@ -451,14 +453,14 @@ class TestBurstBoundProperty:
         ],
     )
     def test_2x_bound_holds_across_configurations(limit, window_ms):
-        """Property: 2x bound holds for various limit and window configurations."""
-        # Window N: consume at end with empty previous
+        """Property: the 2x bound holds for various limit and window configurations."""
+        # Window N: consume at the end with an empty previous window
         consumed_n = 0
         for _ in range(limit * 2):
             if is_allowed(0, consumed_n, window_ms, window_ms - 1, limit):
                 consumed_n += 1
 
-        # Window N+1: consume as previous weight decays over the full window
+        # Window N+1: consume as the previous weight decays over the full window
         consumed_n1 = 0
         for elapsed in range(1, window_ms + 1):
             if is_allowed(consumed_n, consumed_n1, window_ms, elapsed, limit):
@@ -479,22 +481,22 @@ class TestBurstBoundProperty:
 
 
 class TestSmoothingBehavior:
-    """Tests demonstrating how the counter smooths rate limiting.
+    """Tests demonstrating how the counter produces smoother rate limiting.
 
-    A fixed window algorithm allows 2x limit instantly at boundaries. The
-    sliding window counter instead spreads the impact of previous requests
-    over time, resulting in smoother rate limiting.
+    A fixed window algorithm permits 2x the limit instantaneously at boundaries.
+    The sliding window counter instead distributes the impact of previous requests
+    over time, resulting in a smoother rate limiting profile.
     """
 
     @staticmethod
     def test_previous_requests_gradually_lose_influence():
-        """Property: previous window's influence fades gradually, not abruptly."""
+        """Property: the previous window's influence fades gradually, not abruptly."""
         # Arrange
         limit = 10
         previous_count = 10
 
         # Act
-        # Track how many requests are allowed as time passes
+        # Track how many requests are permitted as time passes
         allowed_at_times = {}
         for elapsed in range(0, 1001, 100):
             current = 0
@@ -503,36 +505,36 @@ class TestSmoothingBehavior:
             allowed_at_times[elapsed] = current
 
         # Assert
-        # At t=0: can allow 0 (estimated=10, at limit)
+        # At t=0: 0 requests can be permitted (estimated=10, at the limit)
         assert allowed_at_times[0] == 0, (
             f"allowed requests at t=0 should be 0, got {allowed_at_times[0]}"
         )
-        # At t=100: can allow 1 (estimated=9 after 1 request)
+        # At t=100: 1 request can be permitted (estimated=9 after 1 request)
         assert allowed_at_times[100] == 1, (
             f"allowed requests at t=100 should be 1, got {allowed_at_times[100]}"
         )
-        # At t=500: can allow 5 (estimated=5 after 5 requests)
+        # At t=500: 5 requests can be permitted (estimated=5 after 5 requests)
         assert allowed_at_times[500] == 5, (
             f"allowed requests at t=500 should be 5, got {allowed_at_times[500]}"
         )
-        # At t=1000: can allow 10 (previous fully aged out)
+        # At t=1000: 10 requests can be permitted (the previous window has fully aged out)
         assert allowed_at_times[1000] == 10, (
             f"allowed requests at t=1000 should be 10, got {allowed_at_times[1000]}"
         )
 
     @staticmethod
     def test_steady_state_maintains_limit():
-        """In steady state, the algorithm maintains approximately limit per window."""
+        """In the steady state, the algorithm maintains approximately the limit per window."""
         # Arrange
         limit = 10
         window_ms = 1000
 
-        # Simulate steady consumption: both windows at limit
+        # Simulate steady consumption: both windows are at the limit
         previous_count = limit
         current_count = 0
 
-        # At midpoint: estimated = current + (previous * 0.5) = 0 + 5 = 5
-        # Can consume 5 more before hitting limit
+        # At the midpoint: estimated = current + (previous * 0.5) = 0 + 5 = 5
+        # Five additional requests can be consumed before reaching the limit
         allowed_count = 0
         while is_allowed(
             previous_count, current_count + allowed_count, window_ms, 500, limit

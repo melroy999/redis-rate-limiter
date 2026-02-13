@@ -1,12 +1,12 @@
 """Tests for concurrent access to shared rate limiter state.
 
-These tests verify that the distributed coordination primitives (Lua scripts,
-distributed lock, concurrency tracking) hold their guarantees when multiple
-clients contend for the same limiter simultaneously.
+These tests verify that the distributed coordination primitives (i.e., Lua scripts,
+the distributed lock, and concurrency tracking) maintain their guarantees when
+multiple clients contend for the same limiter simultaneously.
 
 Multiple threads sharing a Redis connection accurately simulate distributed
-workers (Celery, thread pool, etc.) hitting the same Redis instance: the GIL
-releases during network I/O, so Redis operations genuinely interleave.
+workers (e.g., Celery, thread pool) hitting the same Redis instance: the GIL
+is released during network I/O, hence Redis operations genuinely interleave.
 """
 
 import threading
@@ -15,20 +15,20 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tests.implementations.conftest import TrackingRateLimiter
 
-# Number of concurrent simulated workers (threads).
+# The number of concurrent simulated workers (threads).
 WORKERS = 8
 FUNC_PATH = "myapp.tasks.work"
 
 
 class SlowDispatchTrackingRateLimiter(TrackingRateLimiter):
-    """Tracking limiter that intentionally holds the dispatch lock a bit longer.
+    """Tracking limiter that intentionally holds the dispatch lock for an extended period.
 
     This keeps the critical section open long enough for concurrent contenders
-    to hit lock contention in a deterministic way.
+    to encounter lock contention in a deterministic manner.
     """
 
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
-        """Record dispatch after a brief delay to keep the lock held."""
+        """Record the dispatch after a brief delay to keep the lock held."""
         time.sleep(0.2)
         super()._dispatch_task(func_path, payload, task_id)
 
@@ -41,8 +41,9 @@ class SlowDispatchTrackingRateLimiter(TrackingRateLimiter):
 def run_concurrently(fn, args_list):
     r"""Run ``fn(*args)`` for every ``args`` in ``args_list`` with a synchronized start.
 
-    A ``threading.Barrier`` ensures all threads begin their work at the same
-    instant, maximizing the probability of true contention on the Redis side.
+    A ``threading.Barrier`` is used to ensure that all threads begin their work at
+    the same instant, thereby maximizing the probability of true contention on the
+    Redis side.
     """
     barrier = threading.Barrier(len(args_list))
     results: list = []
@@ -81,9 +82,9 @@ def schedule_n_tasks(limiter, n):
 
 
 def complete_task(redis_client, limiter, task_id):
-    """Simulate task completion by cleaning up Redis state.
+    """Simulate task completion by cleaning up the Redis state.
 
-    Mirrors the cleanup performed by ``TaskLifecycle.__exit__``.
+    This mirrors the cleanup performed by ``TaskLifecycle.__exit__``.
     """
     redis_client.zrem(limiter.concurrency_key, task_id)
     redis_client.delete(limiter.get_inflight_key(task_id))
@@ -95,10 +96,10 @@ def complete_task(redis_client, limiter, task_id):
 
 
 class TestConcurrentScheduling:
-    """Multiple clients scheduling tasks simultaneously."""
+    """Tests for multiple clients scheduling tasks simultaneously."""
 
     def test_concurrent_unique_task_scheduling(self, make_limiter_pool, redis_client):
-        """All unique tasks are scheduled without loss under concurrent access."""
+        """Verify that all unique tasks are scheduled without loss under concurrent access."""
         # Arrange
         tasks_per_worker = 10
         limiters = make_limiter_pool(
@@ -121,14 +122,14 @@ class TestConcurrentScheduling:
         )
 
         # Assert
-        # All tasks should be scheduled (unique payloads -> unique task IDs).
+        # All tasks should be scheduled, given that the payloads are unique and hence produce unique task IDs.
         all_scheduled = [r for batch in all_results for r in batch]
         scheduled_count = sum(1 for scheduled, _ in all_scheduled if scheduled)
         assert scheduled_count == len(all_scheduled), (
             f"every unique task must be scheduled, got {scheduled_count}/{len(all_scheduled)}"
         )
 
-        # Buffer should contain all tasks.
+        # The buffer should contain all tasks.
         buffer_size = redis_client.zcard(limiters[0].buffer_key)
         assert buffer_size == WORKERS * tasks_per_worker, (
             f"buffer should contain all {WORKERS * tasks_per_worker} tasks, got {buffer_size}"
@@ -137,11 +138,11 @@ class TestConcurrentScheduling:
     def test_concurrent_duplicate_scheduling_produces_single_entry(
         self, make_limiter_pool, redis_client
     ):
-        """SET NX ensures exactly one buffer entry for concurrent duplicate schedules.
+        """Verify that SET NX ensures exactly one buffer entry for concurrent duplicate schedules.
 
-        ``schedule_task`` uses ``SET key NX`` to atomically claim the
-        scheduling right. Only the winner proceeds to ``schedule.lua``;
-        all other callers see the key already exists and return early.
+        The ``schedule_task`` method uses ``SET key NX`` to atomically claim the
+        scheduling right. Only the winner proceeds to ``schedule.lua``; all other
+        callers observe that the key already exists and return early.
         """
         # Arrange
         limiters = make_limiter_pool(
@@ -165,7 +166,7 @@ class TestConcurrentScheduling:
             f"exactly one thread should win the SET NX race, got {scheduled_count}"
         )
 
-        # Buffer should contain exactly 1 entry.
+        # The buffer should contain exactly one entry.
         buffer_size = redis_client.zcard(limiters[0].buffer_key)
         assert buffer_size == 1, (
             f"buffer should contain exactly 1 entry, got {buffer_size}"
@@ -175,26 +176,27 @@ class TestConcurrentScheduling:
 class TestConcurrentConsumption:
     """Concurrent ``consume()`` calls testing Lua script atomicity directly.
 
-    These bypass the distributed lock to test the stronger claim that the
-    Lua script *alone* enforces correctness.
+    These tests bypass the distributed lock to verify the stronger claim that the
+    Lua script alone enforces correctness.
     """
 
     def test_rate_limit_enforced_under_concurrent_consume(
         self, make_limiter_pool, redis_client
     ):
-        """Total successful consumes never exceeds the rate limit."""
+        """Verify that the total number of successful consumes never exceeds the rate limit."""
         # Arrange
         limit = 10
         limiters = make_limiter_pool(
             WORKERS, limit=limit, window=60, max_concurrency=1000
         )
 
-        # Preload buffer with many more tasks than the limit.
+        # Preload the buffer with many more tasks than the limit.
         schedule_n_tasks(limiters[0], n=limit * 5)
 
         # Probe the window state with a single consume. If the window is
-        # about to roll over (< 2 s remaining), wait for a fresh window so
-        # the concurrent burst runs entirely within one window period.
+        # about to roll over (i.e., less than 2 seconds remaining), wait for
+        # a fresh window so the concurrent burst runs entirely within one
+        # window period.
         probe = limiters[0].consume()
         assert probe["success"], "probe consume should succeed on a full buffer"
         probe_consumed = 1
@@ -206,7 +208,7 @@ class TestConcurrentConsumption:
             probe_consumed = 0
 
         def consume_greedily(limiter):
-            """Keep consuming until rate-limited or buffer empty."""
+            """Continue consuming until rate-limited or the buffer is empty."""
             consumed = []
             for _ in range(limit * 2):
                 result = limiter.consume()
@@ -223,23 +225,23 @@ class TestConcurrentConsumption:
         )
 
         # Assert
-        # Total consumed across all workers must respect the rate limit. Note that,
-        # due to having more tasks than the limit, we expect exactly limit tasks to
-        # be consumable (minus the probe attempt if it is in the same window).
+        # The total consumed across all workers must respect the rate limit. Given
+        # that there are more tasks than the limit, exactly limit tasks should be
+        # consumable (minus the probe attempt if it falls within the same window).
         total = sum(len(batch) for batch in all_consumed) + probe_consumed
         assert total == limit, f"expected exactly {limit} tasks consumed, got {total}"
 
     def test_concurrency_limit_enforced_under_concurrent_consume(
         self, make_limiter_pool, redis_client
     ):
-        """Active concurrency never exceeds max_concurrency."""
+        """Verify that active concurrency never exceeds the max_concurrency limit."""
         # Arrange
         max_conc = 3
         limiters = make_limiter_pool(
             WORKERS, limit=1000, window=60, max_concurrency=max_conc
         )
 
-        # Preload buffer with plenty of tasks.
+        # Preload the buffer with a sufficient number of tasks.
         schedule_n_tasks(limiters[0], n=50)
 
         def consume_once(limiter):
@@ -258,8 +260,8 @@ class TestConcurrentConsumption:
                 f"reported concurrency {result['active_concurrency']} exceeds max {max_conc}"
             )
 
-        # All concurrency slots should be filled: 8 threads contending for 3
-        # slots with 50 tasks available guarantees all slots are claimed.
+        # All concurrency slots should be filled: eight threads contending for
+        # three slots with 50 tasks available guarantees that all slots are claimed.
         actual_concurrency = redis_client.zcard(limiters[0].concurrency_key)
         assert actual_concurrency == max_conc, (
             f"expected all {max_conc} concurrency slots filled, got {actual_concurrency}"
@@ -272,7 +274,7 @@ class TestConcurrentConsumption:
         )
 
     def test_each_task_consumed_exactly_once(self, make_limiter_pool, redis_client):
-        """No task is consumed by more than one worker."""
+        """Verify that no task is consumed by more than one worker."""
         # Arrange
         num_tasks = 5
         limiters = make_limiter_pool(
@@ -296,7 +298,7 @@ class TestConcurrentConsumption:
         )
 
         # Assert
-        # Flatten and check for duplicates.
+        # Flatten the results and check for duplicates.
         all_task_ids = [tid for batch in all_consumed for tid in batch]
         assert len(all_task_ids) == len(set(all_task_ids)), (
             f"duplicate consumption detected: {len(all_task_ids)} consumed "
@@ -311,20 +313,20 @@ class TestConcurrentConsumption:
 
 
 class TestConcurrentDrain:
-    """Full ``drain()`` path with the distributed lock under contention."""
+    """Tests for the full ``drain()`` path with the distributed lock under contention."""
 
     def test_distributed_lock_serializes_drains(self, make_limiter_pool, redis_client):
-        """Concurrent drainers should produce a single dispatch in one contention wave.
+        """Verify that concurrent drainers produce a single dispatch in one contention wave.
 
-        The lock critical section is intentionally held briefly so all contenders
+        The lock critical section is intentionally held briefly so that all contenders
         attempt lock acquisition while one worker owns the lock.
         """
         # Arrange
         num_tasks = 5
-        # Use the slow dispatch variant so the lock is held long enough for
-        # all contenders to overlap. With the default fast dispatch path, the
-        # lock can be released quickly and multiple sequential dispatches can
-        # happen in the same wave.
+        # The slow dispatch variant is used so that the lock is held long enough
+        # for all contenders to overlap. With the default fast dispatch path, the
+        # lock can be released quickly and multiple sequential dispatches may
+        # occur in the same wave.
         limiters = make_limiter_pool(
             WORKERS,
             limiter_cls=SlowDispatchTrackingRateLimiter,
@@ -333,7 +335,7 @@ class TestConcurrentDrain:
             max_concurrency=1000,
         )
 
-        # Pre-load buffer.
+        # Pre-load the buffer.
         schedule_n_tasks(limiters[0], n=num_tasks)
 
         def drain_once(limiter):
@@ -350,7 +352,7 @@ class TestConcurrentDrain:
 
         dispatched_ids = [t["task_id"] for t in all_dispatched]
 
-        # No double-dispatch.
+        # Verify that no double-dispatch occurred.
         assert len(dispatched_ids) == len(set(dispatched_ids)), (
             f"double dispatch detected: {len(dispatched_ids)} dispatched but "
             f"{len(set(dispatched_ids))} unique"
@@ -364,7 +366,7 @@ class TestConcurrentDrain:
     def test_all_tasks_eventually_consumed_under_contention(
         self, make_limiter_pool, redis_client
     ):
-        """Repeated concurrent drain rounds eventually consume every task."""
+        """Verify that repeated concurrent drain rounds eventually consume every task."""
         # Arrange
         num_tasks = 8
         max_conc = 3
@@ -381,7 +383,7 @@ class TestConcurrentDrain:
         consumed_ids: set[str] = set()
 
         # Act
-        # Generous upper bound on rounds needed.
+        # A generous upper bound on the number of rounds is used.
         for _ in range(num_tasks * 3):
 
             def drain_once(limiter_arg):
@@ -408,12 +410,12 @@ class TestConcurrentDrain:
 
 
 class TestConcurrentLifecycle:
-    """``TaskLifecycle`` cleanup under concurrent access."""
+    """Tests for ``TaskLifecycle`` cleanup under concurrent access."""
 
     def test_concurrent_lifecycle_cleanup_frees_slots(
         self, make_limiter_pool, redis_client
     ):
-        """All concurrency slots are freed when multiple lifecycles exit concurrently."""
+        """Verify that all concurrency slots are freed when multiple lifecycles exit concurrently."""
         # Arrange
         max_conc = 5
         limiters = make_limiter_pool(1, limit=1000, window=60, max_concurrency=max_conc)
@@ -429,12 +431,12 @@ class TestConcurrentLifecycle:
             )
             consumed_task_ids.append(result["task"]["id"])
 
-        # Verify all slots are filled.
+        # Verify that all slots are filled.
         assert redis_client.zcard(limiter.concurrency_key) == max_conc, (
             "all concurrency slots should be filled after consuming"
         )
 
-        # Enter lifecycle contexts for all tasks.
+        # Enter the lifecycle contexts for all tasks.
         lifecycles = [limiter.task_lifecycle(tid) for tid in consumed_task_ids]
         for lc in lifecycles:
             lc.__enter__()
@@ -452,7 +454,7 @@ class TestConcurrentLifecycle:
             "all concurrency slots must be freed after lifecycle exit"
         )
 
-        # All inflight keys should be cleared.
+        # All in-flight keys should be cleared.
         for tid in consumed_task_ids:
             assert not redis_client.exists(limiter.get_inflight_key(tid)), (
                 f"inflight key for task {tid} must be cleared after lifecycle exit"
@@ -465,10 +467,10 @@ class TestConcurrentFullPipeline:
     def test_producers_and_consumers_under_contention(
         self, make_limiter_pool, redis_client
     ):
-        """No tasks lost when producers and consumers operate concurrently.
+        """Verify that no tasks are lost when producers and consumers operate concurrently.
 
-        Producer threads schedule tasks while consumer threads drain.
-        Completed tasks free their concurrency slots between rounds.
+        Producer threads schedule tasks while consumer threads drain. Completed
+        tasks free their concurrency slots between rounds.
         """
         # Arrange
         limit = 20
@@ -491,8 +493,8 @@ class TestConcurrentFullPipeline:
         # Act
         # Phase 1: Concurrent scheduling.
         #
-        # Distribute tasks across producers. Each producer schedules a
-        # disjoint range so every (func_path, payload) is unique.
+        # Tasks are distributed across producers. Each producer schedules a
+        # disjoint range so that every (func_path, payload) pair is unique.
         tasks_per_producer = (num_tasks + num_producers - 1) // num_producers
         all_scheduled: set[str] = set()
 
@@ -520,7 +522,7 @@ class TestConcurrentFullPipeline:
             f"all {num_tasks} tasks must be scheduled, got {len(all_scheduled)}"
         )
 
-        # Phase 2: Concurrent drain + complete cycles.
+        # Phase 2: Concurrent drain and completion cycles.
         all_consumed: set[str] = set()
         for _ in range(num_tasks * 3):
 
@@ -547,12 +549,12 @@ class TestConcurrentFullPipeline:
             f"missing: {all_scheduled - all_consumed}"
         )
 
-        # Invariant: concurrency set is empty (all completed).
+        # Invariant: the concurrency set is empty (all tasks completed).
         assert redis_client.zcard(limiters[0].concurrency_key) == 0, (
             "concurrency set must be empty after all tasks complete"
         )
 
-        # Invariant: buffer is empty (all consumed).
+        # Invariant: the buffer is empty (all tasks consumed).
         assert redis_client.zcard(limiters[0].buffer_key) == 0, (
             "buffer must be empty after all tasks are consumed"
         )

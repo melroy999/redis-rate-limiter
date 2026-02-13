@@ -1,4 +1,4 @@
-"""Threading backend for distributed rate-limited task execution."""
+"""Thread pool backend for distributed, rate-limited task execution."""
 
 from celery_rate_limiter.backends.threading.limiter import ThreadPoolRateLimiter
 

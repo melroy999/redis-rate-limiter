@@ -1,7 +1,8 @@
-"""Mock business logic shared across demo scripts.
+"""Mock business logic shared across the demonstration scripts.
 
-The function below is resolved at runtime via ``import_string``, so its
-fully-qualified path must be passed as ``func_path`` when scheduling tasks.
+The functions defined herein are resolved at runtime via ``import_string``;
+as such, the fully-qualified path of each function must be provided as the
+``func_path`` argument when scheduling tasks.
 """
 
 import logging
@@ -17,7 +18,7 @@ FAILING_FUNC_PATH = "examples.tasks.mock_api_call_failing"
 
 
 def mock_api_call(user_id: int, priority: int = 100) -> None:
-    """Simulate a slow outbound API call."""
+    """Simulate a slow outbound API call with a randomised latency delay."""
     delay = random.uniform(TASK_SLEEP_MIN, TASK_SLEEP_MAX)
     logger.debug("user_id=%d prio=%d starting (%.3fs delay)", user_id, priority, delay)
     time.sleep(delay)
@@ -25,7 +26,7 @@ def mock_api_call(user_id: int, priority: int = 100) -> None:
 
 
 def mock_api_call_failing(user_id: int, priority: int = 100) -> None:
-    """Simulate an API call that fails after a short delay."""
+    """Simulate an API call that raises an exception after a short delay."""
     delay = random.uniform(TASK_SLEEP_MIN, TASK_SLEEP_MAX)
     logger.debug("user_id=%d prio=%d starting (will fail after %.3fs)", user_id, priority, delay)
     time.sleep(delay)

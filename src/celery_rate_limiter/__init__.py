@@ -1,4 +1,4 @@
-"""Distributed rate limiter with pluggable task backends."""
+"""A distributed rate limiter with pluggable task execution backends."""
 
 from celery_rate_limiter.core import (
     AbstractDistributedRateLimiter,
@@ -20,12 +20,12 @@ __all__ = [
     "rate_limited",
 ]
 
-# Celery backend is only available when celery is installed.
+# The Celery backend is only available when the celery package is installed.
 try:
     from celery_rate_limiter.backends.celery import CeleryRateLimiter
 except ImportError:
     pass
 
-# Threading backend uses only the stdlib, which doesn't require external libraries.
-# Hence, include it by default.
+# The threading backend relies solely on the standard library and does not require
+# any external dependencies. As such, it is included by default.
 from celery_rate_limiter.backends.threading import ThreadPoolRateLimiter

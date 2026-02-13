@@ -1,4 +1,4 @@
-"""Threading backend fixtures for implementation tests."""
+"""Pytest fixtures for the threading backend implementation tests."""
 
 from tests.fixtures import threadpool_backend as _threadpool_backend
 

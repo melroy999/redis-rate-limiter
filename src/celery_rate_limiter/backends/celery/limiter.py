@@ -12,26 +12,26 @@ logger = logging.getLogger(__name__)
 
 
 class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
-    """A rate limiter that dispatches tasks via Celery.
+    """A rate limiter that dispatches tasks via the Celery distributed task queue.
 
-    Use the classmethods ``configure``, ``create``, ``get``, and ``update``
-    instead of constructing instances directly.
+    Instances should be obtained through the class methods ``configure``,
+    ``create``, ``get``, and ``update`` rather than through direct construction.
     """
 
     _celery_app: ClassVar[Optional[Celery]] = None
 
     @classmethod
     def configure(cls, redis_client: Redis, **backend_context: Any) -> None:
-        """Configure shared Redis and Celery app context for class API usage.
+        """Configure the shared Redis client and Celery application context for the class-level API.
 
-        Requires ``celery_app`` as a keyword argument
-        (e.g. ``CeleryRateLimiter.configure(redis, celery_app=app)``).
+        The ``celery_app`` keyword argument is required
+        (e.g., ``CeleryRateLimiter.configure(redis, celery_app=app)``).
         """
         super().configure(redis_client, **backend_context)
 
     @classmethod
     def _configure_backend(cls, **backend_context: Any) -> None:
-        """Store backend-specific context for Celery-backed limiter instances."""
+        """Store the backend-specific context required by Celery-backed limiter instances."""
         celery_app = backend_context.get("celery_app")
         if celery_app is None:
             raise RuntimeError(
@@ -42,23 +42,23 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
 
     @classmethod
     def _has_backend_context(cls) -> bool:
-        """Check if Celery app context has been configured."""
+        """Determine whether the Celery application context has been configured."""
         return cls._celery_app is not None
 
     @classmethod
     def _get_instance_context(cls) -> dict[str, Any]:
-        """Expose constructor context for concrete instance creation."""
+        """Provide the constructor context required for concrete instance creation."""
         assert cls._celery_app is not None
         return {"celery_app": cls._celery_app}
 
     @classmethod
     def _reset_backend_context(cls) -> None:
-        """Clear Celery app class context."""
+        """Clear the Celery application context held at the class level."""
         cls._celery_app = None
 
     @classmethod
     def _configure_hint(cls) -> str:
-        """Return configure usage for runtime errors."""
+        """Return the ``configure`` usage hint to be included in runtime error messages."""
         return "CeleryRateLimiter.configure(redis_client, celery_app)"
 
     # ------------------------------------------------------------------
@@ -73,28 +73,28 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
         _sentinel: Any = None,
         **kwargs: Any,
     ):
-        """Create a Celery rate limiter instance via the managed class API.
+        """Construct a Celery rate limiter instance through the managed class API.
 
         Args:
-            redis_client: The Redis client.
-            celery_app: The Celery app to use for task dispatch.
-            _sentinel: Internal sentinel passed by class API methods.
+            redis_client: The Redis client used for state management.
+            celery_app: The Celery application instance used for task dispatch.
+            _sentinel: An internal sentinel value supplied by the class API methods.
 
-        Other parameters are inherited from ``AbstractDistributedRateLimiter``.
+        All remaining parameters are inherited from ``AbstractDistributedRateLimiter``.
         """
         super().__init__(redis_client, *args, _sentinel=_sentinel, **kwargs)
         self.app = celery_app
 
     @staticmethod
     def _get_enhanced_payload(payload: dict, use_executor: bool) -> dict:
-        """Get the enhanced payload with metadata.
+        """Produce an enhanced payload that includes dispatch metadata.
 
         Args:
             payload: The original task payload.
-            use_executor: Whether to use the generic executor.
+            use_executor: Whether the generic executor should be used for dispatch.
 
         Returns:
-            The enhanced payload with metadata.
+            A dictionary containing the original payload augmented with metadata.
         """
         return {"data": payload, "meta": {"use_executor": use_executor}}
 
@@ -107,15 +107,15 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
         retry: bool = True,
         use_executor: bool = True,
     ) -> tuple[bool, str]:
-        # Add the use executor flag to the payload.
-        # Only add this if we aren't re-trying--the payload is already present otherwise.
+        # Augment the payload with the executor flag.
+        # This is only performed on the initial attempt; on retries the payload already contains it.
         enhanced_payload = payload
         if retry:
             enhanced_payload = self._get_enhanced_payload(payload, use_executor)
 
-        # Call the parent scheduler.
+        # Delegate to the parent scheduler.
         # noinspection PyUnnecessaryCast
-        # This cast is in fact necessary for mypy validation.
+        # The cast is necessary for mypy validation.
         return cast(
             tuple[bool, str],
             super().schedule_task(
@@ -124,12 +124,12 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
         )
 
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
-        # Check if the built-in worker should be used.
+        # Determine whether the built-in generic worker should be used.
         use_executor = payload.get("meta", {}).get("use_executor", True)
         data = payload.get("data", {})
 
         if use_executor:
-            # Dispatch the task to the generic worker.
+            # Dispatch the task to the generic worker task.
             self.app.send_task(
                 "celery_rate_limiter.generic_worker",
                 kwargs={
@@ -146,7 +146,7 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
                 func_path,
             )
         else:
-            # Use the custom user task.
+            # Dispatch to the user-defined custom task.
             self.app.send_task(
                 func_path, args=[data], kwargs={"_rate_limit_task_id": task_id}
             )

@@ -11,17 +11,17 @@ logger = logging.getLogger(__name__)
 @shared_task(name="celery_rate_limiter.generic_worker")
 @rate_limited()
 def generic_rate_limited_worker(limiter_id: str, func_path: str, payload: dict) -> Any:
-    """Execute a function by its import path.
+    """Execute a function identified by its fully qualified import path.
 
     Args:
-        limiter_id: The id of the rate limiter instance.
-        func_path: The dot-separated path to the function to execute.
-        payload: The arguments to pass to the function.
+        limiter_id: The identifier of the rate limiter instance that scheduled this task.
+        func_path: The dot-separated import path of the function to be executed.
+        payload: A dictionary of keyword arguments to be passed to the target function.
 
     Returns:
-        The result of the function execution.
+        The return value produced by the target function.
     """
-    # limiter_id needs to be included.
+    # The limiter_id parameter must be present in the signature for routing purposes.
     _ = limiter_id
     logger.debug(
         "Generic worker executing task: limiter_id=%s, func_path=%s.",
@@ -29,6 +29,6 @@ def generic_rate_limited_worker(limiter_id: str, func_path: str, payload: dict) 
         func_path,
     )
 
-    # Execute the function.
+    # Resolve and invoke the target function.
     target_func = import_string(func_path)
     return target_func(**payload)

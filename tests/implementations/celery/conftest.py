@@ -1,4 +1,4 @@
-"""Celery backend fixtures for implementation tests."""
+"""Pytest fixtures for the Celery backend implementation tests."""
 
 from tests.fixtures import celery_backend as _celery_backend
 

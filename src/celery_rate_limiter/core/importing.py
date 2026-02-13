@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 
 def import_string(import_path: str) -> Callable[..., Any]:
-    """Resolve 'module.submodule.callable' into the actual callable object."""
+    """Resolve a dotted import path of the form 'module.submodule.callable' into the corresponding callable object."""
     module_path, func_name = import_path.rsplit(".", 1)
     module = importlib.import_module(module_path)
     func = getattr(module, func_name)
@@ -21,5 +21,5 @@ def import_string(import_path: str) -> Callable[..., Any]:
     )
 
     # noinspection PyUnnecessaryCast
-    # This cast is in fact necessary for mypy validation.
+    # This cast is, in fact, necessary to satisfy mypy type validation.
     return cast(Callable[..., Any], func)

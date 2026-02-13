@@ -1,7 +1,8 @@
-"""Shared demo runner for rate limiter examples.
+"""Shared demonstration runner for the rate limiter examples.
 
-Provides the common demo sequence (dedup, burst, live monitoring) so each
-backend demo only needs to handle its own setup and teardown.
+This module provides the common demonstration sequence (deduplication, burst,
+and live monitoring) such that each backend demonstration is only required to
+handle its own setup and teardown.
 """
 
 import logging
@@ -35,20 +36,20 @@ logger = logging.getLogger("examples.runner")
 
 
 def connect_redis() -> redis.Redis:
-    """Connect to Redis and fail fast if unreachable."""
+    """Establish a connection to Redis and raise immediately if the server is unreachable."""
     client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
     client.ping()
     return client
 
 
 def setup_logging(log_dir: str) -> None:
-    """Set up two log files: one for the demo, one for the rate limiter."""
+    """Initialise two log files: one for the demonstration output and one for the rate limiter internals."""
     fmt = logging.Formatter(
         "%(asctime)s.%(msecs)03d %(levelname)s %(name)s %(message)s",
         datefmt="%H:%M:%S",
     )
 
-    # Demo log: captures output from all examples.* loggers.
+    # Demonstration log: captures output from all examples.* loggers.
     demo_handler = logging.FileHandler(
         os.path.join(log_dir, "demo.log"), mode="w",
     )
@@ -57,7 +58,7 @@ def setup_logging(log_dir: str) -> None:
     logging.getLogger("examples").addHandler(demo_handler)
     logging.getLogger("examples").setLevel(logging.DEBUG)
 
-    # Rate-limiter internals log: captures the library's debug output.
+    # Rate limiter internals log: captures the library's debug output.
     limiter_handler = logging.FileHandler(
         os.path.join(log_dir, "limiter_debug.log"), mode="w",
     )
@@ -68,9 +69,10 @@ def setup_logging(log_dir: str) -> None:
 
 
 def flush_stale_keys(redis_client: redis.Redis, limiter_id: str) -> None:
-    """Remove keys from any previous demo run.
+    """Remove Redis keys remaining from any previous demonstration run.
 
-    Without this, leftover window keys inflate the per-window display.
+    Without this step, leftover window keys would inflate the per-window
+    display.
     """
     for key in redis_client.scan_iter(f"{limiter_id}:*"):
         redis_client.delete(key)
@@ -87,12 +89,12 @@ def run_demo(
     limiter_id: str,
     cleanup: Callable[[], None],
 ) -> None:
-    """Run the standard demo sequence: dedup, burst, monitor, cleanup.
+    """Execute the standard demonstration sequence: deduplication, burst, monitoring, and cleanup.
 
     Args:
-        limiter: A configured rate limiter instance.
-        limiter_id: Display identifier for the dashboard header.
-        cleanup: Called after monitoring finishes (e.g. shutdown workers).
+        limiter: A fully configured rate limiter instance.
+        limiter_id: The display identifier used in the dashboard header.
+        cleanup: A callable invoked after monitoring completes (e.g., to shut down workers).
     """
     rng = random.Random(PRIORITY_SEED)
 
@@ -101,7 +103,7 @@ def run_demo(
         LIMIT, WINDOW, MAX_CONCURRENCY,
     )
 
-    # --- Deduplication demo ---------------------------------------------------
+    # --- Deduplication demonstration ------------------------------------------
     logger.info("--- Deduplication demo ---")
     logger.info("Scheduling the same task %d times...", DEDUP_COUNT)
     accepted = sum(
@@ -110,16 +112,16 @@ def run_demo(
     )
     logger.info("Accepted: %d/%d (duplicates rejected)", accepted, DEDUP_COUNT)
 
-    # --- Build task list with random priorities -------------------------------
+    # --- Build the task list with random priorities --------------------------
     tasks: list[tuple[str, dict, int]] = []
 
-    # Normal burst tasks.
+    # Normal burst tasks
     burst_start = DEDUP_COUNT + 1
     for i in range(burst_start, burst_start + BURST_COUNT):
         priority = rng.randint(1, 1000)
         tasks.append((FUNC_PATH, {"user_id": i, "priority": priority}, priority))
 
-    # Failing tasks (interleaved via priority).
+    # Failing tasks, interleaved with normal tasks via priority ordering
     if ERROR_COUNT > 0:
         error_start = burst_start + BURST_COUNT
         for i in range(error_start, error_start + ERROR_COUNT):
@@ -128,7 +130,7 @@ def run_demo(
                 (FAILING_FUNC_PATH, {"user_id": i, "priority": priority}, priority)
             )
 
-    # Shuffle so the scheduling order itself is also mixed.
+    # Shuffle the list such that the scheduling order is also randomised.
     rng.shuffle(tasks)
 
     # --- Schedule all tasks ---------------------------------------------------
@@ -141,17 +143,18 @@ def run_demo(
         limiter.schedule_task(func_path, payload, priority=priority)
     logger.info("All %d tasks queued", total)
 
-    # The drain loop starts automatically when the first task is scheduled
+    # The drain loop is started automatically when the first task is scheduled
     # (via trigger_consume -> DrainLoop.wake).
     logger.info("Drain loop started automatically via task scheduling")
-    time.sleep(0.5)  # Brief pause so the first drain cycle can fire.
+    time.sleep(0.5)  # Brief pause to allow the first drain cycle to fire.
 
     # --- Live monitoring ------------------------------------------------------
     dashboard = Dashboard(limiter_id=limiter_id, limit=LIMIT)
 
-    # Don't check the exit condition until the drain loop has had time to start
-    # consuming.  Without this grace period the monitor may see a momentary
-    # buffer=0 / concurrency=0 snapshot before the first drain cycle fires.
+    # The exit condition is not evaluated until the drain loop has had
+    # sufficient time to begin consuming.  Without this grace period, the
+    # monitor may observe a momentary buffer=0 / concurrency=0 snapshot
+    # before the first drain cycle fires.
     grace_period = 2.0
     start = time.time()
 

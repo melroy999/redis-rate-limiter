@@ -1,4 +1,4 @@
-"""Core rate limiting abstractions (backend-agnostic)."""
+"""Core rate limiting abstractions that are independent of any specific backend implementation."""
 
 from celery_rate_limiter.core.decorators import rate_limited
 from celery_rate_limiter.core.importing import import_string

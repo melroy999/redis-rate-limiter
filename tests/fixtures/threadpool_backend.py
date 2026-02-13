@@ -1,4 +1,4 @@
-"""Shared fixtures for threading backend test suites."""
+"""Shared fixtures for the thread pool backend test suites."""
 
 from concurrent.futures import ThreadPoolExecutor
 
@@ -9,7 +9,7 @@ from celery_rate_limiter import ThreadPoolRateLimiter
 
 @pytest.fixture(scope="session")
 def executor():
-    """Provide a ThreadPoolExecutor for testing."""
+    """Provide a session-scoped ThreadPoolExecutor instance for testing."""
     pool = ThreadPoolExecutor(max_workers=4)
     yield pool
     pool.shutdown(wait=True)
@@ -18,10 +18,10 @@ def executor():
 # noinspection PyProtectedMember
 @pytest.fixture(autouse=True)
 def _reset_limiter_class_state(redis_client, executor):
-    """Reset ThreadPoolRateLimiter class-level state before and after each test.
+    """Reset the ThreadPoolRateLimiter class-level state before and after each test.
 
-    This prevents singleton cache pollution between tests and ensures
-    configure() is called with the test fixtures.
+    This is performed to prevent singleton cache pollution between tests and
+    to ensure that configure() is invoked with the appropriate test fixtures.
     """
     ThreadPoolRateLimiter._reset()
     ThreadPoolRateLimiter.configure(redis_client, executor=executor)
@@ -31,12 +31,12 @@ def _reset_limiter_class_state(redis_client, executor):
 
 @pytest.fixture
 def limiter(redis_client, executor, default_limiter_id):
-    """Setup and teardown for the ThreadPoolRateLimiter.
+    """Perform setup and teardown for a ThreadPoolRateLimiter instance.
 
     Yields:
-        A configured ThreadPoolRateLimiter instance for testing.
+        A configured ThreadPoolRateLimiter instance ready for testing.
     """
-    # Setup
+    # Setup.
     limiter_id = default_limiter_id
     test_limiter = ThreadPoolRateLimiter.create(
         limiter_id=limiter_id,
@@ -50,8 +50,7 @@ def limiter(redis_client, executor, default_limiter_id):
 
     yield test_limiter
 
-    # Teardown
-    # Clear keys associated with this limiter.
+    # Teardown: clear all Redis keys associated with this limiter.
     keys = redis_client.keys(f"{limiter_id}:*")
     if keys:
         redis_client.delete(*keys)

@@ -1,4 +1,4 @@
-"""Tests for Celery task helper modules."""
+"""Tests for the Celery task helper modules."""
 
 from unittest.mock import MagicMock, patch
 
@@ -6,10 +6,10 @@ from celery_rate_limiter.backends.celery.tasks.worker import generic_rate_limite
 
 
 class TestGenericWorkerTask:
-    """Test suite for generic_rate_limited_worker task behavior."""
+    """Test suite for the ``generic_rate_limited_worker`` task behaviour."""
 
     def test_generic_worker_resolves_and_executes_function(self):
-        """Verify generic worker resolves callable and executes it with payload kwargs."""
+        """Verify that the generic worker resolves the callable and executes it with the payload keyword arguments."""
         # Arrange
         limiter = MagicMock()
         lifecycle_context = MagicMock()

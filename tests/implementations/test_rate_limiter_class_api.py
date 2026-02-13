@@ -1,10 +1,11 @@
-"""Tests for rate limiter class-level API behavior.
+"""Tests for the rate limiter class-level API behavior.
 
-This module validates class-level lifecycle and dynamic-config behavior:
-``configure()``, ``create()``, ``get()``, ``update()``, ``refresh_config()``,
-and ``_reset()``.
+This module validates class-level lifecycle and dynamic-configuration behavior,
+including ``configure()``, ``create()``, ``get()``, ``update()``,
+``refresh_config()``, and ``_reset()``.
 
-Current implementation under test: ``ManagedTestRateLimiter`` (test-only backend).
+The current implementation under test is ``ManagedTestRateLimiter``, a test-only
+backend.
 """
 
 import json
@@ -56,7 +57,7 @@ class ManagedTestRateLimiter(AbstractRedisManagedRateLimiter):
 
 @pytest.fixture(autouse=True)
 def _reset_managed_limiter_class_state(redis_client):
-    """Ensure managed class API tests start from clean configured state."""
+    """Ensure that the managed class API tests begin from a clean, configured state."""
     ManagedTestRateLimiter._reset()
     ManagedTestRateLimiter.configure(redis_client, backend_label="test")
     yield
@@ -64,14 +65,14 @@ def _reset_managed_limiter_class_state(redis_client):
 
 
 class TestRateLimiterClassApi:
-    """Test suite for class-level rate limiter API behavior."""
+    """Test suite for the class-level rate limiter API behavior."""
 
     @staticmethod
     def _create_limiter(
         limiter_id: str,
         **overrides,
     ) -> ManagedTestRateLimiter:
-        """Create a limiter with stable defaults and optional overrides."""
+        """Create a limiter instance with stable defaults and optional overrides."""
         params = {
             "limit": 10,
             "window": 60,
@@ -83,7 +84,7 @@ class TestRateLimiterClassApi:
 
     @staticmethod
     def _read_registry_config(redis_client, limiter_id: str) -> dict:
-        """Read and decode persisted limiter config from Redis registry."""
+        """Read and decode the persisted limiter configuration from the Redis registry."""
         raw_config = redis_client.hget(ManagedTestRateLimiter._REGISTRY_KEY, limiter_id)
         assert raw_config is not None, (
             f"expected persisted config for limiter '{limiter_id}'"
@@ -93,7 +94,7 @@ class TestRateLimiterClassApi:
     # ==================== configure() ====================
 
     def test_configure_sets_class_state(self, redis_client):
-        """Verify configure stores shared Redis and backend context."""
+        """Verify that ``configure()`` stores the shared Redis client and backend context."""
         # Arrange
         ManagedTestRateLimiter._reset()
 
@@ -109,7 +110,7 @@ class TestRateLimiterClassApi:
         )
 
     def test_configure_without_backend_label_raises_error(self, redis_client):
-        """Verify ``configure()`` fails when backend context is missing."""
+        """Verify that ``configure()`` fails when the required backend context is missing."""
         # Arrange
         ManagedTestRateLimiter._reset()
 
@@ -121,7 +122,7 @@ class TestRateLimiterClassApi:
         ManagedTestRateLimiter._reset()
 
     def test_create_without_configure_raises(self, default_limiter_id):
-        """Verify create fails when configure has not been called."""
+        """Verify that ``create()`` fails when ``configure()`` has not been called."""
         # Arrange
         ManagedTestRateLimiter._reset()
 
@@ -132,7 +133,7 @@ class TestRateLimiterClassApi:
             )
 
     def test_get_without_configure_raises(self, default_limiter_id):
-        """Verify get fails when configure has not been called and cache misses."""
+        """Verify that ``get()`` fails when ``configure()`` has not been called and the cache misses."""
         # Arrange
         ManagedTestRateLimiter._reset()
 
@@ -143,7 +144,7 @@ class TestRateLimiterClassApi:
     # ==================== create() ====================
 
     def test_create_returns_configured_instance(self, default_limiter_id):
-        """Verify create returns an instance configured with requested values."""
+        """Verify that ``create()`` returns an instance configured with the requested values."""
         # Act
         limiter = self._create_limiter(default_limiter_id)
 
@@ -158,7 +159,7 @@ class TestRateLimiterClassApi:
         )
 
     def test_create_caches_instance_locally(self, default_limiter_id):
-        """Verify create stores the instance in class-level cache."""
+        """Verify that ``create()`` stores the instance in the class-level cache."""
         # Act
         limiter = self._create_limiter(default_limiter_id)
 
@@ -171,7 +172,7 @@ class TestRateLimiterClassApi:
         )
 
     def test_create_duplicate_without_override_raises(self, default_limiter_id):
-        """Verify create rejects duplicate IDs unless override=True."""
+        """Verify that ``create()`` rejects duplicate IDs unless ``override=True``."""
         # Arrange
         self._create_limiter(default_limiter_id)
 
@@ -188,7 +189,7 @@ class TestRateLimiterClassApi:
     def test_create_duplicate_with_override_replaces_cached_instance(
         self, default_limiter_id
     ):
-        """Verify override=True replaces the cached limiter for the same ID."""
+        """Verify that ``override=True`` replaces the cached limiter for the same ID."""
         # Arrange
         first = self._create_limiter(default_limiter_id)
 
@@ -215,7 +216,7 @@ class TestRateLimiterClassApi:
     def test_create_persist_writes_registry_config(
         self, redis_client, default_limiter_id
     ):
-        """Verify create persist=True writes limiter config to Redis registry."""
+        """Verify that ``create()`` with ``persist=True`` writes the limiter configuration to the Redis registry."""
         # Act
         self._create_limiter(default_limiter_id)
 
@@ -228,7 +229,7 @@ class TestRateLimiterClassApi:
         )
 
     def test_create_persist_increments_version(self, redis_client, default_limiter_id):
-        """Verify repeated create with override increments Redis version counter."""
+        """Verify that repeated ``create()`` calls with ``override`` increment the Redis version counter."""
         # Arrange
         self._create_limiter(default_limiter_id)
         initial_version = int(
@@ -255,7 +256,7 @@ class TestRateLimiterClassApi:
     def test_create_without_persist_skips_registry_write(
         self, redis_client, default_limiter_id
     ):
-        """Verify create persist=False does not write to Redis registry."""
+        """Verify that ``create()`` with ``persist=False`` does not write to the Redis registry."""
         # Act
         self._create_limiter(default_limiter_id, persist=False)
 
@@ -268,7 +269,7 @@ class TestRateLimiterClassApi:
     # ==================== get() ====================
 
     def test_get_returns_cached_instance(self, default_limiter_id):
-        """Verify get returns cached instance without rehydration."""
+        """Verify that ``get()`` returns the cached instance without rehydration."""
         # Arrange
         created = self._create_limiter(default_limiter_id)
 
@@ -279,7 +280,7 @@ class TestRateLimiterClassApi:
         assert fetched is created, "get should return the cached limiter instance"
 
     def test_get_hydrates_from_redis_on_cache_miss(self, default_limiter_id):
-        """Verify get hydrates limiter config from Redis when cache misses."""
+        """Verify that ``get()`` hydrates the limiter configuration from Redis when the cache misses."""
         # Arrange
         self._create_limiter(default_limiter_id)
         ManagedTestRateLimiter._instances.clear()
@@ -300,7 +301,7 @@ class TestRateLimiterClassApi:
     def test_get_hydration_loads_current_config_version(
         self, redis_client, default_limiter_id
     ):
-        """Verify hydrated limiter tracks the current persisted config version."""
+        """Verify that the hydrated limiter tracks the current persisted configuration version."""
         # Arrange
         self._create_limiter(default_limiter_id)
         expected_version = int(
@@ -317,7 +318,7 @@ class TestRateLimiterClassApi:
         )
 
     def test_get_nonexistent_limiter_raises_value_error(self):
-        """Verify get raises ValueError when limiter does not exist anywhere."""
+        """Verify that ``get()`` raises a ValueError when the limiter does not exist in any location."""
         missing_limiter_id = "limiter_id_for_get_nonexistent_limiter_test"
 
         # Act & Assert
@@ -327,7 +328,7 @@ class TestRateLimiterClassApi:
     # ==================== update() ====================
 
     def test_update_can_change_limit(self, default_limiter_id):
-        """Verify update can change only the rate limit value."""
+        """Verify that ``update()`` can change only the rate limit value."""
         # Arrange
         self._create_limiter(default_limiter_id)
 
@@ -338,7 +339,7 @@ class TestRateLimiterClassApi:
         assert updated.limit == 50, "updated limiter should reflect new limit"
 
     def test_update_can_change_max_concurrency(self, default_limiter_id):
-        """Verify update can change only the max_concurrency value."""
+        """Verify that ``update()`` can change only the max_concurrency value."""
         # Arrange
         self._create_limiter(default_limiter_id)
 
@@ -351,7 +352,7 @@ class TestRateLimiterClassApi:
         )
 
     def test_update_can_change_max_age_and_lease_duration(self, default_limiter_id):
-        """Verify update can change task max_age and lease_duration values."""
+        """Verify that ``update()`` can change the task max_age and lease_duration values."""
         # Arrange
         self._create_limiter(default_limiter_id, max_age=3600, lease_duration=30)
 
@@ -371,7 +372,7 @@ class TestRateLimiterClassApi:
     def test_update_persists_new_config_and_bumps_version(
         self, redis_client, default_limiter_id
     ):
-        """Verify update writes new config and increments version counter."""
+        """Verify that ``update()`` writes the new configuration and increments the version counter."""
         # Arrange
         self._create_limiter(default_limiter_id)
         initial_version = int(
@@ -393,7 +394,7 @@ class TestRateLimiterClassApi:
         assert config["limit"] == 50, "update should persist new limit"
 
     def test_update_window_change_sets_pause_until(self, default_limiter_id):
-        """Verify changing window sets a transition pause for safe rollover."""
+        """Verify that changing the window sets a transition pause for safe rollover."""
         # Arrange
         limiter = self._create_limiter(default_limiter_id)
         assert limiter._paused_until == 0.0, "pause should start disabled"
@@ -412,7 +413,7 @@ class TestRateLimiterClassApi:
         )
 
     def test_update_preserves_unspecified_fields(self, default_limiter_id):
-        """Verify update keeps fields unchanged when no override is provided."""
+        """Verify that ``update()`` keeps fields unchanged when no override is provided for them."""
         # Arrange
         self._create_limiter(
             default_limiter_id,
@@ -432,7 +433,7 @@ class TestRateLimiterClassApi:
         assert limiter.lease_duration == 45, "lease_duration should remain unchanged"
 
     def test_update_preserves_jitter_settings(self, default_limiter_id):
-        """Verify update does not override existing jitter configuration."""
+        """Verify that ``update()`` does not override the existing jitter configuration."""
         # Arrange
         self._create_limiter(
             default_limiter_id,
@@ -452,7 +453,7 @@ class TestRateLimiterClassApi:
         assert limiter.jitter_max_pct == 0.22, "jitter_max_pct should remain unchanged"
 
     def test_get_status_reflects_updated_config(self, default_limiter_id):
-        """Verify ``get_status()`` returns updated values after ``update()`` changes config."""
+        """Verify that ``get_status()`` returns updated values after ``update()`` modifies the configuration."""
         # Arrange
         self._create_limiter(default_limiter_id, limit=10, max_concurrency=5)
 
@@ -472,7 +473,7 @@ class TestRateLimiterClassApi:
     # ==================== refresh_config() ====================
 
     def test_refresh_config_noop_when_version_unchanged(self, default_limiter_id):
-        """Verify refresh_config is a no-op when versions already match."""
+        """Verify that ``refresh_config()`` is a no-op when the versions already match."""
         # Arrange
         limiter = self._create_limiter(default_limiter_id)
 
@@ -487,7 +488,7 @@ class TestRateLimiterClassApi:
     def test_refresh_config_applies_remote_change(
         self, redis_client, default_limiter_id
     ):
-        """Verify refresh_config applies newer config written by another worker."""
+        """Verify that ``refresh_config()`` applies a newer configuration written by another worker."""
         # Arrange
         limiter = self._create_limiter(default_limiter_id)
         new_config = {
@@ -517,7 +518,7 @@ class TestRateLimiterClassApi:
     def test_refresh_config_window_change_sets_pause_until(
         self, redis_client, default_limiter_id
     ):
-        """Verify refresh_config sets pause when remote config changes window size."""
+        """Verify that ``refresh_config()`` sets a pause when the remote configuration changes the window size."""
         # Arrange
         limiter = self._create_limiter(default_limiter_id)
         new_config = {
@@ -547,7 +548,7 @@ class TestRateLimiterClassApi:
     def test_refresh_config_returns_false_when_version_hash_missing(
         self, default_limiter_id
     ):
-        """Verify refresh_config returns False when no version entry exists."""
+        """Verify that ``refresh_config()`` returns False when no version entry exists."""
         # Arrange
         limiter = self._create_limiter(default_limiter_id, persist=False)
 
@@ -562,7 +563,7 @@ class TestRateLimiterClassApi:
     def test_refresh_config_handles_corrupted_redis_data(
         self, redis_client, default_limiter_id
     ):
-        """Verify refresh_config handles malformed persisted JSON gracefully."""
+        """Verify that ``refresh_config()`` handles malformed persisted JSON gracefully."""
         # Arrange
         limiter = self._create_limiter(default_limiter_id)
         original_state = (
@@ -593,7 +594,7 @@ class TestRateLimiterClassApi:
     def test_refresh_config_returns_false_when_registry_config_missing(
         self, redis_client, default_limiter_id
     ):
-        """Verify refresh_config returns False when version exists but registry config is missing."""
+        """Verify that ``refresh_config()`` returns False when the version exists but the registry configuration is missing."""
         # Arrange
         limiter = self._create_limiter(default_limiter_id)
         original_version = limiter._config_version
@@ -631,7 +632,7 @@ class TestRateLimiterClassApi:
     # ==================== _reset() ====================
 
     def test_reset_clears_cached_instances_and_configuration(self, default_limiter_id):
-        """Verify ``_reset()`` clears class cache and shared configuration."""
+        """Verify that ``_reset()`` clears the class cache and the shared configuration."""
         # Arrange
         self._create_limiter(default_limiter_id)
 
@@ -650,7 +651,7 @@ class TestRateLimiterClassApi:
         )
 
     def test_direct_construction_raises_runtime_error(self, redis_client):
-        """Verify direct ``__init__`` bypassing ``create()``/``get()`` raises ``RuntimeError``."""
+        """Verify that direct ``__init__`` invocation, bypassing ``create()``/``get()``, raises a ``RuntimeError``."""
         # Act & Assert
         with pytest.raises(RuntimeError, match="Direct.*construction is not supported"):
             ManagedTestRateLimiter(
@@ -662,7 +663,7 @@ class TestRateLimiterClassApi:
             )
 
     def test_subclass_isolation_separate_instances(self, redis_client):
-        """Verify __init_subclass__ isolates _instances and _redis_client per subclass."""
+        """Verify that ``__init_subclass__`` isolates ``_instances`` and ``_redis_client`` per subclass."""
 
         class IsolatedLimiterA(AbstractRedisManagedRateLimiter):
             @classmethod

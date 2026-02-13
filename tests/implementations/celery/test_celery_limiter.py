@@ -1,16 +1,16 @@
-"""Celery-specific behavior tests for CeleryRateLimiter."""
+"""Celery-specific behavioural tests for the ``CeleryRateLimiter`` implementation."""
 
 import json
 from unittest.mock import patch
 
 
 class TestCeleryRateLimiter:
-    """Tests that are specific to the Celery backend implementation."""
+    """Tests that are specific to the Celery backend dispatch and payload logic."""
 
     def test_schedule_task_with_use_executor_false_stores_meta(
         self, limiter, redis_client, func_path, default_payload
     ):
-        """Verify schedule_task stores use_executor=False in task payload metadata."""
+        """Verify that ``schedule_task`` stores ``use_executor=False`` in the task payload metadata."""
         # Act
         success, task_id = limiter.schedule_task(
             func_path, default_payload, use_executor=False
@@ -28,7 +28,7 @@ class TestCeleryRateLimiter:
     def test_dispatch_task_use_executor_true_sends_generic_worker(
         self, limiter, default_payload, task_id
     ):
-        """Verify _dispatch_task sends generic worker when use_executor is true."""
+        """Verify that ``_dispatch_task`` sends the generic worker task when ``use_executor`` is true."""
         # Arrange
         payload = limiter._get_enhanced_payload(default_payload, use_executor=True)
 
@@ -50,7 +50,7 @@ class TestCeleryRateLimiter:
     def test_dispatch_task_use_executor_false_sends_custom_task(
         self, limiter, default_payload, task_id
     ):
-        """Verify _dispatch_task sends custom task when use_executor is false."""
+        """Verify that ``_dispatch_task`` sends a custom task directly when ``use_executor`` is false."""
         # Arrange
         func_path = "myapp.tasks.custom"
         payload = limiter._get_enhanced_payload(default_payload, use_executor=False)
@@ -67,7 +67,7 @@ class TestCeleryRateLimiter:
             )
 
     def test_schedule_drain_wakes_drain_loop(self, limiter):
-        """Verify _schedule_drain delegates to the base class DrainLoop."""
+        """Verify that ``_schedule_drain`` delegates to the base-class ``DrainLoop``."""
         # Arrange
         delay = 1.75
 
@@ -79,7 +79,7 @@ class TestCeleryRateLimiter:
         mock_wake.assert_called_once_with(delay)
 
     def test_enhanced_payload_structure(self, limiter, default_payload):
-        """Verify _get_enhanced_payload wraps payload in data/meta structure."""
+        """Verify that ``_get_enhanced_payload`` wraps the payload in the expected data/meta structure."""
         # Act
         enhanced_payload = limiter._get_enhanced_payload(
             default_payload, use_executor=False

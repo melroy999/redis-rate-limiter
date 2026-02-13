@@ -1,7 +1,7 @@
-"""Self-contained ThreadPoolRateLimiter demo.
+"""Self-contained ThreadPoolRateLimiter demonstration.
 
-Everything runs in a single Python process: task scheduling, execution
-via a thread pool, and live dashboard monitoring.
+All operations are performed within a single Python process: task scheduling,
+execution via a thread pool, and live dashboard monitoring.
 
 Usage (Docker Redis on 6380):
     REDIS_HOST=localhost REDIS_PORT=6380 poetry run python -m examples.threadpool.demo
@@ -23,7 +23,7 @@ from examples.runner import (
 )
 
 # ---------------------------------------------------------------------------
-# Threadpool Configuration
+# Thread pool configuration
 # ---------------------------------------------------------------------------
 
 

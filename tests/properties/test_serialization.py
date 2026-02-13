@@ -1,7 +1,7 @@
 """Property-based tests for payload serialization.
 
-These tests use Hypothesis to verify that ANY JSON-serializable payload
-survives the round-trip through Redis storage, regardless of structure.
+These tests employ Hypothesis to verify that any JSON-serializable payload
+survives the round-trip through Redis storage, regardless of its structure.
 """
 
 import json
@@ -17,7 +17,7 @@ from tests.implementations.conftest import MinimalRateLimiter
 
 @pytest.fixture(scope="module")
 def property_redis_client(_redis_connection):
-    """Module-scoped Redis client for property-based tests."""
+    """Provide a module-scoped Redis client for property-based tests."""
     yield _redis_connection
     _redis_connection.flushdb()
 
@@ -27,7 +27,7 @@ def property_limiter(
     property_redis_client,
     default_module_limiter_id,
 ):
-    """Default module-scoped limiter for property-based tests."""
+    """Provide the default module-scoped rate limiter for property-based tests."""
     return MinimalRateLimiter(
         redis_client=property_redis_client,
         limiter_id=f"{default_module_limiter_id}_property_default",
@@ -40,7 +40,7 @@ def property_limiter(
 
 
 class TestSerializationProperties:
-    """Property-based tests for payload serialization invariants."""
+    """Property-based tests verifying payload serialization invariants through Redis."""
 
     @given(payload=nested_dict)
     @settings(
@@ -49,17 +49,18 @@ class TestSerializationProperties:
     def test_json_payload_survives_redis_round_trip(
         self, property_limiter, property_redis_client, payload, func_path
     ):
-        """Property: any JSON-serializable dict payload survives Redis round-trip unchanged.
+        """Property: any JSON-serializable dict payload survives a Redis round-trip unchanged.
 
-        This property verifies that regardless of dict structure (nested dicts,
-        lists as values, primitives, Unicode, etc.), the data is preserved through:
+        This property verifies that, regardless of the dictionary structure (i.e.,
+        nested dicts, lists as values, primitives, Unicode), the data is preserved
+        through the following stages:
         1. JSON serialization.
         2. Storage in Redis.
         3. Retrieval from Redis.
         4. JSON deserialization.
         """
         # Arrange
-        # Clean state for each example.
+        # Ensure a clean state for each example.
         property_redis_client.flushdb()
 
         # Act
@@ -67,37 +68,37 @@ class TestSerializationProperties:
             success, task_id = property_limiter.schedule_task(func_path, payload)
 
             # Assert
-            # Scheduling should always succeed for valid JSON payloads.
+            # Scheduling should always succeed for valid JSON payloads
             assert success is True, (
                 f"scheduling failed for valid JSON payload: {payload}\n"
                 f"this indicates a bug in payload handling"
             )
 
-            # Retrieve the task data from Redis.
+            # Retrieve the task data from Redis
             _, results = property_redis_client.zscan(
                 property_limiter.buffer_key, match=f'*"{task_id}"*'
             )
 
-            # Assert task was stored.
+            # Assert that the task was stored
             assert len(results) > 0, "task should be found in buffer"
             task_data_str, score = results[0]
             task_data = json.loads(task_data_str)
 
             # Extract the payload from the stored task data.
-            # The limiter wraps payloads with metadata: {'data': ..., 'meta': {...}}
+            # The limiter wraps payloads with metadata: {"data": ..., "meta": {...}}
             stored_enhanced_payload = task_data.get("payload")
             if (
                 isinstance(stored_enhanced_payload, dict)
                 and "data" in stored_enhanced_payload
             ):
-                # Extract just the data portion.
+                # Extract only the data portion
                 stored_payload = stored_enhanced_payload["data"]
             else:
-                # Fallback for non-enhanced payloads.
+                # Fallback for non-enhanced payloads
                 stored_payload = stored_enhanced_payload
 
-            # Property: the payload should survive the round-trip.
-            # Use approximate equality for floats to handle JSON precision limits.
+            # The payload should survive the round-trip intact.
+            # Approximate equality is used for floats to account for JSON precision limits.
             assert dict_equals_approx(stored_payload, payload), (
                 f"payload mismatch after round-trip\n"
                 f"original: {payload}\n"
@@ -122,9 +123,9 @@ class TestSerializationProperties:
     def test_nonempty_dict_payloads_are_schedulable(
         self, property_limiter, property_redis_client, payload, func_path
     ):
-        """Property: any non-empty dictionary payload can be successfully scheduled.
+        """Property: any non-empty dictionary payload can be scheduled successfully.
 
-        This verifies that the rate limiter doesn't reject valid dictionary payloads.
+        This verifies that the rate limiter does not reject valid dictionary payloads.
         """
         # Arrange
         property_redis_client.flushdb()
@@ -147,7 +148,7 @@ class TestSerializationProperties:
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
     def test_task_signature_is_deterministic(self, payload):
-        """Property: repeated signature generation for same payload is deterministic."""
+        """Property: repeated signature generation for the same payload is deterministic."""
         # Act
         signature_1 = MinimalRateLimiter._get_task_signature_str(
             "myapp.tasks.process", payload

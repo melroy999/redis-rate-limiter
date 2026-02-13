@@ -1,4 +1,4 @@
-"""Shared fixtures for Celery backend test suites."""
+"""Shared fixtures for the Celery backend test suites."""
 
 import os
 
@@ -6,20 +6,21 @@ import pytest
 
 from celery_rate_limiter import CeleryRateLimiter
 
-# Redis configuration from environment variables.
-# Defaults to localhost:6379, but can be overridden for Docker Compose.
+# Redis configuration is derived from environment variables.
+# The default values target localhost:6379, but may be overridden for Docker Compose.
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
 
 @pytest.fixture(scope="session")
 def celery_config():
-    """Configure the celery_app fixture.
+    """Provide the configuration for the celery_app fixture.
 
-    Uses the same Redis configuration as tests (from environment variables).
+    The same Redis configuration used by the tests (derived from environment
+    variables) is applied here to ensure consistency.
 
     Returns:
-        A dictionary with Celery configuration for testing.
+        A dictionary containing the Celery configuration for testing.
     """
     redis_url = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
     return {
@@ -31,7 +32,7 @@ def celery_config():
 
 @pytest.fixture(scope="session")
 def celery_app(celery_config):
-    """Provide a Celery app configured from ``celery_config``."""
+    """Provide a Celery application instance configured from the ``celery_config`` fixture."""
     from celery import Celery
 
     app = Celery("celery_backend_test_app")
@@ -42,10 +43,10 @@ def celery_app(celery_config):
 # noinspection PyProtectedMember
 @pytest.fixture(autouse=True)
 def _reset_limiter_class_state(redis_client, celery_app):
-    """Reset CeleryRateLimiter class-level state before and after each test.
+    """Reset the CeleryRateLimiter class-level state before and after each test.
 
-    This prevents singleton cache pollution between tests and ensures
-    configure() is called with the test fixtures.
+    This is performed to prevent singleton cache pollution between tests and
+    to ensure that configure() is invoked with the appropriate test fixtures.
     """
     CeleryRateLimiter._reset()
     CeleryRateLimiter.configure(redis_client, celery_app=celery_app)
@@ -55,12 +56,12 @@ def _reset_limiter_class_state(redis_client, celery_app):
 
 @pytest.fixture
 def limiter(redis_client, celery_app, default_limiter_id):
-    """Setup and teardown for the CeleryRateLimiter.
+    """Perform setup and teardown for a CeleryRateLimiter instance.
 
     Yields:
-        A configured CeleryRateLimiter instance for testing.
+        A configured CeleryRateLimiter instance ready for testing.
     """
-    # Setup
+    # Setup.
     limiter_id = default_limiter_id
     test_limiter = CeleryRateLimiter.create(
         limiter_id=limiter_id,
@@ -74,8 +75,7 @@ def limiter(redis_client, celery_app, default_limiter_id):
 
     yield test_limiter
 
-    # Teardown
-    # Clear keys associated with this limiter.
+    # Teardown: clear all Redis keys associated with this limiter.
     keys = redis_client.keys(f"{limiter_id}:*")
     if keys:
         redis_client.delete(*keys)

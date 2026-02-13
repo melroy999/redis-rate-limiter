@@ -7,10 +7,10 @@ import redis
 
 
 class TestGetStatus:
-    """Test suite for ``get_status()`` behavior on AbstractDistributedRateLimiter."""
+    """Test suite for ``get_status()`` behavior on the AbstractDistributedRateLimiter."""
 
     def test_get_status_returns_expected_structure(self, generic_limiter):
-        """Verify ``get_status()`` returns required sections and subsection keys."""
+        """Verify that ``get_status()`` returns the required sections and subsection keys."""
         # Act
         status = generic_limiter.get_status()
 
@@ -36,13 +36,13 @@ class TestGetStatus:
             "limit",
             "window",
             "reset_in_ms",
-        }, "rate_limit section should include expected telemetry fields"
+        }, "rate_limit section should include the expected telemetry fields"
         assert set(status["dispatcher"].keys()) == {"is_locked"}, (
             "dispatcher section should include is_locked"
         )
 
     def test_get_status_reflects_scheduled_tasks(self, generic_limiter, func_path):
-        """Verify ``get_status()`` buffer count reflects scheduled task count."""
+        """Verify that the ``get_status()`` buffer count reflects the scheduled task count."""
         # Arrange
         for idx in range(3):
             generic_limiter.schedule_task(func_path, {"idx": idx})
@@ -56,7 +56,7 @@ class TestGetStatus:
         )
 
     def test_get_status_reflects_rate_limit_state(self, generic_limiter, func_path):
-        """Verify ``get_status()`` reflects rate-limit telemetry after ``consume()``."""
+        """Verify that ``get_status()`` reflects the rate-limit telemetry after ``consume()`` is called."""
         # Arrange
         generic_limiter.schedule_task(func_path, {"idx": 1})
         consume_result = generic_limiter.consume()
@@ -76,7 +76,7 @@ class TestGetStatus:
         )
 
     def test_get_status_recovery_on_noscript_error(self, generic_limiter, redis_client):
-        """Verify ``get_status()`` reloads Lua script and retries on ``NoScriptError``."""
+        """Verify that ``get_status()`` reloads the Lua script and retries on a ``NoScriptError``."""
         # Arrange
         real_evalsha = redis_client.evalsha
         real_script_load = redis_client.script_load
@@ -112,7 +112,7 @@ class TestGetStatus:
             )
 
     def test_get_status_permanent_failure_raises_error(self, generic_limiter):
-        """Verify permanent ``NoScriptError`` during ``get_status()`` raises RuntimeError."""
+        """Verify that a permanent ``NoScriptError`` during ``get_status()`` raises a RuntimeError."""
         # Arrange
         with patch.object(
             generic_limiter.redis,

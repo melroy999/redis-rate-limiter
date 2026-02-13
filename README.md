@@ -2,20 +2,20 @@
 
 # celery-rate-limiter
 
-A distributed rate limiter for Python with pluggable task backends. Rate limiting state lives in Redis--multiple processes and machines sharing the same limiter ID are collectively rate-limited, regardless of how tasks are dispatched.
+A distributed rate limiter for Python with pluggable task backends. Rate limiting state is stored in Redis, which means that multiple processes and machines sharing the same limiter ID are collectively rate-limited, regardless of how tasks are dispatched.
 
-The core algorithm is a sliding window counter implemented as atomic Lua scripts, which gives smooth rate transitions without the burstiness of fixed windows or the memory cost of a pure sliding log.
+The core algorithm is a sliding window counter implemented as atomic Lua scripts, which provides smooth rate transitions without the burstiness of fixed windows or the memory cost of a pure sliding log.
 
 ## Features
 
 - **Sliding window counter**: smooth rate limiting without sudden token resets at window boundaries.
-- **Concurrency control**: lease-based concurrency slots with automatic expiry, so crashed workers don't permanently consume capacity.
-- **Task deduplication**: identical tasks (same function + payload) are deduplicated via atomic Redis markers.
-- **Priority queue**: tasks are buffered in a Redis sorted set, consumed in priority order.
+- **Concurrency control**: lease-based concurrency slots with automatic expiry, such that crashed workers do not permanently consume capacity.
+- **Task deduplication**: identical tasks, i.e., tasks with the same function and payload, are deduplicated via atomic Redis markers.
+- **Priority queue**: tasks are buffered in a Redis sorted set and consumed in priority order.
 - **Dead letter queue**: tasks that exceed their maximum age are moved to a DLQ instead of being silently dropped.
-- **Dynamic configuration**: rate limits, concurrency caps, and window sizes can be changed in Redis at runtime. All existing limiter instances across workers and machines pick up the new configuration on their next drain cycle.
-- **Smart jitter**: adaptive retry delays that scale with queue depth and concurrency pressure to prevent thundering herd at window resets (see [docs/smart-jitter.md](docs/smart-jitter.md)).
-- **Metrics callbacks**: optional hook for observability, invoked after every consume and schedule operation.
+- **Dynamic configuration**: rate limits, concurrency caps and window sizes can be changed in Redis at runtime. All existing limiter instances across workers and machines pick up the new configuration on their next drain cycle.
+- **Smart jitter**: adaptive retry delays that scale with queue depth and concurrency pressure to prevent the thundering herd problem at window resets (see [docs/smart-jitter.md](docs/smart-jitter.md)).
+- **Metrics callbacks**: an optional hook for observability, invoked after every consume and schedule operation.
 
 ## Installation
 
@@ -27,7 +27,7 @@ pip install celery-rate-limiter
 pip install celery-rate-limiter[celery]
 ```
 
-Requires Python 3.12+ and a single Redis instance (not Redis Cluster--see the class docstring for details).
+The project requires Python 3.12+ and a single Redis instance (not Redis Cluster, see the class docstring for details).
 
 ## Quick Start (Celery)
 
@@ -60,16 +60,16 @@ success, task_id = limiter.schedule_task(
 status = limiter.get_status()
 ```
 
-The `examples/` directory contains a full working demo with a Celery worker, task simulator, and a live status inspector.
+The `examples/` directory contains a full working demo with a Celery worker, task simulator and a live status inspector.
 
 ## How It Works
 
-1. `schedule_task()` adds a task to a Redis priority queue (with deduplication).
+1. `schedule_task()` adds a task to a Redis priority queue, with deduplication.
 2. A drain loop acquires a distributed lock and calls `consume()`.
-3. `consume()` runs a Lua script that atomically checks the sliding window counter, verifies concurrency capacity, and pops the next task from the buffer.
+3. `consume()` runs a Lua script that atomically checks the sliding window counter, verifies the concurrency capacity and pops the next task from the buffer.
 4. The task is dispatched to the configured backend (Celery, thread pool, etc.).
 5. The worker holds a concurrency lease that is renewed via a heartbeat thread. If the worker crashes, the lease expires and the slot is reclaimed automatically.
-6. On completion (or failure), the concurrency slot is released and the next drain is triggered.
+6. On completion or failure, the concurrency slot is released and the next drain is triggered.
 
 ## Backend Roadmap
 
@@ -78,14 +78,14 @@ All backends extend `AbstractRedisManagedRateLimiter` to share the same distribu
 | Backend          | Dispatch mechanism                       | Status  |
 |------------------|------------------------------------------|---------|
 | Celery           | Celery broker (`send_task`)              | Done    |
-| Threading        | `concurrent.futures.ThreadPoolExecutor`  | Planned |
+| Threading        | `concurrent.futures.ThreadPoolExecutor`  | Done    |
 | AsyncIO          | `asyncio` event loop / task group        | Planned |
 | Multiprocessing  | `concurrent.futures.ProcessPoolExecutor` | Planned |
 | RQ (Redis Queue) | RQ job queue                             | Planned |
 | Dramatiq         | Dramatiq broker                          | Planned |
 | ASGI Middleware  | Starlette/FastAPI request handling       | Planned |
 
-### Class hierarchy
+### Class Hierarchy
 
 ```
 AbstractDistributedRateLimiter        -- distributed rate limiting via Redis
@@ -99,17 +99,17 @@ AbstractDistributedRateLimiter        -- distributed rate limiting via Redis
     └── ASGIRateLimiterMiddleware     -- rate limits HTTP requests
 ```
 
-### Use case examples
+### Use Case Examples
 
-**Threading / AsyncIO / Multiprocessing**: Rate-limited outbound API calls from a single application. For example, a scraper or data pipeline that must respect a third-party API's rate limit (e.g. 100 req/min to Stripe) while running many tasks concurrently. Multiple instances of the application share the same Redis-backed limit, so scaling horizontally doesn't violate the quota.
+**Threading / AsyncIO / Multiprocessing**: rate-limited outbound API calls from a single application. For example, a scraper or data pipeline that must respect a third-party API's rate limit (e.g., 100 req/min to Stripe) while running many tasks concurrently. Multiple instances of the application share the same Redis-backed limit, such that scaling horizontally does not violate the quota.
 
-**Celery / RQ / Dramatiq**: Distributed background job processing. For example, a SaaS platform that sends webhook deliveries, email campaigns, or report generation jobs across a fleet of workers, all collectively capped to protect downstream services.
+**Celery / RQ / Dramatiq**: distributed background job processing. For example, a SaaS platform that sends webhook deliveries, email campaigns or report generation jobs across a fleet of workers, all collectively capped to protect downstream services.
 
-**ASGI Middleware**: Rate limiting both sides of the HTTP boundary. On the *inbound* side, it protects your own API from being overwhelmed (e.g. 1000 req/min per API key across all FastAPI replicas). On the *outbound* side, the same middleware can gate proxy/forwarding routes that call upstream services, ensuring your fleet collectively stays within the upstream provider's limits. Because the state lives in Redis, the limit is enforced globally, not per-replica.
+**ASGI Middleware**: rate limiting both sides of the HTTP boundary. On the *inbound* side, it protects the API from being overwhelmed (e.g., 1000 req/min per API key across all FastAPI replicas). On the *outbound* side, the same middleware can gate proxy/forwarding routes that call upstream services, ensuring the fleet collectively stays within the upstream provider's limits. Because the state is stored in Redis, the limit is enforced globally, not per-replica.
 
 ## Testing
 
-The test suite is organized into contract, implementation, algorithm, property-based (Hypothesis), and integration tests. All tests require a running Redis instance. See [tests/README.md](tests/README.md) for the full breakdown.
+The test suite is organized into contract, implementation, algorithm, property-based (Hypothesis) and integration tests. All tests require a running Redis instance. See [tests/README.md](tests/README.md) for the full breakdown.
 
 ```bash
 # Run tests (excludes slow tests by default).

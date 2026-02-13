@@ -1,17 +1,18 @@
 """Contract tests that any RateLimiter implementation must satisfy.
 
-These tests define the expected behavior for all implementations of
-AbstractDistributedRateLimiter. Any concrete implementation should inherit
-from RateLimiterContractTest and provide its own limiter fixture.
+These tests define the expected behaviour for all implementations of
+``AbstractDistributedRateLimiter``. Any concrete implementation should
+inherit from ``RateLimiterContractTest`` and provide its own limiter
+fixture.
 """
 
 
 class RateLimiterContractTest:
     """Abstract test suite that any RateLimiter implementation must pass.
 
-    Subclasses must provide:
-        - limiter: A fixture that returns a configured limiter instance
-        - redis_client: A fixture that returns a Redis client
+    Subclasses are required to provide the following:
+        - limiter: A fixture that returns a configured limiter instance.
+        - redis_client: A fixture that returns a Redis client.
 
     Example:
         class TestCeleryLimiter(RateLimiterContractTest):
@@ -33,7 +34,7 @@ class RateLimiterContractTest:
     def test_schedule_task_returns_success_and_task_id(
         limiter, func_path, default_payload
     ):
-        """Contract: ``schedule_task()`` must return ``(bool, str)`` tuple."""
+        """Contract: ``schedule_task()`` must return a ``(bool, str)`` tuple."""
         # Act
         success, task_id = limiter.schedule_task(func_path, default_payload)
 
@@ -46,7 +47,7 @@ class RateLimiterContractTest:
     def test_schedule_task_marks_task_as_inflight(
         limiter, redis_client, func_path, default_payload
     ):
-        """Contract: scheduled tasks must be marked as in-flight in Redis."""
+        """Contract: scheduled tasks must be marked as in-flight within Redis."""
         # Act
         success, task_id = limiter.schedule_task(func_path, default_payload)
 
@@ -61,7 +62,7 @@ class RateLimiterContractTest:
     def test_schedule_task_adds_to_buffer(
         limiter, redis_client, func_path, default_payload
     ):
-        """Contract: scheduled tasks must be added to the buffer."""
+        """Contract: scheduled tasks must be appended to the buffer."""
         # Act
         success, task_id = limiter.schedule_task(func_path, default_payload)
 
@@ -72,7 +73,7 @@ class RateLimiterContractTest:
 
     @staticmethod
     def test_schedule_duplicate_task_returns_false(limiter, func_path, default_payload):
-        """Contract: scheduling identical tasks must return False on duplicate."""
+        """Contract: scheduling identical tasks must return ``False`` for the duplicate."""
         # Act
         success_1, task_id_1 = limiter.schedule_task(func_path, default_payload)
         success_2, task_id_2 = limiter.schedule_task(func_path, default_payload)
@@ -84,7 +85,7 @@ class RateLimiterContractTest:
 
     @staticmethod
     def test_get_inflight_key_format(limiter):
-        """Contract: get_inflight_key must return a consistent key format."""
+        """Contract: ``get_inflight_key`` must return a consistent key format."""
         # Arrange
         task_id = "test-task-123"
 
@@ -98,8 +99,8 @@ class RateLimiterContractTest:
 
     @staticmethod
     def test_limiter_has_required_attributes(limiter):
-        """Contract: limiter must have all required configuration attributes."""
-        # Assert required attributes exist and have correct types.
+        """Contract: the limiter must expose all required configuration attributes."""
+        # Assert that the required attributes exist and have the correct types.
         assert hasattr(limiter, "id"), "limiter must have an 'id' attribute"
         assert hasattr(limiter, "redis"), "limiter must have a 'redis' attribute"
         assert hasattr(limiter, "buffer_key"), "limiter must have a 'buffer_key'"
@@ -112,26 +113,26 @@ class RateLimiterContractTest:
             "limiter must have a 'max_concurrency'"
         )
 
-        # Assert attributes have valid types.
+        # Assert that the attributes have valid types.
         assert isinstance(limiter.limit, int), "limit must be an int"
         assert isinstance(limiter.window, (int, float)), "window must be numeric"
         assert isinstance(limiter.max_concurrency, int), (
             "max_concurrency must be an int"
         )
 
-        # Assert attributes have valid values.
+        # Assert that the attributes have valid values.
         assert limiter.limit > 0, "limit must be positive"
         assert limiter.window > 0, "window must be positive"
         assert limiter.max_concurrency > 0, "max_concurrency must be positive"
 
     @staticmethod
     def test_schedule_multiple_different_tasks(limiter, redis_client):
-        """Contract: multiple different tasks should all be scheduled successfully."""
+        """Contract: multiple distinct tasks must all be scheduled successfully."""
         # Arrange
         tasks = [
             ("myapp.tasks.task1", {"user_id": 1}),
             ("myapp.tasks.task2", {"user_id": 2}),
-            # Same function path, but with a different payload.
+            # The same function path, but with a different payload.
             ("myapp.tasks.task1", {"user_id": 3}),
         ]
 
@@ -143,7 +144,7 @@ class RateLimiterContractTest:
 
     @staticmethod
     def test_consume_returns_expected_structure(limiter):
-        """Contract: ``consume()`` returns all required consume result keys."""
+        """Contract: ``consume()`` must return all required consume result keys."""
         # Act
         result = limiter.consume()
 
@@ -164,7 +165,7 @@ class RateLimiterContractTest:
             f"consume result keys must match {expected_keys}"
         )
 
-        # Assert value types match the ConsumeResult TypedDict contract.
+        # Assert that the value types match the ConsumeResult TypedDict contract.
         assert isinstance(result["success"], bool), "success must be a bool"
         assert isinstance(result["expired"], bool), "expired must be a bool"
         assert result["task"] is None or isinstance(result["task"], dict), (
@@ -183,7 +184,7 @@ class RateLimiterContractTest:
         assert isinstance(result["val_previous"], int), "val_previous must be an int"
         assert isinstance(result["val_current"], int), "val_current must be an int"
 
-        # Assert values have valid bounds.
+        # Assert that the values fall within valid bounds.
         assert result["remaining_tokens"] >= 0, (
             "remaining_tokens must be non-negative on empty buffer"
         )
@@ -195,7 +196,7 @@ class RateLimiterContractTest:
 
     @staticmethod
     def test_consume_empty_buffer_returns_unsuccessful(limiter):
-        """Contract: consuming an empty buffer returns no task and unsuccessful result."""
+        """Contract: consuming from an empty buffer must return no task and an unsuccessful result."""
         # Act
         result = limiter.consume()
 
@@ -205,7 +206,7 @@ class RateLimiterContractTest:
 
     @staticmethod
     def test_consume_expired_field_is_boolean(limiter, func_path, default_payload):
-        """Contract: ``consume()`` expired flag must always be a boolean."""
+        """Contract: the ``consume()`` expired flag must always be a boolean."""
         # Arrange
         limiter.schedule_task(func_path, default_payload)
 
@@ -217,14 +218,14 @@ class RateLimiterContractTest:
 
     @staticmethod
     def test_execution_lock_context_manager_yields_boolean(limiter):
-        """Contract: execution_lock() yields a boolean acquisition result."""
+        """Contract: ``execution_lock()`` must yield a boolean indicating the acquisition result."""
         # Act & Assert
         with limiter.execution_lock(timeout_ms=50) as acquired:
             assert isinstance(acquired, bool), "execution_lock must yield a boolean"
 
     @staticmethod
     def test_get_buffer_count_returns_nonnegative_integer(limiter):
-        """Contract: ``get_buffer_count()`` returns a non-negative integer."""
+        """Contract: ``get_buffer_count()`` must return a non-negative integer."""
         # Act
         count = limiter.get_buffer_count()
 
@@ -234,7 +235,7 @@ class RateLimiterContractTest:
 
     @staticmethod
     def test_get_status_returns_dict_with_required_sections(limiter):
-        """Contract: ``get_status()`` returns required top-level status sections."""
+        """Contract: ``get_status()`` must return a dictionary containing all required top-level status sections."""
         # Act
         result = limiter.get_status()
 
