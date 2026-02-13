@@ -55,7 +55,7 @@ class TestInternalHelpers:
         # Mock the resource loader to simulate file system error.
         with patch(
             "celery_rate_limiter.core.limiters.resources.files",
-            side_effect=Exception("File system error"),
+            side_effect=FileNotFoundError("File system error"),
         ) as mock_files:
             with pytest.raises(ImportError, match=f"Could not load {lua_script}"):
                 generic_limiter._load_lua_script(lua_script=lua_script, key=target_key)
@@ -124,4 +124,61 @@ class TestInflightTtl:
         # Assert
         assert ttl == expected, (
             "override inflight TTL should use task max_age + lease_duration + window"
+        )
+
+
+class TestCleanupInflightKey:
+    """Tests for best-effort in-flight key cleanup on scheduling failures."""
+
+    @staticmethod
+    def test_cleanup_inflight_key_suppresses_redis_failure(generic_limiter):
+        """Verify ``_cleanup_inflight_key`` does not propagate Redis exceptions."""
+        # Arrange
+        inflight_key = f"{generic_limiter.id}:inflight:cleanup-test"
+
+        # Act & Assert
+        with patch.object(
+            generic_limiter.redis, "delete", side_effect=ConnectionError("redis down")
+        ):
+            # Must not raise.
+            generic_limiter._cleanup_inflight_key(inflight_key, "cleanup-test")
+
+
+class TestTokenRecoveryDelay:
+    """Tests for sliding-window token recovery delay calculation."""
+
+    @staticmethod
+    def test_token_recovery_returns_fractional_wait_when_decay_applies(generic_limiter):
+        """Verify positive fractional delay when previous-window decay can free a token."""
+        # Arrange
+        # Use a 1s window so the math is easy to verify.
+        generic_limiter.window = 1.0
+        generic_limiter.limit = 5
+
+        # Act
+        delay = generic_limiter._calculate_token_recovery_delay(
+            val_previous=5, val_current=3, reset_in_ms=500
+        )
+
+        # Assert
+        assert delay > 0, "delay should be positive when decay has not yet freed a token"
+        assert delay < 1.0, "delay should be less than the full window"
+
+    @staticmethod
+    def test_token_recovery_returns_immediate_when_decay_already_freed_token(
+        generic_limiter,
+    ):
+        """Verify immediate retry when previous-window decay has already freed a token."""
+        # Arrange
+        generic_limiter.window = 1.0
+        generic_limiter.limit = 5
+
+        # Act
+        delay = generic_limiter._calculate_token_recovery_delay(
+            val_previous=10, val_current=1, reset_in_ms=100
+        )
+
+        # Assert
+        assert delay == 0.001, (
+            "delay should be 0.001 when decay has already freed a token"
         )

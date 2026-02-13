@@ -212,3 +212,42 @@ class TestRateLimitedDecorator:
             "decorator should preserve return value with custom resolver"
         )
         resolver.assert_called_once_with("resolver_limiter")
+
+    def test_decorator_raises_value_error_when_limiter_id_missing(self, limiter_mock):
+        """Verify ``ValueError`` when neither decorator arg nor kwargs provide limiter_id."""
+        # Arrange
+        limiter, _ = limiter_mock
+
+        @rate_limited()
+        def wrapped_function(**kwargs):
+            return kwargs
+
+        # Act & Assert
+        with patch(
+            "celery_rate_limiter.core.decorators._get_default_limiter",
+            return_value=limiter,
+        ):
+            with pytest.raises(ValueError, match="Missing limiter id"):
+                wrapped_function(_rate_limit_task_id="task-no-limiter-id")
+
+    def test_decorator_uses_default_limiter_resolver(self, limiter_mock):
+        """Verify ``_get_default_limiter`` is exercised when no custom resolver is provided."""
+        # Arrange
+        limiter, _ = limiter_mock
+
+        @rate_limited("default_resolver_limiter")
+        def wrapped_function(value: int) -> int:
+            return value * 3
+
+        # Act
+        with patch(
+            "celery_rate_limiter.backends.threading.ThreadPoolRateLimiter.get",
+            return_value=limiter,
+        ) as mock_get:
+            result = wrapped_function(7, _rate_limit_task_id="task-default-resolver")
+
+        # Assert
+        assert result == 21, (
+            "decorated function should return wrapped result via default resolver"
+        )
+        mock_get.assert_called_once_with("default_resolver_limiter")

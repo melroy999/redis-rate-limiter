@@ -649,6 +649,18 @@ class TestRateLimiterClassApi:
             "reset should clear shared backend context"
         )
 
+    def test_direct_construction_raises_runtime_error(self, redis_client):
+        """Verify direct ``__init__`` bypassing ``create()``/``get()`` raises ``RuntimeError``."""
+        # Act & Assert
+        with pytest.raises(RuntimeError, match="Direct.*construction is not supported"):
+            ManagedTestRateLimiter(
+                redis_client=redis_client,
+                limiter_id="direct_construction_test",
+                limit=5,
+                window=1.0,
+                max_concurrency=2,
+            )
+
     def test_subclass_isolation_separate_instances(self, redis_client):
         """Verify __init_subclass__ isolates _instances and _redis_client per subclass."""
 

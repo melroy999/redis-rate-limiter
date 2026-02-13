@@ -387,6 +387,79 @@ class TestDrain:
             "second recovery delay should be 200ms"
         )
 
+    def test_drain_handles_double_failure_when_schedule_drain_also_fails(
+        self, tracking_limiter
+    ):
+        """Verify ``drain()`` does not propagate when both inner drain and recovery scheduling fail."""
+        # Act
+        with (
+            patch.object(
+                tracking_limiter, "execution_lock", return_value=self.lock_result(True)
+            ),
+            patch.object(
+                tracking_limiter, "consume", side_effect=RuntimeError("consume failed")
+            ),
+            patch.object(
+                tracking_limiter,
+                "_schedule_drain",
+                side_effect=RuntimeError("schedule also failed"),
+            ),
+        ):
+            # Must not raise.
+            tracking_limiter.drain()
+
+        # Assert
+        assert tracking_limiter._consecutive_drain_failures == 1, (
+            "failure counter should be incremented despite double failure"
+        )
+
+    def test_drain_skips_jitter_on_token_recovery_path(self, tracking_limiter):
+        """Verify jitter is skipped when token recovery uses sliding-window decay."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "task": None,
+            "remaining_tokens": 0,
+            "active_concurrency": 1,
+            "reset_in_ms": 500,
+            "remaining_tasks": 4,
+            # Non-fallback path: val_previous > 0 and val_current < limit.
+            "val_previous": 5,
+            "val_current": 3,
+        }
+
+        # Act
+        with (
+            patch.object(
+                tracking_limiter, "execution_lock", return_value=self.lock_result(True)
+            ),
+            patch.object(tracking_limiter, "consume", return_value=consume_result),
+            patch.object(
+                tracking_limiter, "_calculate_smart_jitter", return_value=0.0
+            ) as mock_jitter,
+        ):
+            tracking_limiter.drain()
+
+        # Assert
+        assert mock_jitter.call_count == 0, (
+            "jitter should not be calculated on the token-recovery path"
+        )
+        assert len(tracking_limiter.scheduled_drains) == 1, (
+            "drain should schedule a retry based on pure token-recovery delay"
+        )
+        assert tracking_limiter.scheduled_drains[0] > 0.0, (
+            "token-recovery retry delay should be positive"
+        )
+
+    def test_shutdown_delegates_to_drain_loop(self, tracking_limiter):
+        """Verify ``shutdown()`` completes without error on an idle limiter."""
+        # Act & Assert
+        # Must not raise. The drain loop was never woken because
+        # TrackingRateLimiter overrides _schedule_drain, so this exercises
+        # the delegation path on the base class.
+        tracking_limiter.shutdown()
+
     def test_trigger_consume_schedules_drain(self, tracking_limiter):
         """Verify ``trigger_consume()`` schedules a drain."""
         # Act

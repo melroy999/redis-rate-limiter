@@ -484,7 +484,7 @@ class AbstractDistributedRateLimiter(ABC):
                         resource_package,
                     )
                     return
-                except Exception as error:
+                except (ModuleNotFoundError, OSError) as error:
                     errors.append(f"{resource_package}: {error}")
 
             raise ImportError(
@@ -974,6 +974,7 @@ class AbstractDistributedRateLimiter(ABC):
         """Get the number of items in the buffer."""
         return int(str(self.redis.zcard(self.buffer_key)))
 
+    # noinspection PyBroadException
     def drain(self) -> None:
         """Attempt to drain an item from the queue.
 
