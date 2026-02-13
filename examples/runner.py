@@ -6,24 +6,27 @@ backend demo only needs to handle its own setup and teardown.
 
 import logging
 import os
+import random
 import time
 from typing import Callable
 
 import redis
 
+from examples.config import (
+    BURST_COUNT,
+    DEDUP_COUNT,
+    ERROR_COUNT,
+    LIMIT,
+    MAX_CONCURRENCY,
+    PRIORITY_SEED,
+    REDIS_HOST,
+    REDIS_PORT,
+    WINDOW,
+)
 from examples.dashboard import Dashboard
-from examples.tasks import FUNC_PATH
+from examples.tasks import FAILING_FUNC_PATH, FUNC_PATH
 
-# ---------------------------------------------------------------------------
-# Shared configuration
-# ---------------------------------------------------------------------------
-
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-
-LIMIT = 10  # tokens per window
-WINDOW = 5.0  # seconds
-MAX_CONCURRENCY = 3  # concurrent tasks executing at once
+logger = logging.getLogger("examples.runner")
 
 
 # ---------------------------------------------------------------------------
@@ -39,17 +42,28 @@ def connect_redis() -> redis.Redis:
 
 
 def setup_logging(log_dir: str) -> None:
-    """Write debug-level rate limiter logs to ``demo_debug.log``."""
-    log_file = os.path.join(log_dir, "demo_debug.log")
-    handler = logging.FileHandler(log_file, mode="w")
-    handler.setLevel(logging.DEBUG)
-    handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s.%(msecs)03d %(levelname)s %(name)s %(message)s",
-            datefmt="%H:%M:%S",
-        )
+    """Set up two log files: one for the demo, one for the rate limiter."""
+    fmt = logging.Formatter(
+        "%(asctime)s.%(msecs)03d %(levelname)s %(name)s %(message)s",
+        datefmt="%H:%M:%S",
     )
-    logging.getLogger("celery_rate_limiter").addHandler(handler)
+
+    # Demo log: captures output from all examples.* loggers.
+    demo_handler = logging.FileHandler(
+        os.path.join(log_dir, "demo.log"), mode="w",
+    )
+    demo_handler.setLevel(logging.DEBUG)
+    demo_handler.setFormatter(fmt)
+    logging.getLogger("examples").addHandler(demo_handler)
+    logging.getLogger("examples").setLevel(logging.DEBUG)
+
+    # Rate-limiter internals log: captures the library's debug output.
+    limiter_handler = logging.FileHandler(
+        os.path.join(log_dir, "limiter_debug.log"), mode="w",
+    )
+    limiter_handler.setLevel(logging.DEBUG)
+    limiter_handler.setFormatter(fmt)
+    logging.getLogger("celery_rate_limiter").addHandler(limiter_handler)
     logging.getLogger("celery_rate_limiter").setLevel(logging.DEBUG)
 
 
@@ -80,27 +94,57 @@ def run_demo(
         limiter_id: Display identifier for the dashboard header.
         cleanup: Called after monitoring finishes (e.g. shutdown workers).
     """
-    print(f"Limiter created: limit={LIMIT}/{WINDOW}s, concurrency={MAX_CONCURRENCY}")
+    rng = random.Random(PRIORITY_SEED)
+
+    logger.info(
+        "Limiter created: limit=%d/%.1fs, concurrency=%d",
+        LIMIT, WINDOW, MAX_CONCURRENCY,
+    )
 
     # --- Deduplication demo ---------------------------------------------------
-    print("\n--- Deduplication demo ---")
-    print("Scheduling the same task 10 times...")
+    logger.info("--- Deduplication demo ---")
+    logger.info("Scheduling the same task %d times...", DEDUP_COUNT)
     accepted = sum(
-        limiter.schedule_task(FUNC_PATH, {"user_id": 1})[0] for _ in range(10)
+        limiter.schedule_task(FUNC_PATH, {"user_id": 1})[0]
+        for _ in range(DEDUP_COUNT)
     )
-    print(f"  Accepted: {accepted}/10 (duplicates rejected)\n")
+    logger.info("Accepted: %d/%d (duplicates rejected)", accepted, DEDUP_COUNT)
 
-    # --- Burst demo -----------------------------------------------------------
-    print("--- Burst demo ---")
-    print("Scheduling 100 unique tasks...")
-    for i in range(2, 102):
-        limiter.schedule_task(FUNC_PATH, {"user_id": i})
-    print("  All 100 queued.\n")
+    # --- Build task list with random priorities -------------------------------
+    tasks: list[tuple[str, dict, int]] = []
+
+    # Normal burst tasks.
+    burst_start = DEDUP_COUNT + 1
+    for i in range(burst_start, burst_start + BURST_COUNT):
+        priority = rng.randint(1, 1000)
+        tasks.append((FUNC_PATH, {"user_id": i, "priority": priority}, priority))
+
+    # Failing tasks (interleaved via priority).
+    if ERROR_COUNT > 0:
+        error_start = burst_start + BURST_COUNT
+        for i in range(error_start, error_start + ERROR_COUNT):
+            priority = rng.randint(1, 1000)
+            tasks.append(
+                (FAILING_FUNC_PATH, {"user_id": i, "priority": priority}, priority)
+            )
+
+    # Shuffle so the scheduling order itself is also mixed.
+    rng.shuffle(tasks)
+
+    # --- Schedule all tasks ---------------------------------------------------
+    total = BURST_COUNT + ERROR_COUNT
+    logger.info(
+        "Scheduling %d tasks (seed=%d): %d normal + %d failing, interleaved by priority",
+        total, PRIORITY_SEED, BURST_COUNT, ERROR_COUNT,
+    )
+    for func_path, payload, priority in tasks:
+        limiter.schedule_task(func_path, payload, priority=priority)
+    logger.info("All %d tasks queued", total)
 
     # The drain loop starts automatically when the first task is scheduled
     # (via trigger_consume -> DrainLoop.wake).
-    print("Drain loop started automatically via task scheduling.\n")
-    time.sleep(0.5)  # Brief pause so the setup output is readable.
+    logger.info("Drain loop started automatically via task scheduling")
+    time.sleep(0.5)  # Brief pause so the first drain cycle can fire.
 
     # --- Live monitoring ------------------------------------------------------
     dashboard = Dashboard(limiter_id=limiter_id, limit=LIMIT)
@@ -122,14 +166,14 @@ def run_demo(
                     status["buffer"]["count"] == 0
                     and status["concurrency"]["current"] == 0
                 ):
-                    print("All tasks completed!")
+                    logger.info("All tasks completed!")
                     break
 
             time.sleep(0.05)
     except KeyboardInterrupt:
-        print("\nInterrupted.")
+        logger.info("Interrupted")
 
     # --- Cleanup --------------------------------------------------------------
     cleanup()
     elapsed = time.time() - start
-    print(f"\nDone. Total elapsed: {elapsed:.1f}s")
+    logger.info("Done. Total elapsed: %.1fs", elapsed)

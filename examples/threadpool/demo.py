@@ -14,10 +14,8 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 
 from celery_rate_limiter import ThreadPoolRateLimiter
+from examples.config import LIMIT, MAX_CONCURRENCY, THREADPOOL_MAX_WORKERS, WINDOW
 from examples.runner import (
-    LIMIT,
-    MAX_CONCURRENCY,
-    WINDOW,
     connect_redis,
     flush_stale_keys,
     run_demo,
@@ -30,7 +28,6 @@ from examples.runner import (
 
 
 LIMITER_ID = "threadpool_demo"
-MAX_WORKERS = 4  # thread pool size
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +41,7 @@ def main() -> None:
     redis_client = connect_redis()
     flush_stale_keys(redis_client, LIMITER_ID)
 
-    executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+    executor = ThreadPoolExecutor(max_workers=THREADPOOL_MAX_WORKERS)
     ThreadPoolRateLimiter.configure(redis_client, executor=executor)
     limiter = ThreadPoolRateLimiter.create(
         limiter_id=LIMITER_ID,
