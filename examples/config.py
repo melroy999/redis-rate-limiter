@@ -47,4 +47,5 @@ THREADPOOL_MAX_WORKERS = 4  # thread pool size
 # Celery backend
 # ---------------------------------------------------------------------------
 
+CELERY_WORKER_CONCURRENCY = 4  # number of worker processes
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # tasks fetched per worker at a time

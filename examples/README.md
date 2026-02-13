@@ -65,6 +65,7 @@ All tuneable parameters live in [config.py](config.py):
 | `BURST_COUNT`                       | Unique tasks queued in the burst test    |
 | `PRIORITY_SEED`                     | Seed for reproducible random task priorities |
 | `THREADPOOL_MAX_WORKERS`            | Thread pool size                         |
+| `CELERY_WORKER_CONCURRENCY`         | Number of Celery worker processes         |
 | `CELERY_WORKER_PREFETCH_MULTIPLIER` | Tasks fetched per Celery worker at a time |
 
 ## File overview

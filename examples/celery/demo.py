@@ -12,6 +12,7 @@ Usage (local Redis on 6379):
     poetry run python -m examples.celery.demo
 """
 
+import logging
 import os
 import subprocess
 import sys
@@ -23,6 +24,7 @@ from celery.signals import worker_init
 
 from celery_rate_limiter import CeleryRateLimiter
 from examples.config import (
+    CELERY_WORKER_CONCURRENCY,
     CELERY_WORKER_PREFETCH_MULTIPLIER,
     LIMIT,
     MAX_CONCURRENCY,
@@ -36,6 +38,8 @@ from examples.runner import (
     run_demo,
     setup_logging,
 )
+
+logger = logging.getLogger("examples.celery.demo")
 
 LIMITER_ID = "celery_demo"
 REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
@@ -95,13 +99,13 @@ def main() -> None:
     )
 
     # Start an embedded Celery worker as a subprocess.
-    print("Starting Celery worker subprocess...")
+    logger.info("Starting Celery worker subprocess...")
     worker_proc = subprocess.Popen(
         [
             sys.executable, "-m", "celery",
             "-A", "examples.celery.demo:celery_app",
             "worker",
-            "--pool=solo",
+            f"--concurrency={CELERY_WORKER_CONCURRENCY}",
             "--loglevel=warning",
             "--without-heartbeat",
             "--without-mingle",
@@ -111,10 +115,10 @@ def main() -> None:
         stderr=subprocess.DEVNULL,
     )
     time.sleep(3)  # Give the worker time to connect to the broker.
-    print("Worker ready.")
+    logger.info("Worker ready.")
 
     def cleanup():
-        print("\nShutting down worker...")
+        logger.info("Shutting down worker...")
         worker_proc.terminate()
         worker_proc.wait(timeout=5)
         limiter.shutdown()
