@@ -10,14 +10,16 @@ logger = logging.getLogger(__name__)
 
 
 def _get_default_limiter(limiter_id: str) -> AbstractDistributedRateLimiter:
-    """Resolve the default limiter implementation lazily.
+    """Resolve the default limiter implementation.
 
-    Celery-specific imports stay local so this module remains importable when
-    Celery is not installed and an alternative limiter resolver is supplied.
+    Uses the ThreadPool backend by default so this module works without Celery.
+    Pass a custom ``get_limiter`` to ``@rate_limited()`` if you need a
+    different backend.
     """
-    from celery_rate_limiter.backends.celery import CeleryRateLimiter
+    # Avoid circular imports by performing a lazy import here.
+    from celery_rate_limiter.backends.threading import ThreadPoolRateLimiter
 
-    return cast(AbstractDistributedRateLimiter, CeleryRateLimiter.get(limiter_id))
+    return ThreadPoolRateLimiter.get(limiter_id)
 
 
 def rate_limited(
@@ -30,7 +32,7 @@ def rate_limited(
     Args:
         limiter_id: The id of the rate limiter instance to use.
         get_limiter: Optional resolver used to fetch limiter instances by id.
-            Defaults to lazy Celery-backed resolution for backward compatibility.
+            Defaults to ThreadPool-backed resolution.
     """
 
     def decorator(func: T) -> T:
