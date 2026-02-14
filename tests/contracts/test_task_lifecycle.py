@@ -39,7 +39,7 @@ class TaskLifecycleContractTest:
 
         # Act
         with lifecycle_class(mock_limiter, task_id):
-            # No action is performed -- this simulates a task that completes normally.
+            # No action is performed--this simulates a task that completes normally.
             pass
 
         # Assert
@@ -65,7 +65,7 @@ class TaskLifecycleContractTest:
 
         # Act
         with lifecycle_class(mock_limiter, task_id):
-            # No action is performed -- this simulates a task that finishes successfully.
+            # No action is performed--this simulates a task that finishes successfully.
             pass
 
         # Assert

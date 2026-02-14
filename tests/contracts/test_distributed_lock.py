@@ -98,7 +98,7 @@ class DistributedLockContractTest:
                 assert redis_client.exists(lock_key) == 1, "lock should be acquired"
                 raise ValueError("Simulated failure")
         except ValueError:
-            # No action required -- the exception is expected.
+            # No action required--the exception is expected.
             pass
 
         # Assert

@@ -571,7 +571,7 @@ class TestSlidingWindowBehavior:
 
     1. Burst behaviour: At window boundaries, up to 2x the limit may be
        consumed within a short period. This occurs when the previous window
-       is empty and requests arrive at the boundary -- the algorithm permits
+       is empty and requests arrive at the boundary--the algorithm permits
        a full limit from each adjacent window.
 
     2. Steady-state approximation: Once past the initial window (in which
@@ -654,7 +654,7 @@ class TestSlidingWindowBehavior:
             if result["success"]:
                 timestamps.append(time.time())
             else:
-                # Rate limited -- wait for tokens to recover.
+                # Rate limited--wait for tokens to recover.
                 precise_sleep(window * sleep_fraction)
 
         total_consumed = len(timestamps)
@@ -758,7 +758,7 @@ class TestSlidingWindowBehavior:
             result = consume_and_complete(sliding_window_limiter)
             if result["success"]:
                 timestamps.append(time.time())
-            # No sleep -- consume as rapidly as possible to maximise the burst.
+            # No sleep--consume as rapidly as possible to maximise the burst.
 
         total_consumed = len(timestamps)
         burst_duration = timestamps[-1] - timestamps[0] if len(timestamps) > 1 else 0

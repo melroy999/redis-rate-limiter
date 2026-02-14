@@ -118,12 +118,12 @@ class RateLimiterContractTest:
         assert isinstance(success, bool)
         assert isinstance(task_id, str)
 
-# implementations/test_rate_limiter_impl.py -- generic backend
+# implementations/test_rate_limiter_impl.py: generic backend.
 class TestRateLimiterImplementation(RateLimiterContractTest):
     """Inherits all contract tests + adds generic implementation tests."""
     pass
 
-# implementations/threadpool/test_contracts.py -- real backend
+# implementations/threadpool/test_contracts.py: real backend.
 class TestThreadPoolContracts(RateLimiterContractTest):
     """Verify ``ThreadPoolRateLimiter`` satisfies all rate limiter contracts."""
     pass
