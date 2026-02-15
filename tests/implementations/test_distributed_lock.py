@@ -5,15 +5,10 @@ the Celery rate limiter. It inherits the contract tests and adds
 implementation-specific tests.
 """
 
-import time
-
 import pytest
 
 from celery_rate_limiter import DistributedLock
-from tests.contracts.test_distributed_lock import (
-    SHORT_TIMEOUT_MS,
-    DistributedLockContractTest,
-)
+from tests.contracts.test_distributed_lock import DistributedLockContractTest
 
 
 @pytest.fixture
@@ -66,33 +61,3 @@ class TestDistributedLock(DistributedLockContractTest):
             ttl = redis_client.pttl(lock_key)
             assert 0 < ttl <= 1000, f"TTL should be set and <= 1000ms, got {ttl}ms"
 
-    def test_lock_does_not_delete_expired_lock_with_different_token(
-        self, redis_client, lock_key, create_lock
-    ):
-        """Implementation detail: the Lua release script should only delete locks with a matching token."""
-        # Arrange
-        lock_1 = create_lock(redis_client, lock_key, timeout_ms=SHORT_TIMEOUT_MS)
-        lock_2 = create_lock(redis_client, lock_key, timeout_ms=5000)
-
-        # Act
-        with lock_1 as acquired_1:
-            assert acquired_1 is True
-            original_token = lock_1.token
-
-            # Wait for expiration, then allow lock_2 to acquire.
-            time.sleep(2 * SHORT_TIMEOUT_MS / 1000)
-
-            with lock_2 as acquired_2:
-                assert acquired_2 is True
-                new_token = lock_2.token
-                assert new_token != original_token
-
-                # Manually trigger lock_1's exit to simulate the scenario
-                # where its task finishes after the lock has already expired.
-                lock_1.__exit__(None, None, None)
-
-                # Assert that lock_2's token remains intact in Redis.
-                assert redis_client.get(lock_key) == new_token, (
-                    "lock_1 cleanup should not delete lock_2's token"
-                )
-                assert redis_client.exists(lock_key) == 1

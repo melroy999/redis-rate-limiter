@@ -29,7 +29,7 @@ tests/
 │
 ├── implementations/                    # Core implementation tests (backend-agnostic)
 │   ├── conftest.py                     # Shared core test fixtures/limiters
-│   ├── test_rate_limiter_impl.py       # Generic limiter implementation behavior
+│   ├── test_rate_limiter.py            # Generic limiter implementation behavior
 │   ├── test_rate_limiter_class_api.py  # Managed class API behavior (generic backend)
 │   ├── test_distributed_lock.py        # Redis-backed lock implementation tests
 │   ├── test_task_lifecycle.py          # Lifecycle manager implementation tests
@@ -118,7 +118,7 @@ class RateLimiterContractTest:
         assert isinstance(success, bool)
         assert isinstance(task_id, str)
 
-# implementations/test_rate_limiter_impl.py: generic backend.
+# implementations/test_rate_limiter.py: generic backend.
 class TestRateLimiterImplementation(RateLimiterContractTest):
     """Inherits all contract tests + adds generic implementation tests."""
     pass

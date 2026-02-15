@@ -13,6 +13,7 @@ This directory contains a collection of diagrams and reference documents that pr
 | [Redis Key Map](redis-keys.md) | Comprehensive reference of every Redis key used by the system, including data types, creators, readers, and TTL strategies. |
 | [Sliding Window Algorithm](sliding-window.md) | Visual explanation of the sliding window counter algorithm, the weight formula, and the mathematical 2x burst bound guarantee. |
 | [Drain Loop Flow](drain-flow.md) | Flowchart of the three-layer drain control loop, including wake coalescing, error recovery, and the five feedback entry points. |
+| [Error Handling](error-handling.md) | Error propagation flowchart across system layers, failure mode traceability table mapping every exception path to its test coverage, and the six recurring error handling patterns. |
 
 ## Related Documentation
 

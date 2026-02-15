@@ -1,6 +1,6 @@
 # Task Lifecycle Sequence
 
-The sequence diagram traces the flow of a single task from the moment it is scheduled to the moment its execution completes. The diagram is divided into four phases, namely the *scheduling* phase, the *drain and consume* phase, the *dispatch and execution* phase and the *completion* phase. It should be noted that the diagram depicts the nominal flow exclusively. The handling of error conditions, such as script cache misses, lock contention and task expiration to the dead letter queue, is documented in the source code at [limiters.py](../../src/celery_rate_limiter/core/limiters.py).
+The sequence diagram traces the flow of a single task from the moment it is scheduled to the moment its execution completes. The diagram is divided into four phases, namely the *scheduling* phase, the *drain and consume* phase, the *dispatch and execution* phase and the *completion* phase. It should be noted that the diagram depicts the nominal flow exclusively. The handling of error conditions, such as script cache misses, lock contention and task expiration to the dead letter queue, is documented in the [error handling](error-handling.md) reference.
 
 Several observations can be made about the lifecycle:
 
@@ -69,3 +69,21 @@ sequenceDiagram
 
     note over D: DrainLoop wakes, cycle repeats
 ```
+
+**Test coverage:**
+
+| Phase | Message | Description | Tested by |
+|-------|---------|-------------|-----------|
+| **Schedule** | U → L: schedule_task() | Schedule invocation returns (bool, task_id) | `contracts/test_rate_limiter::test_schedule_task_returns_success_and_task_id` |
+| **Schedule** | L → R: SET NX inflight | Deduplication via inflight key | `contracts/test_rate_limiter::test_schedule_task_marks_task_as_inflight`, `integration/test_rate_limiting::test_bulk_deduplication_only_buffers_one_task` |
+| **Schedule** | L → R: EVALSHA schedule.lua | Buffer insertion | `contracts/test_rate_limiter::test_schedule_task_adds_to_buffer`, `implementations/test_rate_limiter::test_schedule_single_task_stores_correctly` |
+| **Schedule** | L → D: wake(delay=0) | DrainLoop triggered after scheduling | `implementations/test_drain::test_trigger_consume_schedules_drain` |
+| **Drain** | D → L: drain() | DrainLoop calls drain | `implementations/test_drain_loop::test_wake_fires_drain_immediately` |
+| **Drain** | L → R: SET NX dispatch_lock | Distributed lock acquisition | `implementations/test_drain::test_drain_schedules_backup_when_lock_contended`, `implementations/test_concurrent_access::test_distributed_lock_serializes_drains` |
+| **Drain** | L → R: EVALSHA consume.lua | Atomic consumption | `contracts/test_rate_limiter::test_consume_returns_expected_structure`, `integration/test_rate_limiting::test_basic_rate_limit_enforcement` |
+| **Execute** | L → B: _dispatch_task() | Backend dispatch | `implementations/test_drain::test_drain_dispatches_task_and_schedules_follow_up` |
+| **Execute** | W: TaskLifecycle.__enter__() | Lifecycle context entered | `implementations/test_decorator::test_decorator_wraps_function_in_task_lifecycle` |
+| **Execute** | W → R: EVALSHA renew.lua | Heartbeat lease renewal | `implementations/test_task_lifecycle::test_heartbeat_loop_extends_lease_periodically` |
+| **Completion** | W: TaskLifecycle.__exit__() | Lifecycle context exit | `contracts/test_task_lifecycle::test_lifecycle_removes_task_from_concurrency_set` |
+| **Completion** | W → R: ZREM + DEL | Slot released, dedup cleared | `contracts/test_task_lifecycle::test_lifecycle_removes_active_marker`, `integration/test_rate_limiting::test_task_lifecycle_releases_slot_on_error` |
+| **Completion** | W → D: trigger_consume() | Feedback loop: completion triggers next drain | `contracts/test_task_lifecycle::test_lifecycle_triggers_consume`, `contracts/test_task_lifecycle::test_lifecycle_triggers_consume_even_on_exception` |

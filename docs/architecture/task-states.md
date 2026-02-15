@@ -2,45 +2,36 @@
 
 The state diagram maps every possible state that a task can occupy from the moment it is submitted to the rate limiter through to its eventual completion or expiration. It captures both the nominal flow and the error recovery paths, including crash recovery via self-healing lease expiry and deduplication via inflight keys. The diagram should be read in conjunction with the [Task Lifecycle Sequence](task-lifecycle.md), which traces the nominal flow in detail.
 
-There are eight distinct states in total. Of these, six represent physical locations within Redis (i.e., the task resides in a specific key or data structure), whereas two represent logical outcomes that do not correspond to a persisted location: *Rate Limited* is a transient consume result in which the task physically remains in the buffer ZSET, and *Duplicate Rejected* is an immediate rejection at scheduling time before any buffer insertion occurs.
+There are seven distinct states in total. Of these, six represent physical locations within Redis (i.e., the task resides in a specific key or data structure), whereas one, *Duplicate Rejected*, represents a logical outcome that does not correspond to a persisted location: it is an immediate rejection at scheduling time before any buffer insertion occurs. Rate and concurrency exhaustion is modelled as a self-transition on the *Buffered* state rather than as a separate state, given that the task physically remains in the buffer ZSET throughout.
 
 ## State Diagram
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Scheduled : schedule_task() called
+    [*] --> Scheduled : task submitted
 
-    Scheduled --> Buffered : schedule.lua ZADD succeeds
-    Scheduled --> DuplicateRejected : SET NX fails\n(inflight key exists)
+    Scheduled --> Buffered : task buffered
+    Scheduled --> DuplicateRejected : duplicate detected
 
-    DuplicateRejected --> [*] : returns (False, task_id)
+    DuplicateRejected --> [*] : submission rejected
 
-    Buffered --> Active : consume.lua succeeds\n(pop + lease + increment)
-    Buffered --> ExpiredDLQ : consume.lua finds\nage > max_age
-    Buffered --> Buffered : rate or concurrency\nlimit exceeded\n(retry drain scheduled)
+    Buffered --> Active : consumed and dispatched
+    Buffered --> ExpiredDLQ : task expired
+    Buffered --> Buffered : rate or concurrency\nlimit reached
 
-    ExpiredDLQ --> [*] : task moved to DLQ\ninflight key deleted
+    ExpiredDLQ --> [*] : moved to dead letter queue
 
-    Active --> Completed : TaskLifecycle.__exit__() runs
-    Active --> LeaseExpired : worker crashes\nlease score < current time
+    Active --> Completed : execution completes
+    Active --> LeaseExpired : worker crash leads\nto lease timeout
 
-    Completed --> [*] : slot freed via ZREM\ninflight key deleted\ntrigger_consume() called
+    Completed --> [*] : cleanup complete,\nnext drain triggered
 
-    LeaseExpired --> [*] : ZREMRANGEBYSCORE\nreclaims slot
-
-    note right of Buffered
-        "Rate Limited" is not a separate
-        physical state. The task remains
-        in the buffer ZSET; the consume
-        attempt returned 0 and a retry
-        drain has been scheduled.
-    end note
+    LeaseExpired --> [*] : stale lease reclaimed
 
     note right of Active
-        A heartbeat thread renews the
-        concurrency lease every
-        lease_duration / 2 seconds
-        via EVALSHA renew.lua.
+        A heartbeat thread periodically
+        renews the concurrency lease
+        to prevent premature expiry.
     end note
 ```
 
@@ -51,11 +42,25 @@ stateDiagram-v2
 | **Scheduled** | Inflight key set via `SET NX` | `schedule_task()` has been called; the inflight key has been acquired and the task is about to be buffered via `schedule.lua`. |
 | **Buffered** | `{id}:buffer` ZSET | The task resides in the buffer, ordered by priority, and awaits consumption by the drain loop. |
 | **Expired (DLQ)** | `{id}:dlq` LIST | The `consume.lua` script determined that the task age exceeds the configured `max_age`; the task has been moved to the dead letter queue via `RPUSH` and its inflight key has been deleted. |
-| **Rate Limited** | `{id}:buffer` ZSET (unchanged) | The rate window or concurrency capacity is exhausted; the task remains in the buffer and a retry drain is scheduled. This is a conceptual state, modelled as a self-transition on the Buffered state. |
 | **Active** | `{id}:concurrency` ZSET | The task has been consumed: the window counter has been incremented via `INCR`, a concurrency lease has been registered via `ZADD` with an expiry score, and the task has been popped from the buffer. The backend is dispatching or executing it. |
 | **Lease Expired** | `{id}:concurrency` ZSET (stale entry) | The worker executing the task has crashed; the concurrency lease has expired (its score is less than the current timestamp) and will be cleaned up by the self-healing `ZREMRANGEBYSCORE` operation on the next `consume()` call. |
 | **Completed** | None (all keys cleaned up) | `TaskLifecycle.__exit__()` has run: the concurrency lease has been removed via `ZREM`, the inflight key has been deleted via `DEL`, and `trigger_consume()` has been called to signal the drain loop. |
 | **Duplicate Rejected** | Inflight key already exists | The `SET NX` for the inflight key failed, indicating that a task with the same identifier is already in flight; `schedule_task()` returns `(False, task_id)` immediately without buffering the task. |
+
+**Test coverage:**
+
+| Transition | Description | Tested by |
+|------------|-------------|-----------|
+| [*] → Scheduled | `schedule_task()` acquires inflight key via SET NX | `contracts/test_rate_limiter::test_schedule_task_returns_success_and_task_id`, `contracts/test_rate_limiter::test_schedule_task_marks_task_as_inflight` |
+| Scheduled → Buffered | `schedule.lua` ZADD succeeds | `contracts/test_rate_limiter::test_schedule_task_adds_to_buffer`, `implementations/test_rate_limiter::test_schedule_single_task_stores_correctly` |
+| Scheduled → DuplicateRejected | SET NX fails (inflight key exists) | `contracts/test_rate_limiter::test_schedule_duplicate_task_returns_false`, `implementations/test_rate_limiter::test_schedule_duplicate_task_skips_second` |
+| DuplicateRejected → [*] | Returns (False, task_id) | `contracts/test_rate_limiter::test_schedule_duplicate_task_returns_false` |
+| Buffered → Active | `consume.lua` succeeds (pop + lease + increment) | `contracts/test_rate_limiter::test_consume_returns_expected_structure`, `integration/test_rate_limiting::test_basic_rate_limit_enforcement` |
+| Buffered → ExpiredDLQ | `consume.lua` finds age > max_age | `integration/test_rate_limiting::test_expired_task_moved_to_dlq` |
+| Buffered → Buffered | Rate or concurrency limit exceeded; retry scheduled | `integration/test_rate_limiting::test_basic_rate_limit_enforcement`, `integration/test_rate_limiting::test_concurrency_limit_enforcement` |
+| Active → Completed | `TaskLifecycle.__exit__()` runs | `contracts/test_task_lifecycle::test_lifecycle_removes_task_from_concurrency_set`, `contracts/test_task_lifecycle::test_lifecycle_removes_active_marker` |
+| Active → LeaseExpired | Worker crashes; lease score < current time | `integration/test_rate_limiting::test_expired_lease_cleaned_up_on_consume` |
+| Completed → [*] | Slot freed, inflight deleted, trigger_consume() called | `contracts/test_task_lifecycle::test_lifecycle_triggers_consume`, `integration/test_rate_limiting::test_task_lifecycle_releases_slot_on_error` |
 
 ## The Feedback Loop
 

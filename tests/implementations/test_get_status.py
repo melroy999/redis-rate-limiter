@@ -111,6 +111,20 @@ class TestGetStatus:
                 "script_load should be called once to recover"
             )
 
+    def test_get_status_connection_error_propagates(self, generic_limiter):
+        """Verify that a non-NoScript Redis error during ``get_status()`` propagates to the caller."""
+        # Arrange
+        with patch.object(
+            generic_limiter.redis,
+            "evalsha",
+            side_effect=redis.exceptions.ConnectionError("redis unreachable"),
+        ):
+            # Act & Assert
+            with pytest.raises(
+                redis.exceptions.ConnectionError, match="redis unreachable"
+            ):
+                generic_limiter.get_status()
+
     def test_get_status_permanent_failure_raises_error(self, generic_limiter):
         """Verify that a permanent ``NoScriptError`` during ``get_status()`` raises a RuntimeError."""
         # Arrange

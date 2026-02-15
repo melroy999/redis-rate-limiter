@@ -416,6 +416,20 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
                 "consume should attempt one retry before failing"
             )
 
+    def test_consume_connection_error_propagates(self, limiter):
+        """Verify that a non-NoScript Redis error during ``consume()`` propagates to the caller."""
+        # Arrange
+        with patch.object(
+            limiter.redis,
+            "evalsha",
+            side_effect=redis.exceptions.ConnectionError("redis unreachable"),
+        ):
+            # Act & Assert
+            with pytest.raises(
+                redis.exceptions.ConnectionError, match="redis unreachable"
+            ):
+                limiter.consume()
+
     def test_get_buffer_count_returns_zero_when_empty(self, limiter):
         """Verify that ``get_buffer_count()`` returns zero when no tasks are scheduled."""
         # Act

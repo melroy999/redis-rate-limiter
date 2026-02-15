@@ -123,6 +123,9 @@ class DistributedLockContractTest:
             # The second lock acquires the now-expired lock.
             with lock_2 as acquired_2:
                 assert acquired_2 is True
+                assert lock_2.token != lock_1.token, (
+                    "the two locks must have different tokens"
+                )
                 assert redis_client.get(lock_key) == lock_2.token
 
                 # Manually exit the first lock, effectively simulating the

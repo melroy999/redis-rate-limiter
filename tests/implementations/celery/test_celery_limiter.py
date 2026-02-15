@@ -3,6 +3,8 @@
 import json
 from unittest.mock import patch
 
+import pytest
+
 
 class TestCeleryRateLimiter:
     """Tests that are specific to the Celery backend dispatch and payload logic."""
@@ -77,6 +79,20 @@ class TestCeleryRateLimiter:
 
         # Assert
         mock_wake.assert_called_once_with(delay)
+
+    def test_dispatch_task_send_task_failure_propagates(
+        self, limiter, default_payload, task_id
+    ):
+        """Verify that a ``send_task()`` failure propagates from ``_dispatch_task()``."""
+        # Arrange
+        payload = limiter._get_enhanced_payload(default_payload, use_executor=True)
+
+        # Act & Assert
+        with patch.object(
+            limiter.app, "send_task", side_effect=Exception("broker down")
+        ):
+            with pytest.raises(Exception, match="broker down"):
+                limiter._dispatch_task("myapp.tasks.process", payload, task_id)
 
     def test_enhanced_payload_structure(self, limiter, default_payload):
         """Verify that ``_get_enhanced_payload`` wraps the payload in the expected data/meta structure."""

@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 class TestThreadPoolRateLimiter:
     """Tests that are specific to the threading backend dispatch and lifecycle logic."""
@@ -70,6 +72,20 @@ class TestThreadPoolRateLimiter:
         mock_tl.assert_called_once_with(task_id)
         mock_lifecycle.__enter__.assert_called_once()
         mock_lifecycle.__exit__.assert_called_once()
+
+    def test_dispatch_task_import_failure_propagates(
+        self, limiter, default_payload, func_path, task_id
+    ):
+        """Verify that an ``import_string()`` failure propagates from ``_dispatch_task()``."""
+        # Act & Assert
+        with patch(
+            "celery_rate_limiter.backends.threading.limiter.import_string",
+            side_effect=ModuleNotFoundError("No module named 'nonexistent'"),
+        ):
+            with pytest.raises(
+                ModuleNotFoundError, match="No module named 'nonexistent'"
+            ):
+                limiter._dispatch_task(func_path, default_payload, task_id)
 
     def test_schedule_drain_wakes_drain_loop(self, limiter):
         """Verify that ``_schedule_drain`` delegates to the base-class ``DrainLoop``."""

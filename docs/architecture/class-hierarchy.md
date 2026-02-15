@@ -5,7 +5,7 @@ The class diagram presents the inheritance and composition relationships between
 The class hierarchy consists of two levels of abstraction:
 
 - **`AbstractDistributedRateLimiter`** contains all of the core rate limiting logic, including the Lua script execution, drain orchestration and sliding window calculations.
-- **`AbstractRedisManagedRateLimiter`** extends the base class with a registry pattern that provides a class-level API for the creation, retrieval and updating of limiter instances, with the configuration being persisted to Redis.
+- **`AbstractRedisManagedRateLimiter`** extends the base class with a registry pattern that provides a class-level API for the creation, retrieval and updating of limiter instances. Configuration is persisted to Redis as the source of truth; when `update()` writes new values to Redis, `refresh_config()` synchronises the in-memory instance attributes to match.
 
 Concrete backends, such as `CeleryRateLimiter` and `ThreadPoolRateLimiter`, inherit from the managed class and are required to implement the following:
 
@@ -93,15 +93,22 @@ classDiagram
     AbstractDistributedRateLimiter ..> TaskLifecycle : creates via task_lifecycle()
 ```
 
-**UML notation guide:**
+**Notation guide:**
 
-| Symbol | Meaning |
-|--------|---------|
-| `+` | Public method or attribute |
-| `#` | Protected method (intended for subclass use) |
-| `-` | Private method (internal implementation) |
-| `$` | Class method (called on the class, not an instance) |
-| `*` | Abstract (must be implemented by subclasses) |
-| `--\|>` | Inheritance (*is a*) |
-| `*--` | Composition (*owns a*, created and destroyed together) |
-| `..>` | Dependency (*uses*, creates on demand, does not own) |
+*Members:*
+
+| Notation | Meaning |
+|----------|---------|
+| `+` prefix | Public method or attribute |
+| `#` prefix | Protected method (intended for subclass use) |
+| `-` prefix | Private method (internal implementation) |
+| Underlined name | Class method (called on the class, not an instance) |
+| *Italic name* | Abstract method (must be implemented by subclasses) |
+
+*Relationships:*
+
+| Arrow | Meaning |
+|-------|---------|
+| Solid line, hollow triangle head | Inheritance: the subclass *is a* specialisation of the parent class |
+| Solid line, filled diamond | Composition: the parent *owns* the child and manages its lifecycle (created during construction, destroyed during shutdown) |
+| Dashed line, open arrowhead | Dependency: the parent *creates* the child on demand via a factory method; the child has an independent lifecycle |
