@@ -88,16 +88,24 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
         with patch("threading.Thread"):
             with TaskLifecycle(mock_limiter, task_id):
                 # During execution, all five tasks should be present.
-                assert redis_client.zcard(mock_limiter.concurrency_key) == 5
+                assert redis_client.zcard(mock_limiter.concurrency_key) == 5, (
+                    "all five tasks should be present during execution"
+                )
 
         # After completion, only the target task should have been removed.
-        assert redis_client.zcard(mock_limiter.concurrency_key) == 4
-        assert redis_client.zscore(mock_limiter.concurrency_key, task_id) is None
+        assert redis_client.zcard(mock_limiter.concurrency_key) == 4, (
+            "concurrency set should have four tasks after target completion"
+        )
+        assert redis_client.zscore(mock_limiter.concurrency_key, task_id) is None, (
+            "target task must be removed from concurrency set"
+        )
         assert (
             redis_client.zscore(mock_limiter.concurrency_key, "other_task_1")
             is not None
+        ), "other tasks must remain in concurrency set"
+        assert redis_client.exists(inflight_key) == 0, (
+            "inflight marker must be removed after completion"
         )
-        assert redis_client.exists(inflight_key) == 0
 
     def test_lifecycle_handles_redis_failure_during_cleanup(
         self, redis_client, mock_limiter, task_id, inflight_key
@@ -287,7 +295,9 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
 
         # Assert
         # Verify that extend_lease was called with the correct parameters.
-        assert mock_limiter.extend_lease.call_count >= 1
+        assert mock_limiter.extend_lease.call_count >= 1, (
+            "extend_lease must be called at least once with correct parameters"
+        )
         for call in mock_limiter.extend_lease.call_args_list:
             assert call[0][0] == task_id, "extend_lease must be called with task_id"
             assert call[0][1] == mock_limiter.lease_duration, (

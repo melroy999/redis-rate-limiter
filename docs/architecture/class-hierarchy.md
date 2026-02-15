@@ -12,9 +12,11 @@ Concrete backends, such as `CeleryRateLimiter` and `ThreadPoolRateLimiter`, inhe
 - **`_dispatch_task()`**, which defines how tasks are sent to the execution environment.
 - **The four backend context methods** (`_configure_backend`, `_has_backend_context`, `_get_instance_context`, `_reset_backend_context`), which define how the backend is configured.
 
+Backends may optionally override `_has_local_capacity()` to indicate whether the local execution environment can accept another task. The `ThreadPoolRateLimiter` uses this hook to prevent the consumer from acquiring Redis concurrency slots for tasks that would only be queued locally in the thread pool.
+
 All other functionality is inherited from the abstract classes.
 
-Furthermore, the supporting classes `DrainLoop`, `DistributedLock` and `TaskLifecycle` are *composed* rather than inherited. The `DrainLoop` is owned by the limiter and created during construction, whereas the `DistributedLock` and `TaskLifecycle` instances are created on demand through the factory methods `execution_lock()` and `task_lifecycle()` respectively.
+Furthermore, the supporting classes `DrainLoop`, `DrainSignalSubscriber`, `DistributedLock` and `TaskLifecycle` are *composed* rather than inherited. The `DrainLoop` and `DrainSignalSubscriber` are owned by the limiter and created during construction (unless `drain_enabled=False`, in which case neither is created). The `DrainSignalSubscriber` subscribes to a Redis Pub/Sub channel (`{id}:drain_signal`) and wakes the local `DrainLoop` when a drain signal arrives from another process; messages from the local process are filtered out by `worker_id`. The `DistributedLock` and `TaskLifecycle` instances are created on demand through the factory methods `execution_lock()` and `task_lifecycle()` respectively. The `drain_enabled` parameter supports scheduler-only instances that push tasks into the buffer without consuming them (e.g., a traffic generator in a multi-process deployment); such instances still publish drain signals via `trigger_consume()` to notify consumer workers.
 
 ```mermaid
 classDiagram
@@ -25,6 +27,7 @@ classDiagram
         +int limit
         +float window
         +int max_concurrency
+        +bool drain_enabled
         +schedule_task(func_path, payload, priority, max_age) tuple
         +consume() ConsumeResult
         +drain()
@@ -35,6 +38,8 @@ classDiagram
         +execution_lock(timeout_ms) DistributedLock
         +shutdown()
         #_dispatch_task(func_path, payload, task_id)* void
+        #_has_local_capacity() bool
+        -_publish_drain_signal() void
     }
 
     class AbstractRedisManagedRateLimiter {
@@ -60,7 +65,9 @@ classDiagram
 
     class ThreadPoolRateLimiter {
         +ThreadPoolExecutor executor
+        -int _local_dispatched
         #_dispatch_task(func_path, payload, task_id) void
+        #_has_local_capacity() bool
         #_configure_backend(**context) void
         #_has_backend_context() bool
         #_get_instance_context() dict
@@ -72,7 +79,16 @@ classDiagram
         -_run() void
     }
 
+    class DrainSignalSubscriber {
+        +start() void
+        +shutdown() void
+        -_run() void
+    }
+
     class DistributedLock {
+        +str worker_id
+        +int cooldown_ms
+        +str contention_key
         +__enter__() bool
         +__exit__() void
     }
@@ -88,7 +104,8 @@ classDiagram
     CeleryRateLimiter --|> AbstractRedisManagedRateLimiter : inherits
     ThreadPoolRateLimiter --|> AbstractRedisManagedRateLimiter : inherits
 
-    AbstractDistributedRateLimiter *-- DrainLoop : owns (1 instance)
+    AbstractDistributedRateLimiter *-- DrainLoop : owns (0..1 instance)
+    AbstractDistributedRateLimiter *-- DrainSignalSubscriber : owns (0..1 instance)
     AbstractDistributedRateLimiter ..> DistributedLock : creates via execution_lock()
     AbstractDistributedRateLimiter ..> TaskLifecycle : creates via task_lifecycle()
 ```

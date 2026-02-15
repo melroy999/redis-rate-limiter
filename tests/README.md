@@ -66,7 +66,8 @@ tests/
 │   └── test_smart_jitter.py            # Smart jitter invariants (Hypothesis)
 │
 ├── integration/                        # End-to-end integration tests
-│   ├── test_rate_limiting.py           # Core Redis/Lua integration behavior
+│   ├── test_rate_limiting.py           # Single-consumer rate limiting behavior
+│   ├── test_distributed_rate_limiting.py  # Multi-consumer temporal rate limiting
 │   ├── README.md                       # Platform requirements and timing notes
 │   └── celery/                         # Reserved for Celery-specific integration tests
 │
@@ -179,13 +180,14 @@ def test_weight_is_half_at_midpoint():
 
 ### 4. Integration Testing
 
-Integration tests verify the end-to-end behavior of the rate limiter with real Redis and Lua scripts.
+Integration tests verify the end-to-end behavior of the rate limiter with real Redis and Lua scripts. The suite is split into single-consumer tests (`test_rate_limiting.py`) that verify core rate and concurrency enforcement, and multi-consumer tests (`test_distributed_rate_limiting.py`) that verify temporal rate-limiting correctness when multiple independent limiter instances share the same Redis backend over sustained time periods.
 
 **Benefits:**
 
 - The full system is tested, including Redis interactions and Lua script execution.
 - Rate limiting behavior is verified in realistic scenarios.
 - Burst handling, concurrency limits and telemetry tracking are tested.
+- Multi-consumer tests validate per-window consumption bounds, backpressure dynamics and sine-wave traffic patterns.
 - Explicit fixture configuration is used to maintain test independence.
 
 **Example:**

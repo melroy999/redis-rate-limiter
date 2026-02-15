@@ -1,0 +1,32 @@
+# RBAC resources for Prometheus pod discovery: a ServiceAccount, a ClusterRole
+# with pod read permissions, and a ClusterRoleBinding that grants the role to
+# the ServiceAccount. Required for kubernetes_sd_configs to discover and scrape
+# annotated pods.
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: celery-rate-limiter-demo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-pod-reader
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-pod-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-pod-reader
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: celery-rate-limiter-demo

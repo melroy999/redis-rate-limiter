@@ -11,7 +11,9 @@ All rate limiting state is persisted in Redis and mutated exclusively through at
 | `{id}:concurrency` | ZSET | Active task lease set. The score is the lease expiry timestamp (Unix seconds) and the member is the task identifier. Expired leases are pruned automatically at the start of every `consume()` call via `ZREMRANGEBYSCORE`. | `consume.lua` via `ZADD` | `consume.lua` via `ZCARD` and `ZREMRANGEBYSCORE`; `health.lua` via `ZCARD`; `renew.lua` via `ZSCORE` and `ZADD` | Self-healing; expired entries are removed by `ZREMRANGEBYSCORE` |
 | `{id}:inflight:{task_id}` | STRING | Deduplication marker that prevents the same task from being scheduled more than once while it is in flight. The value is the string `"1"`. | `limiters.py` (`schedule_task`) via `SET NX EX` | `consume.lua` via `DEL` (on task expiry); `TaskLifecycle.__exit__()` via `DEL` | `ceil(max(1, max_age) + max(1, lease_duration) + max(1, window))` seconds |
 | `{id}:dlq` | LIST | Dead letter queue for tasks that have exceeded their maximum age while waiting in the buffer. Expired tasks are appended to this list during consumption. | `consume.lua` via `RPUSH` | User code (manual inspection) | None |
-| `{id}:dispatch_lock` | STRING | Drain mutex that ensures only one drainer operates at any given time. The value is a UUID token that identifies the lock holder; the compare-and-delete release script prevents the inadvertent deletion of locks created after a timeout. | `limiters.py` (`DistributedLock.__enter__`) via `SET NX PX` | `DistributedLock.__exit__()` via `GET` and `DEL` (Lua script); `get_status()` via `EXISTS` | 5000ms (configurable via `timeout_ms` parameter) |
+| `{id}:dispatch_lock` | STRING | Drain mutex that ensures only one drainer operates at any given time. The value is a UUID token that identifies the lock holder; the compare-and-delete release script prevents the inadvertent deletion of locks created after a timeout. When contention-aware fairness is enabled, acquisition and release are performed via dedicated Lua scripts that additionally manage the cooldown and contention keys. | `limiters.py` (`DistributedLock.__enter__`) via `SET NX PX` (simple mode) or `_ACQUIRE_SCRIPT` (fairness mode) | `DistributedLock.__exit__()` via `_SIMPLE_RELEASE_SCRIPT` (simple mode) or `_RELEASE_SCRIPT` (fairness mode); `get_status()` via `EXISTS` | 5000ms (configurable via `timeout_ms` parameter) |
+| `{id}:dispatch_lock:cd:{worker_id}` | STRING | Per-worker cooldown marker. When contention is detected (i.e., other workers attempted to acquire the lock while it was held), the releasing worker sets this key to block its own re-acquisition for one token interval, giving competing workers a fair opportunity. The value is the string `"1"`. | `DistributedLock.__exit__()` via `_RELEASE_SCRIPT` (`SET PX`) | `DistributedLock.__enter__()` via `_ACQUIRE_SCRIPT` (`EXISTS`) | `min(window_ms / limit, 1000)` ms |
+| `{id}:dispatch_lock:contention` | STRING | Shared contention counter. Incremented by workers that fail to acquire the dispatch lock (because another worker holds it), allowing the lock holder to detect competition upon release. When the holder releases and finds a contention value greater than zero, it sets its own cooldown key and resets the counter. | `DistributedLock.__enter__()` via `_ACQUIRE_SCRIPT` (`INCR`) | `DistributedLock.__exit__()` via `_RELEASE_SCRIPT` (`GET`, `DEL`) | `timeout_ms` (same as the dispatch lock; set via `PEXPIRE`) |
 | `rl:registry:configs` | HASH | Configuration persistence for managed limiter instances. Each field is a limiter identifier and the corresponding value is a JSON-serialized configuration object containing `limit`, `window`, `max_concurrency`, `max_age`, and `lease_duration`. | `AbstractRedisManagedRateLimiter._persist_config()` via `HSET` | `AbstractRedisManagedRateLimiter.get()` and `refresh_config()` via `HGET` | None |
 | `rl:registry:versions` | HASH | Configuration version tracking for managed limiter instances. Each field is a limiter identifier and the corresponding value is a monotonically increasing integer that is incremented upon every configuration update. Workers compare the remote version against their local version to detect configuration changes. | `AbstractRedisManagedRateLimiter._persist_config()` via `HINCRBY` | `AbstractRedisManagedRateLimiter.get()` and `refresh_config()` via `HGET` | None |
 
@@ -46,8 +48,8 @@ graph LR
     end
 
     subgraph Drain ["drain()"]
-        D1["SET NX dispatch_lock\n(acquire mutex)"]
-        D2["GET + DEL dispatch_lock\n(release mutex)"]
+        D1["Acquire dispatch_lock:\ncheck cooldown key,\nSET NX lock,\nINCR contention on failure"]
+        D2["Release dispatch_lock:\nverify token, DEL lock,\ncheck contention counter,\nSET cooldown + DEL contention\nif contention > 0"]
     end
 
     subgraph Registry ["create() / update()"]
@@ -79,6 +81,7 @@ self.buffer_key = f"{self.id}:buffer"
 self.concurrency_key = f"{self.id}:concurrency"
 self.lock_key = f"{self.id}:dispatch_lock"
 self.dlq_key = f"{self.id}:dlq"
+self.contention_key = f"{self.id}:dispatch_lock:contention"
 ```
 
 The inflight key is constructed dynamically for each task via the `get_inflight_key()` method:
@@ -86,6 +89,12 @@ The inflight key is constructed dynamically for each task via the `get_inflight_
 ```python
 def get_inflight_key(self, task_id: str) -> str:
     return f"{self.id}:inflight:{task_id}"
+```
+
+The per-worker cooldown key is constructed within `DistributedLock.__init__()` by appending the worker identifier:
+
+```python
+self._cooldown_key = f"{lock_key}:cd:{worker_id}"
 ```
 
 Window counter keys are constructed within `consume.lua` and `health.lua` by appending the window start timestamp to the base key:

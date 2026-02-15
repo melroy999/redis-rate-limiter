@@ -12,6 +12,7 @@ import pytest
 
 from celery_rate_limiter import AbstractDistributedRateLimiter
 from tests.implementations.conftest import MinimalRateLimiter, TrackingRateLimiter
+from tests.integration.conftest import consume_and_complete, precise_sleep
 
 
 @pytest.fixture
@@ -42,45 +43,6 @@ def integration_limiter(redis_client, default_limiter_id):
     keys = redis_client.keys(f"{limiter.id}:*")
     if keys:
         redis_client.delete(*keys)
-
-
-def consume_and_complete(limiter) -> dict:
-    """Consume a task and immediately complete its lifecycle.
-
-    This function simulates a task that is consumed and executed
-    instantaneously, thereby releasing the concurrency slot. It is
-    intended for tests that require the isolation of rate limiting
-    behaviour from concurrency limiting.
-
-    Args:
-        limiter: The rate limiter instance.
-
-    Returns:
-        A dictionary containing the consume result.
-    """
-    result = limiter.consume()
-    if result["success"]:
-        task_id = result["task"]["id"]
-        with limiter.task_lifecycle(task_id):
-            pass
-    return result
-
-
-def precise_sleep(duration_seconds: float) -> None:
-    """Sleep for a precise duration by means of active polling.
-
-    This function serves as a workaround for the unreliability of
-    ``time.sleep()`` on Windows for sub-second durations. On Windows,
-    ``time.sleep()`` may deviate by as much as 10x for small durations
-    owing to the coarse timer resolution (~15ms).
-
-    Args:
-        duration_seconds: The duration to sleep, specified in seconds.
-    """
-    target_time = time.time() + duration_seconds
-    # Use 1ms sleep intervals to avoid busy-waiting while maintaining precision.
-    while time.time() < target_time:
-        time.sleep(0.001)
 
 
 def wait_until_task_is_expired(
@@ -194,7 +156,7 @@ class TestRateLimitingIntegration:
         # Arrange
         for i in range(10):
             success, _ = integration_limiter.schedule_task(func_path, {"index": i})
-            assert success is True
+            assert success is True, f"task {i} should be scheduled successfully"
 
         # Act
         # Concurrency slots are released after each consume to isolate rate limiting behaviour.
@@ -204,8 +166,12 @@ class TestRateLimitingIntegration:
         # Assert
         assert consumed_count == 5, "should consume exactly 5 tasks"
         last_successful = [r for r in results if r["success"]][-1]
-        assert last_successful["remaining_tokens"] == 0
-        assert results[-1]["remaining_tasks"] == 5
+        assert last_successful["remaining_tokens"] == 0, (
+            "last successful consume should exhaust all tokens"
+        )
+        assert results[-1]["remaining_tasks"] == 5, (
+            "five tasks should remain in the buffer after rate limit is reached"
+        )
 
     def test_concurrency_limit_enforcement(self, integration_limiter, func_path):
         """Verify that concurrency limits are enforced independently of the rate limit.
@@ -225,12 +191,20 @@ class TestRateLimitingIntegration:
             results.append(result)
 
         # Assert
-        assert results[0]["success"] is True
-        assert results[1]["success"] is True
-        assert results[0]["active_concurrency"] == 1
-        assert results[1]["active_concurrency"] == 2
-        assert results[2]["success"] is False
-        assert results[2]["active_concurrency"] == 2
+        assert results[0]["success"] is True, "first consume should succeed"
+        assert results[1]["success"] is True, "second consume should succeed"
+        assert results[0]["active_concurrency"] == 1, (
+            "first consume should show 1 active concurrency slot"
+        )
+        assert results[1]["active_concurrency"] == 2, (
+            "second consume should show 2 active concurrency slots"
+        )
+        assert results[2]["success"] is False, (
+            "third consume should fail due to concurrency limit"
+        )
+        assert results[2]["active_concurrency"] == 2, (
+            "concurrency should remain at max after failed consume"
+        )
 
     @pytest.mark.parametrize("num_tasks", [3, 5, 10, 20])
     def test_accurate_telemetry_tracking(
@@ -248,17 +222,23 @@ class TestRateLimitingIntegration:
         # Assert
         consumed = sum(1 for r in results if r["success"])
         expected_consumed = min(num_tasks, 5)
-        assert consumed == expected_consumed
+        assert consumed == expected_consumed, (
+            f"should consume {expected_consumed} of {num_tasks} tasks"
+        )
 
         final_result = results[-1]
         expected_remaining = max(0, num_tasks - consumed)
-        assert final_result["remaining_tasks"] == expected_remaining
+        assert final_result["remaining_tasks"] == expected_remaining, (
+            f"remaining tasks should be {expected_remaining} after consuming {consumed}"
+        )
 
         successful_results = [r for r in results if r["success"]]
         if successful_results:
             expected_tokens = [4, 3, 2, 1, 0]
             actual_tokens = [r["remaining_tokens"] for r in successful_results]
-            assert actual_tokens == expected_tokens[: len(successful_results)]
+            assert actual_tokens == expected_tokens[: len(successful_results)], (
+                "remaining tokens should decrement from 4 to 0"
+            )
 
     def test_empty_buffer_returns_no_task(self, integration_limiter):
         """Verify that consuming from an empty buffer returns an unsuccessful result."""
@@ -266,10 +246,18 @@ class TestRateLimitingIntegration:
         result = integration_limiter.consume()
 
         # Assert
-        assert result["success"] is False
-        assert result["task"] is None
-        assert result["remaining_tasks"] == 0
-        assert result["remaining_tokens"] == 5
+        assert result["success"] is False, (
+            "consume should fail on empty buffer"
+        )
+        assert result["task"] is None, (
+            "no task should be returned from empty buffer"
+        )
+        assert result["remaining_tasks"] == 0, (
+            "remaining tasks should be 0 on empty buffer"
+        )
+        assert result["remaining_tokens"] == 5, (
+            "all tokens should be available on empty buffer"
+        )
 
     def test_bulk_deduplication_only_buffers_one_task(
         self, integration_limiter, redis_client, func_path
@@ -352,7 +340,7 @@ class TestRateLimitingIntegration:
         # Act
         # Consume a task and simulate an error within its lifecycle.
         result = integration_limiter.consume()
-        assert result["success"] is True
+        assert result["success"] is True, "first consume should succeed"
         task_id = result["task"]["id"]
 
         with pytest.raises(RuntimeError):
@@ -872,12 +860,16 @@ class TestSlidingWindowBehavior:
         # Exhaust the rate limit, releasing concurrency after each consume.
         for _ in range(limit):
             result = consume_and_complete(limiter)
-            assert result["success"] is True
+            assert result["success"] is True, (
+                "each consume within the rate limit should succeed"
+            )
 
         # Verify that the rate limit is exhausted within the current window.
         probe = limiter.consume()
         assert probe["success"] is False, "rate limit should be exhausted"
-        assert probe["remaining_tokens"] == 0
+        assert probe["remaining_tokens"] == 0, (
+            "all tokens should be exhausted after consuming the full limit"
+        )
 
         # Cross the window boundary such that the current window's count becomes
         # the previous window's count. At this point val_previous=25 and

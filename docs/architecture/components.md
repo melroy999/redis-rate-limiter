@@ -98,7 +98,7 @@ The drain, consume and dispatch phase covers the path from the drain loop throug
 graph TD
     subgraph Limiter ["Rate Limiter Core"]
         DrainLoop["DrainLoop\nBackground thread\nCoalesces wake signals"]
-        Lock["DistributedLock\nRedis SET NX\nPrevents concurrent drains"]
+        Lock["DistributedLock\nContention-aware fairness\nPrevents concurrent drains"]
         Consumer["Consumer\nCheck window + concurrency\nPop task from buffer"]
     end
 

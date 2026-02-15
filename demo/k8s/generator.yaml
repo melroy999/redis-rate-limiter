@@ -1,0 +1,44 @@
+# Traffic generator deployment: schedules tasks at a sine-wave rate that
+# periodically exceeds the configured limit, creating visible backpressure.
+# Runs with TRAFFIC_GENERATOR=true so that the demo entrypoint starts the
+# sine-wave scheduler instead of a worker drain loop. Prometheus annotations
+# enable automatic scraping of the /metrics endpoint.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: generator
+  namespace: celery-rate-limiter-demo
+  labels:
+    app: generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: generator
+  template:
+    metadata:
+      labels:
+        app: generator
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: generator
+          image: celery-rate-limiter-demo:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          env:
+            - name: REDIS_HOST
+              value: redis
+            - name: TRAFFIC_GENERATOR
+              value: "true"
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10

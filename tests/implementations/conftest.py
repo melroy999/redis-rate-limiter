@@ -80,7 +80,8 @@ def generic_limiter(redis_client, default_limiter_id):
 
     yield test_limiter
 
-    # Teardown: clear all Redis keys associated with this limiter.
+    # Teardown: stop the subscriber thread, then clear all Redis keys.
+    test_limiter.shutdown()
     keys = redis_client.keys(f"{limiter_id}:*")
     if keys:
         redis_client.delete(*keys)
@@ -103,7 +104,8 @@ def tracking_limiter(redis_client, default_limiter_id):
 
     yield test_limiter
 
-    # Teardown: clear all Redis keys associated with this limiter.
+    # Teardown: stop the subscriber thread, then clear all Redis keys.
+    test_limiter.shutdown()
     keys = redis_client.keys(f"{limiter_id}:*")
     if keys:
         redis_client.delete(*keys)
@@ -124,6 +126,7 @@ def make_limiter_pool(redis_client, default_limiter_id):
         A factory function that accepts (n, *, limiter_cls, **kwargs).
     """
     limiter_id = None
+    created_limiters: list = []
 
     def _factory(n, *, limiter_cls=MinimalRateLimiter, **kwargs):
         nonlocal limiter_id
@@ -132,14 +135,18 @@ def make_limiter_pool(redis_client, default_limiter_id):
             limit=5, window=60, max_concurrency=2, max_age=3600, lease_duration=30
         )
         defaults.update(kwargs)
-        return [
+        limiters = [
             limiter_cls(redis_client=redis_client, limiter_id=limiter_id, **defaults)
             for _ in range(n)
         ]
+        created_limiters.extend(limiters)
+        return limiters
 
     yield _factory
 
-    # Teardown: clear all Redis keys associated with the limiter, if one was created.
+    # Teardown: stop subscriber threads, then clear all Redis keys.
+    for lim in created_limiters:
+        lim.shutdown()
     if limiter_id:
         keys = redis_client.keys(f"{limiter_id}:*")
         if keys:

@@ -408,6 +408,79 @@ class TestConcurrentDrain:
             f"not all tasks consumed. missing: {scheduled_ids - consumed_ids}"
         )
 
+    def test_contention_aware_cooldown_distributes_drains(
+        self, make_limiter_pool, redis_client
+    ):
+        """Verify that contention-aware cooldown distributes drain opportunities across workers.
+
+        Without the cooldown mechanism, a single worker can monopolize the
+        dispatch lock by re-acquiring it before competing workers. This test
+        asserts that the cooldown forces rotation: when contention is detected,
+        the winning worker yields future acquisition opportunities, allowing
+        other workers to dispatch.
+
+        The test uses ``SlowDispatchTrackingRateLimiter`` (0.2s dispatch delay)
+        to ensure the lock is held long enough for all contenders to overlap
+        and trigger the contention counter. The rate limit settings are chosen
+        such that ``cooldown_ms = min(window/limit * 1000, 1000) = 200ms``,
+        which matches the dispatch delay. This blocks the winning worker for
+        approximately one round without creating extended dead periods where
+        all workers are simultaneously in cooldown.
+        """
+        # Arrange
+        num_workers = 4
+        num_tasks = 12
+        limiters = make_limiter_pool(
+            num_workers,
+            limiter_cls=SlowDispatchTrackingRateLimiter,
+            limit=50,
+            window=10,
+            max_concurrency=1000,
+        )
+
+        scheduled_ids = set(schedule_n_tasks(limiters[0], n=num_tasks))
+        consumed_ids: set[str] = set()
+        per_worker_dispatch_count = [0] * num_workers
+
+        # Act
+        # Run multiple concurrent drain rounds until all tasks are consumed.
+        for _ in range(num_tasks * 5):
+
+            def drain_once(limiter_arg):
+                limiter_arg.drain()
+
+            run_concurrently(drain_once, [(lim,) for lim in limiters])
+
+            # Collect newly dispatched tasks, count per-worker dispatches, and
+            # complete tasks to free concurrency slots for the next round.
+            for idx, limiter in enumerate(limiters):
+                per_worker_dispatch_count[idx] += len(limiter.dispatched_tasks)
+                for task in limiter.dispatched_tasks:
+                    tid = task["task_id"]
+                    if tid not in consumed_ids:
+                        consumed_ids.add(tid)
+                        complete_task(redis_client, limiter, tid)
+                limiter.dispatched_tasks.clear()
+
+            if consumed_ids == scheduled_ids:
+                break
+
+        # Assert
+        # All tasks must have been consumed.
+        assert consumed_ids == scheduled_ids, (
+            f"not all tasks consumed. missing: {scheduled_ids - consumed_ids}"
+        )
+
+        # Dispatches must be distributed across multiple workers.
+        workers_that_dispatched = sum(
+            1 for count in per_worker_dispatch_count if count > 0
+        )
+        assert workers_that_dispatched >= 2, (
+            f"expected at least 2 workers to dispatch tasks, but only "
+            f"{workers_that_dispatched} did. "
+            f"per-worker counts: {per_worker_dispatch_count}"
+        )
+
 
 class TestConcurrentLifecycle:
     """Tests for ``TaskLifecycle`` cleanup under concurrent access."""

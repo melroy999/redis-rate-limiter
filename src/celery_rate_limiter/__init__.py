@@ -14,6 +14,7 @@ __all__ = [
     "AbstractRedisManagedRateLimiter",
     "CeleryRateLimiter",
     "DistributedLock",
+    "PrometheusMetricsExporter",
     "TaskLifecycle",
     "ThreadPoolRateLimiter",
     "import_string",
@@ -29,3 +30,9 @@ except ImportError:
 # The threading backend relies solely on the standard library and does not require
 # any external dependencies. As such, it is included by default.
 from celery_rate_limiter.backends.threading import ThreadPoolRateLimiter
+
+# The Prometheus integration is only available when the prometheus_client package is installed.
+try:
+    from celery_rate_limiter.integrations.prometheus import PrometheusMetricsExporter
+except ImportError:
+    pass

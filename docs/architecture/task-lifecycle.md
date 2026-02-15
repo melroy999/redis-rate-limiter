@@ -34,7 +34,7 @@ sequenceDiagram
     note over U,W: Phase 2: Drain and Consume
 
     D->>+L: drain()
-    L->>R: SET NX dispatch_lock (acquire)
+    L->>R: Acquire dispatch_lock (check cooldown, SET NX, record contention)
     R-->>L: OK (lock acquired)
 
     L->>R: EVALSHA consume.lua
@@ -45,7 +45,7 @@ sequenceDiagram
     note over U,W: Phase 3: Dispatch and Execute
 
     L->>B: _dispatch_task(func, payload, task_id)
-    L->>R: DEL dispatch_lock (release)
+    L->>R: Release dispatch_lock (verify token, check contention, set cooldown)
     deactivate L
 
     B->>+W: send_task() / submit()
@@ -79,7 +79,7 @@ sequenceDiagram
 | **Schedule** | L → R: EVALSHA schedule.lua | Buffer insertion | `contracts/test_rate_limiter::test_schedule_task_adds_to_buffer`, `implementations/test_rate_limiter::test_schedule_single_task_stores_correctly` |
 | **Schedule** | L → D: wake(delay=0) | DrainLoop triggered after scheduling | `implementations/test_drain::test_trigger_consume_schedules_drain` |
 | **Drain** | D → L: drain() | DrainLoop calls drain | `implementations/test_drain_loop::test_wake_fires_drain_immediately` |
-| **Drain** | L → R: SET NX dispatch_lock | Distributed lock acquisition | `implementations/test_drain::test_drain_schedules_backup_when_lock_contended`, `implementations/test_concurrent_access::test_distributed_lock_serializes_drains` |
+| **Drain** | L → R: Acquire dispatch_lock | Distributed lock acquisition (contention-aware) | `implementations/test_drain::test_drain_schedules_backup_when_lock_contended`, `implementations/test_concurrent_access::test_distributed_lock_serializes_drains`, `implementations/test_concurrent_access::test_contention_aware_cooldown_distributes_drains` |
 | **Drain** | L → R: EVALSHA consume.lua | Atomic consumption | `contracts/test_rate_limiter::test_consume_returns_expected_structure`, `integration/test_rate_limiting::test_basic_rate_limit_enforcement` |
 | **Execute** | L → B: _dispatch_task() | Backend dispatch | `implementations/test_drain::test_drain_dispatches_task_and_schedules_follow_up` |
 | **Execute** | W: TaskLifecycle.__enter__() | Lifecycle context entered | `implementations/test_decorator::test_decorator_wraps_function_in_task_lifecycle` |

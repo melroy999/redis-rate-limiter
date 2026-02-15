@@ -84,7 +84,9 @@ class DistributedLockContractTest:
                 assert acquired_2 is True, (
                     "second lock should acquire after first expires"
                 )
-                assert redis_client.get(lock_key) == lock_2.token
+                assert redis_client.get(lock_key) == lock_2.token, (
+                    "second lock must store its own token"
+                )
 
     @staticmethod
     def test_lock_releases_on_exception(redis_client, lock_key, create_lock):
@@ -115,18 +117,22 @@ class DistributedLockContractTest:
 
         # Act
         with lock_1 as acquired_1:
-            assert acquired_1 is True
+            assert acquired_1 is True, "first lock should acquire successfully"
 
             # Wait for the first lock to expire.
             time.sleep(2 * SHORT_TIMEOUT_MS / 1000)
 
             # The second lock acquires the now-expired lock.
             with lock_2 as acquired_2:
-                assert acquired_2 is True
+                assert acquired_2 is True, (
+                    "second lock should acquire after first expires"
+                )
                 assert lock_2.token != lock_1.token, (
                     "the two locks must have different tokens"
                 )
-                assert redis_client.get(lock_key) == lock_2.token
+                assert redis_client.get(lock_key) == lock_2.token, (
+                    "second lock must store its own token"
+                )
 
                 # Manually exit the first lock, effectively simulating the
                 # scenario in which lock_1 completes after its lock has expired.
@@ -153,3 +159,55 @@ class DistributedLockContractTest:
         assert lock_1.token != lock_2.token, "each lock must have a unique token"
         assert len(lock_1.token) > 0, "token must not be empty"
         assert len(lock_2.token) > 0, "token must not be empty"
+
+    @staticmethod
+    def test_lock_cooldown_prevents_reacquisition_under_contention(
+        redis_client, lock_key, create_lock
+    ):
+        """Contract: after contention is detected and cooldown is set, the same worker cannot re-acquire until expiry."""
+        # Arrange
+        worker_id = "worker-A"
+        contention_key = f"{lock_key}:contention"
+        cooldown_ms = 200
+
+        lock_1 = create_lock(
+            redis_client, lock_key, timeout_ms=5000,
+            worker_id=worker_id, cooldown_ms=cooldown_ms, contention_key=contention_key,
+        )
+        # A second lock instance from a different worker to create contention.
+        lock_contender = create_lock(
+            redis_client, lock_key, timeout_ms=5000,
+            worker_id="worker-B", cooldown_ms=cooldown_ms, contention_key=contention_key,
+        )
+
+        # Act
+        # Worker-A acquires, worker-B fails (creating contention), worker-A releases.
+        with lock_1 as acquired_1:
+            assert acquired_1 is True, "first lock should acquire successfully"
+
+            with lock_contender as acquired_contender:
+                assert acquired_contender is False, (
+                    "contender must fail while first lock is held"
+                )
+
+        # Assert
+        # Worker-A should now be in cooldown and unable to re-acquire.
+        lock_retry = create_lock(
+            redis_client, lock_key, timeout_ms=5000,
+            worker_id=worker_id, cooldown_ms=cooldown_ms, contention_key=contention_key,
+        )
+        with lock_retry as acquired_retry:
+            assert acquired_retry is False, (
+                "worker must not re-acquire while in cooldown"
+            )
+
+        # After cooldown expires, worker-A can re-acquire.
+        time.sleep(cooldown_ms / 1000 + 0.05)
+        lock_after = create_lock(
+            redis_client, lock_key, timeout_ms=5000,
+            worker_id=worker_id, cooldown_ms=cooldown_ms, contention_key=contention_key,
+        )
+        with lock_after as acquired_after:
+            assert acquired_after is True, (
+                "worker must be able to re-acquire after cooldown expires"
+            )

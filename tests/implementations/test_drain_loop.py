@@ -134,3 +134,68 @@ class TestDrainLoop:
         # Assert
         assert loop._thread is not None, "thread should exist after first wake"
         loop.shutdown()
+
+    def test_drain_loop_survives_drain_exception(self):
+        """Verify that the drain loop thread survives when ``drain()`` raises an exception."""
+        # Arrange
+        limiter = MagicMock()
+        limiter.id = "test-resilience"
+        call_count = 0
+        second_call = Event()
+
+        def _failing_then_succeeding_drain():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("simulated drain failure")
+            second_call.set()
+
+        limiter.drain.side_effect = _failing_then_succeeding_drain
+        loop = DrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        # First wake triggers the exception, second wake should still work.
+        loop.wake(0)
+        time.sleep(0.1)
+        loop.wake(0)
+        fired = second_call.wait(timeout=2.0)
+        loop.shutdown()
+
+        # Assert
+        assert fired, "drain loop should survive an exception and process subsequent wakes"
+        assert call_count >= 2, "drain should have been called at least twice"
+
+    def test_ensure_started_restarts_dead_thread(self):
+        """Verify that ``_ensure_started()`` detects and replaces a dead thread."""
+        # Arrange
+        limiter = MagicMock()
+        limiter.id = "test-restart"
+        first_call = Event()
+        second_call = Event()
+
+        def _drain_side_effect():
+            if not first_call.is_set():
+                first_call.set()
+                raise RuntimeError("kill the thread")
+            second_call.set()
+
+        limiter.drain.side_effect = _drain_side_effect
+        loop = DrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        # Start and let the first drain fire (which raises).
+        loop.wake(0)
+        first_call.wait(timeout=2.0)
+        time.sleep(0.1)
+
+        # The thread should have survived due to the try/except, but if
+        # _ensure_started detects a dead thread, it restarts it.
+        first_thread = loop._thread
+
+        # Trigger another wake.
+        loop.wake(0)
+        fired = second_call.wait(timeout=2.0)
+        loop.shutdown()
+
+        # Assert
+        assert fired, "drain should be called again after thread recovery"

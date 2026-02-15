@@ -591,6 +591,24 @@ dev = ["pre-commit", "tox"]
 testing = ["coverage", "pytest", "pytest-benchmark"]
 
 [[package]]
+name = "prometheus-client"
+version = "0.24.1"
+description = "Python client for the Prometheus monitoring system."
+optional = true
+python-versions = ">=3.9"
+groups = ["main"]
+markers = "extra == \"prometheus\""
+files = [
+    {file = "prometheus_client-0.24.1-py3-none-any.whl", hash = "sha256:150db128af71a5c2482b36e588fc8a6b95e498750da4b17065947c16070f4055"},
+    {file = "prometheus_client-0.24.1.tar.gz", hash = "sha256:7e0ced7fbbd40f7b84962d5d2ab6f17ef88a72504dcf7c0b40737b43b2a461f9"},
+]
+
+[package.extras]
+aiohttp = ["aiohttp"]
+django = ["django"]
+twisted = ["twisted"]
+
+[[package]]
 name = "prompt-toolkit"
 version = "3.0.52"
 description = "Library for building powerful interactive command lines in Python"
@@ -822,8 +840,9 @@ files = [
 
 [extras]
 celery = ["celery"]
+prometheus = ["prometheus_client"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12"
-content-hash = "25f7d98eef89309cbb6ae1abb081507009a68026b0b0249e53f8f2fb5f90f1c3"
+content-hash = "57254927aa1a08535e92ca3190497036d57593bd4c734072f9f26488815cac05"

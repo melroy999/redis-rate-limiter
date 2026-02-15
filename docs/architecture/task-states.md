@@ -92,7 +92,7 @@ The system provides three complementary recovery mechanisms that together ensure
 
 2. **Inflight key TTL**: the deduplication marker set during scheduling has a finite TTL that is computed to outlast the entire task lifecycle. If a worker crashes and the `TaskLifecycle.__exit__()` cleanup does not run, the inflight key eventually expires on its own. Once expired, the same task may be re-submitted by the caller, given that the `SET NX` check will succeed again.
 
-3. **Watchdog timer**: the `DrainLoop` is configured with a watchdog interval of `window * 2`. If no explicit `wake()` call is received within that interval (e.g., because all trigger signals were lost due to a network partition or a crash in the completion path), the loop fires a periodic drain anyway. This ensures that buffered tasks are eventually consumed even when the feedback loop is broken.
+3. **Watchdog timer**: the `DrainLoop` is configured with a watchdog interval of `max(5.0, window * 2)`. If no explicit `wake()` call is received within that interval (e.g., because all trigger signals were lost due to a network partition or a crash in the completion path), the loop fires a periodic drain anyway. This ensures that buffered tasks are eventually consumed even when the feedback loop is broken. With the introduction of cross-process Pub/Sub notifications, the watchdog serves as a safety net rather than a primary recovery mechanism.
 
 These three mechanisms operate independently and do not require coordination. The lease expiry handles concurrency slot recovery, the inflight key TTL handles deduplication marker recovery, and the watchdog timer handles drain loop recovery. Together, they guarantee that the system converges to a healthy state without manual intervention.
 

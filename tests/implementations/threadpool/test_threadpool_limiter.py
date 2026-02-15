@@ -1,5 +1,7 @@
 """Threading-specific behavioural tests for the ``ThreadPoolRateLimiter`` implementation."""
 
+import threading
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -98,3 +100,70 @@ class TestThreadPoolRateLimiter:
 
         # Assert
         mock_wake.assert_called_once_with(delay)
+
+
+class TestLocalCapacityGuard:
+    """Tests for the local capacity guard in ``ThreadPoolRateLimiter``."""
+
+    def test_has_local_capacity_returns_true_when_below_max_workers(self, limiter):
+        """Verify that ``_has_local_capacity()`` returns ``True`` when the local dispatch count is below ``max_workers``."""
+        assert limiter._has_local_capacity() is True, (
+            "_has_local_capacity should return True when no tasks are dispatched"
+        )
+        assert limiter._local_dispatched == 0, (
+            "initial dispatch count should be zero"
+        )
+
+    def test_has_local_capacity_returns_false_at_max_workers(self, limiter):
+        """Verify that ``_has_local_capacity()`` returns ``False`` when the dispatch count equals ``max_workers``."""
+        # Arrange
+        # Simulate max_workers tasks dispatched.
+        limiter._local_dispatched = limiter.executor._max_workers
+
+        # Assert
+        assert limiter._has_local_capacity() is False, (
+            "_has_local_capacity should return False at max_workers"
+        )
+
+    def test_dispatch_task_increments_and_decrements_counter(self, limiter, func_path, task_id):
+        """Verify that ``_dispatch_task()`` increments the counter before submission and decrements after completion."""
+        # Arrange
+        started = threading.Event()
+        proceed = threading.Event()
+
+        def blocking_task(**kwargs):
+            started.set()
+            proceed.wait(timeout=5.0)
+
+        # Act
+        # Dispatch a task that blocks until we release it.
+        with (
+            patch(
+                "celery_rate_limiter.backends.threading.limiter.import_string",
+                return_value=blocking_task,
+            ),
+            patch.object(limiter, "task_lifecycle") as mock_lifecycle,
+        ):
+            mock_lifecycle.return_value.__enter__ = MagicMock(return_value=None)
+            mock_lifecycle.return_value.__exit__ = MagicMock(return_value=False)
+            limiter._dispatch_task(func_path, {}, task_id)
+
+            # Wait for the task to start running in the thread pool.
+            started.wait(timeout=5.0)
+
+            # Assert
+            # Counter should be 1 while task is running.
+            assert limiter._local_dispatched == 1, (
+                "dispatch count should be 1 while task is running"
+            )
+
+            # Release the task.
+            proceed.set()
+
+        # Allow thread pool task to complete.
+        time.sleep(0.2)
+
+        # Counter should return to 0 after completion.
+        assert limiter._local_dispatched == 0, (
+            "dispatch count should return to 0 after task completion"
+        )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from typing import Any, ClassVar, Optional
@@ -78,6 +79,23 @@ class ThreadPoolRateLimiter(AbstractRedisManagedRateLimiter):
         """
         super().__init__(redis_client, *args, _sentinel=_sentinel, **kwargs)
         self.executor = executor
+        self._local_dispatched: int = 0
+        self._local_dispatch_lock = threading.Lock()
+
+    # ------------------------------------------------------------------
+    # Local capacity guard
+    # ------------------------------------------------------------------
+
+    def _has_local_capacity(self) -> bool:
+        """Check whether the local thread pool can accept another task.
+
+        Returns ``False`` when the number of dispatched-but-not-yet-completed
+        tasks equals the executor's ``max_workers``. This prevents acquiring
+        Redis concurrency slots for tasks that would only be queued locally
+        in the thread pool.
+        """
+        with self._local_dispatch_lock:
+            return self._local_dispatched < self.executor._max_workers
 
     # ------------------------------------------------------------------
     # Backend dispatch
@@ -86,14 +104,22 @@ class ThreadPoolRateLimiter(AbstractRedisManagedRateLimiter):
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
         target_func = import_string(func_path)
 
+        with self._local_dispatch_lock:
+            self._local_dispatched += 1
+
         def _run_task() -> None:
-            with self.task_lifecycle(task_id):
-                target_func(**payload)
+            try:
+                with self.task_lifecycle(task_id):
+                    target_func(**payload)
+            finally:
+                with self._local_dispatch_lock:
+                    self._local_dispatched -= 1
 
         self.executor.submit(_run_task)
         logger.debug(
-            "Task submitted to thread pool: limiter=%s, task_id=%s, func_path=%s.",
+            "Task submitted to thread pool: limiter=%s, task_id=%s, func_path=%s, local_dispatched=%d.",
             self.id,
             task_id,
             func_path,
+            self._local_dispatched,
         )

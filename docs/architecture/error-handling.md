@@ -86,17 +86,17 @@ flowchart TD
 
 All four Lua script operations (`schedule_task`, `consume`, `extend_lease`, `get_status`) implement a two-phase retry. The first attempt uses `EVALSHA`; if Redis returns a `NoScriptError` (indicating that the script cache was flushed, e.g., after a `SCRIPT FLUSH` or Redis restart), the method reloads the SHA via `script_load` and retries with `retry=False`. If the second attempt also fails with `NoScriptError`, a `RuntimeError` is raised. This pattern tolerates transient script cache losses while preventing infinite retry loops. The retry logic is identical across all four operations; the scheduling layer is documented here as the canonical example, with cross-references to the consumption layer (below) and the execution layer (for `extend_lease` and `get_status`).
 
-- [limiters.py:643-667](../../src/celery_rate_limiter/core/limiters.py): `schedule_task()` retry logic.
-- [limiters.py:753-770](../../src/celery_rate_limiter/core/limiters.py): `consume()` retry logic.
-- [limiters.py:822-836](../../src/celery_rate_limiter/core/limiters.py): `extend_lease()` retry logic.
-- [limiters.py:1289-1306](../../src/celery_rate_limiter/core/limiters.py): `get_status()` retry logic.
+- [limiters.py:677-785](../../src/celery_rate_limiter/core/limiters.py): `schedule_task()` retry logic.
+- [limiters.py:787-878](../../src/celery_rate_limiter/core/limiters.py): `consume()` retry logic.
+- [limiters.py:880-944](../../src/celery_rate_limiter/core/limiters.py): `extend_lease()` retry logic.
+- [limiters.py:1356-1424](../../src/celery_rate_limiter/core/limiters.py): `get_status()` retry logic.
 
 ### Inflight Key Cleanup on Any Schedule Failure
 
 `schedule_task()` acquires the inflight key via `SET NX` before calling the Lua script. If the Lua call fails for any reason (NoScriptError, ConnectionError, or any other exception), the inflight key is cleaned up via `_cleanup_inflight_key()` to prevent orphaned deduplication locks that would permanently block resubmission. The cleanup method itself suppresses all exceptions and logs a warning, such that a secondary Redis failure during cleanup does not mask the original error.
 
-- [limiters.py:535-553](../../src/celery_rate_limiter/core/limiters.py): `_cleanup_inflight_key()`.
-- [limiters.py:643-672](../../src/celery_rate_limiter/core/limiters.py): cleanup calls on NoScriptError and generic exceptions.
+- [limiters.py:643-665](../../src/celery_rate_limiter/core/limiters.py): `_cleanup_inflight_key()`.
+- [limiters.py:751-780](../../src/celery_rate_limiter/core/limiters.py): cleanup calls on NoScriptError and generic exceptions.
 
 ## Consumption and Dispatch Layer
 
@@ -140,7 +140,7 @@ flowchart TD
 
 `_emit_metric()` wraps the user-provided callback in a `try/except` that catches and logs all exceptions, thereby preventing a buggy callback from disrupting the limiter. This isolation boundary ensures that observability integrations cannot introduce cascading failures into the rate limiting logic.
 
-- [limiters.py:838-859](../../src/celery_rate_limiter/core/limiters.py): `_emit_metric()` with exception suppression.
+- [limiters.py:946-967](../../src/celery_rate_limiter/core/limiters.py): `_emit_metric()` with exception suppression.
 
 ## Drain Control Layer
 
@@ -178,7 +178,7 @@ flowchart TD
 
 `drain()` wraps `_drain_inner()` in a `try/except` that catches all exceptions, increments `_consecutive_drain_failures`, and schedules a recovery drain with `delay = min(window, 0.1 * 2^(n-1))`. The backoff starts at 100ms for the first failure and doubles on each consecutive failure, capped at the window duration. On the first successful drain, the error counter resets to 0. If the recovery scheduling itself also fails, the system logs a critical error and relies on the next external trigger (a `trigger_consume()` call from `schedule_task()` or `TaskLifecycle.__exit__()`, or a watchdog timeout) to resume the drain loop.
 
-- [limiters.py:1008-1032](../../src/celery_rate_limiter/core/limiters.py): drain exception handling and backoff calculation.
+- [limiters.py:1092-1141](../../src/celery_rate_limiter/core/limiters.py): drain exception handling and backoff calculation.
 
 ## Execution Layer
 
@@ -234,13 +234,13 @@ flowchart TD
 
 `TaskLifecycle.__exit__()` performs cleanup (ZREM on the concurrency set, DEL on the inflight key) in a `try` block, with `trigger_consume()` in the `finally` block. This guarantees that the feedback loop continues even if the Redis cleanup operations fail, such that a freed concurrency slot is always followed by a consumption attempt.
 
-- [limiters.py:211-241](../../src/celery_rate_limiter/core/limiters.py): `__exit__()` with try/finally.
+- [limiters.py:311-347](../../src/celery_rate_limiter/core/limiters.py): `__exit__()` with try/finally.
 
 ### Heartbeat Failure Strategies
 
 The heartbeat loop catches all exceptions from `extend_lease()`. In `"warn"` mode, it sets `is_healthy = False` and logs a critical message, allowing the task to continue running at the risk of the concurrency slot lease expiring. In `"kill"` mode, it sends `SIGTERM` to the worker process, ensuring that the task is terminated and the concurrency slot self-heals via lease expiry. The choice between strategies is configured per `TaskLifecycle` instance.
 
-- [limiters.py:157-190](../../src/celery_rate_limiter/core/limiters.py): `_heartbeat_loop()` exception handling.
+- [limiters.py:263-296](../../src/celery_rate_limiter/core/limiters.py): `_heartbeat_loop()` exception handling.
 
 ## Failure Mode Traceability
 
@@ -260,22 +260,24 @@ The following table enumerates every identified failure mode, its handling strat
 | 10 | Lease renewal for unknown task | `extend_lease()` | `KeyError` | Propagates to heartbeat loop | `implementations/test_task_lifecycle::test_extend_lease_raises_key_error_for_unknown_task` | No |
 | 11 | Heartbeat failure in "warn" mode | `_heartbeat_loop()` | Any `Exception` | `is_healthy = False`, log critical | `implementations/test_task_lifecycle::test_heartbeat_loop_flags_unhealthy_on_failure_warn_mode` | No |
 | 12 | Heartbeat failure in "kill" mode | `_heartbeat_loop()` | Any `Exception` | `os.kill(SIGTERM)`, break loop | `implementations/test_task_lifecycle::test_heartbeat_loop_terminates_worker_on_failure_kill_mode` | No |
-| 13 | `drain()` inner failure (any exception) | `drain()` | Any `Exception` | Increment failure counter, schedule recovery with backoff | `implementations/test_drain::test_drain_handles_consume_exception`, `test_drain_handles_dispatch_exception` | No |
-| 14 | Recovery scheduling also fails | `drain()` | Any `Exception` | Log critical; rely on watchdog or external trigger | `implementations/test_drain::test_drain_handles_double_failure_when_schedule_drain_also_fails` | No |
-| 15 | Missing `limiter_id` in decorator | `@rate_limited` | `ValueError` | Propagates to caller | `implementations/test_decorator::test_decorator_raises_value_error_when_limiter_id_missing` | No |
-| 16 | Missing `_rate_limit_task_id` in decorator | `@rate_limited` | `KeyError` | Propagates to caller | `implementations/test_decorator::test_decorator_raises_when_task_id_missing` | No |
-| 17 | User function raises exception inside `@rate_limited` | `@rate_limited` wrapper | Any `Exception` | Propagates; `TaskLifecycle.__exit__()` cleanup still runs | `implementations/test_decorator::test_decorator_propagates_wrapped_function_exception` | No |
-| 18 | `configure()` not called before `create()`/`get()` | Class API | `RuntimeError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_create_without_configure_raises` | No |
-| 19 | Limiter not found in cache or Redis | `get()` | `ValueError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_get_nonexistent_limiter_raises_value_error` | No |
-| 20 | Duplicate limiter creation without override | `create()` | `ValueError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_create_duplicate_without_override_raises` | No |
-| 21 | Direct constructor invocation (bypass class API) | `__init__()` | `RuntimeError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_direct_construction_raises_runtime_error` | No |
-| 22 | Corrupted JSON in persisted config | `refresh_config()` | `JSONDecodeError` | Catch, log warning, return `False` | `implementations/test_rate_limiter_class_api::test_refresh_config_handles_corrupted_redis_data` | No |
-| 23 | Lua script not found on disk | `_load_lua_script()` | `ImportError` | Propagates (fatal at initialization) | `implementations/test_internal_helpers::test_load_lua_script_raises_import_error_on_failure` | No |
-| 24 | Inflight key cleanup fails during scheduling error | `_cleanup_inflight_key()` | Any `Exception` | Suppressed, log warning | `implementations/test_internal_helpers::test_cleanup_inflight_key_suppresses_redis_failure` | No |
-| 25 | Celery `send_task()` fails during dispatch | `_dispatch_task()` (Celery) | `Exception` | Propagates to `drain()` backoff | `implementations/celery/test_celery_limiter::test_dispatch_task_send_task_failure_propagates` | No |
-| 26 | `import_string()` fails during dispatch | `_dispatch_task()` (ThreadPool) | `ModuleNotFoundError` | Propagates to `drain()` backoff | `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_import_failure_propagates` | No |
-| 27 | Metrics callback raises exception | `_emit_metric()` | Any `Exception` | Caught, logged, does not disrupt limiter | `implementations/test_metrics_callback::test_callback_exception_does_not_break_consume` | No |
-| 28 | Missing backend context during `configure()` | `_configure_backend()` | `RuntimeError` | Propagates to caller | `test_rate_limiter_class_api` (per backend) | No |
+| 13 | Lock acquire Lua script fails (fairness mode) | `DistributedLock.__enter__()` | `RedisError` | Propagates to `drain()` backoff (lock treated as not acquired) | Covered implicitly by #14 (drain catches all `_drain_inner()` exceptions) | No |
+| 14 | Lock release Lua script fails (fairness mode) | `DistributedLock.__exit__()` | `RedisError` | Propagates to `drain()` backoff; lock expires via TTL (self-healing) | Covered implicitly by #15 (drain catches all `_drain_inner()` exceptions) | No |
+| 15 | `drain()` inner failure (any exception) | `drain()` | Any `Exception` | Increment failure counter, schedule recovery with backoff | `implementations/test_drain::test_drain_handles_consume_exception`, `test_drain_handles_dispatch_exception` | No |
+| 16 | Recovery scheduling also fails | `drain()` | Any `Exception` | Log critical; rely on watchdog or external trigger | `implementations/test_drain::test_drain_handles_double_failure_when_schedule_drain_also_fails` | No |
+| 17 | Missing `limiter_id` in decorator | `@rate_limited` | `ValueError` | Propagates to caller | `implementations/test_decorator::test_decorator_raises_value_error_when_limiter_id_missing` | No |
+| 18 | Missing `_rate_limit_task_id` in decorator | `@rate_limited` | `KeyError` | Propagates to caller | `implementations/test_decorator::test_decorator_raises_when_task_id_missing` | No |
+| 19 | User function raises exception inside `@rate_limited` | `@rate_limited` wrapper | Any `Exception` | Propagates; `TaskLifecycle.__exit__()` cleanup still runs | `implementations/test_decorator::test_decorator_propagates_wrapped_function_exception` | No |
+| 20 | `configure()` not called before `create()`/`get()` | Class API | `RuntimeError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_create_without_configure_raises` | No |
+| 21 | Limiter not found in cache or Redis | `get()` | `ValueError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_get_nonexistent_limiter_raises_value_error` | No |
+| 22 | Duplicate limiter creation without override | `create()` | `ValueError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_create_duplicate_without_override_raises` | No |
+| 23 | Direct constructor invocation (bypass class API) | `__init__()` | `RuntimeError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_direct_construction_raises_runtime_error` | No |
+| 24 | Corrupted JSON in persisted config | `refresh_config()` | `JSONDecodeError` | Catch, log warning, return `False` | `implementations/test_rate_limiter_class_api::test_refresh_config_handles_corrupted_redis_data` | No |
+| 25 | Lua script not found on disk | `_load_lua_script()` | `ImportError` | Propagates (fatal at initialization) | `implementations/test_internal_helpers::test_load_lua_script_raises_import_error_on_failure` | No |
+| 26 | Inflight key cleanup fails during scheduling error | `_cleanup_inflight_key()` | Any `Exception` | Suppressed, log warning | `implementations/test_internal_helpers::test_cleanup_inflight_key_suppresses_redis_failure` | No |
+| 27 | Celery `send_task()` fails during dispatch | `_dispatch_task()` (Celery) | `Exception` | Propagates to `drain()` backoff | `implementations/celery/test_celery_limiter::test_dispatch_task_send_task_failure_propagates` | No |
+| 28 | `import_string()` fails during dispatch | `_dispatch_task()` (ThreadPool) | `ModuleNotFoundError` | Propagates to `drain()` backoff | `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_import_failure_propagates` | No |
+| 29 | Metrics callback raises exception | `_emit_metric()` | Any `Exception` | Caught, logged, does not disrupt limiter | `implementations/test_metrics_callback::test_callback_exception_does_not_break_consume` | No |
+| 30 | Missing backend context during `configure()` | `_configure_backend()` | `RuntimeError` | Propagates to caller | `test_rate_limiter_class_api` (per backend) | No |
 
 ## References
 

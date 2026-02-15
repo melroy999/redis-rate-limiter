@@ -59,32 +59,128 @@ class DistributedLock:
     The lock is acquired via a Redis-backed mechanism prior to draining and
     is released upon exit, thereby ensuring that only one drainer operates
     at any given time.
+
+    When ``cooldown_ms`` is set (via the ``worker_id`` and ``contention_key``
+    parameters), the lock tracks contention: workers that fail to acquire
+    increment a shared counter, and the releasing worker checks this counter.
+    If contention was detected, a per-worker cooldown key is set that blocks
+    immediate re-acquisition, giving other workers a fair opportunity to
+    compete. When no contention is present (e.g., a single worker draining
+    during a burst), no cooldown is applied and the lock can be re-acquired
+    immediately. All contention and cooldown state is TTL-backed; hence, no
+    deadlock can occur even if a worker crashes.
     """
 
-    def __init__(self, redis_client: Redis, lock_key: str, timeout_ms: int):
+    # Lua script for contention-aware acquisition.
+    # Checks the per-worker cooldown key first; if active, returns 0 without
+    # attempting SET NX. On SET NX failure (lock held by another worker), the
+    # shared contention counter is incremented so that the holder can detect
+    # competition upon release.
+    _ACQUIRE_SCRIPT = """
+        if redis.call("EXISTS", KEYS[2]) == 1 then
+            return 0
+        end
+        if redis.call("SET", KEYS[1], ARGV[1], "PX", ARGV[2], "NX") then
+            return 1
+        end
+        redis.call("INCR", KEYS[3])
+        redis.call("PEXPIRE", KEYS[3], tonumber(ARGV[2]))
+        return 0
+    """
+
+    # Lua script for contention-aware release.
+    # Verifies token ownership before deleting. If contention was recorded
+    # while the lock was held, a per-worker cooldown key is set and the
+    # contention counter is reset.
+    _RELEASE_SCRIPT = """
+        if redis.call("GET", KEYS[1]) ~= ARGV[1] then
+            return 0
+        end
+        redis.call("DEL", KEYS[1])
+        local contention = tonumber(redis.call("GET", KEYS[3]) or "0")
+        if contention > 0 and tonumber(ARGV[2]) > 0 then
+            redis.call("SET", KEYS[2], "1", "PX", ARGV[2])
+            redis.call("DEL", KEYS[3])
+        end
+        return 1
+    """
+
+    # Lua script for simple release (no contention tracking).
+    _SIMPLE_RELEASE_SCRIPT = """
+        if redis.call("GET", KEYS[1]) == ARGV[1] then
+            return redis.call("DEL", KEYS[1])
+        else
+            return 0
+        end
+    """
+
+    def __init__(
+        self,
+        redis_client: Redis,
+        lock_key: str,
+        timeout_ms: int,
+        worker_id: str = "",
+        cooldown_ms: int = 0,
+        contention_key: str = "",
+    ):
         """Initialize the distributed lock manager.
 
         Args:
             redis_client: The Redis client instance used for lock operations.
             lock_key: The Redis key under which the lock is stored.
             timeout_ms: The lock timeout in milliseconds, after which the lock expires automatically.
+            worker_id: A stable identifier for the drainer. When set together with ``cooldown_ms``,
+                enables contention-aware fairness. Defaults to empty (fairness disabled).
+            cooldown_ms: The cooldown duration in milliseconds. After releasing the lock under
+                contention, the worker is blocked from re-acquiring for this duration. Defaults
+                to 0 (disabled).
+            contention_key: The Redis key used for the shared contention counter. Defaults to
+                empty (contention tracking disabled).
         """
         self.redis = redis_client
         self.lock_key = lock_key
         self.timeout_ms = timeout_ms
         self.token = str(uuid.uuid4())
         self.acquired = False
+        self.worker_id = worker_id
+        self.cooldown_ms = cooldown_ms
+        self.contention_key = contention_key
+        self._cooldown_key = f"{lock_key}:cd:{worker_id}" if worker_id else ""
+        self._fairness_enabled = bool(worker_id and cooldown_ms > 0 and contention_key)
 
     def __enter__(self) -> bool:
-        """Attempt to acquire the dispatch lock via the Redis SET NX command.
+        """Attempt to acquire the dispatch lock.
+
+        When fairness is enabled, the per-worker cooldown key is checked first.
+        If the worker is in cooldown (due to prior contention), acquisition is
+        skipped. On failure to acquire (lock held by another worker), the shared
+        contention counter is incremented.
+
+        When fairness is disabled (default), a simple ``SET NX`` is used.
 
         Returns:
-            True if the lock was successfully acquired, or False if the lock is held by another drainer.
+            True if the lock was successfully acquired, or False if the lock
+            is held by another drainer or the worker is in cooldown.
         """
-        # Acquire the lock.
-        self.acquired = bool(
-            self.redis.set(self.lock_key, self.token, px=self.timeout_ms, nx=True)
-        )
+        if self._fairness_enabled:
+            self.acquired = bool(
+                self.redis.eval(
+                    self._ACQUIRE_SCRIPT,
+                    3,
+                    self.lock_key,
+                    self._cooldown_key,
+                    self.contention_key,
+                    self.token,
+                    self.timeout_ms,
+                )
+            )
+        else:
+            self.acquired = bool(
+                self.redis.set(
+                    self.lock_key, self.token, px=self.timeout_ms, nx=True
+                )
+            )
+
         if self.acquired:
             logger.debug(
                 "Dispatch lock acquired: key=%s, token=%s, timeout_ms=%d.",
@@ -94,24 +190,34 @@ class DistributedLock:
             )
         else:
             logger.debug(
-                "Dispatch lock contended: key=%s (another drainer holds the lock).",
+                "Dispatch lock contended: key=%s (another drainer holds the lock or worker is in cooldown).",
                 self.lock_key,
             )
         return bool(self.acquired)
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Release the dispatch lock, provided it is still owned by this instance."""
+        """Release the dispatch lock, provided it is still owned by this instance.
+
+        When fairness is enabled, the shared contention counter is checked. If
+        other workers competed for the lock while it was held, a per-worker
+        cooldown key is set to yield future acquisition opportunities.
+        """
         if self.acquired:
-            # The lock is only deleted if the stored token matches the local token.
-            # This prevents the inadvertent deletion of locks created after a timeout.
-            script = """
-                if redis.call("get", KEYS[1]) == ARGV[1] then
-                    return redis.call("del", KEYS[1])
-                else
-                    return 0
-                end
-                """
-            result = self.redis.eval(script, 1, self.lock_key, self.token)
+            if self._fairness_enabled:
+                result = self.redis.eval(
+                    self._RELEASE_SCRIPT,
+                    3,
+                    self.lock_key,
+                    self._cooldown_key,
+                    self.contention_key,
+                    self.token,
+                    self.cooldown_ms,
+                )
+            else:
+                result = self.redis.eval(
+                    self._SIMPLE_RELEASE_SCRIPT, 1, self.lock_key, self.token
+                )
+
             if result:
                 logger.debug(
                     "Dispatch lock released: key=%s, token=%s.",
@@ -247,8 +353,8 @@ class DrainLoop:
     Multiple ``wake()`` calls are naturally coalesced; if an earlier drain is
     already pending, subsequent requests are treated as no-ops. A watchdog timeout
     triggers periodic drains even when no explicit ``wake()`` call is received,
-    thereby enabling recovery from crashed tasks, lost recovery chains, or stale
-    concurrency slots.
+    serving as a safety net for missed Pub/Sub signals, crashed tasks, lost
+    recovery chains, or stale concurrency slots.
     """
 
     def __init__(
@@ -289,8 +395,10 @@ class DrainLoop:
         """Lazily initialize and start the drain thread upon the first wake request.
 
         This method must be called while holding ``self._condition``.
+        If a previous drain thread has died (e.g., due to an unhandled exception),
+        a new thread is created to replace it.
         """
-        if self._thread is None:
+        if self._thread is None or not self._thread.is_alive():
             self._thread = Thread(target=self._run, daemon=True)
             self._thread.start()
 
@@ -314,7 +422,68 @@ class DrainLoop:
                         continue
                 self._next_wake = None
             # Execute the drain operation outside the condition lock.
-            self._limiter.drain()
+            try:
+                self._limiter.drain()
+            except Exception:
+                logger.exception(
+                    "Unhandled exception escaped drain() in DrainLoop: limiter=%s.",
+                    self._limiter.id,
+                )
+
+
+class DrainSignalSubscriber:
+    """Subscribes to a Redis Pub/Sub channel for cross-process drain signals.
+
+    When a task is scheduled or a concurrency slot is freed, the originating
+    process publishes a drain signal. This subscriber receives the signal and
+    wakes the local ``DrainLoop``, enabling immediate cross-process task
+    consumption without relying on the watchdog timer.
+
+    Messages originating from the local process are ignored (filtered by
+    ``worker_id``) to prevent redundant in-process wake signals.
+    """
+
+    def __init__(self, limiter: AbstractDistributedRateLimiter) -> None:
+        self._limiter = limiter
+        self._channel = f"{limiter.id}:drain_signal"
+        self._pubsub = limiter.redis.pubsub()
+        self._thread: Thread | None = None
+        self._shutdown = False
+
+    def start(self) -> None:
+        """Subscribe to the drain signal channel and start the listener thread."""
+        self._pubsub.subscribe(self._channel)
+        self._thread = Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        """Listen for drain signals and wake the local drain loop on receipt."""
+        while not self._shutdown:
+            try:
+                message = self._pubsub.get_message(timeout=0.5)
+                if message is not None and message["type"] == "message":
+                    sender_id = message["data"]
+                    if sender_id != self._limiter._worker_id:
+                        self._limiter._schedule_drain()
+            except Exception:
+                if self._shutdown:
+                    return
+                logger.exception(
+                    "Drain signal subscriber error: limiter=%s.",
+                    self._limiter.id,
+                )
+                time.sleep(1.0)
+
+    def shutdown(self) -> None:
+        """Stop the subscriber thread and release the Pub/Sub connection."""
+        self._shutdown = True
+        try:
+            self._pubsub.unsubscribe()
+            self._pubsub.close()
+        except Exception:
+            pass
+        if self._thread is not None:
+            self._thread.join(timeout=5.0)
 
 
 class AbstractDistributedRateLimiter(ABC):
@@ -366,6 +535,7 @@ class AbstractDistributedRateLimiter(ABC):
         jitter_min_pct: float = 0.02,
         jitter_max_pct: float = 0.08,
         metrics_callback: Optional[Callable[[str, dict], None]] = None,
+        drain_enabled: bool = True,
     ):
         """Initialize the rate limiter with the specified parameters.
 
@@ -389,12 +559,16 @@ class AbstractDistributedRateLimiter(ABC):
                 It receives an event name string (``"consume"`` or ``"schedule"``) and a dictionary
                 containing event data. Any exceptions raised by the callback are caught and logged
                 to avoid disrupting the limiter.
+            drain_enabled: Whether the drain loop is created and active. Set to ``False`` for
+                scheduler-only instances that push tasks into the buffer without consuming them
+                (e.g., a traffic generator in a multi-process deployment). Defaults to ``True``.
         """
         self.redis = redis_client
         self.id = limiter_id
         self.buffer_key = f"{self.id}:buffer"
         self.concurrency_key = f"{self.id}:concurrency"
         self.lock_key = f"{self.id}:dispatch_lock"
+        self.contention_key = f"{self.id}:dispatch_lock:contention"
         self.dlq_key = f"{self.id}:dlq"
         self.limit = limit
         self.window = window
@@ -406,12 +580,23 @@ class AbstractDistributedRateLimiter(ABC):
         self.jitter_min_pct = jitter_min_pct
         self.jitter_max_pct = jitter_max_pct
         self.metrics_callback = metrics_callback
+        self.drain_enabled = drain_enabled
+        self._worker_id: str = str(uuid.uuid4())
         self._config_version: int = 0
         self._paused_until: float = 0.0
         self._consecutive_drain_failures: int = 0
-        self._drain_loop = DrainLoop(self, watchdog_interval=self.window * 2)
+        self._drain_signal_channel = f"{self.id}:drain_signal"
+        if drain_enabled:
+            self._drain_loop: DrainLoop | None = DrainLoop(
+                self, watchdog_interval=max(5.0, self.window * 2),
+            )
+            self._drain_signal_subscriber: DrainSignalSubscriber | None = DrainSignalSubscriber(self)
+            self._drain_signal_subscriber.start()
+        else:
+            self._drain_loop = None
+            self._drain_signal_subscriber = None
         logger.info(
-            "Rate limiter initialized: id=%s, limit=%d, window_s=%g, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s.",
+            "Rate limiter initialized: id=%s, limit=%d, window_s=%g, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s, drain_enabled=%s.",
             self.id,
             self.limit,
             self.window,
@@ -423,6 +608,7 @@ class AbstractDistributedRateLimiter(ABC):
             self.jitter_min_pct,
             self.jitter_max_pct,
             "enabled" if self.metrics_callback else "disabled",
+            self.drain_enabled,
         )
 
         # Load the Lua scripts from disk.
@@ -989,23 +1175,23 @@ class AbstractDistributedRateLimiter(ABC):
         drain loop. Upon failure, a recovery drain is scheduled with exponential backoff
         (100ms, 200ms, 400ms, ... capped at ``window``).
         """
-        # Check for dynamic configuration updates before draining.
-        if hasattr(self, "refresh_config"):
-            self.refresh_config()
-
-        # Respect the window-change pause: skip draining until the pause expires,
-        # but schedule a follow-up so that the drain loop resumes automatically.
-        if hasattr(self, "_paused_until") and time.time() < self._paused_until:
-            remaining = self._paused_until - time.time()
-            logger.debug(
-                "Drain deferred: limiter=%s is paused for %.3fs for window transition.",
-                self.id,
-                remaining,
-            )
-            self._schedule_drain(delay=remaining)
-            return
-
         try:
+            # Check for dynamic configuration updates before draining.
+            if hasattr(self, "refresh_config"):
+                self.refresh_config()
+
+            # Respect the window-change pause: skip draining until the pause expires,
+            # but schedule a follow-up so that the drain loop resumes automatically.
+            if hasattr(self, "_paused_until") and time.time() < self._paused_until:
+                remaining = self._paused_until - time.time()
+                logger.debug(
+                    "Drain deferred: limiter=%s is paused for %.3fs for window transition.",
+                    self.id,
+                    remaining,
+                )
+                self._schedule_drain(delay=remaining)
+                return
+
             self._drain_inner()
             self._consecutive_drain_failures = 0
         except Exception:
@@ -1039,6 +1225,18 @@ class AbstractDistributedRateLimiter(ABC):
         preamble.
         """
         logger.debug("Drain loop start: limiter=%s.", self.id)
+
+        # Check local execution capacity before acquiring the distributed lock.
+        # This prevents acquiring Redis concurrency slots for tasks that would
+        # only be queued in the local execution environment (e.g., a thread pool).
+        if not self._has_local_capacity():
+            logger.debug(
+                "Drain deferred: local execution capacity reached for limiter=%s.",
+                self.id,
+            )
+            self._schedule_drain(delay=self._token_interval)
+            return
+
         # Acquire the execution lock to avoid the thundering herd problem.
         with self.execution_lock() as acquired:
             logger.debug(
@@ -1147,6 +1345,11 @@ class AbstractDistributedRateLimiter(ABC):
                 )
                 self._schedule_drain(delay=delay_seconds)
 
+    @property
+    def _token_interval(self) -> float:
+        """The duration between successive rate limit tokens: ``window / limit``."""
+        return self.window / self.limit if self.limit > 0 else self.window
+
     def _schedule_backup_drain(self) -> None:
         """Schedule a safety-net drain after failing to acquire the dispatch lock.
 
@@ -1154,13 +1357,12 @@ class AbstractDistributedRateLimiter(ABC):
         sufficiently long for the lock holder to finish yet short enough to maintain
         throughput. The ``DrainLoop`` naturally coalesces multiple backup requests.
         """
-        token_interval = self.window / self.limit if self.limit > 0 else self.window
         logger.debug(
             "Backup drain scheduled: limiter=%s, delay_s=%.3f.",
             self.id,
-            token_interval,
+            self._token_interval,
         )
-        self._schedule_drain(delay=token_interval)
+        self._schedule_drain(delay=self._token_interval)
 
     @abstractmethod
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
@@ -1173,29 +1375,68 @@ class AbstractDistributedRateLimiter(ABC):
         """
         pass  # pragma: no cover
 
+    def _has_local_capacity(self) -> bool:
+        """Check whether the local execution environment can accept another dispatched task.
+
+        The base implementation always returns ``True``. Backends with bounded
+        local execution capacity (e.g., a ``ThreadPoolExecutor`` with a fixed
+        number of workers) should override this method to prevent the consumer
+        from acquiring Redis concurrency slots for tasks that would only be
+        queued locally.
+        """
+        return True
+
     def _schedule_drain(self, delay: float = 0.0) -> None:
         """Schedule the drain method to execute again after ``delay`` seconds.
 
         The default implementation wakes the ``DrainLoop``. Subclasses used in
         testing may override this method to record calls without starting the loop.
+        When ``drain_enabled`` is ``False``, this method is a no-op.
         """
-        self._drain_loop.wake(delay)
+        if self._drain_loop is not None:
+            self._drain_loop.wake(delay)
 
     def trigger_consume(self) -> None:
         """Trigger consumption from the task queue.
 
-        The drain loop is woken to check for available work. The ``DrainLoop``
-        naturally coalesces near-simultaneous triggers.
+        Wakes the local drain loop and publishes a cross-process drain signal
+        so that other workers sharing the same limiter identifier can also
+        attempt to consume.
         """
         logger.debug("Trigger consume scheduling drain: limiter=%s.", self.id)
         self._schedule_drain()
+        self._publish_drain_signal()
+
+    def _publish_drain_signal(self) -> None:
+        """Publish a drain signal for cross-process notification.
+
+        The message payload is the sender's ``worker_id``, which subscribers
+        use to filter out self-notifications. This method fires regardless of
+        ``drain_enabled``, so that scheduler-only instances (e.g., a traffic
+        generator) can notify consumer workers.
+        """
+        try:
+            self.redis.publish(self._drain_signal_channel, self._worker_id)
+        except Exception:
+            logger.debug(
+                "Failed to publish drain signal: limiter=%s.",
+                self.id,
+            )
 
     def shutdown(self) -> None:
-        """Stop the drain loop to facilitate a clean shutdown."""
-        self._drain_loop.shutdown()
+        """Stop the drain loop and signal subscriber to facilitate a clean shutdown."""
+        if self._drain_loop is not None:
+            self._drain_loop.shutdown()
+        if self._drain_signal_subscriber is not None:
+            self._drain_signal_subscriber.shutdown()
 
     def execution_lock(self, timeout_ms: int = 5000) -> ContextManager[bool]:
         """Acquire the dispatch lock and perform cleanup after task completion.
+
+        The lock uses contention-aware fairness: when multiple workers compete
+        for the same limiter, a per-worker cooldown prevents any single worker
+        from monopolizing the lock. The cooldown is only applied when contention
+        is actually detected; single-worker burst consumption is unaffected.
 
         Args:
             timeout_ms: The lock timeout in milliseconds.
@@ -1203,8 +1444,17 @@ class AbstractDistributedRateLimiter(ABC):
         Returns:
             A context manager that yields the lock acquisition status, indicating whether the task should proceed.
         """
+        cooldown_ms = min(
+            int((self.window / self.limit) * 1000) if self.limit > 0 else 0,
+            1000,
+        )
         return DistributedLock(
-            redis_client=self.redis, lock_key=self.lock_key, timeout_ms=timeout_ms
+            redis_client=self.redis,
+            lock_key=self.lock_key,
+            timeout_ms=timeout_ms,
+            worker_id=self._worker_id,
+            cooldown_ms=cooldown_ms,
+            contention_key=self.contention_key,
         )
 
     def task_lifecycle(

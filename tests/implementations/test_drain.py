@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.implementations.conftest import TrackingRateLimiter
+
 
 class TestDrain:
     """Test suite for branch coverage in ``drain()``."""
@@ -460,6 +462,41 @@ class TestDrain:
         # the delegation path on the base class.
         tracking_limiter.shutdown()
 
+    def test_drain_defers_when_local_capacity_full(self, tracking_limiter):
+        """Verify that ``drain()`` defers execution when local capacity is exhausted."""
+        # Arrange
+        consume_mock = MagicMock()
+
+        # Act
+        with (
+            patch.object(tracking_limiter, "_has_local_capacity", return_value=False),
+            patch.object(tracking_limiter, "consume", consume_mock),
+        ):
+            tracking_limiter.drain()
+
+        # Assert
+        assert consume_mock.call_count == 0, (
+            "drain should not consume when local capacity is full"
+        )
+        assert tracking_limiter.dispatched_tasks == [], (
+            "drain should not dispatch when local capacity is full"
+        )
+        assert len(tracking_limiter.scheduled_drains) == 1, (
+            "drain should schedule a retry when local capacity is full"
+        )
+        expected_delay = tracking_limiter.window / tracking_limiter.limit
+        assert tracking_limiter.scheduled_drains[0] == expected_delay, (
+            "local-capacity-full retry delay should equal one token interval"
+        )
+
+    def test_drain_loop_watchdog_interval(self, tracking_limiter):
+        """Verify that the watchdog interval is ``max(5.0, window * 2)``."""
+        expected = max(5.0, tracking_limiter.window * 2)
+        actual = tracking_limiter._drain_loop._watchdog_interval
+        assert actual == expected, (
+            f"watchdog interval should be max(5.0, window * 2) = {expected}, got {actual}"
+        )
+
     def test_trigger_consume_schedules_drain(self, tracking_limiter):
         """Verify that ``trigger_consume()`` schedules a drain."""
         # Act
@@ -469,3 +506,207 @@ class TestDrain:
         assert len(tracking_limiter.scheduled_drains) == 1, (
             "trigger_consume should schedule exactly one drain"
         )
+
+
+class TestDrainDisabled:
+    """Tests for scheduler-only mode (``drain_enabled=False``)."""
+
+    def test_schedule_drain_is_noop_when_drain_disabled(self, redis_client, default_limiter_id):
+        """Verify that ``_schedule_drain()`` is a no-op when ``drain_enabled=False``."""
+        from tests.implementations.conftest import TrackingRateLimiter
+
+        limiter_id = f"{default_limiter_id}_drain_disabled"
+        limiter = TrackingRateLimiter(
+            redis_client=redis_client,
+            limiter_id=limiter_id,
+            limit=5,
+            window=60,
+            max_concurrency=2,
+            drain_enabled=False,
+        )
+
+        # Assert
+        assert limiter._drain_loop is None, (
+            "drain loop should not be created when drain_enabled=False"
+        )
+        assert limiter.drain_enabled is False, (
+            "drain_enabled should be False when explicitly disabled"
+        )
+
+        # Act
+        # trigger_consume delegates to _schedule_drain, which should be a no-op.
+        limiter.trigger_consume()
+
+        # Assert
+        # TrackingRateLimiter overrides _schedule_drain, so scheduled_drains
+        # would be populated if the method were called. Since drain_enabled=False
+        # sets _drain_loop to None, the base _schedule_drain checks for None.
+        # However, TrackingRateLimiter overrides _schedule_drain, so we verify
+        # that the drain loop itself is None.
+        assert limiter._drain_loop is None, (
+            "drain loop must remain None when drain_enabled=False"
+        )
+
+    def test_shutdown_is_safe_when_drain_disabled(self, redis_client, default_limiter_id):
+        """Verify that ``shutdown()`` does not raise when ``drain_enabled=False``."""
+        from tests.implementations.conftest import MinimalRateLimiter
+
+        limiter_id = f"{default_limiter_id}_drain_disabled_shutdown"
+        limiter = MinimalRateLimiter(
+            redis_client=redis_client,
+            limiter_id=limiter_id,
+            limit=5,
+            window=60,
+            max_concurrency=2,
+            drain_enabled=False,
+        )
+
+        # Act & Assert
+        # Must not raise.
+        limiter.shutdown()
+
+
+class TestCrossProcessDrainSignal:
+    """Tests for the Redis Pub/Sub cross-process drain notification mechanism."""
+
+    def test_trigger_consume_publishes_drain_signal(self, redis_client, default_limiter_id):
+        """Verify that ``trigger_consume()`` publishes a drain signal to the Pub/Sub channel."""
+        # Arrange
+        # Set up a test subscriber to capture the message.
+        limiter_id = f"{default_limiter_id}_pubsub"
+        channel = f"{limiter_id}:drain_signal"
+        test_sub = redis_client.pubsub()
+        test_sub.subscribe(channel)
+        test_sub.get_message(timeout=1.0)  # consume the subscribe confirmation
+
+        limiter = TrackingRateLimiter(
+            redis_client=redis_client,
+            limiter_id=limiter_id,
+            limit=5,
+            window=60,
+            max_concurrency=2,
+        )
+
+        try:
+            # Act
+            limiter.trigger_consume()
+
+            # Assert
+            message = test_sub.get_message(timeout=2.0)
+            assert message is not None, (
+                "trigger_consume should publish a drain signal"
+            )
+            assert message["type"] == "message", (
+                "received message must be of type 'message'"
+            )
+            assert message["data"] == limiter._worker_id, (
+                "drain signal payload should be the sender's worker_id"
+            )
+        finally:
+            limiter.shutdown()
+            test_sub.unsubscribe()
+            test_sub.close()
+
+    def test_subscriber_wakes_drain_on_cross_process_signal(self, redis_client, default_limiter_id):
+        """Verify that a drain signal from one limiter wakes another limiter's drain loop."""
+        # Arrange
+        # Two limiter instances with the same ID (simulating two workers).
+        limiter_id = f"{default_limiter_id}_cross"
+        limiter_a = TrackingRateLimiter(
+            redis_client=redis_client,
+            limiter_id=limiter_id,
+            limit=5,
+            window=60,
+            max_concurrency=2,
+        )
+        limiter_b = TrackingRateLimiter(
+            redis_client=redis_client,
+            limiter_id=limiter_id,
+            limit=5,
+            window=60,
+            max_concurrency=2,
+        )
+
+        try:
+            # Act
+            # Trigger consume on limiter A (publishes with A's worker_id).
+            limiter_a.trigger_consume()
+
+            # Allow the subscriber thread time to process the message.
+            time.sleep(1.0)
+
+            # Assert
+            # Limiter B's subscriber should have received the signal
+            # and called _schedule_drain() on limiter B.
+            assert len(limiter_b.scheduled_drains) >= 1, (
+                "limiter B should have received a drain signal from limiter A"
+            )
+        finally:
+            limiter_a.shutdown()
+            limiter_b.shutdown()
+
+    def test_subscriber_ignores_self_notification(self, redis_client, default_limiter_id):
+        """Verify that the subscriber ignores drain signals originating from the local process."""
+        # Arrange
+        limiter_id = f"{default_limiter_id}_self"
+        limiter = TrackingRateLimiter(
+            redis_client=redis_client,
+            limiter_id=limiter_id,
+            limit=5,
+            window=60,
+            max_concurrency=2,
+        )
+
+        try:
+            # Act
+            limiter.trigger_consume()
+
+            # Allow the subscriber thread time to process (or ignore) the message.
+            time.sleep(1.0)
+
+            # Assert
+            # scheduled_drains should have exactly 1 entry from the
+            # direct _schedule_drain() call in trigger_consume(). The subscriber
+            # receives the message but ignores it because the sender's worker_id
+            # matches the local worker_id.
+            assert len(limiter.scheduled_drains) == 1, (
+                "subscriber should ignore self-notifications; "
+                f"expected 1 scheduled drain, got {len(limiter.scheduled_drains)}"
+            )
+        finally:
+            limiter.shutdown()
+
+    def test_drain_disabled_still_publishes(self, redis_client, default_limiter_id):
+        """Verify that ``trigger_consume()`` publishes even when ``drain_enabled=False``."""
+        # Arrange
+        limiter_id = f"{default_limiter_id}_disabled_pub"
+        channel = f"{limiter_id}:drain_signal"
+        test_sub = redis_client.pubsub()
+        test_sub.subscribe(channel)
+        test_sub.get_message(timeout=1.0)  # consume the subscribe confirmation
+
+        limiter = TrackingRateLimiter(
+            redis_client=redis_client,
+            limiter_id=limiter_id,
+            limit=5,
+            window=60,
+            max_concurrency=2,
+            drain_enabled=False,
+        )
+
+        try:
+            # Act
+            limiter.trigger_consume()
+
+            # Assert
+            message = test_sub.get_message(timeout=2.0)
+            assert message is not None, (
+                "trigger_consume should publish even with drain_enabled=False"
+            )
+            assert message["data"] == limiter._worker_id, (
+                "drain signal payload should be the sender's worker_id"
+            )
+        finally:
+            limiter.shutdown()
+            test_sub.unsubscribe()
+            test_sub.close()

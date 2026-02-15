@@ -351,7 +351,8 @@ class TestBurstBoundProperty:
         limit = 10
         window_ms = 1000
 
-        # Act: consume at the very end of window N (empty previous)
+        # Act
+        # Consume at the very end of window N (empty previous).
         # At elapsed=999ms, weight = 0.001, so previous has negligible contribution
         consumed_in_window_n = 0
         for _ in range(limit):

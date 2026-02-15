@@ -36,14 +36,14 @@ RUN apt-get update && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Caching.
-RUN poetry install --no-interaction --no-ansi --no-root -E celery
+RUN poetry install --no-interaction --no-ansi --no-root -E celery -E prometheus
 
 # Copy source and tests.
 COPY src/ ./src/
 COPY tests/ ./tests/
 
-# Install all dependencies (including the celery extra for backend tests).
-RUN poetry install --no-interaction --no-ansi -E celery
+# Install all dependencies (including the celery and prometheus extras for tests).
+RUN poetry install --no-interaction --no-ansi -E celery -E prometheus
 
 # --- Stage 3: Production ---
 FROM base AS production

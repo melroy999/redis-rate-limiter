@@ -1,0 +1,7 @@
+# Dedicated namespace for the demo: isolates all resources so that the
+# teardown script can remove everything with a single namespace deletion.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: celery-rate-limiter-demo
