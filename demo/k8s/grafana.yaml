@@ -1,7 +1,8 @@
 # Grafana deployment and NodePort service: pre-provisioned with the Prometheus
 # datasource and the demo dashboard via ConfigMap volume mounts. Anonymous
 # admin access is enabled so the dashboard loads without login. Exposed on
-# NodePort 30000 for access via the kind cluster's extraPortMappings.
+# NodePort 30000, mapped to the host via kind extraPortMappings or minikube
+# port-forward (see demo/scripts/setup.sh).
 
 apiVersion: apps/v1
 kind: Deployment

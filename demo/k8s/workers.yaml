@@ -25,6 +25,10 @@ spec:
         prometheus.io/port: "8000"
         prometheus.io/path: "/metrics"
     spec:
+      initContainers:
+        - name: wait-for-redis
+          image: busybox:1.37
+          command: ["sh", "-c", "until nc -z redis 6379; do sleep 1; done"]
       containers:
         - name: worker
           image: celery-rate-limiter-demo:latest

@@ -12,7 +12,15 @@ import os
 # ---------------------------------------------------------------------------
 
 REDIS_HOST: str = os.getenv("REDIS_HOST", "redis")
-REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
+
+# Kubernetes auto-injects REDIS_PORT=tcp://10.x.x.x:6379 when a service named
+# "redis" exists in the namespace. Parse the port from the URL if needed.
+_raw_redis_port = os.getenv("REDIS_PORT", "6379")
+REDIS_PORT: int = (
+    int(_raw_redis_port.rsplit(":", 1)[-1])
+    if _raw_redis_port.startswith("tcp://")
+    else int(_raw_redis_port)
+)
 
 # ---------------------------------------------------------------------------
 # Rate limiter

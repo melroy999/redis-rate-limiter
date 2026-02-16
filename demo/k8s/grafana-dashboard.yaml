@@ -68,7 +68,7 @@ data:
             ]
           },
           "options": {
-            "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" },
+            "legend": { "calcs": ["min", "mean", "max"], "displayMode": "table", "placement": "bottom" },
             "tooltip": { "mode": "multi", "sort": "desc" }
           },
           "targets": [
@@ -91,7 +91,7 @@ data:
             "overrides": []
           },
           "options": {
-            "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" },
+            "legend": { "calcs": ["min", "mean", "max"], "displayMode": "table", "placement": "bottom" },
             "tooltip": { "mode": "multi", "sort": "desc" }
           },
           "targets": [
@@ -114,7 +114,7 @@ data:
             "overrides": []
           },
           "options": {
-            "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" },
+            "legend": { "calcs": ["min", "mean", "max"], "displayMode": "table", "placement": "bottom" },
             "tooltip": { "mode": "multi", "sort": "desc" }
           },
           "targets": [
@@ -136,7 +136,7 @@ data:
             "overrides": []
           },
           "options": {
-            "legend": { "calcs": ["mean", "min"], "displayMode": "table", "placement": "bottom" },
+            "legend": { "calcs": ["min", "mean", "max"], "displayMode": "table", "placement": "bottom" },
             "tooltip": { "mode": "multi", "sort": "desc" }
           },
           "targets": [
@@ -162,7 +162,7 @@ data:
             ]
           },
           "options": {
-            "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "bottom" },
+            "legend": { "calcs": ["min", "mean", "max"], "displayMode": "table", "placement": "bottom" },
             "tooltip": { "mode": "multi", "sort": "desc" }
           },
           "targets": [

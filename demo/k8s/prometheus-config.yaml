@@ -27,6 +27,10 @@ data:
           - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
             action: keep
             regex: "true"
+          # Drop init containers (pod SD creates one target per container).
+          - source_labels: [__meta_kubernetes_pod_container_init]
+            action: drop
+            regex: "true"
           # Use the port from the prometheus.io/port annotation.
           - source_labels: [__meta_kubernetes_pod_ip, __meta_kubernetes_pod_annotation_prometheus_io_port]
             action: replace

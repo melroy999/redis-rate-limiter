@@ -21,19 +21,23 @@ cd demo
 docker compose up --build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) for the Grafana dashboard. Allow approximately 60 seconds for the sine wave to become visible.
+Open [http://localhost:3001](http://localhost:3001) (or the port set via `GRAFANA_PORT`) for the Grafana dashboard. Allow approximately 60 seconds for the sine wave to become visible.
 
 Press `Ctrl+C` to stop.
 
-## Quick start: Kubernetes (kind)
+## Quick start: Kubernetes (kind or minikube)
 
-Requires Docker, [kind](https://kind.sigs.k8s.io/), and kubectl.
+Requires Docker, kubectl, and either [kind](https://kind.sigs.k8s.io/) or [minikube](https://minikube.sigs.k8s.io/). The setup script auto-detects which tool is available (preferring kind). Set `K8S_TOOL` to override:
 
 ```bash
+# Auto-detect.
 ./demo/scripts/setup.sh
+
+# Force minikube.
+K8S_TOOL=minikube ./demo/scripts/setup.sh
 ```
 
-The script creates a kind cluster, builds the demo image, loads it into the cluster, deploys all manifests, and waits for pods to become ready. Once complete, the Grafana dashboard is available at [http://localhost:3000](http://localhost:3000).
+The script creates a cluster, builds the demo image, loads it into the cluster, deploys all manifests, and waits for pods to become ready. Once complete, the Grafana dashboard is available at [http://localhost:3001](http://localhost:3001) (or the port set via `GRAFANA_PORT`).
 
 To tear down:
 
@@ -67,5 +71,7 @@ All parameters are configurable via environment variables. The defaults produce 
 | `SINE_PERIOD` | `120` | Full sine-wave cycle in seconds |
 | `SINE_CENTER` | `0.75` | Center of the sine wave as a fraction of the effective rate (0.75 means the average offered rate is 75% of the limit) |
 | `SINE_AMPLITUDE` | `0.65` | Amplitude as a fraction of the effective rate (with center=0.75, rate varies from 0.1x to 1.4x the limit) |
+| `K8S_TOOL` | *(auto-detected)* | Kubernetes tool: `kind` or `minikube` |
+| `GRAFANA_PORT` | `3001` | Host port for the Grafana dashboard |
 | `METRICS_PORT` | `8000` | Prometheus HTTP metrics port |
 | `TASK_DURATION` | `0.3` | Simulated task execution time in seconds |

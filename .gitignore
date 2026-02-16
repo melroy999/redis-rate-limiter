@@ -301,3 +301,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Demo state (created by demo/scripts/setup.sh)
+demo/scripts/.demo-state
+demo/scripts/.port-forward.log
