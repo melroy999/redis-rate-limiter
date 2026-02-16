@@ -1,20 +1,20 @@
 """Contract tests for task lifecycle management.
 
-These tests define the expected behavior for TaskLifecycle context managers
-that handle concurrency slot cleanup and task state management.
+These tests define the expected behaviour for ``TaskLifecycle`` context
+managers that handle concurrency slot cleanup and task state management.
 """
 
 import pytest
 
 
 class TaskLifecycleContractTest:
-    """Abstract test suite that any TaskLifecycle implementation must pass.
+    """Abstract test suite that any ``TaskLifecycle`` implementation must pass.
 
-    Subclasses must provide:
-        - redis_client: A fixture that returns a Redis client
-        - mock_limiter: A fixture that returns a limiter (can be mocked)
-        - task_id: A fixture that returns a task ID for testing
-        - inflight_key: A fixture that returns the in-flight key for the task
+    Subclasses are required to provide the following:
+        - redis_client: A fixture that returns a Redis client.
+        - mock_limiter: A fixture that returns a limiter (which may be mocked).
+        - task_id: A fixture that returns a task ID for testing.
+        - inflight_key: A fixture that returns the in-flight key for the task.
     """
 
     # ==================== Contract Tests ====================
@@ -23,9 +23,9 @@ class TaskLifecycleContractTest:
     def test_lifecycle_removes_task_from_concurrency_set(
         redis_client, mock_limiter, task_id, inflight_key, lifecycle_class
     ):
-        """Contract: task must be removed from concurrency set after completion."""
+        """Contract: the task must be removed from the concurrency set after completion."""
         # Arrange
-        # Simulate a running task.
+        # Simulate a running task within the concurrency set.
         redis_client.zadd(
             mock_limiter.concurrency_key,
             {
@@ -39,7 +39,7 @@ class TaskLifecycleContractTest:
 
         # Act
         with lifecycle_class(mock_limiter, task_id):
-            # Do nothing--it simulates a task that just finishes normally.
+            # No action is performed--this simulates a task that completes normally.
             pass
 
         # Assert
@@ -58,14 +58,14 @@ class TaskLifecycleContractTest:
     def test_lifecycle_removes_active_marker(
         redis_client, mock_limiter, task_id, inflight_key, lifecycle_class
     ):
-        """Contract: task inflight marker must be removed after completion."""
+        """Contract: the task in-flight marker must be removed after completion."""
         # Arrange
         redis_client.zadd(mock_limiter.concurrency_key, {task_id: 100})
         redis_client.set(inflight_key, "1")
 
         # Act
         with lifecycle_class(mock_limiter, task_id):
-            # Do nothing--simulate a task that finishes successfully.
+            # No action is performed--this simulates a task that finishes successfully.
             pass
 
         # Assert
@@ -77,7 +77,7 @@ class TaskLifecycleContractTest:
     def test_lifecycle_cleans_up_on_exception(
         redis_client, mock_limiter, task_id, inflight_key, lifecycle_class
     ):
-        """Contract: cleanup must happen even when task raises exception."""
+        """Contract: cleanup must be performed even when the task raises an exception."""
         # Arrange
         redis_client.zadd(mock_limiter.concurrency_key, {task_id: 100})
         redis_client.set(inflight_key, "1")
@@ -88,7 +88,7 @@ class TaskLifecycleContractTest:
                 raise ValueError("Task failed")
 
         # Assert
-        # Cleanup should still happen.
+        # Cleanup should still have been performed.
         assert redis_client.zcard(mock_limiter.concurrency_key) == 0, (
             "task must be removed from concurrency set even after exception"
         )
@@ -100,7 +100,7 @@ class TaskLifecycleContractTest:
     def test_lifecycle_triggers_consume(
         redis_client, mock_limiter, task_id, inflight_key, lifecycle_class
     ):
-        """Contract: lifecycle must trigger consume to process next tasks."""
+        """Contract: the lifecycle must trigger consumption to process subsequent tasks."""
         # Arrange
         redis_client.zadd(mock_limiter.concurrency_key, {task_id: 100})
         redis_client.set(inflight_key, "1")
@@ -119,7 +119,7 @@ class TaskLifecycleContractTest:
     def test_lifecycle_triggers_consume_even_on_exception(
         redis_client, mock_limiter, task_id, inflight_key, lifecycle_class
     ):
-        """Contract: trigger_consume must be called even when task fails."""
+        """Contract: ``trigger_consume`` must be called even when the task fails."""
         # Arrange
         redis_client.zadd(mock_limiter.concurrency_key, {task_id: 100})
         redis_client.set(inflight_key, "1")

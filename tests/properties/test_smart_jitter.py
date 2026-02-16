@@ -1,14 +1,14 @@
-"""Property-based tests for smart jitter invariants.
+"""Property-based tests for the smart jitter invariants.
 
-These tests complement deterministic tests in
+These tests complement the deterministic tests located in
 `tests/implementations/test_smart_jitter.py`.
 
-Rationale for both layers:
-1. Deterministic seeded tests give stable, reproducible regression checks.
+Rationale for maintaining both layers:
+1. Deterministic seeded tests provide stable, reproducible regression checks.
 2. Hypothesis tests broaden coverage across many generated random streams.
 
-Using both avoids flaky CI while still validating that behavior is not an
-artifact of one hand-picked random sequence.
+Employing both approaches avoids flaky CI while still validating that the
+observed behavior is not an artifact of a single hand-picked random sequence.
 """
 
 from unittest.mock import patch
@@ -17,10 +17,10 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
-from celery_rate_limiter.limiters import CeleryRateLimiter
+from tests.implementations.conftest import MinimalRateLimiter
 
-# Random values used by jitter calculations.
-# `random.random()` yields values in [0.0, 1.0), so we exclude 1.0.
+# Random values used by the jitter calculations.
+# `random.random()` yields values in [0.0, 1.0); hence, 1.0 is excluded.
 random_stream_strategy = st.lists(
     st.floats(
         min_value=0.0,
@@ -35,15 +35,17 @@ random_stream_strategy = st.lists(
 
 
 @pytest.fixture(scope="module")
-def property_limiter(
-    property_redis_client,
-    property_celery_app,
-    default_module_limiter_id,
-):
-    """Module-scoped limiter for jitter property tests."""
-    return CeleryRateLimiter(
+def property_redis_client(_redis_connection):
+    """Provide a module-scoped Redis client for property-based tests."""
+    yield _redis_connection
+    _redis_connection.flushdb()
+
+
+@pytest.fixture(scope="module")
+def property_limiter(property_redis_client, default_module_limiter_id):
+    """Provide a module-scoped rate limiter for jitter property tests."""
+    return MinimalRateLimiter(
         redis_client=property_redis_client,
-        celery_app=property_celery_app,
         limiter_id=f"{default_module_limiter_id}_property_jitter",
         limit=10,
         window=1,
@@ -55,11 +57,11 @@ def property_limiter(
 
 
 class TestSmartJitterProperties:
-    """Property-based tests for smart jitter.
+    """Property-based tests for the smart jitter mechanism.
 
-    Why this class exists even with seeded implementation tests:
-    - Seeded tests prove known scenarios and remain fully reproducible.
-    - These properties generate many random streams and verify invariants
+    This class exists to complement the seeded implementation tests:
+    - The seeded tests demonstrate known scenarios and remain fully reproducible.
+    - These property tests generate many random streams and verify that invariants
       hold beyond those curated seeds.
     """
 
@@ -68,15 +70,15 @@ class TestSmartJitterProperties:
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
     def test_load_pressure_is_monotonic(self, property_limiter, random_stream):
-        """Property: paired random streams preserve load-based jitter ordering."""
+        """Property: paired random streams preserve the load-based jitter ordering."""
         # Arrange
         samples = len(random_stream)
 
         # Act
-        # Use the exact same random values in each scenario to isolate
+        # The exact same random values are used in each scenario to isolate
         # only the pressure change as the source of output differences.
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_stream),
         ):
             low_load_jitters = [
@@ -89,7 +91,7 @@ class TestSmartJitterProperties:
             ]
 
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_stream),
         ):
             medium_load_jitters = [
@@ -102,7 +104,7 @@ class TestSmartJitterProperties:
             ]
 
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_stream),
         ):
             high_load_jitters = [
@@ -150,14 +152,14 @@ class TestSmartJitterProperties:
     def test_concurrency_pressure_is_monotonic(
         self, property_limiter, random_stream, low_active, high_active
     ):
-        """Property: paired random streams preserve concurrency-based jitter ordering."""
+        """Property: paired random streams preserve the concurrency-based jitter ordering."""
         # Arrange
         assume(low_active < high_active)
         samples = len(random_stream)
 
         # Act
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_stream),
         ):
             low_concurrency_jitters = [
@@ -170,7 +172,7 @@ class TestSmartJitterProperties:
             ]
 
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_stream),
         ):
             high_concurrency_jitters = [

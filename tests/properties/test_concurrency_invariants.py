@@ -1,22 +1,31 @@
-"""Property-based tests for concurrency invariants."""
+"""Property-based tests for concurrency invariants.
+
+These tests employ Hypothesis to verify that the concurrency bound is never
+exceeded under arbitrary sequences of schedule, consume, and complete operations.
+"""
 
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from celery_rate_limiter.limiters import CeleryRateLimiter
+from tests.implementations.conftest import MinimalRateLimiter
+
+
+@pytest.fixture(scope="module")
+def property_redis_client(_redis_connection):
+    """Provide a module-scoped Redis client for property-based tests."""
+    yield _redis_connection
+    _redis_connection.flushdb()
 
 
 @pytest.fixture(scope="module")
 def property_limiter(
     property_redis_client,
-    property_celery_app,
     default_module_limiter_id,
 ):
-    """Module-scoped limiter for concurrency-invariant property tests."""
-    return CeleryRateLimiter(
+    """Provide a module-scoped rate limiter for concurrency-invariant property tests."""
+    return MinimalRateLimiter(
         redis_client=property_redis_client,
-        celery_app=property_celery_app,
         limiter_id=f"{default_module_limiter_id}_property_concurrency",
         limit=10_000,
         window=60,
@@ -27,7 +36,7 @@ def property_limiter(
 
 
 class TestConcurrencyInvariantProperties:
-    """Property-based tests for concurrency bound behavior."""
+    """Property-based tests verifying that the concurrency bound is never violated."""
 
     @staticmethod
     @given(
@@ -43,7 +52,7 @@ class TestConcurrencyInvariantProperties:
     def test_active_concurrency_never_exceeds_max(
         property_limiter, property_redis_client, operations
     ):
-        """Property: active concurrency never exceeds configured max_concurrency."""
+        """Property: the active concurrency never exceeds the configured max_concurrency."""
         # Arrange
         property_redis_client.flushdb()
         next_payload_id = 0

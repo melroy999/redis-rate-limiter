@@ -1,7 +1,7 @@
-"""Tests for adaptive jitter calculation in AbstractDistributedRateLimiter.
+"""Tests for the adaptive jitter calculation in AbstractDistributedRateLimiter.
 
-Smart jitter prevents thundering herd at window resets by spreading retry
-attempts based on system load.
+Smart jitter prevents the thundering herd problem at window resets by spreading
+retry attempts based on system load.
 """
 
 import itertools
@@ -10,35 +10,54 @@ from unittest.mock import patch
 
 import pytest
 
-from celery_rate_limiter.limiters import CeleryRateLimiter
+from tests.implementations.conftest import MinimalRateLimiter
 
 
 class TestSmartJitter:
-    """Test suite for adaptive jitter implementation."""
+    """Test suite for the adaptive jitter implementation."""
 
     @staticmethod
     def _seeded_random_values(samples: int, seed: int) -> list[float]:
-        """Generate deterministic pseudo-random values for jitter tests."""
+        """Generate deterministic pseudo-random values for use in jitter tests."""
         seeded_rng = random.Random(seed)
         return [seeded_rng.random() for _ in range(samples)]
 
     @pytest.fixture
-    def limiter(self, redis_client, celery_app, default_limiter_id):
-        """Create a limiter with default jitter settings for testing."""
-        return CeleryRateLimiter(
-            redis_client=redis_client,
-            celery_app=celery_app,
-            limiter_id=f"{default_limiter_id}_jitter_default",
-            limit=10,
-            window=1,
-            max_concurrency=5,
-            jitter_enabled=True,
-            jitter_min_pct=0.02,
-            jitter_max_pct=0.08,
+    def make_limiter(self, redis_client, default_limiter_id):
+        """Factory fixture for creating generic limiters with specific jitter settings."""
+
+        def _make_limiter(
+            *,
+            limiter_suffix: str,
+            limit: int = 10,
+            window: int = 1,
+            max_concurrency: int = 5,
+            jitter_enabled: bool = True,
+            jitter_min_pct: float = 0.02,
+            jitter_max_pct: float = 0.08,
+        ) -> MinimalRateLimiter:
+            return MinimalRateLimiter(
+                redis_client=redis_client,
+                limiter_id=f"{default_limiter_id}_{limiter_suffix}",
+                limit=limit,
+                window=window,
+                max_concurrency=max_concurrency,
+                jitter_enabled=jitter_enabled,
+                jitter_min_pct=jitter_min_pct,
+                jitter_max_pct=jitter_max_pct,
+            )
+
+        return _make_limiter
+
+    @pytest.fixture
+    def limiter(self, make_limiter):
+        """Create a limiter with the default jitter settings for testing."""
+        return make_limiter(
+            limiter_suffix="jitter_default",
         )
 
     def test_jitter_disabled_returns_zero(self, limiter):
-        """Verify jitter returns 0 when disabled."""
+        """Verify that the jitter returns zero when it is disabled."""
         # Arrange
         limiter.jitter_enabled = False
 
@@ -52,34 +71,24 @@ class TestSmartJitter:
         # Assert
         assert jitter == 0.0, "disabled jitter should return 0"
 
-    def test_jitter_scales_with_window_size(
-        self, redis_client, celery_app, default_limiter_id
-    ):
-        """Verify average jitter is proportional to window size."""
+    def test_jitter_scales_with_window_size(self, make_limiter):
+        """Verify that the average jitter is proportional to the window size."""
         # Arrange
-        short_limiter = CeleryRateLimiter(
-            redis_client=redis_client,
-            celery_app=celery_app,
-            limiter_id=f"{default_limiter_id}_jitter_short_window",
-            limit=10,
+        short_limiter = make_limiter(
+            limiter_suffix="jitter_short_window",
             window=1,
-            max_concurrency=5,
         )
-        long_limiter = CeleryRateLimiter(
-            redis_client=redis_client,
-            celery_app=celery_app,
-            limiter_id=f"{default_limiter_id}_jitter_long_window",
-            limit=10,
+        long_limiter = make_limiter(
+            limiter_suffix="jitter_long_window",
             window=60,
-            max_concurrency=5,
         )
 
         # Act
-        # Take multiple samples to test statistical properties.
+        # Multiple samples are taken to test statistical properties.
         samples = 100
         random_values = self._seeded_random_values(samples, seed=20260207)
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             short_jitters = [
@@ -89,7 +98,7 @@ class TestSmartJitter:
                 for _ in range(samples)
             ]
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             long_jitters = [
@@ -110,15 +119,15 @@ class TestSmartJitter:
         )
 
     def test_jitter_increases_with_load(self, limiter):
-        """Verify average jitter increases under higher contention."""
+        """Verify that the average jitter increases under higher contention."""
         # Arrange
         samples = 100
         random_values = self._seeded_random_values(samples, seed=20260208)
 
         # Act
-        # Take multiple samples at each load level.
+        # Multiple samples are taken at each load level.
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             low_load_jitters = [
@@ -130,7 +139,7 @@ class TestSmartJitter:
                 for _ in range(samples)
             ]
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             medium_load_jitters = [
@@ -142,7 +151,7 @@ class TestSmartJitter:
                 for _ in range(samples)
             ]
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             high_load_jitters = [
@@ -187,7 +196,7 @@ class TestSmartJitter:
     def test_jitter_within_configured_bounds(
         self, limiter, remaining_tasks, active_concurrency
     ):
-        """Verify jitter stays within configured min/max percentages."""
+        """Verify that the jitter stays within the configured min/max percentages."""
         # Arrange
         min_expected = limiter.window * limiter.jitter_min_pct
         max_expected = limiter.window * limiter.jitter_max_pct
@@ -206,13 +215,13 @@ class TestSmartJitter:
         )
 
     def test_jitter_is_randomized(self, limiter):
-        """Verify repeated calls produce varied output."""
+        """Verify that repeated calls produce varied output."""
         # Act
-        # Call jitter calculation multiple times with identical inputs.
+        # The jitter calculation is invoked multiple times with identical inputs.
         samples = 100
         random_values = self._seeded_random_values(samples, seed=20260209)
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             jitters = [
@@ -230,7 +239,7 @@ class TestSmartJitter:
             f"jitter should be randomized, got only {len(unique_jitters)} unique values"
         )
 
-        # Mean should be near the middle of the configured range.
+        # The mean should be near the middle of the configured range.
         mean_jitter = sum(jitters) / len(jitters)
         expected_mean = (
             limiter.window * limiter.jitter_min_pct
@@ -241,18 +250,12 @@ class TestSmartJitter:
             f"expected mean ({expected_mean:.4f})"
         )
 
-    def test_custom_jitter_percentages(
-        self, redis_client, celery_app, default_limiter_id
-    ):
-        """Verify custom jitter percentages are respected."""
+    def test_custom_jitter_percentages(self, make_limiter):
+        """Verify that custom jitter percentages are respected."""
         # Arrange
-        custom_limiter = CeleryRateLimiter(
-            redis_client=redis_client,
-            celery_app=celery_app,
-            limiter_id=f"{default_limiter_id}_jitter_custom_percentages",
-            limit=10,
+        custom_limiter = make_limiter(
+            limiter_suffix="jitter_custom_percentages",
             window=10,
-            max_concurrency=5,
             jitter_min_pct=0.01,
             jitter_max_pct=0.05,
         )
@@ -265,26 +268,26 @@ class TestSmartJitter:
         )
 
         # Assert
-        # Custom bounds for 10s window: 100ms to 500ms.
+        # Custom bounds for a 10-second window: 100ms to 500ms.
         assert 0.1 <= jitter <= 0.5, (
             f"jitter {jitter}s should be within custom bounds [0.1, 0.5]"
         )
 
     def test_concurrency_pressure_increases_jitter(self, limiter):
-        """Verify higher concurrency pressure produces larger average jitter.
+        """Verify that higher concurrency pressure produces a larger average jitter.
 
-        Uses a seeded random stream so this unit test is deterministic.
+        A seeded random stream is used so that this unit test is deterministic.
         """
         # Arrange
         samples = 100
         random_values = self._seeded_random_values(samples, seed=20260210)
 
         # Act
-        # Sample each concurrency level many times.
-        # Reuse the exact same random values for both levels so any difference
-        # comes from concurrency pressure, not random chance.
+        # Each concurrency level is sampled multiple times.
+        # The exact same random values are reused for both levels so that any
+        # difference arises from concurrency pressure, not random chance.
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             low_concurrency_jitters = [
@@ -296,7 +299,7 @@ class TestSmartJitter:
                 for _ in range(samples)
             ]
         with patch(
-            "celery_rate_limiter.limiters.random.random",
+            "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             high_concurrency_jitters = [
@@ -328,7 +331,7 @@ class TestSmartJitter:
         )
 
     def test_jitter_precision(self, limiter):
-        """Verify jitter is rounded to 3 decimal places."""
+        """Verify that the jitter is rounded to three decimal places."""
         # Act
         jitter = limiter._calculate_smart_jitter(
             remaining_tasks=50,
@@ -337,7 +340,7 @@ class TestSmartJitter:
         )
 
         # Assert
-        # Jitter should be rounded to millisecond precision.
+        # The jitter should be rounded to millisecond precision.
         assert jitter == round(jitter, 3), (
             f"jitter {jitter} should be rounded to 3 decimal places"
         )

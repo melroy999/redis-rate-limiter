@@ -36,27 +36,27 @@ RUN apt-get update && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Caching.
-RUN poetry install --no-interaction --no-ansi --no-root
+RUN poetry install --no-interaction --no-ansi --no-root -E celery -E prometheus
 
 # Copy source and tests.
 COPY src/ ./src/
 COPY tests/ ./tests/
 
-# Install all dependencies.
-RUN poetry install --no-interaction --no-ansi
+# Install all dependencies (including the celery and prometheus extras for tests).
+RUN poetry install --no-interaction --no-ansi -E celery -E prometheus
 
 # --- Stage 3: Production ---
 FROM base AS production
 
 # Caching.
-RUN poetry install --only main --no-interaction --no-ansi --no-root
+RUN poetry install --only main --no-interaction --no-ansi --no-root -E celery
 
 # Copy source and examples.
 COPY src/ ./src/
 COPY examples/ ./examples/
 
-# Install only the main dependencies.
-RUN poetry install --only main --no-interaction --no-ansi
+# Install only the main dependencies (with celery extra for the worker).
+RUN poetry install --only main --no-interaction --no-ansi -E celery
 
 # Create a non-root user for security hardening.
 # Running as non-root limits the impact of potential container escapes.

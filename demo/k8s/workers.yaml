@@ -1,0 +1,46 @@
+# Worker deployment: three replicas that each run an independent
+# ThreadPoolRateLimiter with its own drain loop, consuming tasks from the
+# shared Redis buffer. The Lua-based consume script enforces the global rate
+# limit atomically across all replicas. Prometheus annotations enable
+# automatic scraping of per-worker metrics.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workers
+  namespace: celery-rate-limiter-demo
+  labels:
+    app: workers
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: workers
+  template:
+    metadata:
+      labels:
+        app: workers
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      initContainers:
+        - name: wait-for-redis
+          image: busybox:1.37
+          command: ["sh", "-c", "until nc -z redis 6379; do sleep 1; done"]
+      containers:
+        - name: worker
+          image: celery-rate-limiter-demo:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          env:
+            - name: REDIS_HOST
+              value: redis
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10

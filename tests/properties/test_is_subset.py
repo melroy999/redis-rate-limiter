@@ -1,6 +1,6 @@
 """Property-based tests for the is_subset helper function.
 
-These tests use Hypothesis to verify mathematical properties of the
+These tests employ Hypothesis to verify the mathematical properties of the
 is_subset function with arbitrary nested dictionaries.
 """
 
@@ -12,12 +12,12 @@ from tests.helpers.utils import is_subset
 
 
 class TestIsSubsetProperties:
-    """Property-based tests for is_subset invariants."""
+    """Property-based tests verifying the mathematical invariants of is_subset."""
 
     @staticmethod
     @given(target=nested_dict)
     def test_reflexivity_dict_is_subset_of_itself(target):
-        """Property: any dictionary is a subset of itself (reflexivity)."""
+        """Property: every dictionary is a subset of itself (reflexivity)."""
         assert is_subset(target, target), (
             f"dictionary should be a subset of itself: {target}"
         )
@@ -25,7 +25,7 @@ class TestIsSubsetProperties:
     @staticmethod
     @given(superset=nested_dict)
     def test_empty_dict_is_subset_of_any_dict(superset):
-        """Property: empty dictionary is a subset of any dictionary."""
+        """Property: the empty dictionary is a subset of any dictionary."""
         empty = {}
         assert is_subset(empty, superset), f"empty dict should be subset of: {superset}"
 
@@ -43,11 +43,11 @@ class TestIsSubsetProperties:
     def test_adding_keys_to_superset_preserves_subset_relation(
         base, extra_key, extra_value
     ):
-        """Property: adding keys to superset doesn't break subset relationship."""
+        """Property: adding keys to the superset does not break the subset relationship."""
         from hypothesis import assume
 
         # Arrange
-        # Ensure extra_key is not already in base to avoid overwriting.
+        # Ensure that extra_key is not already present in base to avoid overwriting
         assume(extra_key not in base)
 
         subset = base.copy()
@@ -67,7 +67,7 @@ class TestIsSubsetProperties:
         value=st.one_of(st.integers(), st.text(max_size=20)),
     )
     def test_dict_with_extra_key_is_not_subset(key, value):
-        """Property: dictionary with key not in superset is not a subset."""
+        """Property: a dictionary containing a key absent from the superset is not a subset."""
         # Arrange
         subset = {key: value, "extra": "value"}
         superset = {key: value}
@@ -86,9 +86,9 @@ class TestIsSubsetProperties:
         value2=st.integers(),
     )
     def test_dict_with_different_value_is_not_subset(key, value1, value2):
-        """Property: if values differ for same key, not a subset."""
+        """Property: if the values differ for the same key, the relation does not hold."""
         # Arrange
-        # Ensure values are actually different.
+        # Ensure that the values are actually different
         if value1 == value2:
             value2 = value1 + 1
 
@@ -126,7 +126,7 @@ class TestIsSubsetProperties:
     def test_transitivity(dict1, dict2, dict3):
         """Property: if A ⊆ B and B ⊆ C, then A ⊆ C (transitivity)."""
         # Arrange
-        # Build nested relationship: dict1 ⊆ dict2 ⊆ dict3.
+        # Build the nested relationship: dict1 ⊆ dict2 ⊆ dict3
         subset = dict1.copy()
         middle = {**dict1, **dict2}
         superset = {**dict1, **dict2, **dict3}
@@ -136,7 +136,7 @@ class TestIsSubsetProperties:
         is_mid_super = is_subset(middle, superset)
 
         # Assert
-        # If both relations hold, transitivity must hold.
+        # If both relations hold, then transitivity must hold
         if is_sub_mid and is_mid_super:
             assert is_subset(subset, superset), (
                 f"transitivity violated\n"

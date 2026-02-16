@@ -1,18 +1,19 @@
 """Tests for the optional metrics callback on AbstractDistributedRateLimiter.
 
 The metrics callback enables observability by emitting events after consume
-and schedule operations, allowing integration with external monitoring systems.
+and schedule operations, thereby allowing integration with external monitoring
+systems.
 """
 
 from unittest.mock import MagicMock
 
 import pytest
 
-from celery_rate_limiter.limiters import CeleryRateLimiter
+from tests.implementations.conftest import MinimalRateLimiter
 
 
 class TestMetricsCallback:
-    """Test suite for metrics callback behavior."""
+    """Test suite for the metrics callback behavior."""
 
     @pytest.fixture
     def callback(self):
@@ -20,11 +21,10 @@ class TestMetricsCallback:
         return MagicMock()
 
     @pytest.fixture
-    def limiter(self, redis_client, celery_app, callback, default_limiter_id):
-        """Create a limiter with a metrics callback for testing."""
-        return CeleryRateLimiter(
+    def limiter(self, redis_client, callback, default_limiter_id):
+        """Create a generic limiter with a metrics callback for testing."""
+        return MinimalRateLimiter(
             redis_client=redis_client,
-            celery_app=celery_app,
             limiter_id=f"{default_limiter_id}_with_metrics",
             limit=10,
             window=60,
@@ -33,11 +33,10 @@ class TestMetricsCallback:
         )
 
     @pytest.fixture
-    def limiter_no_callback(self, redis_client, celery_app, default_limiter_id):
-        """Create a limiter without a metrics callback."""
-        return CeleryRateLimiter(
+    def limiter_no_callback(self, redis_client, default_limiter_id):
+        """Create a generic limiter without a metrics callback."""
+        return MinimalRateLimiter(
             redis_client=redis_client,
-            celery_app=celery_app,
             limiter_id=f"{default_limiter_id}_without_metrics",
             limit=10,
             window=60,
@@ -45,7 +44,7 @@ class TestMetricsCallback:
         )
 
     def test_metrics_callback_none_by_default(self, limiter_no_callback):
-        """Verify metrics_callback defaults to None and does not cause errors."""
+        """Verify that the metrics_callback defaults to ``None`` and does not cause errors."""
         # Arrange
         limiter = limiter_no_callback
 
@@ -57,7 +56,7 @@ class TestMetricsCallback:
         assert limiter.metrics_callback is None, "callback should default to None"
 
     def test_consume_emits_metric(self, limiter, callback):
-        """Verify consume emits a metric with the correct event name and data keys."""
+        """Verify that consume emits a metric with the correct event name and data keys."""
         # Act
         limiter.consume()
 
@@ -78,13 +77,13 @@ class TestMetricsCallback:
         )
 
     def test_schedule_emits_metric(self, limiter, callback, func_path):
-        """Verify schedule_task emits a metric with the correct event name and data."""
+        """Verify that ``schedule_task()`` emits a metric with the correct event name and data."""
         # Act
         was_scheduled, task_id = limiter.schedule_task(func_path, {"key": "value"})
 
         # Assert
-        # The schedule_task method also calls trigger_consume which calls consume.
-        # Filter to just the schedule event.
+        # Backend implementations may trigger a follow-up consume asynchronously.
+        # Filter to isolate the schedule event only.
         schedule_calls = [
             call for call in callback.call_args_list if call[0][0] == "schedule"
         ]
@@ -97,9 +96,9 @@ class TestMetricsCallback:
         )
 
     def test_schedule_duplicate_emits_not_scheduled(self, limiter, callback, func_path):
-        """Verify scheduling a duplicate task emits scheduled=False."""
+        """Verify that scheduling a duplicate task emits ``scheduled=False``."""
         # Arrange
-        # Schedule the task once so it becomes in-flight.
+        # Schedule the task once so that it becomes in-flight.
         limiter.schedule_task(func_path, {"key": "value"})
         callback.reset_mock()
 
@@ -114,7 +113,7 @@ class TestMetricsCallback:
         )
 
     def test_consume_metric_data_matches_result(self, limiter, callback):
-        """Verify metric data values match the ConsumeResult."""
+        """Verify that the metric data values match the ConsumeResult."""
         # Act
         result = limiter.consume()
 
@@ -141,7 +140,7 @@ class TestMetricsCallback:
         )
 
     def test_callback_exception_does_not_break_consume(self, limiter, callback):
-        """Verify consume continues working when the callback raises an exception."""
+        """Verify that consume continues to function when the callback raises an exception."""
         # Arrange
         callback.side_effect = RuntimeError("callback failure")
 
@@ -157,7 +156,7 @@ class TestMetricsCallback:
     def test_callback_exception_does_not_break_schedule(
         self, limiter, callback, func_path
     ):
-        """Verify schedule_task continues working when the callback raises an exception."""
+        """Verify that ``schedule_task()`` continues to function when the callback raises an exception."""
         # Arrange
         callback.side_effect = RuntimeError("callback failure")
 
@@ -175,7 +174,7 @@ class TestMetricsCallback:
     def test_consume_after_schedule_emits_both_events(
         self, limiter, callback, func_path
     ):
-        """Verify both schedule and consume events are emitted in sequence."""
+        """Verify that both the schedule and consume events are emitted in sequence."""
         # Arrange
         limiter.schedule_task(func_path, {"key": "value"})
         callback.reset_mock()

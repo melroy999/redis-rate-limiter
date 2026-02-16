@@ -1,12 +1,12 @@
 """Shared Hypothesis strategies for property-based testing.
 
-This module contains reusable Hypothesis strategies used across multiple
-property-based test files.
+This module provides reusable Hypothesis strategies that are employed across
+multiple property-based test files.
 """
 
 from hypothesis import strategies as st
 
-# JSON-compatible strategy: recursive structure of primitives.
+# A JSON-compatible strategy that produces recursive structures of primitive types.
 # This generates arbitrary JSON-serializable Python objects.
 json_value = st.recursive(
     base=st.one_of(
@@ -43,5 +43,5 @@ json_value = st.recursive(
     max_leaves=20,
 )
 
-# Strategy for generating only dictionaries from JSON_value.
+# A strategy that generates only dictionary values derived from the json_value strategy.
 nested_dict = json_value.filter(lambda value: isinstance(value, dict))

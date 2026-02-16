@@ -1,7 +1,8 @@
 """Contract tests for distributed lock implementations.
 
-These tests define the expected behavior for any distributed lock implementation.
-All lock implementations should satisfy these behavioral contracts.
+These tests define the expected behaviour for any distributed lock
+implementation. All lock implementations are required to satisfy these
+behavioural contracts.
 """
 
 import time
@@ -12,11 +13,11 @@ SHORT_TIMEOUT_MS = 10
 class DistributedLockContractTest:
     """Abstract test suite that any distributed lock implementation must pass.
 
-    Subclasses must provide:
-        - redis_client: A fixture that returns a Redis client
-        - lock_key: A fixture that returns a unique lock key for testing
+    Subclasses are required to provide the following:
+        - redis_client: A fixture that returns a Redis client.
+        - lock_key: A fixture that returns a unique lock key for testing.
 
-    The subclass should also define how to create lock instances.
+    The subclass must also define how lock instances are to be created.
     """
 
     # ==================== Contract Tests ====================
@@ -25,12 +26,12 @@ class DistributedLockContractTest:
     def test_lock_acquires_and_releases_automatically(
         redis_client, lock_key, create_lock
     ):
-        """Contract: lock must acquire on enter and release on exit."""
+        """Contract: the lock must be acquired upon context entry and released upon context exit."""
         # Arrange
         lock = create_lock(redis_client, lock_key, timeout_ms=1000)
 
         # Act & Assert
-        # Lock should be acquired in context.
+        # The lock should be acquired within the context.
         with lock as acquired:
             assert acquired is True, "lock should be acquired successfully"
             assert redis_client.exists(lock_key) == 1, "lock key must exist in Redis"
@@ -39,14 +40,14 @@ class DistributedLockContractTest:
             )
 
         # Assert
-        # Lock should be released after context.
+        # The lock should be released after the context is exited.
         assert redis_client.exists(lock_key) == 0, (
             "lock must be released after context exit"
         )
 
     @staticmethod
     def test_lock_prevents_concurrent_acquisition(redis_client, lock_key, create_lock):
-        """Contract: second lock attempt on same key must fail while first holds it."""
+        """Contract: a second lock attempt on the same key must fail while the first lock is held."""
         # Arrange
         lock_1 = create_lock(redis_client, lock_key, timeout_ms=1000)
         lock_2 = create_lock(redis_client, lock_key, timeout_ms=1000)
@@ -65,7 +66,7 @@ class DistributedLockContractTest:
 
     @staticmethod
     def test_lock_expires_after_timeout(redis_client, lock_key, create_lock):
-        """Contract: lock must automatically expire after timeout period."""
+        """Contract: the lock must automatically expire after the timeout period elapses."""
         # Arrange
         lock_1 = create_lock(redis_client, lock_key, timeout_ms=SHORT_TIMEOUT_MS)
         lock_2 = create_lock(redis_client, lock_key, timeout_ms=5000)
@@ -74,20 +75,22 @@ class DistributedLockContractTest:
         with lock_1 as acquired_1:
             assert acquired_1 is True, "first lock should acquire"
 
-            # Wait for expiration (double the timeout time should be safe).
+            # Wait for expiration (doubling the timeout duration should be sufficient).
             time.sleep(2 * SHORT_TIMEOUT_MS / 1000)
             assert redis_client.exists(lock_key) == 0, "lock must expire after timeout"
 
-            # Second lock should now succeed.
+            # The second lock should now succeed.
             with lock_2 as acquired_2:
                 assert acquired_2 is True, (
                     "second lock should acquire after first expires"
                 )
-                assert redis_client.get(lock_key) == lock_2.token
+                assert redis_client.get(lock_key) == lock_2.token, (
+                    "second lock must store its own token"
+                )
 
     @staticmethod
     def test_lock_releases_on_exception(redis_client, lock_key, create_lock):
-        """Contract: lock must release even when exception occurs in context."""
+        """Contract: the lock must be released even when an exception occurs within the context."""
         # Arrange
         lock = create_lock(redis_client, lock_key, timeout_ms=5000)
 
@@ -97,7 +100,7 @@ class DistributedLockContractTest:
                 assert redis_client.exists(lock_key) == 1, "lock should be acquired"
                 raise ValueError("Simulated failure")
         except ValueError:
-            # Do nothing--expected exception.
+            # No action required--the exception is expected.
             pass
 
         # Assert
@@ -107,27 +110,35 @@ class DistributedLockContractTest:
 
     @staticmethod
     def test_lock_only_releases_own_token(redis_client, lock_key, create_lock):
-        """Contract: lock must not delete another lock's token after expiration."""
+        """Contract: the lock must not delete another lock's token after its own expiration."""
         # Arrange
         lock_1 = create_lock(redis_client, lock_key, timeout_ms=SHORT_TIMEOUT_MS)
         lock_2 = create_lock(redis_client, lock_key, timeout_ms=5000)
 
         # Act
         with lock_1 as acquired_1:
-            assert acquired_1 is True
+            assert acquired_1 is True, "first lock should acquire successfully"
 
-            # Wait for lock_1 to expire.
+            # Wait for the first lock to expire.
             time.sleep(2 * SHORT_TIMEOUT_MS / 1000)
 
-            # Lock_2 acquires the expired lock.
+            # The second lock acquires the now-expired lock.
             with lock_2 as acquired_2:
-                assert acquired_2 is True
-                assert redis_client.get(lock_key) == lock_2.token
+                assert acquired_2 is True, (
+                    "second lock should acquire after first expires"
+                )
+                assert lock_2.token != lock_1.token, (
+                    "the two locks must have different tokens"
+                )
+                assert redis_client.get(lock_key) == lock_2.token, (
+                    "second lock must store its own token"
+                )
 
-                # Manually exit lock_1, effectively simulating lock_1 finishing after its lock expired.
+                # Manually exit the first lock, effectively simulating the
+                # scenario in which lock_1 completes after its lock has expired.
                 lock_1.__exit__(None, None, None)
 
-                # Assert lock_2 still holds the lock.
+                # Assert that lock_2 still holds the lock.
                 assert redis_client.exists(lock_key) == 1, (
                     "lock_2 must still exist after lock_1 cleanup"
                 )
@@ -137,7 +148,7 @@ class DistributedLockContractTest:
 
     @staticmethod
     def test_lock_has_unique_token(redis_client, lock_key, create_lock):
-        """Contract: each lock instance must have a unique token."""
+        """Contract: each lock instance must possess a unique token."""
         # Arrange & Act
         lock_1 = create_lock(redis_client, lock_key, timeout_ms=1000)
         lock_2 = create_lock(redis_client, lock_key, timeout_ms=1000)
@@ -148,3 +159,55 @@ class DistributedLockContractTest:
         assert lock_1.token != lock_2.token, "each lock must have a unique token"
         assert len(lock_1.token) > 0, "token must not be empty"
         assert len(lock_2.token) > 0, "token must not be empty"
+
+    @staticmethod
+    def test_lock_cooldown_prevents_reacquisition_under_contention(
+        redis_client, lock_key, create_lock
+    ):
+        """Contract: after contention is detected and cooldown is set, the same worker cannot re-acquire until expiry."""
+        # Arrange
+        worker_id = "worker-A"
+        contention_key = f"{lock_key}:contention"
+        cooldown_ms = 200
+
+        lock_1 = create_lock(
+            redis_client, lock_key, timeout_ms=5000,
+            worker_id=worker_id, cooldown_ms=cooldown_ms, contention_key=contention_key,
+        )
+        # A second lock instance from a different worker to create contention.
+        lock_contender = create_lock(
+            redis_client, lock_key, timeout_ms=5000,
+            worker_id="worker-B", cooldown_ms=cooldown_ms, contention_key=contention_key,
+        )
+
+        # Act
+        # Worker-A acquires, worker-B fails (creating contention), worker-A releases.
+        with lock_1 as acquired_1:
+            assert acquired_1 is True, "first lock should acquire successfully"
+
+            with lock_contender as acquired_contender:
+                assert acquired_contender is False, (
+                    "contender must fail while first lock is held"
+                )
+
+        # Assert
+        # Worker-A should now be in cooldown and unable to re-acquire.
+        lock_retry = create_lock(
+            redis_client, lock_key, timeout_ms=5000,
+            worker_id=worker_id, cooldown_ms=cooldown_ms, contention_key=contention_key,
+        )
+        with lock_retry as acquired_retry:
+            assert acquired_retry is False, (
+                "worker must not re-acquire while in cooldown"
+            )
+
+        # After cooldown expires, worker-A can re-acquire.
+        time.sleep(cooldown_ms / 1000 + 0.05)
+        lock_after = create_lock(
+            redis_client, lock_key, timeout_ms=5000,
+            worker_id=worker_id, cooldown_ms=cooldown_ms, contention_key=contention_key,
+        )
+        with lock_after as acquired_after:
+            assert acquired_after is True, (
+                "worker must be able to re-acquire after cooldown expires"
+            )
