@@ -17,7 +17,7 @@ pytest_cov = ">=7.0.0"
 fakeredis = ">=2.33.0"
 ruff = "^0.15.0"
 mypy = "^1.19.1"
-hypothesis = "^6.151.5"
+hypothesis = "^6.151.6"
 
 [tool.poetry]
 packages = [{include = "celery_rate_limiter", from = "src"}]
