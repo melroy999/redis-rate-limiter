@@ -8,6 +8,7 @@ Redis and Lua scripts.
 import json
 import sys
 import time
+
 import pytest
 
 from celery_rate_limiter import AbstractDistributedRateLimiter
@@ -133,7 +134,7 @@ def position_at_window_percentage(
     actual_pct = (redis_after_ms - target_window_start_ms) / window_ms
 
     if verbose:
-        print(f"\n  [DEBUG] Position after sleep:")
+        print("\n  [DEBUG] Position after sleep:")
         print(
             f"    Position in window: {actual_pct * 100:.1f}% (target: {target_pct * 100:.0f}%)"
         )
@@ -729,7 +730,7 @@ class TestSlidingWindowBehavior:
             sliding_window_limiter.schedule_task(func_path, {"index": i})
 
         # Position at 80% through the window, with an empty previous window.
-        actual_pct = position_at_window_percentage(
+        position_at_window_percentage(
             sliding_window_limiter, target_pct=1 - window_tail, verbose=verbose
         )
 
@@ -898,7 +899,7 @@ class TestSlidingWindowBehavior:
         # A generous 10x tolerance (400ms) is applied.
         max_acceptable = token_interval * 10
 
-        print(f"\n  Drain retry delay test results:")
+        print("\n  Drain retry delay test results:")
         print(f"    Config: limit={limit}, window={window}s")
         print(f"    Token recovery interval: {token_interval * 1000:.1f}ms")
         print(f"    Scheduled drain delay: {scheduled_delay * 1000:.1f}ms")

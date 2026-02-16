@@ -87,6 +87,7 @@ class TestDrainLoop:
         limiter = MagicMock()
         drain_called = Event()
         limiter.drain.side_effect = lambda: drain_called.set()
+
         # A short watchdog interval is used to avoid a slow test.
         loop = DrainLoop(limiter, watchdog_interval=0.15)
 
@@ -94,6 +95,7 @@ class TestDrainLoop:
         # Start the thread by calling wake once, then allow the watchdog to fire.
         loop.wake(0)
         drain_called.wait(timeout=1.0)
+
         # Reset and wait for the watchdog to fire again without any explicit wake.
         drain_called.clear()
         limiter.drain.reset_mock()
@@ -188,11 +190,8 @@ class TestDrainLoop:
         first_call.wait(timeout=2.0)
         time.sleep(0.1)
 
-        # The thread should have survived due to the try/except, but if
-        # _ensure_started detects a dead thread, it restarts it.
-        first_thread = loop._thread
-
-        # Trigger another wake.
+        # Trigger another wake. The thread should have survived due to the
+        # try/except; if _ensure_started detects a dead thread it restarts it.
         loop.wake(0)
         fired = second_call.wait(timeout=2.0)
         loop.shutdown()

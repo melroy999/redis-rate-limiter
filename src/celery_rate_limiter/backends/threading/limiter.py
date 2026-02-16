@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
-
 from typing import Any, ClassVar, Optional
 
 from redis import Redis

@@ -30,8 +30,8 @@ import logging
 from typing import Optional
 
 try:
-    from prometheus_client import CollectorRegistry, Counter, Gauge
     from prometheus_client import REGISTRY as DEFAULT_REGISTRY
+    from prometheus_client import CollectorRegistry, Counter, Gauge
 except ImportError as exc:
     raise ImportError(
         "The prometheus_client package is required for the Prometheus integration. "
