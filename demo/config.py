@@ -27,7 +27,7 @@ REDIS_PORT: int = (
 # ---------------------------------------------------------------------------
 
 LIMITER_ID: str = os.getenv("LIMITER_ID", "k8s-demo")
-LIMIT: int = int(os.getenv("LIMIT", "250"))
+LIMIT: int = int(os.getenv("LIMIT", "2500"))
 WINDOW: float = float(os.getenv("WINDOW", "10.0"))
 MAX_CONCURRENCY: int = int(os.getenv("MAX_CONCURRENCY", "9"))
 
@@ -58,4 +58,4 @@ SINE_CENTER: float = float(os.getenv("SINE_CENTER", "0.75"))
 # Mock task
 # ---------------------------------------------------------------------------
 
-TASK_DURATION: float = float(os.getenv("TASK_DURATION", "0.3"))
+TASK_DURATION: float = float(os.getenv("TASK_DURATION", "0.01"))
