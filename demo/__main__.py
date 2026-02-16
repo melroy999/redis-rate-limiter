@@ -148,6 +148,18 @@ def main() -> None:
     executor = ThreadPoolExecutor(max_workers=5)
 
     exporter = PrometheusMetricsExporter(limiter_id=config.LIMITER_ID)
+
+    # Expose the configured rate limit as a Prometheus gauge so the Grafana
+    # dashboard can draw a dynamic threshold line.
+    effective_rate_gauge = Gauge(
+        "celery_rate_limiter_demo_effective_rate",
+        "Configured rate limit in tasks per second (limit / window).",
+        ["limiter_id"],
+    )
+    effective_rate_gauge.labels(limiter_id=config.LIMITER_ID).set(
+        config.LIMIT / config.WINDOW,
+    )
+
     start_http_server(config.METRICS_PORT)
     logger.info("Prometheus metrics server started on port %d.", config.METRICS_PORT)
 

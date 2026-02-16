@@ -27,14 +27,7 @@
             "pointSize": 5,
             "showPoints": "never",
             "spanNulls": true,
-            "thresholdsStyle": { "mode": "line" }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 25 }
-            ]
+            "thresholdsStyle": { "mode": "off" }
           },
           "unit": "ops"
         },
@@ -52,6 +45,15 @@
             "properties": [
               { "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } },
               { "id": "custom.fillOpacity", "value": 15 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Rate Limit" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } },
+              { "id": "custom.lineStyle", "value": { "dash": [10, 10], "fill": "dash" } },
+              { "id": "custom.lineWidth", "value": 2 },
+              { "id": "custom.fillOpacity", "value": 0 }
             ]
           }
         ]
@@ -72,6 +74,12 @@
           "legendFormat": "Consumed Rate",
           "interval": "1s",
           "refId": "B"
+        },
+        {
+          "expr": "max(celery_rate_limiter_demo_effective_rate{limiter_id=\"$limiter_id\"})",
+          "legendFormat": "Rate Limit",
+          "interval": "1s",
+          "refId": "C"
         }
       ],
       "datasource": { "type": "prometheus", "uid": "${datasource}" }
