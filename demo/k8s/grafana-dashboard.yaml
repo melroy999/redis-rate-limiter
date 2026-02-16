@@ -21,7 +21,7 @@ data:
       "panels": [
         {
           "title": "Offered vs Consumed Rate",
-          "description": "The sine-wave offered rate (tasks/sec) versus the actual consumed rate, capped at the configured limit.",
+          "description": "The theoretical sine-wave offered rate versus the actual rate at which the generator schedules tasks, and the consumed rate as seen by workers.",
           "type": "timeseries",
           "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
           "fieldConfig": {
@@ -52,6 +52,13 @@ data:
                 ]
               },
               {
+                "matcher": { "id": "byName", "options": "Actual Offered Rate" },
+                "properties": [
+                  { "id": "color", "value": { "fixedColor": "light-blue", "mode": "fixed" } },
+                  { "id": "custom.fillOpacity", "value": 10 }
+                ]
+              },
+              {
                 "matcher": { "id": "byName", "options": "Consumed Rate" },
                 "properties": [
                   { "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } },
@@ -75,8 +82,9 @@ data:
           },
           "targets": [
             { "expr": "celery_rate_limiter_demo_offered_rate{limiter_id=\"$limiter_id\"}", "legendFormat": "Offered Rate", "interval": "1s", "refId": "A" },
-            { "expr": "sum(rate(celery_rate_limiter_consume_total{limiter_id=\"$limiter_id\", outcome=\"success\"}[2s]))", "legendFormat": "Consumed Rate", "interval": "1s", "refId": "B" },
-            { "expr": "max(celery_rate_limiter_demo_effective_rate{limiter_id=\"$limiter_id\"})", "legendFormat": "Rate Limit", "interval": "1s", "refId": "C" }
+            { "expr": "sum(rate(celery_rate_limiter_demo_tasks_scheduled_total{limiter_id=\"$limiter_id\"}[2s]))", "legendFormat": "Actual Offered Rate", "interval": "1s", "refId": "B" },
+            { "expr": "sum(rate(celery_rate_limiter_consume_total{limiter_id=\"$limiter_id\", outcome=\"success\"}[2s]))", "legendFormat": "Consumed Rate", "interval": "1s", "refId": "C" },
+            { "expr": "max(celery_rate_limiter_demo_effective_rate{limiter_id=\"$limiter_id\"})", "legendFormat": "Rate Limit", "interval": "1s", "refId": "D" }
           ],
           "datasource": { "type": "prometheus", "uid": "${datasource}" }
         },

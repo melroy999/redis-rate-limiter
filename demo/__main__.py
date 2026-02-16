@@ -18,7 +18,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import redis
-from prometheus_client import Gauge, start_http_server
+from prometheus_client import Counter, Gauge, start_http_server
 
 from celery_rate_limiter import PrometheusMetricsExporter, ThreadPoolRateLimiter
 from demo import config
@@ -102,12 +102,22 @@ def _run_traffic_generator(limiter: ThreadPoolRateLimiter) -> None:
         ["limiter_id"],
     )
 
+    # Counter for actual schedule_task() calls. Using rate() on this in
+    # Grafana gives the real production rate, which may lag behind the
+    # theoretical offered rate due to Redis round-trip latency.
+    tasks_scheduled_counter = Counter(
+        "celery_rate_limiter_demo_tasks_scheduled_total",
+        "Total number of tasks scheduled by the traffic generator.",
+        ["limiter_id"],
+    )
+
     effective_rate = config.LIMIT / config.WINDOW
     seq = 0
     t0 = time.monotonic()
 
     while not _shutdown_event.is_set():
-        elapsed = time.monotonic() - t0
+        loop_start = time.monotonic()
+        elapsed = loop_start - t0
         rate = effective_rate * (
             config.SINE_CENTER
             + config.SINE_AMPLITUDE * math.sin(2 * math.pi * elapsed / config.SINE_PERIOD)
@@ -116,10 +126,14 @@ def _run_traffic_generator(limiter: ThreadPoolRateLimiter) -> None:
         offered_rate_gauge.labels(limiter_id=config.LIMITER_ID).set(rate)
 
         limiter.schedule_task(FUNC_PATH, {"seq": seq})
+        tasks_scheduled_counter.labels(limiter_id=config.LIMITER_ID).inc()
         seq += 1
 
-        interval = 1.0 / rate
-        _shutdown_event.wait(interval)
+        # Subtract time already spent (Redis round-trip, etc.) from the
+        # sleep interval so the actual scheduling rate matches the target.
+        remaining = (1.0 / rate) - (time.monotonic() - loop_start)
+        if remaining > 0:
+            _shutdown_event.wait(remaining)
 
 
 # ---------------------------------------------------------------------------
