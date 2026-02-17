@@ -247,12 +247,8 @@ class TestRateLimitingIntegration:
         result = integration_limiter.consume()
 
         # Assert
-        assert result["success"] is False, (
-            "consume should fail on empty buffer"
-        )
-        assert result["task"] is None, (
-            "no task should be returned from empty buffer"
-        )
+        assert result["success"] is False, "consume should fail on empty buffer"
+        assert result["task"] is None, "no task should be returned from empty buffer"
         assert result["remaining_tasks"] == 0, (
             "remaining tasks should be 0 on empty buffer"
         )
@@ -609,9 +605,7 @@ class TestSlidingWindowBehavior:
         if keys:
             redis_client.delete(*keys)
 
-    def test_long_term_rate_converges_to_limit(
-        self, sliding_window_limiter, func_path
-    ):
+    def test_long_term_rate_converges_to_limit(self, sliding_window_limiter, func_path):
         """Verify that the average consumption rate converges to the configured limit.
 
         Refer to ``tests/integration/README.md`` for the full derivation

@@ -110,9 +110,7 @@ class TestLocalCapacityGuard:
         assert limiter._has_local_capacity() is True, (
             "_has_local_capacity should return True when no tasks are dispatched"
         )
-        assert limiter._local_dispatched == 0, (
-            "initial dispatch count should be zero"
-        )
+        assert limiter._local_dispatched == 0, "initial dispatch count should be zero"
 
     def test_has_local_capacity_returns_false_at_max_workers(self, limiter):
         """Verify that ``_has_local_capacity()`` returns ``False`` when the dispatch count equals ``max_workers``."""
@@ -125,7 +123,9 @@ class TestLocalCapacityGuard:
             "_has_local_capacity should return False at max_workers"
         )
 
-    def test_dispatch_task_increments_and_decrements_counter(self, limiter, func_path, task_id):
+    def test_dispatch_task_increments_and_decrements_counter(
+        self, limiter, func_path, task_id
+    ):
         """Verify that ``_dispatch_task()`` increments the counter before submission and decrements after completion."""
         # Arrange
         started = threading.Event()

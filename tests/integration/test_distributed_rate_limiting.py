@@ -47,10 +47,14 @@ def schedule_n_tasks(limiter: MinimalRateLimiter, n: int, func_path: str) -> lis
 
 
 def make_distributed_limiter(
-    redis_client, limiter_id: str, **kwargs,
+    redis_client,
+    limiter_id: str,
+    **kwargs,
 ) -> MinimalRateLimiter:
     """Create a MinimalRateLimiter for distributed testing."""
-    defaults = dict(limit=25, window=1.0, max_concurrency=100, max_age=3600, lease_duration=30)
+    defaults = dict(
+        limit=25, window=1.0, max_concurrency=100, max_age=3600, lease_duration=30
+    )
     defaults.update(kwargs)
     return MinimalRateLimiter(
         redis_client=redis_client,
@@ -68,7 +72,10 @@ class TestDistributedRateLimiting:
     """Verify that multiple consumers sharing Redis enforce the global rate limit."""
 
     def test_multi_consumer_per_window_consumption_bounded(
-        self, redis_client, default_limiter_id, func_path,
+        self,
+        redis_client,
+        default_limiter_id,
+        func_path,
     ):
         """N concurrent consumers never exceed the configured limit per window.
 
@@ -85,7 +92,9 @@ class TestDistributedRateLimiting:
 
         limiter_id = f"{default_limiter_id}_multi_consumer"
         limiters = [
-            make_distributed_limiter(redis_client, limiter_id, limit=limit, window=window)
+            make_distributed_limiter(
+                redis_client, limiter_id, limit=limit, window=window
+            )
             for _ in range(n_workers)
         ]
 
@@ -113,7 +122,9 @@ class TestDistributedRateLimiting:
                 f.result()
 
         # Assert
-        assert len(consumed_timestamps) > 0, "expected at least some successful consumes"
+        assert len(consumed_timestamps) > 0, (
+            "expected at least some successful consumes"
+        )
         t0 = consumed_timestamps[0]
         window_counts: dict[int, int] = {}
         for ts in consumed_timestamps:
@@ -136,7 +147,10 @@ class TestDistributedRateLimiting:
             redis_client.delete(*keys)
 
     def test_buffer_grows_when_offered_exceeds_limit(
-        self, redis_client, default_limiter_id, func_path,
+        self,
+        redis_client,
+        default_limiter_id,
+        func_path,
     ):
         """The buffer depth increases when tasks are scheduled faster than the limit allows.
 
@@ -149,7 +163,10 @@ class TestDistributedRateLimiting:
         window = 1.0
         limiter_id = f"{default_limiter_id}_buffer_grows"
         limiter = make_distributed_limiter(
-            redis_client, limiter_id, limit=limit, window=window,
+            redis_client,
+            limiter_id,
+            limit=limit,
+            window=window,
         )
 
         stop = threading.Event()
@@ -192,7 +209,10 @@ class TestDistributedRateLimiting:
             redis_client.delete(*keys)
 
     def test_buffer_drains_when_offered_below_limit(
-        self, redis_client, default_limiter_id, func_path,
+        self,
+        redis_client,
+        default_limiter_id,
+        func_path,
     ):
         """The buffer eventually empties when the offered rate drops below the limit.
 
@@ -205,7 +225,10 @@ class TestDistributedRateLimiting:
         window = 1.0
         limiter_id = f"{default_limiter_id}_buffer_drains"
         limiter = make_distributed_limiter(
-            redis_client, limiter_id, limit=limit, window=window,
+            redis_client,
+            limiter_id,
+            limit=limit,
+            window=window,
         )
 
         prefill = limit * 2
@@ -254,7 +277,10 @@ class TestDistributedRateLimiting:
             redis_client.delete(*keys)
 
     def test_sine_wave_throughput_bounded(
-        self, redis_client, default_limiter_id, func_path,
+        self,
+        redis_client,
+        default_limiter_id,
+        func_path,
     ):
         """Under sine-wave traffic, the consumed rate per window never exceeds 2x the limit.
 
@@ -272,7 +298,9 @@ class TestDistributedRateLimiting:
 
         limiter_id = f"{default_limiter_id}_sine_wave"
         limiters = [
-            make_distributed_limiter(redis_client, limiter_id, limit=limit, window=window)
+            make_distributed_limiter(
+                redis_client, limiter_id, limit=limit, window=window
+            )
             for _ in range(n_workers)
         ]
 
@@ -285,7 +313,9 @@ class TestDistributedRateLimiting:
             t0 = time.monotonic()
             while not stop.is_set():
                 elapsed = time.monotonic() - t0
-                rate = limit * (1 + sine_amplitude * math.sin(2 * math.pi * elapsed / sine_period))
+                rate = limit * (
+                    1 + sine_amplitude * math.sin(2 * math.pi * elapsed / sine_period)
+                )
                 rate = max(1.0, rate)
                 interval = 1.0 / rate
                 limiters[0].schedule_task(func_path, {"seq": seq})
@@ -312,7 +342,9 @@ class TestDistributedRateLimiting:
                 f.result()
 
         # Assert
-        assert len(consumed_timestamps) > 0, "expected at least some successful consumes"
+        assert len(consumed_timestamps) > 0, (
+            "expected at least some successful consumes"
+        )
         t0 = consumed_timestamps[0]
         window_counts: dict[int, int] = {}
         for ts in consumed_timestamps:

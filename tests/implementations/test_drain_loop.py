@@ -164,7 +164,9 @@ class TestDrainLoop:
         loop.shutdown()
 
         # Assert
-        assert fired, "drain loop should survive an exception and process subsequent wakes"
+        assert fired, (
+            "drain loop should survive an exception and process subsequent wakes"
+        )
         assert call_count >= 2, "drain should have been called at least twice"
 
     def test_ensure_started_restarts_dead_thread(self):

@@ -158,7 +158,7 @@ class RateLimiterContractTest:
             "reset_in_ms",
             "remaining_tasks",
             "val_current",
-            "val_previous"
+            "val_previous",
         }
         assert isinstance(result, dict), "consume result must be a dictionary"
         assert set(result.keys()) == expected_keys, (

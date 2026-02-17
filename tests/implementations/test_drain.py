@@ -365,9 +365,7 @@ class TestDrain:
                 "execution_lock",
                 side_effect=lambda: self.lock_result(True),
             ),
-            patch.object(
-                tracking_limiter, "consume", side_effect=RuntimeError("fail")
-            ),
+            patch.object(tracking_limiter, "consume", side_effect=RuntimeError("fail")),
         ):
             # Two consecutive failures to verify escalating backoff.
             tracking_limiter.drain()
@@ -382,9 +380,7 @@ class TestDrain:
         )
         first_delay = tracking_limiter.scheduled_drains[0]
         second_delay = tracking_limiter.scheduled_drains[1]
-        assert first_delay == pytest.approx(0.1), (
-            "first recovery delay should be 100ms"
-        )
+        assert first_delay == pytest.approx(0.1), "first recovery delay should be 100ms"
         assert second_delay == pytest.approx(0.2), (
             "second recovery delay should be 200ms"
         )
@@ -511,7 +507,9 @@ class TestDrain:
 class TestDrainDisabled:
     """Tests for scheduler-only mode (``drain_enabled=False``)."""
 
-    def test_schedule_drain_is_noop_when_drain_disabled(self, redis_client, default_limiter_id):
+    def test_schedule_drain_is_noop_when_drain_disabled(
+        self, redis_client, default_limiter_id
+    ):
         """Verify that ``_schedule_drain()`` is a no-op when ``drain_enabled=False``."""
         from tests.implementations.conftest import TrackingRateLimiter
 
@@ -547,7 +545,9 @@ class TestDrainDisabled:
             "drain loop must remain None when drain_enabled=False"
         )
 
-    def test_shutdown_is_safe_when_drain_disabled(self, redis_client, default_limiter_id):
+    def test_shutdown_is_safe_when_drain_disabled(
+        self, redis_client, default_limiter_id
+    ):
         """Verify that ``shutdown()`` does not raise when ``drain_enabled=False``."""
         from tests.implementations.conftest import MinimalRateLimiter
 
@@ -569,7 +569,9 @@ class TestDrainDisabled:
 class TestCrossProcessDrainSignal:
     """Tests for the Redis Pub/Sub cross-process drain notification mechanism."""
 
-    def test_trigger_consume_publishes_drain_signal(self, redis_client, default_limiter_id):
+    def test_trigger_consume_publishes_drain_signal(
+        self, redis_client, default_limiter_id
+    ):
         """Verify that ``trigger_consume()`` publishes a drain signal to the Pub/Sub channel."""
         # Arrange
         # Set up a test subscriber to capture the message.
@@ -593,9 +595,7 @@ class TestCrossProcessDrainSignal:
 
             # Assert
             message = test_sub.get_message(timeout=2.0)
-            assert message is not None, (
-                "trigger_consume should publish a drain signal"
-            )
+            assert message is not None, "trigger_consume should publish a drain signal"
             assert message["type"] == "message", (
                 "received message must be of type 'message'"
             )
@@ -607,7 +607,9 @@ class TestCrossProcessDrainSignal:
             test_sub.unsubscribe()
             test_sub.close()
 
-    def test_subscriber_wakes_drain_on_cross_process_signal(self, redis_client, default_limiter_id):
+    def test_subscriber_wakes_drain_on_cross_process_signal(
+        self, redis_client, default_limiter_id
+    ):
         """Verify that a drain signal from one limiter wakes another limiter's drain loop."""
         # Arrange
         # Two limiter instances with the same ID (simulating two workers).
@@ -645,7 +647,9 @@ class TestCrossProcessDrainSignal:
             limiter_a.shutdown()
             limiter_b.shutdown()
 
-    def test_subscriber_ignores_self_notification(self, redis_client, default_limiter_id):
+    def test_subscriber_ignores_self_notification(
+        self, redis_client, default_limiter_id
+    ):
         """Verify that the subscriber ignores drain signals originating from the local process."""
         # Arrange
         limiter_id = f"{default_limiter_id}_self"

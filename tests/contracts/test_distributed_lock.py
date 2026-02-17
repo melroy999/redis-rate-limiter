@@ -171,13 +171,21 @@ class DistributedLockContractTest:
         cooldown_ms = 200
 
         lock_1 = create_lock(
-            redis_client, lock_key, timeout_ms=5000,
-            worker_id=worker_id, cooldown_ms=cooldown_ms, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id=worker_id,
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
         )
         # A second lock instance from a different worker to create contention.
         lock_contender = create_lock(
-            redis_client, lock_key, timeout_ms=5000,
-            worker_id="worker-B", cooldown_ms=cooldown_ms, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id="worker-B",
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
         )
 
         # Act
@@ -193,8 +201,12 @@ class DistributedLockContractTest:
         # Assert
         # Worker-A should now be in cooldown and unable to re-acquire.
         lock_retry = create_lock(
-            redis_client, lock_key, timeout_ms=5000,
-            worker_id=worker_id, cooldown_ms=cooldown_ms, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id=worker_id,
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
         )
         with lock_retry as acquired_retry:
             assert acquired_retry is False, (
@@ -204,8 +216,12 @@ class DistributedLockContractTest:
         # After cooldown expires, worker-A can re-acquire.
         time.sleep(cooldown_ms / 1000 + 0.05)
         lock_after = create_lock(
-            redis_client, lock_key, timeout_ms=5000,
-            worker_id=worker_id, cooldown_ms=cooldown_ms, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id=worker_id,
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
         )
         with lock_after as acquired_after:
             assert acquired_after is True, (

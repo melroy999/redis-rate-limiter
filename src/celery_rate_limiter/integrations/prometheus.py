@@ -169,5 +169,6 @@ class PrometheusMetricsExporter:
         """Process a schedule event, updating the schedule counter."""
         scheduled = "true" if data.get("scheduled") else "false"
         self._schedule_total.labels(
-            limiter_id=self._limiter_id, scheduled=scheduled,
+            limiter_id=self._limiter_id,
+            scheduled=scheduled,
         ).inc()

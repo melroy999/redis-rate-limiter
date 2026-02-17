@@ -58,7 +58,9 @@ def _connect_redis() -> redis.Redis:
             client.ping()
             return client
         except redis.ConnectionError:
-            logger.info("Waiting for Redis (%s:%d)...", config.REDIS_HOST, config.REDIS_PORT)
+            logger.info(
+                "Waiting for Redis (%s:%d)...", config.REDIS_HOST, config.REDIS_PORT
+            )
             time.sleep(1)
     raise RuntimeError("Could not connect to Redis after 30 attempts.")
 
@@ -120,7 +122,8 @@ def _run_traffic_generator(limiter: ThreadPoolRateLimiter) -> None:
         elapsed = loop_start - t0
         rate = effective_rate * (
             config.SINE_CENTER
-            + config.SINE_AMPLITUDE * math.sin(2 * math.pi * elapsed / config.SINE_PERIOD)
+            + config.SINE_AMPLITUDE
+            * math.sin(2 * math.pi * elapsed / config.SINE_PERIOD)
         )
         rate = max(0.1, rate)
         offered_rate_gauge.labels(limiter_id=config.LIMITER_ID).set(rate)
@@ -155,7 +158,11 @@ def main() -> None:
     pod_name = os.getenv("HOSTNAME", "local")
     logger.info(
         "Starting demo in %s mode: pod=%s, limit=%d, window=%.1fs, concurrency=%d.",
-        mode, pod_name, config.LIMIT, config.WINDOW, config.MAX_CONCURRENCY,
+        mode,
+        pod_name,
+        config.LIMIT,
+        config.WINDOW,
+        config.MAX_CONCURRENCY,
     )
 
     redis_client = _connect_redis()
@@ -187,10 +194,14 @@ def main() -> None:
     if config.IS_TRAFFIC_GENERATOR:
         logger.info(
             "Traffic generator active: period=%.0fs, center=%.2f, amplitude=%.2f.",
-            config.SINE_PERIOD, config.SINE_CENTER, config.SINE_AMPLITUDE,
+            config.SINE_PERIOD,
+            config.SINE_CENTER,
+            config.SINE_AMPLITUDE,
         )
         generator_thread = threading.Thread(
-            target=_run_traffic_generator, args=(limiter,), daemon=True,
+            target=_run_traffic_generator,
+            args=(limiter,),
+            daemon=True,
         )
         generator_thread.start()
     else:

@@ -29,14 +29,17 @@ class TestConsumeCounters:
     def test_success_increments_counter(self, exporter, registry, default_limiter_id):
         """Verify that a successful consume event increments the success counter."""
         # Act
-        exporter("consume", {
-            "success": True,
-            "expired": False,
-            "remaining_tokens": 10,
-            "active_concurrency": 2,
-            "reset_in_ms": 500,
-            "remaining_tasks": 5,
-        })
+        exporter(
+            "consume",
+            {
+                "success": True,
+                "expired": False,
+                "remaining_tokens": 10,
+                "active_concurrency": 2,
+                "reset_in_ms": 500,
+                "remaining_tasks": 5,
+            },
+        )
 
         # Assert
         value = registry.get_sample_value(
@@ -48,14 +51,17 @@ class TestConsumeCounters:
     def test_rejected_increments_counter(self, exporter, registry, default_limiter_id):
         """Verify that a rejected consume event increments the rejected counter."""
         # Act
-        exporter("consume", {
-            "success": False,
-            "expired": False,
-            "remaining_tokens": 0,
-            "active_concurrency": 3,
-            "reset_in_ms": 200,
-            "remaining_tasks": 8,
-        })
+        exporter(
+            "consume",
+            {
+                "success": False,
+                "expired": False,
+                "remaining_tokens": 0,
+                "active_concurrency": 3,
+                "reset_in_ms": 200,
+                "remaining_tasks": 8,
+            },
+        )
 
         # Assert
         value = registry.get_sample_value(
@@ -67,14 +73,17 @@ class TestConsumeCounters:
     def test_expired_increments_counter(self, exporter, registry, default_limiter_id):
         """Verify that an expired consume event increments the expired counter."""
         # Act
-        exporter("consume", {
-            "success": False,
-            "expired": True,
-            "remaining_tokens": 5,
-            "active_concurrency": 1,
-            "reset_in_ms": 300,
-            "remaining_tasks": 0,
-        })
+        exporter(
+            "consume",
+            {
+                "success": False,
+                "expired": True,
+                "remaining_tokens": 5,
+                "active_concurrency": 1,
+                "reset_in_ms": 300,
+                "remaining_tasks": 0,
+            },
+        )
 
         # Assert
         value = registry.get_sample_value(
@@ -87,14 +96,17 @@ class TestConsumeCounters:
         """Verify that multiple consume events accumulate in the counter."""
         # Act
         for _ in range(5):
-            exporter("consume", {
-                "success": True,
-                "expired": False,
-                "remaining_tokens": 10,
-                "active_concurrency": 1,
-                "reset_in_ms": 500,
-                "remaining_tasks": 3,
-            })
+            exporter(
+                "consume",
+                {
+                    "success": True,
+                    "expired": False,
+                    "remaining_tokens": 10,
+                    "active_concurrency": 1,
+                    "reset_in_ms": 500,
+                    "remaining_tasks": 3,
+                },
+            )
 
         # Assert
         value = registry.get_sample_value(
@@ -115,68 +127,95 @@ class TestConsumeGauges:
     def test_gauges_updated_on_consume(self, exporter, registry, default_limiter_id):
         """Verify that all gauges are set after a consume event."""
         # Act
-        exporter("consume", {
-            "success": True,
-            "expired": False,
-            "remaining_tokens": 18,
-            "active_concurrency": 3,
-            "reset_in_ms": 400,
-            "remaining_tasks": 7,
-        })
+        exporter(
+            "consume",
+            {
+                "success": True,
+                "expired": False,
+                "remaining_tokens": 18,
+                "active_concurrency": 3,
+                "reset_in_ms": 400,
+                "remaining_tasks": 7,
+            },
+        )
 
         # Assert
-        assert registry.get_sample_value(
-            "celery_rate_limiter_remaining_tokens",
-            {"limiter_id": default_limiter_id},
-        ) == 18.0, "remaining tokens gauge should reflect the event value"
+        assert (
+            registry.get_sample_value(
+                "celery_rate_limiter_remaining_tokens",
+                {"limiter_id": default_limiter_id},
+            )
+            == 18.0
+        ), "remaining tokens gauge should reflect the event value"
 
-        assert registry.get_sample_value(
-            "celery_rate_limiter_active_concurrency",
-            {"limiter_id": default_limiter_id},
-        ) == 3.0, "active concurrency gauge should reflect the event value"
+        assert (
+            registry.get_sample_value(
+                "celery_rate_limiter_active_concurrency",
+                {"limiter_id": default_limiter_id},
+            )
+            == 3.0
+        ), "active concurrency gauge should reflect the event value"
 
-        assert registry.get_sample_value(
-            "celery_rate_limiter_buffer_depth",
-            {"limiter_id": default_limiter_id},
-        ) == 7.0, "buffer depth gauge should reflect the event value"
+        assert (
+            registry.get_sample_value(
+                "celery_rate_limiter_buffer_depth",
+                {"limiter_id": default_limiter_id},
+            )
+            == 7.0
+        ), "buffer depth gauge should reflect the event value"
 
     def test_gauges_reflect_latest_value(self, exporter, registry, default_limiter_id):
         """Verify that gauges reflect the most recent event, not accumulate."""
         # Arrange
-        exporter("consume", {
-            "success": True,
-            "expired": False,
-            "remaining_tokens": 20,
-            "active_concurrency": 1,
-            "reset_in_ms": 500,
-            "remaining_tasks": 10,
-        })
+        exporter(
+            "consume",
+            {
+                "success": True,
+                "expired": False,
+                "remaining_tokens": 20,
+                "active_concurrency": 1,
+                "reset_in_ms": 500,
+                "remaining_tasks": 10,
+            },
+        )
 
         # Act
-        exporter("consume", {
-            "success": True,
-            "expired": False,
-            "remaining_tokens": 5,
-            "active_concurrency": 3,
-            "reset_in_ms": 200,
-            "remaining_tasks": 2,
-        })
+        exporter(
+            "consume",
+            {
+                "success": True,
+                "expired": False,
+                "remaining_tokens": 5,
+                "active_concurrency": 3,
+                "reset_in_ms": 200,
+                "remaining_tasks": 2,
+            },
+        )
 
         # Assert
-        assert registry.get_sample_value(
-            "celery_rate_limiter_remaining_tokens",
-            {"limiter_id": default_limiter_id},
-        ) == 5.0, "remaining tokens gauge should reflect the latest value"
+        assert (
+            registry.get_sample_value(
+                "celery_rate_limiter_remaining_tokens",
+                {"limiter_id": default_limiter_id},
+            )
+            == 5.0
+        ), "remaining tokens gauge should reflect the latest value"
 
-        assert registry.get_sample_value(
-            "celery_rate_limiter_active_concurrency",
-            {"limiter_id": default_limiter_id},
-        ) == 3.0, "active concurrency gauge should reflect the latest value"
+        assert (
+            registry.get_sample_value(
+                "celery_rate_limiter_active_concurrency",
+                {"limiter_id": default_limiter_id},
+            )
+            == 3.0
+        ), "active concurrency gauge should reflect the latest value"
 
-        assert registry.get_sample_value(
-            "celery_rate_limiter_buffer_depth",
-            {"limiter_id": default_limiter_id},
-        ) == 2.0, "buffer depth gauge should reflect the latest value"
+        assert (
+            registry.get_sample_value(
+                "celery_rate_limiter_buffer_depth",
+                {"limiter_id": default_limiter_id},
+            )
+            == 2.0
+        ), "buffer depth gauge should reflect the latest value"
 
 
 # ---------------------------------------------------------------------------
@@ -236,22 +275,31 @@ class TestEdgeCases:
         PrometheusMetricsExporter(limiter_id="b", registry=registry_b)
 
         # Act
-        exporter_a("consume", {
-            "success": True,
-            "expired": False,
-            "remaining_tokens": 10,
-            "active_concurrency": 1,
-            "reset_in_ms": 500,
-            "remaining_tasks": 0,
-        })
+        exporter_a(
+            "consume",
+            {
+                "success": True,
+                "expired": False,
+                "remaining_tokens": 10,
+                "active_concurrency": 1,
+                "reset_in_ms": 500,
+                "remaining_tasks": 0,
+            },
+        )
 
         # Assert
-        assert registry_a.get_sample_value(
-            "celery_rate_limiter_consume_total",
-            {"limiter_id": "a", "outcome": "success"},
-        ) == 1.0, "registry A should contain the metric from exporter A"
+        assert (
+            registry_a.get_sample_value(
+                "celery_rate_limiter_consume_total",
+                {"limiter_id": "a", "outcome": "success"},
+            )
+            == 1.0
+        ), "registry A should contain the metric from exporter A"
 
-        assert registry_b.get_sample_value(
-            "celery_rate_limiter_consume_total",
-            {"limiter_id": "a", "outcome": "success"},
-        ) is None, "registry B should not contain metrics from exporter A"
+        assert (
+            registry_b.get_sample_value(
+                "celery_rate_limiter_consume_total",
+                {"limiter_id": "a", "outcome": "success"},
+            )
+            is None
+        ), "registry B should not contain metrics from exporter A"

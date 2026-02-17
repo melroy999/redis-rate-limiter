@@ -103,8 +103,11 @@ def main() -> None:
     logger.info("Starting Celery worker subprocess...")
     worker_proc = subprocess.Popen(
         [
-            sys.executable, "-m", "celery",
-            "-A", "examples.celery.demo:celery_app",
+            sys.executable,
+            "-m",
+            "celery",
+            "-A",
+            "examples.celery.demo:celery_app",
             "worker",
             f"--concurrency={CELERY_WORKER_CONCURRENCY}",
             "--loglevel=warning",

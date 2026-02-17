@@ -51,7 +51,8 @@ def setup_logging(log_dir: str) -> None:
 
     # Demonstration log: captures output from all examples.* loggers.
     demo_handler = logging.FileHandler(
-        os.path.join(log_dir, "demo.log"), mode="w",
+        os.path.join(log_dir, "demo.log"),
+        mode="w",
     )
     demo_handler.setLevel(logging.DEBUG)
     demo_handler.setFormatter(fmt)
@@ -60,7 +61,8 @@ def setup_logging(log_dir: str) -> None:
 
     # Rate limiter internals log: captures the library's debug output.
     limiter_handler = logging.FileHandler(
-        os.path.join(log_dir, "limiter_debug.log"), mode="w",
+        os.path.join(log_dir, "limiter_debug.log"),
+        mode="w",
     )
     limiter_handler.setLevel(logging.DEBUG)
     limiter_handler.setFormatter(fmt)
@@ -100,15 +102,16 @@ def run_demo(
 
     logger.info(
         "Limiter created: limit=%d/%.1fs, concurrency=%d",
-        LIMIT, WINDOW, MAX_CONCURRENCY,
+        LIMIT,
+        WINDOW,
+        MAX_CONCURRENCY,
     )
 
     # --- Deduplication demonstration ------------------------------------------
     logger.info("--- Deduplication demo ---")
     logger.info("Scheduling the same task %d times...", DEDUP_COUNT)
     accepted = sum(
-        limiter.schedule_task(FUNC_PATH, {"user_id": 1})[0]
-        for _ in range(DEDUP_COUNT)
+        limiter.schedule_task(FUNC_PATH, {"user_id": 1})[0] for _ in range(DEDUP_COUNT)
     )
     logger.info("Accepted: %d/%d (duplicates rejected)", accepted, DEDUP_COUNT)
 
@@ -137,7 +140,10 @@ def run_demo(
     total = BURST_COUNT + ERROR_COUNT
     logger.info(
         "Scheduling %d tasks (seed=%d): %d normal + %d failing, interleaved by priority",
-        total, PRIORITY_SEED, BURST_COUNT, ERROR_COUNT,
+        total,
+        PRIORITY_SEED,
+        BURST_COUNT,
+        ERROR_COUNT,
     )
     for func_path, payload, priority in tasks:
         limiter.schedule_task(func_path, payload, priority=priority)

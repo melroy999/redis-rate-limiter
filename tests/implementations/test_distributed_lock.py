@@ -75,8 +75,12 @@ class TestDistributedLock(DistributedLockContractTest):
         contention_key = f"{lock_key}:contention"
         cooldown_key = f"{lock_key}:cd:{worker_id}"
         lock = create_lock(
-            redis_client, lock_key, timeout_ms=5000,
-            worker_id=worker_id, cooldown_ms=200, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id=worker_id,
+            cooldown_ms=200,
+            contention_key=contention_key,
         )
 
         # Act
@@ -100,12 +104,20 @@ class TestDistributedLock(DistributedLockContractTest):
         cooldown_ms = 200
 
         lock_holder = create_lock(
-            redis_client, lock_key, timeout_ms=5000,
-            worker_id=worker_id, cooldown_ms=cooldown_ms, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id=worker_id,
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
         )
         lock_contender = create_lock(
-            redis_client, lock_key, timeout_ms=5000,
-            worker_id="worker-B", cooldown_ms=cooldown_ms, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id="worker-B",
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
         )
 
         # Act
@@ -123,24 +135,32 @@ class TestDistributedLock(DistributedLockContractTest):
         assert redis_client.exists(cooldown_key) == 1, (
             "cooldown key must be created when contention was detected"
         )
-        assert redis_client.get(cooldown_key) == "1", (
-            "cooldown key value must be '1'"
-        )
+        assert redis_client.get(cooldown_key) == "1", "cooldown key value must be '1'"
 
     @staticmethod
-    def test_cooldown_does_not_affect_other_workers(redis_client, lock_key, create_lock):
+    def test_cooldown_does_not_affect_other_workers(
+        redis_client, lock_key, create_lock
+    ):
         """Implementation detail: a cooldown on one worker must not prevent other workers from acquiring."""
         # Arrange
         contention_key = f"{lock_key}:contention"
         cooldown_ms = 500
 
         lock_a = create_lock(
-            redis_client, lock_key, timeout_ms=5000,
-            worker_id="worker-A", cooldown_ms=cooldown_ms, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id="worker-A",
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
         )
         lock_contender = create_lock(
-            redis_client, lock_key, timeout_ms=5000,
-            worker_id="worker-B", cooldown_ms=cooldown_ms, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id="worker-B",
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
         )
 
         # Create contention so worker-A gets a cooldown.
@@ -157,8 +177,12 @@ class TestDistributedLock(DistributedLockContractTest):
         # Act
         # Worker-B should be able to acquire the lock despite worker-A's cooldown.
         lock_b = create_lock(
-            redis_client, lock_key, timeout_ms=5000,
-            worker_id="worker-B", cooldown_ms=cooldown_ms, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id="worker-B",
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
         )
         with lock_b as acquired_b:
             assert acquired_b is True, (
@@ -175,12 +199,20 @@ class TestDistributedLock(DistributedLockContractTest):
         cooldown_ms = 500
 
         lock_holder = create_lock(
-            redis_client, lock_key, timeout_ms=5000,
-            worker_id=worker_id, cooldown_ms=cooldown_ms, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id=worker_id,
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
         )
         lock_contender = create_lock(
-            redis_client, lock_key, timeout_ms=5000,
-            worker_id="worker-B", cooldown_ms=cooldown_ms, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id="worker-B",
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
         )
 
         # Act
@@ -197,7 +229,9 @@ class TestDistributedLock(DistributedLockContractTest):
         )
 
     @staticmethod
-    def test_cooldown_expires_allowing_reacquisition(redis_client, lock_key, create_lock):
+    def test_cooldown_expires_allowing_reacquisition(
+        redis_client, lock_key, create_lock
+    ):
         """Implementation detail: the worker must be able to re-acquire after the cooldown TTL expires."""
         # Arrange
         worker_id = "worker-A"
@@ -205,12 +239,20 @@ class TestDistributedLock(DistributedLockContractTest):
         cooldown_ms = 50
 
         lock_holder = create_lock(
-            redis_client, lock_key, timeout_ms=5000,
-            worker_id=worker_id, cooldown_ms=cooldown_ms, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id=worker_id,
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
         )
         lock_contender = create_lock(
-            redis_client, lock_key, timeout_ms=5000,
-            worker_id="worker-B", cooldown_ms=cooldown_ms, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id="worker-B",
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
         )
 
         # Create contention and release to trigger cooldown.
@@ -228,8 +270,12 @@ class TestDistributedLock(DistributedLockContractTest):
         # Wait for the cooldown to expire and attempt re-acquisition.
         time.sleep(cooldown_ms / 1000 + 0.05)
         lock_retry = create_lock(
-            redis_client, lock_key, timeout_ms=5000,
-            worker_id=worker_id, cooldown_ms=cooldown_ms, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id=worker_id,
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
         )
         with lock_retry as acquired:
             assert acquired is True, (
@@ -244,12 +290,20 @@ class TestDistributedLock(DistributedLockContractTest):
         cooldown_ms = 200
 
         lock_holder = create_lock(
-            redis_client, lock_key, timeout_ms=5000,
-            worker_id="worker-A", cooldown_ms=cooldown_ms, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id="worker-A",
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
         )
         lock_contender = create_lock(
-            redis_client, lock_key, timeout_ms=5000,
-            worker_id="worker-B", cooldown_ms=cooldown_ms, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id="worker-B",
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
         )
 
         # Act
@@ -277,12 +331,20 @@ class TestDistributedLock(DistributedLockContractTest):
         cooldown_ms = 200
 
         lock_holder = create_lock(
-            redis_client, lock_key, timeout_ms=timeout_ms,
-            worker_id="worker-A", cooldown_ms=cooldown_ms, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=timeout_ms,
+            worker_id="worker-A",
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
         )
         lock_contender = create_lock(
-            redis_client, lock_key, timeout_ms=timeout_ms,
-            worker_id="worker-B", cooldown_ms=cooldown_ms, contention_key=contention_key,
+            redis_client,
+            lock_key,
+            timeout_ms=timeout_ms,
+            worker_id="worker-B",
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
         )
 
         # Act
@@ -299,4 +361,3 @@ class TestDistributedLock(DistributedLockContractTest):
             assert 0 < ttl <= timeout_ms, (
                 f"contention counter TTL must be in (0, {timeout_ms}], got {ttl}ms"
             )
-

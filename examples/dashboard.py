@@ -76,8 +76,12 @@ class Dashboard:
         usage_pct = min(1.0, val_current / limit) if limit > 0 else 0
         filled = int(usage_pct * bar_width)
         bar = "#" * filled + "-" * (bar_width - filled)
-        print(f"RATE LIMIT:  [{bar}] {val_current}/{limit} (resets in {r['reset_in_ms']}ms)")
-        print(f"             previous: {r['val_previous']}, estimated: {r['tokens_used']:.1f}")
+        print(
+            f"RATE LIMIT:  [{bar}] {val_current}/{limit} (resets in {r['reset_in_ms']}ms)"
+        )
+        print(
+            f"             previous: {r['val_previous']}, estimated: {r['tokens_used']:.1f}"
+        )
 
         # Dispatcher lock status
         lock = "BUSY" if status["dispatcher"]["is_locked"] else "IDLE"
