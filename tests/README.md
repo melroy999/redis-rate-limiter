@@ -60,7 +60,8 @@ tests/
 │   ├── asyncio/                        # AsyncIO-specific implementation tests
 │   │   ├── conftest.py                 # Imports AsyncIO backend fixtures
 │   │   ├── test_contracts.py           # Contract suite against real AsyncIOTaskLimiter
-│   │   └── test_asyncio_limiter.py     # AsyncIO dispatch and lifecycle behavior
+│   │   ├── test_asyncio_limiter.py     # AsyncIO dispatch and lifecycle behavior
+│   │   └── test_rate_limiter_class_api.py  # AsyncIO-only class API tests
 │   └── asgi/                           # ASGI-specific implementation tests
 │       ├── conftest.py                 # Imports ASGI backend fixtures
 │       ├── test_asgi_limiter.py        # ASGI limiter acquire behavior
@@ -77,6 +78,9 @@ tests/
 │   ├── test_is_subset.py               # Mathematical subset properties
 │   ├── test_sliding_window_counter.py  # Sliding window invariants (Hypothesis)
 │   ├── test_smart_jitter.py            # Smart jitter invariants (Hypothesis)
+│   ├── test_token_recovery.py          # Token recovery delay invariants (Hypothesis)
+│   ├── test_inflight_ttl.py            # In-flight TTL calculation invariants (Hypothesis)
+│   ├── test_config_round_trip.py       # Config persist/hydrate round-trip invariants (Hypothesis)
 │   └── asgi/                           # ASGI-specific property tests
 │       └── test_keys.py                # Key extraction invariants (Hypothesis)
 │
@@ -96,6 +100,7 @@ tests/
 ├── helpers/                            # Shared test utilities and strategies
 │   ├── utils.py                        # Subset checker and approximate equality
 │   ├── strategies.py                   # Shared Hypothesis strategies
+│   ├── adapters.py                     # Sync-to-async adapters for unified contract tests
 │   └── tasks.py                        # Shared task functions for backend tests
 │
 ├── conftest.py                         # Global pytest fixtures and configuration
@@ -437,19 +442,42 @@ def test_something(self, payload):
     pass
 ```
 
+### helpers/adapters.py
+
+Contains sync-to-async adapter classes that wrap synchronous rate limiters, distributed locks, and task lifecycle managers so that the unified async contract test suite can exercise sync backends via `await`. The underlying sync Redis calls block the event loop briefly, which is acceptable in a test context.
+
+- `SyncToAsyncLimiterAdapter`: wraps a sync `AbstractDistributedRateLimiter` as an async-compatible limiter.
+- `SyncToAsyncLockAdapter`: wraps a sync `DistributedLock` as an async context manager (`async with`).
+- `SyncToAsyncLifecycleAdapter`: wraps a sync `TaskLifecycle` as an async context manager.
+
+**Usage:**
+
+```python
+from tests.helpers.adapters import SyncToAsyncLimiterAdapter
+
+# Wrap a sync limiter for use in async contract tests.
+async_compatible = SyncToAsyncLimiterAdapter(sync_limiter)
+result = await async_compatible.schedule_task("path", {})
+```
+
 ### helpers/tasks.py
 
-Contains shared task functions used by async backend tests. These are referenced via their dotted-path strings (e.g., `"tests.helpers.tasks.noop_task"`) in tests that exercise task dispatch:
+Contains shared task functions used by backend tests. These are referenced via their dotted-path strings (e.g., `"tests.helpers.tasks.noop_task"`) in tests that exercise task dispatch:
 
-- `noop_task(**kwargs)`: a no-op sync task that accepts any keyword arguments and returns immediately.
-- `noop_task_2(**kwargs)`: a second no-op task with a distinct function path for deduplication tests.
+- `noop_task(**kwargs)`: a synchronous no-op task that accepts any keyword arguments and returns immediately.
+- `noop_task_2(**kwargs)`: a second synchronous no-op task with a distinct function path for deduplication tests.
+- `async_noop_task(**kwargs)`: an async no-op task that accepts any keyword arguments and returns immediately. Used by the AsyncIO backend tests, which require coroutine functions.
+- `async_noop_task_2(**kwargs)`: a second async no-op task with a distinct function path for deduplication tests.
 - `slow_task(**kwargs)`: an async task that sleeps for a long duration, used for cancellation tests.
 
 **Usage:**
 
 ```python
-# Pass the function path string to schedule_task().
-await limiter.schedule_task("tests.helpers.tasks.noop_task", {"key": "value"})
+# Sync backend: pass a sync function path.
+limiter.schedule_task("tests.helpers.tasks.noop_task", {"key": "value"})
+
+# Async backend: pass an async function path.
+await limiter.schedule_task("tests.helpers.tasks.async_noop_task", {"key": "value"})
 ```
 
 ## Test Naming Conventions

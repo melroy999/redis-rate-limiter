@@ -23,7 +23,7 @@ graph LR
     end
 
     subgraph Backends ["Backend"]
-        BackendBlock["CeleryRateLimiter,\nThreadPoolRateLimiter"]
+        BackendBlock["CeleryRateLimiter,\nThreadPoolRateLimiter,\nAsyncIOTaskLimiter"]
     end
 
     subgraph Execution ["Task Execution"]
@@ -47,7 +47,7 @@ graph LR
 
 - *Blue subgraph* (Rate Limiter Core): the scheduler, drain loop, distributed lock and consumer components that orchestrate task flow.
 - *Orange subgraph* (Redis): all Lua scripts and data structures that constitute the single source of truth.
-- *Green subgraph* (Backend): the interchangeable dispatch backends (Celery and ThreadPool).
+- *Green subgraph* (Backend): the interchangeable dispatch backends (Celery, ThreadPool and AsyncIO).
 - *Purple subgraph* (Task Execution): the worker or thread that runs the user function and the `TaskLifecycle` context manager that manages the concurrency lease.
 - *Solid arrows* represent synchronous calls or Redis commands.
 - *Dashed arrow* represents the feedback loop, i.e., the path through which task completion triggers the next drain cycle.
@@ -113,9 +113,10 @@ graph TD
     subgraph Backends ["Backend"]
         Celery["CeleryRateLimiter\napp.send_task()"]
         ThreadPool["ThreadPoolRateLimiter\nexecutor.submit()"]
+        AsyncIO["AsyncIOTaskLimiter\nasyncio.create_task()"]
     end
 
-    Worker["Worker / Thread\nRuns user function"]
+    Worker["Worker / Thread / Coroutine\nRuns user function"]
 
     DrainLoop -->|"drain()"| Lock
     Lock -->|"if acquired"| Consumer
@@ -126,8 +127,10 @@ graph TD
     LuaScripts -->|"RPUSH expired"| DLQ
     Consumer -->|"_dispatch_task()"| Celery
     Consumer -->|"_dispatch_task()"| ThreadPool
+    Consumer -->|"_dispatch_task()"| AsyncIO
     Celery -->|"send_task()"| Worker
     ThreadPool -->|"submit()"| Worker
+    AsyncIO -->|"create_task()"| Worker
 
     style Limiter fill:#e8f4f8,stroke:#2196F3
     style Redis fill:#fff3e0,stroke:#FF9800
@@ -144,8 +147,8 @@ graph TD
 | LuaScripts → WindowCounters | GET/INCR rate check | `integration/test_rate_limiting::test_basic_rate_limit_enforcement` |
 | LuaScripts → ConcurrencySet | ZADD lease slot | `integration/test_rate_limiting::test_concurrency_limit_enforcement` |
 | LuaScripts → DLQ | RPUSH expired task | `integration/test_rate_limiting::test_expired_task_moved_to_dlq` |
-| Consumer → Backends | _dispatch_task() | `implementations/celery/test_celery_limiter::test_dispatch_task_use_executor_true_sends_generic_worker`, `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_submits_to_executor` |
-| Backends → Worker | send_task() / submit() | `implementations/celery/test_celery_limiter::test_dispatch_task_use_executor_false_sends_custom_task`, `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_resolves_function_path` |
+| Consumer → Backends | _dispatch_task() | `implementations/celery/test_celery_limiter::test_dispatch_task_use_executor_true_sends_generic_worker`, `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_submits_to_executor`, `implementations/asyncio/test_asyncio_limiter::test_dispatch_task_creates_asyncio_task` |
+| Backends → Worker | send_task() / submit() / create_task() | `implementations/celery/test_celery_limiter::test_dispatch_task_use_executor_false_sends_custom_task`, `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_resolves_function_path`, `implementations/asyncio/test_asyncio_limiter::test_dispatch_sync_function_raises_type_error` |
 
 ## Execution and Completion
 

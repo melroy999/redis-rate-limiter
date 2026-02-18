@@ -1,5 +1,7 @@
 """Tests for the AsyncIO task limiter backend."""
 
+import asyncio
+
 
 class TestAsyncIOTaskLimiter:
     """Tests for the ``AsyncIOTaskLimiter`` backend."""
@@ -9,7 +11,7 @@ class TestAsyncIOTaskLimiter:
         """Verify that scheduling a task returns a success flag and a task identifier."""
         # Act
         scheduled, task_id = await limiter.schedule_task(
-            "tests.helpers.tasks.noop_task", {"key": "value"}
+            "tests.helpers.tasks.async_noop_task", {"key": "value"}
         )
 
         # Assert
@@ -21,12 +23,12 @@ class TestAsyncIOTaskLimiter:
         """Verify that scheduling the same task twice returns ``False`` on the second attempt."""
         # Arrange
         await limiter.schedule_task(
-            "tests.helpers.tasks.noop_task", {"key": "value"}
+            "tests.helpers.tasks.async_noop_task", {"key": "value"}
         )
 
         # Act
         scheduled, _ = await limiter.schedule_task(
-            "tests.helpers.tasks.noop_task", {"key": "value"}
+            "tests.helpers.tasks.async_noop_task", {"key": "value"}
         )
 
         # Assert
@@ -37,7 +39,7 @@ class TestAsyncIOTaskLimiter:
         """Verify that ``consume`` returns a result with the expected fields."""
         # Arrange
         await limiter.schedule_task(
-            "tests.helpers.tasks.noop_task", {"key": "value"}
+            "tests.helpers.tasks.async_noop_task", {"key": "value"}
         )
 
         # Act
@@ -68,10 +70,10 @@ class TestAsyncIOTaskLimiter:
         """
         # Arrange
         await limiter.schedule_task(
-            "tests.helpers.tasks.noop_task", {"key": "a"}
+            "tests.helpers.tasks.async_noop_task", {"key": "a"}
         )
         await limiter.schedule_task(
-            "tests.helpers.tasks.noop_task_2", {"key": "b"}
+            "tests.helpers.tasks.async_noop_task_2", {"key": "b"}
         )
 
         # Act
@@ -123,13 +125,40 @@ class TestAsyncIOTaskLimiter:
 
         # Act
         await limiter._dispatch_task(
-            "tests.helpers.tasks.noop_task", {}, "test-task-id"
+            "tests.helpers.tasks.async_noop_task", {}, "test-task-id"
         )
 
         # Assert
         assert limiter._active_count == 1, "active count should be incremented"
         assert len(limiter._active_tasks) == 1, (
             "active tasks set should have one entry"
+        )
+
+    @staticmethod
+    async def test_dispatch_sync_function_raises_type_error(limiter):
+        """Verify that dispatching a synchronous function raises ``TypeError`` internally."""
+        # Arrange
+        assert limiter._active_count == 0, "active count should start at zero"
+
+        # Act
+        # Dispatch a sync function; the TypeError is raised inside the created
+        # asyncio task and caught by the internal exception handler.
+        await limiter._dispatch_task(
+            "tests.helpers.tasks.noop_task", {}, "sync-task-id"
+        )
+
+        # Allow the created task to fully complete.
+        # A single sleep(0) is insufficient because the task lifecycle context
+        # manager performs multiple async Redis operations during cleanup.
+        await asyncio.gather(*list(limiter._active_tasks), return_exceptions=True)
+
+        # Assert
+        # The task should have completed (with an error), cleaning up after itself.
+        assert limiter._active_count == 0, (
+            "active count should return to zero after sync function rejection"
+        )
+        assert len(limiter._active_tasks) == 0, (
+            "active tasks set should be empty after sync function rejection"
         )
 
     @staticmethod

@@ -80,6 +80,7 @@ flowchart TD
 | Non-NoScript → cleanup → re-raise | Inflight key cleaned up before re-raising | `implementations/test_rate_limiter::test_schedule_non_noscript_failure_cleans_inflight_and_reraises` |
 | Cleanup itself fails | Suppressed, log warning, continue with re-raise | `implementations/test_internal_helpers::test_cleanup_inflight_key_suppresses_redis_failure` |
 | Lua script not found on disk | ImportError at initialization | `implementations/test_internal_helpers::test_load_lua_script_raises_import_error_on_failure` |
+| Lua script fallback via second package | First package fails, second succeeds | `implementations/test_internal_helpers::test_load_lua_script_falls_back_to_second_package` |
 | Metrics callback exception during schedule | Does not disrupt scheduling | `implementations/test_metrics_callback::test_callback_exception_does_not_break_schedule` |
 
 ### NoScriptError Two-Phase Retry
@@ -134,6 +135,7 @@ flowchart TD
 | Consume non-NoScript → propagate | ConnectionError propagates to drain() | `implementations/test_rate_limiter::test_consume_connection_error_propagates` |
 | Dispatch Celery failure → propagate | send_task() exception propagates to drain() | `implementations/celery/test_celery_limiter::test_dispatch_task_send_task_failure_propagates` |
 | Dispatch ThreadPool failure → propagate | import_string() exception propagates to drain() | `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_import_failure_propagates` |
+| Dispatch AsyncIO sync function → TypeError | Sync function passed to async dispatch raises TypeError | `implementations/asyncio/test_asyncio_limiter::test_dispatch_sync_function_raises_type_error` |
 | Metrics callback exception during consume | Does not disrupt consumption | `implementations/test_metrics_callback::test_callback_exception_does_not_break_consume` |
 
 ### Metrics Callback Isolation
@@ -267,23 +269,27 @@ The following table enumerates every identified failure mode, its handling strat
 | 17 | Missing `limiter_id` in decorator | `@rate_limited` | `ValueError` | Propagates to caller | `implementations/test_decorator::test_decorator_raises_value_error_when_limiter_id_missing` | No |
 | 18 | Missing `_rate_limit_task_id` in decorator | `@rate_limited` | `KeyError` | Propagates to caller | `implementations/test_decorator::test_decorator_raises_when_task_id_missing` | No |
 | 19 | User function raises exception inside `@rate_limited` | `@rate_limited` wrapper | Any `Exception` | Propagates; `TaskLifecycle.__exit__()` cleanup still runs | `implementations/test_decorator::test_decorator_propagates_wrapped_function_exception` | No |
-| 20 | `configure()` not called before `create()`/`get()` | Class API | `RuntimeError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_create_without_configure_raises` | No |
-| 21 | Limiter not found in cache or Redis | `get()` | `ValueError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_get_nonexistent_limiter_raises_value_error` | No |
-| 22 | Duplicate limiter creation without override | `create()` | `ValueError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_create_duplicate_without_override_raises` | No |
-| 23 | Direct constructor invocation (bypass class API) | `__init__()` | `RuntimeError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_direct_construction_raises_runtime_error` | No |
-| 24 | Corrupted JSON in persisted config | `refresh_config()` | `JSONDecodeError` | Catch, log warning, return `False` | `implementations/test_rate_limiter_class_api::test_refresh_config_handles_corrupted_redis_data` | No |
+| 20 | `configure()` not called before `create()`/`get()` | Class API | `RuntimeError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_create_without_configure_raises`, `implementations/asyncio/test_rate_limiter_class_api::test_create_without_configure_raises` | No |
+| 21 | Limiter not found in cache or Redis | `get()` | `ValueError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_get_nonexistent_limiter_raises_value_error`, `implementations/asyncio/test_rate_limiter_class_api::test_get_nonexistent_limiter_raises_value_error` | No |
+| 22 | Duplicate limiter creation without override | `create()` | `ValueError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_create_duplicate_without_override_raises`, `implementations/asyncio/test_rate_limiter_class_api::test_create_duplicate_without_override_raises` | No |
+| 23 | Direct constructor invocation (bypass class API) | `__init__()` | `RuntimeError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_direct_construction_raises_runtime_error`, `implementations/asyncio/test_rate_limiter_class_api::test_direct_construction_raises_runtime_error` | No |
+| 24 | Corrupted JSON in persisted config | `refresh_config()` | `JSONDecodeError` | Catch, log warning, return `False` | `implementations/test_rate_limiter_class_api::test_refresh_config_handles_corrupted_redis_data`, `implementations/asyncio/test_rate_limiter_class_api::test_refresh_config_handles_corrupted_redis_data` | No |
 | 25 | Lua script not found on disk | `_load_lua_script()` | `ImportError` | Propagates (fatal at initialization) | `implementations/test_internal_helpers::test_load_lua_script_raises_import_error_on_failure` | No |
 | 26 | Inflight key cleanup fails during scheduling error | `_cleanup_inflight_key()` | Any `Exception` | Suppressed, log warning | `implementations/test_internal_helpers::test_cleanup_inflight_key_suppresses_redis_failure` | No |
 | 27 | Celery `send_task()` fails during dispatch | `_dispatch_task()` (Celery) | `Exception` | Propagates to `drain()` backoff | `implementations/celery/test_celery_limiter::test_dispatch_task_send_task_failure_propagates` | No |
 | 28 | `import_string()` fails during dispatch | `_dispatch_task()` (ThreadPool) | `ModuleNotFoundError` | Propagates to `drain()` backoff | `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_import_failure_propagates` | No |
 | 29 | Metrics callback raises exception | `_emit_metric()` | Any `Exception` | Caught, logged, does not disrupt limiter | `implementations/test_metrics_callback::test_callback_exception_does_not_break_consume` | No |
 | 30 | Missing backend context during `configure()` | `_configure_backend()` | `RuntimeError` | Propagates to caller | `test_rate_limiter_class_api` (per backend) | No |
+| 31 | Sync function dispatched to async backend | `_dispatch_task()` (AsyncIO) | `TypeError` | Caught by `_run_task()` exception handler; task set cleaned up | `implementations/asyncio/test_asyncio_limiter::test_dispatch_sync_function_raises_type_error` | No |
+| 32 | Lua script first package unavailable | `load_lua_script()` | `ModuleNotFoundError` | Falls back to second package in `resource_packages` | `implementations/test_internal_helpers::test_load_lua_script_falls_back_to_second_package` | No |
 
 ## References
 
 - [limiters.py](../../src/celery_rate_limiter/core/limiters.py): core implementation containing all error handling patterns.
+- [async_limiters.py](../../src/celery_rate_limiter/core/async_limiters.py): async core implementation (async drain, dispatch, lifecycle).
 - [decorators.py](../../src/celery_rate_limiter/core/decorators.py): `@rate_limited` decorator error paths.
 - [celery/limiter.py](../../src/celery_rate_limiter/backends/celery/limiter.py): Celery backend dispatch (`send_task`) error propagation.
 - [threading/limiter.py](../../src/celery_rate_limiter/backends/threading/limiter.py): ThreadPool backend dispatch (`import_string`) error propagation.
+- [asyncio/limiter.py](../../src/celery_rate_limiter/backends/asyncio/limiter.py): AsyncIO backend dispatch (`create_task`) error propagation and sync function guard.
 - [Drain Loop Flow](drain-flow.md): the three-layer drain control loop and feedback entry points.
 - [Task State Diagram](task-states.md): all possible task states, including crash recovery mechanisms.

@@ -10,7 +10,10 @@ from unittest.mock import patch
 import pytest
 import redis
 
-from celery_rate_limiter.core.base import AbstractAsyncRateLimiter, AbstractSyncRateLimiter
+from celery_rate_limiter.core.base import (
+    AbstractAsyncRateLimiter,
+    AbstractSyncRateLimiter,
+)
 from celery_rate_limiter.core.scripts import DEFAULT_RESOURCE_PACKAGES
 
 
@@ -68,6 +71,43 @@ class TestInternalHelpers:
             assert mock_files.call_count == len(DEFAULT_RESOURCE_PACKAGES), (
                 "resource loader should try each configured package candidate"
             )
+
+
+class TestLuaScriptFallback:
+    """Tests for the Lua script loader fallback mechanism."""
+
+    @staticmethod
+    def test_load_lua_script_falls_back_to_second_package(generic_limiter):
+        """Verify that the script loader succeeds via the second package when the first raises ModuleNotFoundError."""
+        # Arrange
+        # Ensure the script source is not cached so the loader is invoked.
+        generic_limiter._script_sources.pop("schedule.lua", None)
+
+        from importlib import resources as real_resources
+
+        original_files = real_resources.files
+        call_count = {"n": 0}
+
+        def selective_files(package_name):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise ModuleNotFoundError(f"No module named '{package_name}'")
+            return original_files(package_name)
+
+        # Act
+        with patch(
+            "celery_rate_limiter.core.scripts.resources.files",
+            side_effect=selective_files,
+        ):
+            generic_limiter._register_script("schedule.lua")
+
+        # Assert
+        assert "schedule.lua" in generic_limiter._script_sources, (
+            "script source should be loaded after fallback to second package"
+        )
+        assert call_count["n"] == 2, (
+            "resource loader should be called twice (first fails, second succeeds)"
+        )
 
 
 class TestTaskSignature:
@@ -234,21 +274,26 @@ class TestSyncEvalScript:
 
         # Act
         with (
-            patch.object(
-                limiter.redis, "evalsha", side_effect=fail_once
-            ) as mock_eval,
+            patch.object(limiter.redis, "evalsha", side_effect=fail_once) as mock_eval,
             patch.object(
                 limiter.redis, "script_load", side_effect=real_script_load
             ) as mock_load,
         ):
             result = limiter._eval_script(
-                "health.lua", 3,
-                "eval_script_sync", "eval_script_sync:buffer",
-                "eval_script_sync:concurrency", 60, 5, 2,
+                "health.lua",
+                3,
+                "eval_script_sync",
+                "eval_script_sync:buffer",
+                "eval_script_sync:concurrency",
+                60,
+                5,
+                2,
             )
 
         # Assert
-        assert result is not None, "eval_script should return the script result after recovery"
+        assert result is not None, (
+            "eval_script should return the script result after recovery"
+        )
         assert mock_eval.call_count == 2, (
             "evalsha should be called twice (fail then retry)"
         )
@@ -285,9 +330,7 @@ class TestSyncEvalScript:
             side_effect=redis.exceptions.ConnectionError("redis down"),
         ) as mock_eval:
             # Act & Assert
-            with pytest.raises(
-                redis.exceptions.ConnectionError, match="redis down"
-            ):
+            with pytest.raises(redis.exceptions.ConnectionError, match="redis down"):
                 limiter._eval_script("health.lua", 0)
 
             assert mock_eval.call_count == 1, (
@@ -327,21 +370,26 @@ class TestAsyncEvalScript:
 
         # Act
         with (
-            patch.object(
-                limiter.redis, "evalsha", side_effect=fail_once
-            ) as mock_eval,
+            patch.object(limiter.redis, "evalsha", side_effect=fail_once) as mock_eval,
             patch.object(
                 limiter.redis, "script_load", side_effect=real_script_load
             ) as mock_load,
         ):
             result = await limiter._eval_script(
-                "health.lua", 3,
-                "eval_script_async", "eval_script_async:buffer",
-                "eval_script_async:concurrency", 60, 5, 2,
+                "health.lua",
+                3,
+                "eval_script_async",
+                "eval_script_async:buffer",
+                "eval_script_async:concurrency",
+                60,
+                5,
+                2,
             )
 
         # Assert
-        assert result is not None, "eval_script should return the script result after recovery"
+        assert result is not None, (
+            "eval_script should return the script result after recovery"
+        )
         assert mock_eval.call_count == 2, (
             "evalsha should be called twice (fail then retry)"
         )
@@ -354,6 +402,7 @@ class TestAsyncEvalScript:
         limiter,
     ):
         """Verify that the async ``_eval_script`` raises RuntimeError when the script cannot be retained."""
+
         # Arrange
         async def always_fail(*args, **kwargs):
             raise redis.exceptions.NoScriptError("Permanent")
@@ -376,6 +425,7 @@ class TestAsyncEvalScript:
     @staticmethod
     async def test_eval_script_propagates_non_noscript_errors(limiter):
         """Verify that non-NoScriptError exceptions pass through without retry."""
+
         # Arrange
         async def connection_error(*args, **kwargs):
             raise redis.exceptions.ConnectionError("redis down")
@@ -386,9 +436,7 @@ class TestAsyncEvalScript:
             side_effect=connection_error,
         ) as mock_eval:
             # Act & Assert
-            with pytest.raises(
-                redis.exceptions.ConnectionError, match="redis down"
-            ):
+            with pytest.raises(redis.exceptions.ConnectionError, match="redis down"):
                 await limiter._eval_script("health.lua", 0)
 
             assert mock_eval.call_count == 1, (

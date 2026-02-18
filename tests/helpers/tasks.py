@@ -13,6 +13,16 @@ def noop_task_2(**kwargs):
     pass
 
 
+async def async_noop_task(**kwargs):
+    """An async no-op task that accepts any keyword arguments and returns immediately."""
+    pass
+
+
+async def async_noop_task_2(**kwargs):
+    """A second async no-op task with a distinct function path for deduplication tests."""
+    pass
+
+
 async def slow_task(**kwargs):
     """An async task that sleeps for a long duration, used for cancellation tests."""
     await asyncio.sleep(3600)

@@ -150,7 +150,7 @@ Each component of the formula serves a distinct purpose:
 - **`max(1, lease_duration)`** covers the *execution period*, i.e., the maximum duration of a single concurrency lease. This ensures that the marker remains active while the task is being executed by a worker.
 - **`max(1, window)`** covers potential *cleanup delay*, i.e., the time required for the `TaskLifecycle.__exit__()` method to delete the inflight key after task completion. Under adverse conditions (e.g., a window reset occurring simultaneously with task completion), this additional buffer prevents premature key expiry.
 
-The `max(1, ...)` guard on each component ensures that the TTL is always at least three seconds, thereby preventing a zero-length TTL in the event that any parameter is set to zero. The final result is rounded up to the nearest integer via `math.ceil()`, as the Redis `EX` option requires an integer number of seconds.
+The `max(1, ...)` guard on each component ensures that the TTL is always at least three seconds, thereby preventing a zero-length TTL in the event that any parameter is set to zero. The final result is rounded up to the nearest integer via `math.ceil()`, as the Redis `EX` option requires an integer number of seconds. The invariants of this formula (lower bound of three seconds, monotonicity in each parameter, integer result) are verified by property-based tests in [test_inflight_ttl.py](../../tests/properties/test_inflight_ttl.py).
 
 ## References
 

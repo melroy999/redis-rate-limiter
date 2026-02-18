@@ -249,4 +249,5 @@ For the full inventory of Redis keys, their data types, and their TTL strategies
 - [consume.lua](../../src/celery_rate_limiter/lua/consume.lua): the Lua script that implements the sliding window check.
 - [sliding_window_counter.py](../../tests/algorithms/sliding_window_counter.py): the Python reference implementation.
 - [test_sliding_window_counter.py](../../tests/properties/test_sliding_window_counter.py): property-based tests that verify the 2x burst bound.
+- [test_token_recovery.py](../../tests/properties/test_token_recovery.py): property-based tests that verify the token recovery delay calculation invariants.
 - [Redis Key Map](redis-keys.md): comprehensive reference of all Redis keys, including window counter TTLs.
