@@ -71,8 +71,8 @@ def make_distributed_limiter(
 class TestDistributedRateLimiting:
     """Verify that multiple consumers sharing Redis enforce the global rate limit."""
 
+    @staticmethod
     def test_multi_consumer_per_window_consumption_bounded(
-        self,
         redis_client,
         default_limiter_id,
         func_path,
@@ -146,8 +146,8 @@ class TestDistributedRateLimiting:
         if keys:
             redis_client.delete(*keys)
 
+    @staticmethod
     def test_buffer_grows_when_offered_exceeds_limit(
-        self,
         redis_client,
         default_limiter_id,
         func_path,
@@ -208,8 +208,8 @@ class TestDistributedRateLimiting:
         if keys:
             redis_client.delete(*keys)
 
+    @staticmethod
     def test_buffer_drains_when_offered_below_limit(
-        self,
         redis_client,
         default_limiter_id,
         func_path,
@@ -276,8 +276,8 @@ class TestDistributedRateLimiting:
         if keys:
             redis_client.delete(*keys)
 
+    @staticmethod
     def test_sine_wave_throughput_bounded(
-        self,
         redis_client,
         default_limiter_id,
         func_path,

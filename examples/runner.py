@@ -158,7 +158,7 @@ def run_demo(
     dashboard = Dashboard(limiter_id=limiter_id, limit=LIMIT)
 
     # The exit condition is not evaluated until the drain loop has had
-    # sufficient time to begin consuming.  Without this grace period, the
+    # sufficient time to begin consuming. Without this grace period, the
     # monitor may observe a momentary buffer=0 / concurrency=0 snapshot
     # before the first drain cycle fires.
     grace_period = 2.0

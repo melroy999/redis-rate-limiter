@@ -7,12 +7,16 @@ from typing import Any, ClassVar, Optional
 
 from redis import Redis
 
-from celery_rate_limiter.core import AbstractRedisManagedRateLimiter, import_string
+from celery_rate_limiter.core import (
+    AbstractDistributedRateLimiter,
+    SyncManagedRateLimiter,
+    import_string,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class ThreadPoolRateLimiter(AbstractRedisManagedRateLimiter):
+class ThreadPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
     """A rate limiter that dispatches tasks to a local thread pool.
 
     Instances should be obtained through the class methods ``configure``,
@@ -20,6 +24,10 @@ class ThreadPoolRateLimiter(AbstractRedisManagedRateLimiter):
     """
 
     _executor: ClassVar[Optional[ThreadPoolExecutor]] = None
+
+    # ------------------------------------------------------------------
+    # Managed backend hooks
+    # ------------------------------------------------------------------
 
     # No backend-specific ``configure`` override is required; the base class implementation suffices.
 

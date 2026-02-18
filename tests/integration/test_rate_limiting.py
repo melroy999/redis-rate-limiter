@@ -145,7 +145,8 @@ def position_at_window_percentage(
 class TestRateLimitingIntegration:
     """Integration tests for rate limiting behaviour with Redis."""
 
-    def test_basic_rate_limit_enforcement(self, integration_limiter, func_path):
+    @staticmethod
+    def test_basic_rate_limit_enforcement(integration_limiter, func_path):
         """Verify that the rate limiter enforces the configured limit.
 
         Limiter config: limit=5, window=60.
@@ -174,7 +175,8 @@ class TestRateLimitingIntegration:
             "five tasks should remain in the buffer after rate limit is reached"
         )
 
-    def test_concurrency_limit_enforcement(self, integration_limiter, func_path):
+    @staticmethod
+    def test_concurrency_limit_enforcement(integration_limiter, func_path):
         """Verify that concurrency limits are enforced independently of the rate limit.
 
         Limiter config: max_concurrency=2.
@@ -207,9 +209,10 @@ class TestRateLimitingIntegration:
             "concurrency should remain at max after failed consume"
         )
 
+    @staticmethod
     @pytest.mark.parametrize("num_tasks", [3, 5, 10, 20])
     def test_accurate_telemetry_tracking(
-        self, integration_limiter, num_tasks, func_path
+        integration_limiter, num_tasks, func_path
     ):
         """Verify that telemetry accurately tracks the remaining tokens and tasks."""
         # Arrange
@@ -241,7 +244,8 @@ class TestRateLimitingIntegration:
                 "remaining tokens should decrement from 4 to 0"
             )
 
-    def test_empty_buffer_returns_no_task(self, integration_limiter):
+    @staticmethod
+    def test_empty_buffer_returns_no_task(integration_limiter):
         """Verify that consuming from an empty buffer returns an unsuccessful result."""
         # Act
         result = integration_limiter.consume()
@@ -256,8 +260,9 @@ class TestRateLimitingIntegration:
             "all tokens should be available on empty buffer"
         )
 
+    @staticmethod
     def test_bulk_deduplication_only_buffers_one_task(
-        self, integration_limiter, redis_client, func_path
+        integration_limiter, redis_client, func_path
     ):
         """Verify that deduplication is maintained under repeated scheduling pressure.
 
@@ -290,8 +295,9 @@ class TestRateLimitingIntegration:
         buffer_size = redis_client.zcard(integration_limiter.buffer_key)
         assert buffer_size == 1, f"buffer should contain 1 task, got {buffer_size}"
 
+    @staticmethod
     def test_bulk_scheduling_unique_tasks(
-        self, integration_limiter, redis_client, func_path
+        integration_limiter, redis_client, func_path
     ):
         """Verify the bulk scheduling of unique tasks at scale.
 
@@ -322,8 +328,9 @@ class TestRateLimitingIntegration:
             f"buffer should contain {num_tasks} tasks, got {buffer_size}"
         )
 
+    @staticmethod
     def test_task_lifecycle_releases_slot_on_error(
-        self, integration_limiter, redis_client, func_path
+        integration_limiter, redis_client, func_path
     ):
         """Verify that the concurrency slot is released when a task encounters an error during execution.
 
@@ -354,8 +361,9 @@ class TestRateLimitingIntegration:
             "next consume should succeed after error cleanup released the slot"
         )
 
+    @staticmethod
     def test_expired_task_moved_to_dlq(
-        self, redis_client, func_path, default_limiter_id
+        redis_client, func_path, default_limiter_id
     ):
         """Verify that expired queued tasks are moved to the DLQ and reported as expired."""
         # Arrange
@@ -399,8 +407,9 @@ class TestRateLimitingIntegration:
             "dlq entry should preserve original payload"
         )
 
+    @staticmethod
     def test_per_task_max_age_override_expires_sooner(
-        self, redis_client, func_path, default_limiter_id
+        redis_client, func_path, default_limiter_id
     ):
         """Verify that a per-task max_age override can cause expiration earlier than the global max_age."""
         # Arrange
@@ -434,8 +443,9 @@ class TestRateLimitingIntegration:
             "expired override task should clear its inflight marker"
         )
 
+    @staticmethod
     def test_per_task_max_age_stored_in_buffer(
-        self, redis_client, func_path, default_limiter_id
+        redis_client, func_path, default_limiter_id
     ):
         """Verify that ``schedule_task()`` with ``max_age`` stores the ``__meta_max_age`` field in the buffered payload."""
         # Arrange
@@ -464,8 +474,9 @@ class TestRateLimitingIntegration:
             "buffered task should store per-task max age override"
         )
 
+    @staticmethod
     def test_expired_lease_cleaned_up_on_consume(
-        self, redis_client, func_path, default_limiter_id
+        redis_client, func_path, default_limiter_id
     ):
         """Verify that stale concurrency lease entries are cleaned during consumption."""
         # Arrange
@@ -501,8 +512,9 @@ class TestRateLimitingIntegration:
             redis_client.zscore(limiter.concurrency_key, consumed_task_id) is not None
         ), "newly consumed task should be present in concurrency set"
 
+    @staticmethod
     def test_get_status_reflects_live_state(
-        self, integration_limiter, redis_client, func_path
+        integration_limiter, redis_client, func_path
     ):
         """Verify that ``get_status()`` mirrors the current Redis-backed limiter state."""
         # Arrange
@@ -605,7 +617,8 @@ class TestSlidingWindowBehavior:
         if keys:
             redis_client.delete(*keys)
 
-    def test_long_term_rate_converges_to_limit(self, sliding_window_limiter, func_path):
+    @staticmethod
+    def test_long_term_rate_converges_to_limit(sliding_window_limiter, func_path):
         """Verify that the average consumption rate converges to the configured limit.
 
         Refer to ``tests/integration/README.md`` for the full derivation
@@ -701,8 +714,9 @@ class TestSlidingWindowBehavior:
             f"this indicates a bug in the sliding window implementation."
         )
 
+    @staticmethod
     def test_burst_at_window_boundary_after_empty_window(
-        self, sliding_window_limiter, func_path, request
+        sliding_window_limiter, func_path, request
     ):
         """Verify burst behaviour when consuming across a boundary following an empty window.
 
@@ -816,8 +830,9 @@ class TestSlidingWindowBehavior:
             f"this indicates a bug in the sliding window implementation."
         )
 
+    @staticmethod
     def test_drain_retry_delay_reflects_token_recovery_not_window_reset(
-        self, redis_client, default_limiter_id, func_path
+        redis_client, default_limiter_id, func_path
     ):
         """Verify that the drain schedules its retry at the token recovery interval, not at the window reset time.
 

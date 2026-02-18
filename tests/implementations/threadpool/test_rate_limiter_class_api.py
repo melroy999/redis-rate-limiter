@@ -12,7 +12,8 @@ from celery_rate_limiter import ThreadPoolRateLimiter
 class TestThreadPoolRateLimiterClassApi:
     """Threading-specific tests for class API and backend context behaviour."""
 
-    def test_configure_without_executor_raises_error(self, redis_client):
+    @staticmethod
+    def test_configure_without_executor_raises_error(redis_client):
         """Verify that ``configure`` raises an error when the ``executor`` argument is not provided."""
         # Arrange
         ThreadPoolRateLimiter._reset()

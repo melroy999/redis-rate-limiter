@@ -59,16 +59,17 @@ def lifecycle_class():
 
 
 class TestTaskLifecycle(TaskLifecycleContractTest):
-    """Tests for the TaskLifecycle context manager implementation.
+    """Contract compliance for the TaskLifecycle context manager implementation."""
 
-    This class inherits all contract tests from TaskLifecycleContractTest and
-    adds generic implementation tests for heartbeat handling and lifecycle behavior.
-    """
+    pass
 
-    # ==================== Implementation-Specific Tests ====================
 
+class TestTaskLifecycleImplementation:
+    """Tests for implementation-specific behaviour of the TaskLifecycle context manager."""
+
+    @staticmethod
     def test_lifecycle_with_multiple_concurrent_tasks(
-        self, redis_client, mock_limiter, task_id, inflight_key
+        redis_client, mock_limiter, task_id, inflight_key
     ):
         """Verify that the lifecycle only removes the specific task from the concurrency set."""
         # Arrange
@@ -107,8 +108,9 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
             "inflight marker must be removed after completion"
         )
 
+    @staticmethod
     def test_lifecycle_handles_redis_failure_during_cleanup(
-        self, redis_client, mock_limiter, task_id, inflight_key
+        redis_client, mock_limiter, task_id, inflight_key
     ):
         """Verify that the lifecycle raises an exception but still triggers consume on Redis failure."""
         # Arrange
@@ -135,8 +137,8 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
         HEARTBEAT_OVERRIDE_CASES,
         ids=["default_warn_override_kill", "default_kill_override_warn"],
     )
+    @staticmethod
     def test_heartbeat_failure_override_precedence(
-        self,
         redis_client,
         task_id,
         default_limiter_id,
@@ -169,10 +171,13 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
             f"override {override} should take precedence over default {original}"
         )
 
-    # ==================== Heartbeat Loop Tests ====================
 
+class TestHeartbeatLoop:
+    """Tests for the heartbeat loop that periodically extends the task lease."""
+
+    @staticmethod
     def test_heartbeat_loop_extends_lease_periodically(
-        self, redis_client, mock_limiter, task_id
+        redis_client, mock_limiter, task_id
     ):
         """Verify that the heartbeat loop extends the lease at regular intervals."""
         # Act
@@ -193,7 +198,8 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
             task_id, mock_limiter.lease_duration
         )
 
-    def test_heartbeat_interval_calculation(self, mock_limiter, task_id):
+    @staticmethod
+    def test_heartbeat_interval_calculation(mock_limiter, task_id):
         """Verify that the heartbeat interval is correctly calculated as lease_duration / 2."""
         # Arrange & Act
         with patch("threading.Thread"):
@@ -205,8 +211,9 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
             f"interval must be lease_duration / 2 = {expected_interval} seconds"
         )
 
+    @staticmethod
     def test_heartbeat_loop_restores_health_on_recovery(
-        self, redis_client, mock_limiter, task_id
+        redis_client, mock_limiter, task_id
     ):
         """Verify that the heartbeat loop restores the health status after recovering from a failure."""
         # Act
@@ -221,8 +228,9 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
             # The lifecycle should have recovered and be marked as healthy.
             assert lifecycle.is_healthy, "lifecycle must restore health after recovery"
 
+    @staticmethod
     def test_heartbeat_loop_flags_unhealthy_on_failure_warn_mode(
-        self, redis_client, mock_limiter, task_id
+        redis_client, mock_limiter, task_id
     ):
         """Verify that the heartbeat loop flags the lifecycle as unhealthy on failure in warn mode."""
         # Arrange
@@ -241,8 +249,9 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
                 "lifecycle must be marked unhealthy after heartbeat failure"
             )
 
+    @staticmethod
     def test_heartbeat_loop_terminates_worker_on_failure_kill_mode(
-        self, redis_client, mock_limiter, task_id
+        redis_client, mock_limiter, task_id
     ):
         """Verify that the heartbeat loop terminates the worker on failure in kill mode."""
         # Arrange
@@ -262,7 +271,8 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
                 # Verify the correct signal and PID.
                 mock_kill.assert_called_with(os.getpid(), signal.SIGTERM)
 
-    def test_heartbeat_loop_stops_on_exit(self, redis_client, mock_limiter, task_id):
+    @staticmethod
+    def test_heartbeat_loop_stops_on_exit(redis_client, mock_limiter, task_id):
         """Verify that the heartbeat loop stops when exiting the lifecycle context."""
         # Act
         lifecycle = TaskLifecycle(mock_limiter, task_id)
@@ -285,8 +295,9 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
             "thread must be stopped after exiting lifecycle"
         )
 
+    @staticmethod
     def test_heartbeat_loop_calls_extend_lease_with_correct_parameters(
-        self, redis_client, mock_limiter, task_id
+        redis_client, mock_limiter, task_id
     ):
         """Verify that the heartbeat loop calls extend_lease with the correct task_id and duration."""
         # Act
@@ -304,10 +315,13 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
                 "extend_lease must be called with lease_duration"
             )
 
-    # ==================== extend_lease() Tests ====================
 
+class TestExtendLease:
+    """Tests for the ``extend_lease()`` Lua script recovery and error handling."""
+
+    @staticmethod
     def test_extend_lease_recovery_on_noscript_error(
-        self, generic_limiter, redis_client, task_id
+        generic_limiter, redis_client, task_id
     ):
         """Verify that ``extend_lease()`` reloads the Lua script and retries on a NoScriptError."""
         # Arrange
@@ -344,7 +358,8 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
                 "script_load should be called once for recovery"
             )
 
-    def test_extend_lease_permanent_failure_raises_error(self, generic_limiter):
+    @staticmethod
+    def test_extend_lease_permanent_failure_raises_error(generic_limiter):
         """Verify that a permanent NoScriptError during ``extend_lease()`` raises a RuntimeError."""
         # Arrange
         with patch.object(
@@ -362,7 +377,8 @@ class TestTaskLifecycle(TaskLifecycleContractTest):
                 "extend_lease should attempt one retry before failing"
             )
 
-    def test_extend_lease_raises_key_error_for_unknown_task(self, generic_limiter):
+    @staticmethod
+    def test_extend_lease_raises_key_error_for_unknown_task(generic_limiter):
         """Verify that ``extend_lease()`` raises a KeyError for unknown task identifiers."""
         # Act & Assert
         with pytest.raises(

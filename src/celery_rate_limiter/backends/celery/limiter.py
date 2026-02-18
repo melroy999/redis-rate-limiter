@@ -6,12 +6,16 @@ from typing import Any, ClassVar, Optional, cast
 from celery import Celery
 from redis import Redis
 
-from celery_rate_limiter.core import AbstractRedisManagedRateLimiter
+from celery_rate_limiter.core import (
+    AbstractDistributedRateLimiter,
+    SyncManagedRateLimiter,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
+# noinspection PyUnnecessaryCast
+class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
     """A rate limiter that dispatches tasks via the Celery distributed task queue.
 
     Instances should be obtained through the class methods ``configure``,
@@ -19,6 +23,10 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
     """
 
     _celery_app: ClassVar[Optional[Celery]] = None
+
+    # ------------------------------------------------------------------
+    # Managed backend hooks
+    # ------------------------------------------------------------------
 
     @classmethod
     def configure(cls, redis_client: Redis, **backend_context: Any) -> None:
@@ -85,6 +93,10 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
         super().__init__(redis_client, *args, _sentinel=_sentinel, **kwargs)
         self.app = celery_app
 
+    # ------------------------------------------------------------------
+    # Backend dispatch
+    # ------------------------------------------------------------------
+
     @staticmethod
     def _get_enhanced_payload(payload: dict, use_executor: bool) -> dict:
         """Produce an enhanced payload that includes dispatch metadata.
@@ -114,8 +126,6 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
             enhanced_payload = self._get_enhanced_payload(payload, use_executor)
 
         # Delegate to the parent scheduler.
-        # noinspection PyUnnecessaryCast
-        # The cast is necessary for mypy validation.
         return cast(
             tuple[bool, str],
             super().schedule_task(

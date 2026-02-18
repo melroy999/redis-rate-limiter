@@ -1,8 +1,8 @@
 """A distributed rate limiter with pluggable task execution backends."""
 
 from celery_rate_limiter.core import (
+    AbstractAsyncDistributedRateLimiter,
     AbstractDistributedRateLimiter,
-    AbstractRedisManagedRateLimiter,
     DistributedLock,
     TaskLifecycle,
     import_string,
@@ -10,11 +10,14 @@ from celery_rate_limiter.core import (
 )
 
 __all__ = [
+    "AbstractAsyncDistributedRateLimiter",
     "AbstractDistributedRateLimiter",
-    "AbstractRedisManagedRateLimiter",
+    "ASGIRateLimiter",
+    "AsyncIOTaskLimiter",
     "CeleryRateLimiter",
     "DistributedLock",
     "PrometheusMetricsExporter",
+    "RateLimitMiddleware",
     "TaskLifecycle",
     "ThreadPoolRateLimiter",
     "import_string",
@@ -30,6 +33,12 @@ except ImportError:
 # The threading backend relies solely on the standard library and does not require
 # any external dependencies. As such, it is included by default.
 from celery_rate_limiter.backends.threading import ThreadPoolRateLimiter
+
+# The asyncio backend relies solely on the standard library and redis.asyncio.
+from celery_rate_limiter.backends.asyncio import AsyncIOTaskLimiter
+
+# The ASGI backend provides framework-agnostic rate limiting middleware.
+from celery_rate_limiter.backends.asgi import ASGIRateLimiter, RateLimitMiddleware
 
 # The Prometheus integration is only available when the prometheus_client package is installed.
 try:

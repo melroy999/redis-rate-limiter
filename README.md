@@ -73,7 +73,7 @@ The `examples/` directory contains a full working demo with a Celery worker, tas
 
 ## Backend Roadmap
 
-All backends extend `AbstractRedisManagedRateLimiter` to share the same distributed rate limiting state and dynamic configuration support. They differ only in how tasks are dispatched for execution.
+All task-oriented backends compose `SyncManagedRateLimiter` (or `AsyncManagedRateLimiter`) with `AbstractDistributedRateLimiter` (or its async counterpart) to share the same distributed rate limiting state and dynamic configuration support. They differ only in how tasks are dispatched for execution.
 
 | Backend          | Dispatch mechanism                       | Status  |
 |------------------|------------------------------------------|---------|
@@ -88,15 +88,15 @@ All backends extend `AbstractRedisManagedRateLimiter` to share the same distribu
 ### Class Hierarchy
 
 ```
-AbstractDistributedRateLimiter        -- distributed rate limiting via Redis
-└── AbstractRedisManagedRateLimiter   -- adds singleton registry + dynamic config
-    ├── CeleryRateLimiter             -- dispatches via Celery
-    ├── ThreadPoolRateLimiter         -- dispatches to thread pool
-    ├── AsyncIORateLimiter            -- dispatches to event loop
-    ├── ProcessPoolRateLimiter        -- dispatches to process pool
-    ├── RQRateLimiter                 -- dispatches via RQ
-    ├── DramatiqRateLimiter           -- dispatches via Dramatiq
-    └── ASGIRateLimiterMiddleware     -- rate limits HTTP requests
+SyncManagedRateLimiter + AbstractDistributedRateLimiter     -- sync managed + distributed
+    ├── CeleryRateLimiter                                   -- dispatches via Celery
+    └── ThreadPoolRateLimiter                               -- dispatches to thread pool
+
+AsyncManagedRateLimiter + AbstractAsyncDistributedRateLimiter -- async managed + distributed
+    └── AsyncIOTaskLimiter                                  -- dispatches to event loop
+
+AsyncManagedRateLimiter + AbstractAsyncRateLimiter          -- async managed (no task machinery)
+    └── ASGIRateLimiter                                     -- rate limits HTTP requests
 ```
 
 ### Use Case Examples

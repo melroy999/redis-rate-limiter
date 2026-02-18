@@ -18,7 +18,8 @@ class TestDrain:
         """Provide a context manager that yields a deterministic lock outcome."""
         yield acquired
 
-    def test_drain_defers_when_paused(self, tracking_limiter):
+    @staticmethod
+    def test_drain_defers_when_paused(tracking_limiter):
         """Verify that ``drain()`` defers execution and schedules a follow-up when the limiter is paused."""
         # Arrange
         tracking_limiter._paused_until = time.time() + 0.2
@@ -450,7 +451,8 @@ class TestDrain:
             "token-recovery retry delay should be positive"
         )
 
-    def test_shutdown_delegates_to_drain_loop(self, tracking_limiter):
+    @staticmethod
+    def test_shutdown_delegates_to_drain_loop(tracking_limiter):
         """Verify that ``shutdown()`` completes without error on an idle limiter."""
         # Act & Assert
         # This invocation must not raise. The drain loop was never woken because
@@ -458,7 +460,8 @@ class TestDrain:
         # the delegation path on the base class.
         tracking_limiter.shutdown()
 
-    def test_drain_defers_when_local_capacity_full(self, tracking_limiter):
+    @staticmethod
+    def test_drain_defers_when_local_capacity_full(tracking_limiter):
         """Verify that ``drain()`` defers execution when local capacity is exhausted."""
         # Arrange
         consume_mock = MagicMock()
@@ -485,7 +488,8 @@ class TestDrain:
             "local-capacity-full retry delay should equal one token interval"
         )
 
-    def test_drain_loop_watchdog_interval(self, tracking_limiter):
+    @staticmethod
+    def test_drain_loop_watchdog_interval(tracking_limiter):
         """Verify that the watchdog interval is ``max(5.0, window * 2)``."""
         expected = max(5.0, tracking_limiter.window * 2)
         actual = tracking_limiter._drain_loop._watchdog_interval
@@ -493,7 +497,8 @@ class TestDrain:
             f"watchdog interval should be max(5.0, window * 2) = {expected}, got {actual}"
         )
 
-    def test_trigger_consume_schedules_drain(self, tracking_limiter):
+    @staticmethod
+    def test_trigger_consume_schedules_drain(tracking_limiter):
         """Verify that ``trigger_consume()`` schedules a drain."""
         # Act
         tracking_limiter.trigger_consume()
@@ -507,8 +512,9 @@ class TestDrain:
 class TestDrainDisabled:
     """Tests for scheduler-only mode (``drain_enabled=False``)."""
 
+    @staticmethod
     def test_schedule_drain_is_noop_when_drain_disabled(
-        self, redis_client, default_limiter_id
+        redis_client, default_limiter_id
     ):
         """Verify that ``_schedule_drain()`` is a no-op when ``drain_enabled=False``."""
         from tests.implementations.conftest import TrackingRateLimiter
@@ -545,8 +551,9 @@ class TestDrainDisabled:
             "drain loop must remain None when drain_enabled=False"
         )
 
+    @staticmethod
     def test_shutdown_is_safe_when_drain_disabled(
-        self, redis_client, default_limiter_id
+        redis_client, default_limiter_id
     ):
         """Verify that ``shutdown()`` does not raise when ``drain_enabled=False``."""
         from tests.implementations.conftest import MinimalRateLimiter
@@ -569,8 +576,9 @@ class TestDrainDisabled:
 class TestCrossProcessDrainSignal:
     """Tests for the Redis Pub/Sub cross-process drain notification mechanism."""
 
+    @staticmethod
     def test_trigger_consume_publishes_drain_signal(
-        self, redis_client, default_limiter_id
+        redis_client, default_limiter_id
     ):
         """Verify that ``trigger_consume()`` publishes a drain signal to the Pub/Sub channel."""
         # Arrange
@@ -607,8 +615,9 @@ class TestCrossProcessDrainSignal:
             test_sub.unsubscribe()
             test_sub.close()
 
+    @staticmethod
     def test_subscriber_wakes_drain_on_cross_process_signal(
-        self, redis_client, default_limiter_id
+        redis_client, default_limiter_id
     ):
         """Verify that a drain signal from one limiter wakes another limiter's drain loop."""
         # Arrange
@@ -647,8 +656,9 @@ class TestCrossProcessDrainSignal:
             limiter_a.shutdown()
             limiter_b.shutdown()
 
+    @staticmethod
     def test_subscriber_ignores_self_notification(
-        self, redis_client, default_limiter_id
+        redis_client, default_limiter_id
     ):
         """Verify that the subscriber ignores drain signals originating from the local process."""
         # Arrange
@@ -680,7 +690,8 @@ class TestCrossProcessDrainSignal:
         finally:
             limiter.shutdown()
 
-    def test_drain_disabled_still_publishes(self, redis_client, default_limiter_id):
+    @staticmethod
+    def test_drain_disabled_still_publishes(redis_client, default_limiter_id):
         """Verify that ``trigger_consume()`` publishes even when ``drain_enabled=False``."""
         # Arrange
         limiter_id = f"{default_limiter_id}_disabled_pub"

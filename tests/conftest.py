@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import pytest
 import redis
+import redis.asyncio
 
 # Redis configuration is derived from environment variables.
 # The default values target localhost:6379, but may be overridden for Docker Compose.
@@ -101,3 +102,23 @@ def default_lock_key(request) -> str:
     """Provide a unique lock key for each test."""
     test_name = _safe_id_component(request.node.name)
     return f"lock_{test_name}_{uuid4().hex[:8]}"
+
+
+@pytest.fixture(scope="function")
+async def async_redis_client():
+    """Provide a per-test async Redis client with an isolated database state.
+
+    Each test receives a fresh connection to avoid event loop conflicts
+    between session-scoped async fixtures and function-scoped tests.
+    """
+    client = redis.asyncio.Redis(
+        host=REDIS_HOST, port=REDIS_PORT, decode_responses=True
+    )
+    try:
+        await client.ping()
+    except redis.exceptions.ConnectionError:
+        pytest.fail(f"Could not connect to Redis (async) at {REDIS_HOST}:{REDIS_PORT}.")
+    await client.flushall()
+    yield client
+    await client.flushall()
+    await client.aclose()

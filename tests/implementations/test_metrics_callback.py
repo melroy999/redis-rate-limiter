@@ -43,7 +43,8 @@ class TestMetricsCallback:
             max_concurrency=5,
         )
 
-    def test_metrics_callback_none_by_default(self, limiter_no_callback):
+    @staticmethod
+    def test_metrics_callback_none_by_default(limiter_no_callback):
         """Verify that the metrics_callback defaults to ``None`` and does not cause errors."""
         # Arrange
         limiter = limiter_no_callback
@@ -55,7 +56,8 @@ class TestMetricsCallback:
         assert result is not None, "consume should succeed without a callback"
         assert limiter.metrics_callback is None, "callback should default to None"
 
-    def test_consume_emits_metric(self, limiter, callback):
+    @staticmethod
+    def test_consume_emits_metric(limiter, callback):
         """Verify that consume emits a metric with the correct event name and data keys."""
         # Act
         limiter.consume()
@@ -76,7 +78,8 @@ class TestMetricsCallback:
             f"consume event should contain keys {expected_keys}, got {set(event_data.keys())}"
         )
 
-    def test_schedule_emits_metric(self, limiter, callback, func_path):
+    @staticmethod
+    def test_schedule_emits_metric(limiter, callback, func_path):
         """Verify that ``schedule_task()`` emits a metric with the correct event name and data."""
         # Act
         was_scheduled, task_id = limiter.schedule_task(func_path, {"key": "value"})
@@ -95,7 +98,8 @@ class TestMetricsCallback:
             f"emitted task_id ({event_data['task_id']}) should match returned task_id ({task_id})"
         )
 
-    def test_schedule_duplicate_emits_not_scheduled(self, limiter, callback, func_path):
+    @staticmethod
+    def test_schedule_duplicate_emits_not_scheduled(limiter, callback, func_path):
         """Verify that scheduling a duplicate task emits ``scheduled=False``."""
         # Arrange
         # Schedule the task once so that it becomes in-flight.
@@ -112,7 +116,8 @@ class TestMetricsCallback:
             "schedule", {"scheduled": False, "task_id": task_id}
         )
 
-    def test_consume_metric_data_matches_result(self, limiter, callback):
+    @staticmethod
+    def test_consume_metric_data_matches_result(limiter, callback):
         """Verify that the metric data values match the ConsumeResult."""
         # Act
         result = limiter.consume()
@@ -139,7 +144,8 @@ class TestMetricsCallback:
             "metric remaining_tasks should match consume result"
         )
 
-    def test_callback_exception_does_not_break_consume(self, limiter, callback):
+    @staticmethod
+    def test_callback_exception_does_not_break_consume(limiter, callback):
         """Verify that consume continues to function when the callback raises an exception."""
         # Arrange
         callback.side_effect = RuntimeError("callback failure")
@@ -153,8 +159,9 @@ class TestMetricsCallback:
         )
         assert "success" in result, "consume result should contain expected keys"
 
+    @staticmethod
     def test_callback_exception_does_not_break_schedule(
-        self, limiter, callback, func_path
+        limiter, callback, func_path
     ):
         """Verify that ``schedule_task()`` continues to function when the callback raises an exception."""
         # Arrange
@@ -171,8 +178,9 @@ class TestMetricsCallback:
             "task_id should be returned despite callback failure"
         )
 
+    @staticmethod
     def test_consume_after_schedule_emits_both_events(
-        self, limiter, callback, func_path
+        limiter, callback, func_path
     ):
         """Verify that both the schedule and consume events are emitted in sequence."""
         # Arrange

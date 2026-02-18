@@ -10,7 +10,8 @@ from celery_rate_limiter.core.limiters import DrainLoop
 class TestDrainLoop:
     """Test suite for ``DrainLoop`` wake, coalesce, watchdog, and shutdown behavior."""
 
-    def test_wake_fires_drain_immediately(self):
+    @staticmethod
+    def test_wake_fires_drain_immediately():
         """Verify that ``wake(0)`` causes ``drain()`` to be called promptly."""
         # Arrange
         limiter = MagicMock()
@@ -27,7 +28,8 @@ class TestDrainLoop:
         assert fired, "drain should be called after wake(0)"
         limiter.drain.assert_called()
 
-    def test_wake_with_delay_fires_after_delay(self):
+    @staticmethod
+    def test_wake_with_delay_fires_after_delay():
         """Verify that ``wake(delay)`` waits approximately the specified duration before firing."""
         # Arrange
         limiter = MagicMock()
@@ -46,7 +48,8 @@ class TestDrainLoop:
         assert fired, "drain should be called after delayed wake"
         assert elapsed >= 0.1, "drain should not fire before the delay"
 
-    def test_wake_coalesces_to_sooner_time(self):
+    @staticmethod
+    def test_wake_coalesces_to_sooner_time():
         """Verify that ``wake(0)`` overrides a pending ``wake(large_delay)``."""
         # Arrange
         limiter = MagicMock()
@@ -64,7 +67,8 @@ class TestDrainLoop:
         # Assert
         assert fired, "immediate wake should override far-future wake"
 
-    def test_wake_ignores_later_time(self):
+    @staticmethod
+    def test_wake_ignores_later_time():
         """Verify that ``wake(large_delay)`` does not override a pending ``wake(0)``."""
         # Arrange
         limiter = MagicMock()
@@ -81,7 +85,8 @@ class TestDrainLoop:
         # Assert
         assert fired, "immediate wake should not be overridden by later wake"
 
-    def test_watchdog_fires_drain_when_idle(self):
+    @staticmethod
+    def test_watchdog_fires_drain_when_idle():
         """Verify that the watchdog timeout fires ``drain()`` even without an explicit ``wake()`` call."""
         # Arrange
         limiter = MagicMock()
@@ -106,7 +111,8 @@ class TestDrainLoop:
         assert fired, "watchdog should fire drain even without explicit wake"
         limiter.drain.assert_called()
 
-    def test_shutdown_stops_thread(self):
+    @staticmethod
+    def test_shutdown_stops_thread():
         """Verify that ``shutdown()`` stops the drain thread cleanly."""
         # Arrange
         limiter = MagicMock()
@@ -121,7 +127,8 @@ class TestDrainLoop:
         assert loop._thread is not None, "thread should have been created"
         assert not loop._thread.is_alive(), "thread should be stopped after shutdown"
 
-    def test_lazy_start(self):
+    @staticmethod
+    def test_lazy_start():
         """Verify that the drain thread is not started until the first ``wake()`` call."""
         # Arrange
         limiter = MagicMock()
@@ -137,7 +144,8 @@ class TestDrainLoop:
         assert loop._thread is not None, "thread should exist after first wake"
         loop.shutdown()
 
-    def test_drain_loop_survives_drain_exception(self):
+    @staticmethod
+    def test_drain_loop_survives_drain_exception():
         """Verify that the drain loop thread survives when ``drain()`` raises an exception."""
         # Arrange
         limiter = MagicMock()
@@ -169,7 +177,8 @@ class TestDrainLoop:
         )
         assert call_count >= 2, "drain should have been called at least twice"
 
-    def test_ensure_started_restarts_dead_thread(self):
+    @staticmethod
+    def test_ensure_started_restarts_dead_thread():
         """Verify that ``_ensure_started()`` detects and replaces a dead thread."""
         # Arrange
         limiter = MagicMock()

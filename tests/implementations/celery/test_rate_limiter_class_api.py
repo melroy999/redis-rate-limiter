@@ -12,7 +12,8 @@ from celery_rate_limiter import CeleryRateLimiter
 class TestCeleryRateLimiterClassApi:
     """Celery-specific tests for class API and backend context behaviour."""
 
-    def test_configure_without_celery_app_raises_error(self, redis_client):
+    @staticmethod
+    def test_configure_without_celery_app_raises_error(redis_client):
         """Verify that ``configure`` raises an error when the ``celery_app`` argument is not provided."""
         # Arrange
         CeleryRateLimiter._reset()

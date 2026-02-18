@@ -20,8 +20,6 @@ class DistributedLockContractTest:
     The subclass must also define how lock instances are to be created.
     """
 
-    # ==================== Contract Tests ====================
-
     @staticmethod
     def test_lock_acquires_and_releases_automatically(
         redis_client, lock_key, create_lock

@@ -8,7 +8,8 @@ from celery_rate_limiter.backends.celery.tasks.worker import generic_rate_limite
 class TestGenericWorkerTask:
     """Test suite for the ``generic_rate_limited_worker`` task behaviour."""
 
-    def test_generic_worker_resolves_and_executes_function(self):
+    @staticmethod
+    def test_generic_worker_resolves_and_executes_function():
         """Verify that the generic worker resolves the callable and executes it with the payload keyword arguments."""
         # Arrange
         limiter = MagicMock()

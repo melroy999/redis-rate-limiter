@@ -9,7 +9,8 @@ import redis
 class TestGetStatus:
     """Test suite for ``get_status()`` behavior on the AbstractDistributedRateLimiter."""
 
-    def test_get_status_returns_expected_structure(self, generic_limiter):
+    @staticmethod
+    def test_get_status_returns_expected_structure(generic_limiter):
         """Verify that ``get_status()`` returns the required sections and subsection keys."""
         # Act
         status = generic_limiter.get_status()
@@ -41,7 +42,8 @@ class TestGetStatus:
             "dispatcher section should include is_locked"
         )
 
-    def test_get_status_reflects_scheduled_tasks(self, generic_limiter, func_path):
+    @staticmethod
+    def test_get_status_reflects_scheduled_tasks(generic_limiter, func_path):
         """Verify that the ``get_status()`` buffer count reflects the scheduled task count."""
         # Arrange
         for idx in range(3):
@@ -55,7 +57,8 @@ class TestGetStatus:
             "status buffer count should match scheduled tasks"
         )
 
-    def test_get_status_reflects_rate_limit_state(self, generic_limiter, func_path):
+    @staticmethod
+    def test_get_status_reflects_rate_limit_state(generic_limiter, func_path):
         """Verify that ``get_status()`` reflects the rate-limit telemetry after ``consume()`` is called."""
         # Arrange
         generic_limiter.schedule_task(func_path, {"idx": 1})
@@ -75,7 +78,8 @@ class TestGetStatus:
             "tokens_used should increase after a successful consume"
         )
 
-    def test_get_status_recovery_on_noscript_error(self, generic_limiter, redis_client):
+    @staticmethod
+    def test_get_status_recovery_on_noscript_error(generic_limiter, redis_client):
         """Verify that ``get_status()`` reloads the Lua script and retries on a ``NoScriptError``."""
         # Arrange
         real_evalsha = redis_client.evalsha
@@ -111,7 +115,8 @@ class TestGetStatus:
                 "script_load should be called once to recover"
             )
 
-    def test_get_status_connection_error_propagates(self, generic_limiter):
+    @staticmethod
+    def test_get_status_connection_error_propagates(generic_limiter):
         """Verify that a non-NoScript Redis error during ``get_status()`` propagates to the caller."""
         # Arrange
         with patch.object(
@@ -125,7 +130,8 @@ class TestGetStatus:
             ):
                 generic_limiter.get_status()
 
-    def test_get_status_permanent_failure_raises_error(self, generic_limiter):
+    @staticmethod
+    def test_get_status_permanent_failure_raises_error(generic_limiter):
         """Verify that a permanent ``NoScriptError`` during ``get_status()`` raises a RuntimeError."""
         # Arrange
         with patch.object(

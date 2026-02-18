@@ -28,8 +28,6 @@ class RateLimiterContractTest:
                 )
     """
 
-    # ==================== Contract Tests ====================
-
     @staticmethod
     def test_schedule_task_returns_success_and_task_id(
         limiter, func_path, default_payload

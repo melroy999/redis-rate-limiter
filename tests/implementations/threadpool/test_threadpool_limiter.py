@@ -10,8 +10,9 @@ import pytest
 class TestThreadPoolRateLimiter:
     """Tests that are specific to the threading backend dispatch and lifecycle logic."""
 
+    @staticmethod
     def test_dispatch_task_submits_to_executor(
-        self, limiter, default_payload, func_path, task_id
+        limiter, default_payload, func_path, task_id
     ):
         """Verify that ``_dispatch_task`` submits a callable to the thread pool executor."""
         # Act
@@ -29,8 +30,9 @@ class TestThreadPoolRateLimiter:
         submitted_fn = mock_submit.call_args[0][0]
         assert callable(submitted_fn), "submitted argument should be callable"
 
+    @staticmethod
     def test_dispatch_task_resolves_function_path(
-        self, limiter, default_payload, func_path, task_id
+        limiter, default_payload, func_path, task_id
     ):
         """Verify that ``_dispatch_task`` uses ``import_string`` to resolve the function path."""
         # Act
@@ -46,8 +48,9 @@ class TestThreadPoolRateLimiter:
         # Assert
         mock_import.assert_called_once_with(func_path)
 
+    @staticmethod
     def test_dispatch_task_wraps_in_lifecycle(
-        self, limiter, default_payload, func_path, task_id
+        limiter, default_payload, func_path, task_id
     ):
         """Verify that ``_dispatch_task`` wraps execution within the ``task_lifecycle`` context manager."""
         # Arrange
@@ -75,8 +78,9 @@ class TestThreadPoolRateLimiter:
         mock_lifecycle.__enter__.assert_called_once()
         mock_lifecycle.__exit__.assert_called_once()
 
+    @staticmethod
     def test_dispatch_task_import_failure_propagates(
-        self, limiter, default_payload, func_path, task_id
+        limiter, default_payload, func_path, task_id
     ):
         """Verify that an ``import_string()`` failure propagates from ``_dispatch_task()``."""
         # Act & Assert
@@ -89,7 +93,8 @@ class TestThreadPoolRateLimiter:
             ):
                 limiter._dispatch_task(func_path, default_payload, task_id)
 
-    def test_schedule_drain_wakes_drain_loop(self, limiter):
+    @staticmethod
+    def test_schedule_drain_wakes_drain_loop(limiter):
         """Verify that ``_schedule_drain`` delegates to the base-class ``DrainLoop``."""
         # Arrange
         delay = 1.75
@@ -105,14 +110,16 @@ class TestThreadPoolRateLimiter:
 class TestLocalCapacityGuard:
     """Tests for the local capacity guard in ``ThreadPoolRateLimiter``."""
 
-    def test_has_local_capacity_returns_true_when_below_max_workers(self, limiter):
+    @staticmethod
+    def test_has_local_capacity_returns_true_when_below_max_workers(limiter):
         """Verify that ``_has_local_capacity()`` returns ``True`` when the local dispatch count is below ``max_workers``."""
         assert limiter._has_local_capacity() is True, (
             "_has_local_capacity should return True when no tasks are dispatched"
         )
         assert limiter._local_dispatched == 0, "initial dispatch count should be zero"
 
-    def test_has_local_capacity_returns_false_at_max_workers(self, limiter):
+    @staticmethod
+    def test_has_local_capacity_returns_false_at_max_workers(limiter):
         """Verify that ``_has_local_capacity()`` returns ``False`` when the dispatch count equals ``max_workers``."""
         # Arrange
         # Simulate max_workers tasks dispatched.
@@ -123,8 +130,9 @@ class TestLocalCapacityGuard:
             "_has_local_capacity should return False at max_workers"
         )
 
+    @staticmethod
     def test_dispatch_task_increments_and_decrements_counter(
-        self, limiter, func_path, task_id
+        limiter, func_path, task_id
     ):
         """Verify that ``_dispatch_task()`` increments the counter before submission and decrements after completion."""
         # Arrange

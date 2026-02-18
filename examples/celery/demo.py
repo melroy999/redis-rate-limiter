@@ -1,7 +1,7 @@
 """Self-contained CeleryRateLimiter demonstration.
 
 This script spawns a Celery worker subprocess, schedules rate-limited tasks,
-and monitors progress via the shared dashboard.  Unlike the thread pool
+and monitors progress via the shared dashboard. Unlike the thread pool
 demonstration, Celery requires a separate worker process; hence, this script
 manages the full worker lifecycle automatically.
 

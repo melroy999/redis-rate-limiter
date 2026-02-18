@@ -14,86 +14,93 @@ from tests.contracts.test_rate_limiter import RateLimiterContractTest
 from tests.helpers.utils import is_subset
 
 
-class TestRateLimiterImplementation(RateLimiterContractTest):
-    """Backend-agnostic implementation tests.
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-    This class inherits the shared contract suite and supplements it with
-    implementation-level checks for scheduling, Lua script recovery, and
-    buffer bookkeeping.
+
+def assert_task_existence(
+    limiter, redis_client, func_path: str, payload: dict, task_id: str
+) -> None:
+    """Verify that a task exists in Redis with the correct associated data.
+
+    Args:
+        limiter: The rate limiter instance under test.
+        redis_client: The Redis client used for verification.
+        func_path: The function path of the scheduled task.
+        payload: The payload data associated with the task.
+        task_id: The identifier of the task to verify.
     """
+    # Gather the data required to verify the assertions.
+    full_data = limiter._get_task_data(task_id, func_path, payload)
+    inflight_key = limiter.get_inflight_key(task_id)
+
+    # Assert that the task is marked as in-flight.
+    assert redis_client.exists(inflight_key) == 1, (
+        f"task {task_id} must be marked as in-flight"
+    )
+
+    # Assert that the task appears in the buffer exactly once.
+    _, results = redis_client.zscan(limiter.buffer_key, match=f'*"{task_id}"*')
+    assert len(results) > 0, f"task with ID {task_id} not found in buffer"
+    assert len(results) == 1, (
+        f"task with ID {task_id} has been found more than once in the buffer"
+    )
+
+    # Assert that the persisted task data remains correct.
+    full_data_server_str, _score = results[0]
+    full_data_server = json.loads(full_data_server_str)
+
+    assert is_subset(full_data, full_data_server), (
+        f"task with ID {task_id} has a data mismatch"
+    )
+    assert full_data_server.get("inflight_key") == inflight_key, (
+        f"task with ID {task_id} should persist inflight_key for Lua-side cleanup"
+    )
+    assert "__meta_arrived_at" in full_data_server, (
+        f"the __meta_arrived_at tag is missing for task with ID {task_id}"
+    )
+    assert isinstance(full_data_server["__meta_arrived_at"], int), (
+        f"the __meta_arrived_at tag is not an int for task with ID {task_id}"
+    )
+
+
+class TestRateLimiterContracts(RateLimiterContractTest):
+    """Contract compliance for the backend-agnostic rate limiter implementation."""
 
     @pytest.fixture
     def limiter(self, generic_limiter):
         """Provide the generic limiter instance under the contract fixture name."""
         return generic_limiter
 
-    # ==================== Helper Methods ====================
+
+class TestRateLimiterImplementation:
+    """Backend-agnostic implementation tests for scheduling, Lua script recovery, and buffer bookkeeping."""
+
+    @pytest.fixture
+    def limiter(self, generic_limiter):
+        """Provide the generic limiter instance under the contract fixture name."""
+        return generic_limiter
 
     @staticmethod
-    def assert_task_existence(
-        limiter, redis_client, func_path: str, payload: dict, task_id: str
-    ) -> None:
-        """Verify that a task exists in Redis with the correct associated data.
-
-        Args:
-            limiter: The rate limiter instance under test.
-            redis_client: The Redis client used for verification.
-            func_path: The function path of the scheduled task.
-            payload: The payload data associated with the task.
-            task_id: The identifier of the task to verify.
-        """
-        # Gather the data required to verify the assertions.
-        full_data = limiter._get_task_data(task_id, func_path, payload)
-        inflight_key = limiter.get_inflight_key(task_id)
-
-        # Assert that the task is marked as in-flight.
-        assert redis_client.exists(inflight_key) == 1, (
-            f"task {task_id} must be marked as in-flight"
-        )
-
-        # Assert that the task appears in the buffer exactly once.
-        _, results = redis_client.zscan(limiter.buffer_key, match=f'*"{task_id}"*')
-        assert len(results) > 0, f"task with ID {task_id} not found in buffer"
-        assert len(results) == 1, (
-            f"task with ID {task_id} has been found more than once in the buffer"
-        )
-
-        # Assert that the persisted task data remains correct.
-        full_data_server_str, _score = results[0]
-        full_data_server = json.loads(full_data_server_str)
-
-        assert is_subset(full_data, full_data_server), (
-            f"task with ID {task_id} has a data mismatch"
-        )
-        assert full_data_server.get("inflight_key") == inflight_key, (
-            f"task with ID {task_id} should persist inflight_key for Lua-side cleanup"
-        )
-        assert "__meta_arrived_at" in full_data_server, (
-            f"the __meta_arrived_at tag is missing for task with ID {task_id}"
-        )
-        assert isinstance(full_data_server["__meta_arrived_at"], int), (
-            f"the __meta_arrived_at tag is not an int for task with ID {task_id}"
-        )
-
-    # ==================== Implementation-Specific Tests ====================
-
     def test_schedule_single_task_stores_correctly(
-        self, limiter, redis_client, func_path, default_payload
+        limiter, redis_client, func_path, default_payload
     ):
         """Verify that a single task is stored with all required metadata."""
         # Act
         _, task_id = limiter.schedule_task(func_path, default_payload)
 
         # Assert
-        self.assert_task_existence(
+        assert_task_existence(
             limiter, redis_client, func_path, default_payload, task_id
         )
         assert redis_client.zcard(limiter.buffer_key) == 1, (
             "buffer should contain exactly one task"
         )
 
+    @staticmethod
     def test_schedule_duplicate_task_skips_second(
-        self, limiter, redis_client, func_path, default_payload
+        limiter, redis_client, func_path, default_payload
     ):
         """Verify that duplicate tasks are not scheduled twice."""
         # Act
@@ -104,12 +111,13 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
         assert success_1 is True, "first task should be scheduled successfully"
         assert success_2 is False, "duplicate task should not be scheduled"
         assert task_id_1 == task_id_2, "duplicate task should have same ID"
-        self.assert_task_existence(
+        assert_task_existence(
             limiter, redis_client, func_path, default_payload, task_id_1
         )
 
+    @staticmethod
     def test_schedule_multiple_tasks_with_one_duplicate(
-        self, limiter, redis_client, func_path
+        limiter, redis_client, func_path
     ):
         """Verify that multiple distinct tasks can be scheduled with duplicate detection."""
         # Arrange
@@ -127,18 +135,19 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
         assert success_duplicate is False, "duplicate should not be scheduled"
         assert success_new is True, "new task should be scheduled"
 
-        self.assert_task_existence(
+        assert_task_existence(
             limiter, redis_client, func_path, payload_1, task_id_duplicate
         )
-        self.assert_task_existence(
+        assert_task_existence(
             limiter, redis_client, func_path, payload_2, task_id_new
         )
         assert redis_client.zcard(limiter.buffer_key) == 2, (
             "buffer should contain exactly two tasks"
         )
 
+    @staticmethod
     def test_schedule_task_default_priority_is_100(
-        self, limiter, redis_client, func_path, default_payload
+        limiter, redis_client, func_path, default_payload
     ):
         """Verify that tasks scheduled without an explicit priority use the default value of 100."""
         # Act
@@ -151,8 +160,9 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
         _, score = members[0]
         assert score == 100.0, f"default priority should be 100, got {score}"
 
+    @staticmethod
     def test_schedule_task_uses_max_age_to_set_inflight_ttl(
-        self, limiter, redis_client, func_path, default_payload
+        limiter, redis_client, func_path, default_payload
     ):
         """Verify that the in-flight key TTL is derived from the effective max_age."""
         # Arrange
@@ -172,8 +182,9 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
             "inflight key TTL should be derived from max_age + lease_duration + window"
         )
 
+    @staticmethod
     def test_schedule_task_stores_custom_priority_as_score(
-        self, limiter, redis_client, func_path, default_payload
+        limiter, redis_client, func_path, default_payload
     ):
         """Verify that tasks scheduled with a custom priority store it as the ZSET score."""
         # Arrange
@@ -193,8 +204,9 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
             f"priority score should be {priority}, got {score}"
         )
 
+    @staticmethod
     def test_schedule_task_priority_determines_buffer_ordering(
-        self, limiter, redis_client
+        limiter, redis_client
     ):
         """Verify that tasks are ordered by priority in the buffer, with the lowest score consumed first."""
         # Arrange
@@ -216,7 +228,8 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
             f"tasks should be ordered by priority ascending, got scores {scores}"
         )
 
-    def test_schedule_task_equal_priorities_coexist(self, limiter, redis_client):
+    @staticmethod
+    def test_schedule_task_equal_priorities_coexist(limiter, redis_client):
         """Verify that multiple tasks with the same priority are all stored in the buffer."""
         # Arrange
         priority = 50
@@ -246,12 +259,13 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
             {"user_id": 123},
             {},
             {"a": [1, 2], "b": {"c": 3}},
-            {"msg": "✅ unicode"},
+            {"msg": "\u2705 unicode"},
         ],
         ids=["simple_dict", "empty_dict", "nested_dict", "unicode_content"],
     )
+    @staticmethod
     def test_payload_serialization_preserves_data(
-        self, limiter, redis_client, payload, func_path
+        limiter, redis_client, payload, func_path
     ):
         """Property: any JSON-serializable payload should survive a Redis round-trip intact."""
         # Act
@@ -259,10 +273,11 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
 
         # Assert
         assert success is True, "task should be scheduled successfully"
-        self.assert_task_existence(limiter, redis_client, func_path, payload, task_id)
+        assert_task_existence(limiter, redis_client, func_path, payload, task_id)
 
+    @staticmethod
     def test_lua_script_recovery_on_noscript_error(
-        self, limiter, redis_client, func_path, default_payload
+        limiter, redis_client, func_path, default_payload
     ):
         """Verify that the limiter recovers from a ``NoScriptError`` by reloading the Lua script."""
         # Arrange
@@ -291,7 +306,7 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
 
             # Assert
             assert success is True, "task should be scheduled after recovery"
-            self.assert_task_existence(
+            assert_task_existence(
                 limiter, redis_client, func_path, default_payload, task_id
             )
 
@@ -306,7 +321,8 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
             "script SHA should be cached after reload"
         )
 
-    def test_lua_script_permanent_failure_raises_error(self, limiter, redis_client):
+    @staticmethod
+    def test_lua_script_permanent_failure_raises_error(limiter, redis_client):
         """Verify that a permanent Lua script failure raises a RuntimeError."""
         # Arrange
         # Force evalsha to fail on every invocation.
@@ -332,8 +348,9 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
             "buffer should be empty after failure"
         )
 
+    @staticmethod
     def test_schedule_non_noscript_failure_cleans_inflight_and_reraises(
-        self, limiter, redis_client, func_path, default_payload
+        limiter, redis_client, func_path, default_payload
     ):
         """Verify that non-NoScript schedule failures clean the in-flight marker before re-raising."""
         # Arrange
@@ -360,7 +377,8 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
             "failed schedule should not leave buffered tasks behind"
         )
 
-    def test_consume_lua_script_recovery_on_noscript_error(self, limiter, redis_client):
+    @staticmethod
+    def test_consume_lua_script_recovery_on_noscript_error(limiter, redis_client):
         """Verify that ``consume()`` recovers from a ``NoScriptError`` by reloading the Lua script."""
         # Arrange
         real_evalsha = redis_client.evalsha
@@ -398,7 +416,8 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
             "script sha should be cached after reload"
         )
 
-    def test_consume_lua_script_permanent_failure_raises_error(self, limiter):
+    @staticmethod
+    def test_consume_lua_script_permanent_failure_raises_error(limiter):
         """Verify that a permanent ``NoScriptError`` during ``consume()`` raises a RuntimeError."""
         # Arrange
         with patch.object(
@@ -416,7 +435,8 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
                 "consume should attempt one retry before failing"
             )
 
-    def test_consume_connection_error_propagates(self, limiter):
+    @staticmethod
+    def test_consume_connection_error_propagates(limiter):
         """Verify that a non-NoScript Redis error during ``consume()`` propagates to the caller."""
         # Arrange
         with patch.object(
@@ -430,7 +450,8 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
             ):
                 limiter.consume()
 
-    def test_get_buffer_count_returns_zero_when_empty(self, limiter):
+    @staticmethod
+    def test_get_buffer_count_returns_zero_when_empty(limiter):
         """Verify that ``get_buffer_count()`` returns zero when no tasks are scheduled."""
         # Act
         count = limiter.get_buffer_count()
@@ -438,7 +459,8 @@ class TestRateLimiterImplementation(RateLimiterContractTest):
         # Assert
         assert count == 0, "empty buffer should report zero tasks"
 
-    def test_get_buffer_count_reflects_scheduled_tasks(self, limiter, func_path):
+    @staticmethod
+    def test_get_buffer_count_reflects_scheduled_tasks(limiter, func_path):
         """Verify that ``get_buffer_count()`` reflects the number of scheduled tasks."""
         # Arrange
         for idx in range(3):

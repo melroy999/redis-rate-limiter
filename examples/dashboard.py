@@ -1,7 +1,7 @@
 """Reusable live dashboard for any rate limiter demonstration.
 
 This module renders concurrency, buffer, rate limit, and dispatcher status
-to the terminal.  Per-window history is tracked automatically across
+to the terminal. Per-window history is tracked automatically across
 successive render calls.
 
 Usage::

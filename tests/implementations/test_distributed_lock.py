@@ -26,15 +26,16 @@ def create_lock():
 
 
 class TestDistributedLock(DistributedLockContractTest):
-    """Tests for the Redis-based DistributedLock implementation.
+    """Contract compliance for the Redis-based DistributedLock implementation."""
 
-    This class inherits all contract tests from DistributedLockContractTest
-    and adds implementation-specific tests for the Redis-based lock.
-    """
+    pass
 
-    # ==================== Implementation-Specific Tests ====================
 
-    def test_lock_stores_uuid_token(self, redis_client, lock_key, create_lock):
+class TestDistributedLockImplementation:
+    """Tests for Redis-specific implementation details of the DistributedLock."""
+
+    @staticmethod
+    def test_lock_stores_uuid_token(redis_client, lock_key, create_lock):
         """Implementation detail: the lock should use a UUID as the token format."""
         # Arrange
         lock = create_lock(redis_client, lock_key, timeout_ms=1000)
@@ -49,7 +50,8 @@ class TestDistributedLock(DistributedLockContractTest):
             assert "-" in token, "token should be UUID format (contains dashes)"
             assert len(token) == 36, "UUID should be 36 characters long"
 
-    def test_lock_uses_redis_set_nx(self, redis_client, lock_key, create_lock):
+    @staticmethod
+    def test_lock_uses_redis_set_nx(redis_client, lock_key, create_lock):
         """Implementation detail: the lock should use the Redis SET command with the NX option."""
         # Arrange
         lock = create_lock(redis_client, lock_key, timeout_ms=1000)
@@ -65,7 +67,9 @@ class TestDistributedLock(DistributedLockContractTest):
             ttl = redis_client.pttl(lock_key)
             assert 0 < ttl <= 1000, f"TTL should be set and <= 1000ms, got {ttl}ms"
 
-    # ==================== Contention-Aware Cooldown Tests ====================
+
+class TestContentionAwareCooldown:
+    """Tests for the contention-aware cooldown mechanism of the DistributedLock."""
 
     @staticmethod
     def test_cooldown_not_set_without_contention(redis_client, lock_key, create_lock):

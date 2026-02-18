@@ -56,7 +56,8 @@ class TestSmartJitter:
             limiter_suffix="jitter_default",
         )
 
-    def test_jitter_disabled_returns_zero(self, limiter):
+    @staticmethod
+    def test_jitter_disabled_returns_zero(limiter):
         """Verify that the jitter returns zero when it is disabled."""
         # Arrange
         limiter.jitter_enabled = False
@@ -193,8 +194,9 @@ class TestSmartJitter:
         "remaining_tasks, active_concurrency",
         itertools.product([0, 5, 25, 75, 200], [0, 2, 5]),
     )
+    @staticmethod
     def test_jitter_within_configured_bounds(
-        self, limiter, remaining_tasks, active_concurrency
+        limiter, remaining_tasks, active_concurrency
     ):
         """Verify that the jitter stays within the configured min/max percentages."""
         # Arrange
@@ -250,7 +252,8 @@ class TestSmartJitter:
             f"expected mean ({expected_mean:.4f})"
         )
 
-    def test_custom_jitter_percentages(self, make_limiter):
+    @staticmethod
+    def test_custom_jitter_percentages(make_limiter):
         """Verify that custom jitter percentages are respected."""
         # Arrange
         custom_limiter = make_limiter(
@@ -330,7 +333,8 @@ class TestSmartJitter:
             f"avg_low={avg_low:.4f}, avg_high={avg_high:.4f}"
         )
 
-    def test_jitter_precision(self, limiter):
+    @staticmethod
+    def test_jitter_precision(limiter):
         """Verify that the jitter is rounded to three decimal places."""
         # Act
         jitter = limiter._calculate_smart_jitter(

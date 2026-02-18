@@ -17,8 +17,6 @@ class TaskLifecycleContractTest:
         - inflight_key: A fixture that returns the in-flight key for the task.
     """
 
-    # ==================== Contract Tests ====================
-
     @staticmethod
     def test_lifecycle_removes_task_from_concurrency_set(
         redis_client, mock_limiter, task_id, inflight_key, lifecycle_class

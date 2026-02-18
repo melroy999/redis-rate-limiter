@@ -1,67 +1,68 @@
 """Tests for the internal helper methods of the rate limiter.
 
-This module tests internal implementation details such as Lua script loading,
-task data formatting, and other utility methods.
+This module tests internal implementation details such as Lua script loading
+via ``_register_script``, task data formatting, and other utility methods.
 """
 
 from unittest.mock import patch
 
 import pytest
 
+from celery_rate_limiter.core.scripts import DEFAULT_RESOURCE_PACKAGES
+
 
 @pytest.mark.parametrize(
-    "lua_script, target_key",
+    "lua_script",
     [
-        ("schedule.lua", "_SCHEDULE_LUA_SCRIPT"),
+        "schedule.lua",
         # A fictional non-existent file for testing the failure path.
-        ("missing.lua", "_MISSING_LUA_SCRIPT"),
+        "missing.lua",
     ],
     ids=["existing_script", "missing_script"],
 )
 class TestInternalHelpers:
     """Tests for internal helper methods and Lua script loading."""
 
-    def test_load_lua_script_imports_only_once(
-        self, generic_limiter, lua_script, target_key
-    ):
-        """Verify that Lua scripts are loaded from disk only once and are subsequently cached."""
+    @staticmethod
+    def test_register_script_uses_cached_source(generic_limiter, lua_script):
+        """Verify that script sources are loaded from disk only once and subsequently served from the cache."""
         # Arrange
-        # Simulate a script that has already been loaded.
+        # Simulate a script that has already been loaded into the source cache.
         existing_content = "return 1"
-        setattr(generic_limiter, target_key, existing_content)
+        generic_limiter._script_sources[lua_script] = existing_content
 
         # Act
         # Mock the resource loader to track the number of invocations.
-        with patch("celery_rate_limiter.core.limiters.resources.files") as mock_files:
-            generic_limiter._load_lua_script(lua_script=lua_script, key=target_key)
+        with patch("celery_rate_limiter.core.scripts.resources.files") as mock_files:
+            generic_limiter._register_script(lua_script)
 
             # Assert
             mock_files.assert_not_called()
 
-        assert getattr(generic_limiter, target_key) == existing_content, (
+        assert generic_limiter._script_sources[lua_script] == existing_content, (
             "cached script content should not be modified"
         )
 
-    def test_load_lua_script_raises_import_error_on_failure(
-        self, generic_limiter, lua_script, target_key
+    @staticmethod
+    def test_register_script_raises_import_error_on_missing_source(
+        generic_limiter, lua_script
     ):
-        """Verify that an ImportError is raised when the Lua script cannot be loaded."""
+        """Verify that an ImportError is raised when the Lua script cannot be loaded from any resource package."""
         # Arrange
-        # Ensure the attribute does not exist.
-        if hasattr(generic_limiter, target_key):
-            delattr(generic_limiter, target_key)
+        # Ensure the script source is not cached.
+        generic_limiter._script_sources.pop(lua_script, None)
 
         # Act & Assert
         # Mock the resource loader to simulate a file system error.
         with patch(
-            "celery_rate_limiter.core.limiters.resources.files",
+            "celery_rate_limiter.core.scripts.resources.files",
             side_effect=FileNotFoundError("File system error"),
         ) as mock_files:
             with pytest.raises(ImportError, match=f"Could not load {lua_script}"):
-                generic_limiter._load_lua_script(lua_script=lua_script, key=target_key)
+                generic_limiter._register_script(lua_script)
 
             # Verify that all configured package candidates were attempted.
-            assert mock_files.call_count == len(generic_limiter.resource_packages), (
+            assert mock_files.call_count == len(DEFAULT_RESOURCE_PACKAGES), (
                 "resource loader should try each configured package candidate"
             )
 
@@ -161,7 +162,9 @@ class TestTokenRecoveryDelay:
         )
 
         # Assert
-        assert delay > 0, "delay should be positive when decay has not yet freed a token"
+        assert delay > 0, (
+            "delay should be positive when decay has not yet freed a token"
+        )
         assert delay < 1.0, "delay should be less than the full window"
 
     @staticmethod

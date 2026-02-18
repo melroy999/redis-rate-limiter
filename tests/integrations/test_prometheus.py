@@ -18,15 +18,11 @@ def exporter(registry, default_limiter_id):
     return PrometheusMetricsExporter(limiter_id=default_limiter_id, registry=registry)
 
 
-# ---------------------------------------------------------------------------
-# Consume event: counter increments
-# ---------------------------------------------------------------------------
-
-
 class TestConsumeCounters:
     """Verify that consume events increment the correct outcome counter."""
 
-    def test_success_increments_counter(self, exporter, registry, default_limiter_id):
+    @staticmethod
+    def test_success_increments_counter(exporter, registry, default_limiter_id):
         """Verify that a successful consume event increments the success counter."""
         # Act
         exporter(
@@ -48,7 +44,8 @@ class TestConsumeCounters:
         )
         assert value == 1.0, "success counter should be incremented to 1"
 
-    def test_rejected_increments_counter(self, exporter, registry, default_limiter_id):
+    @staticmethod
+    def test_rejected_increments_counter(exporter, registry, default_limiter_id):
         """Verify that a rejected consume event increments the rejected counter."""
         # Act
         exporter(
@@ -70,7 +67,8 @@ class TestConsumeCounters:
         )
         assert value == 1.0, "rejected counter should be incremented to 1"
 
-    def test_expired_increments_counter(self, exporter, registry, default_limiter_id):
+    @staticmethod
+    def test_expired_increments_counter(exporter, registry, default_limiter_id):
         """Verify that an expired consume event increments the expired counter."""
         # Act
         exporter(
@@ -92,7 +90,8 @@ class TestConsumeCounters:
         )
         assert value == 1.0, "expired counter should be incremented to 1"
 
-    def test_multiple_events_accumulate(self, exporter, registry, default_limiter_id):
+    @staticmethod
+    def test_multiple_events_accumulate(exporter, registry, default_limiter_id):
         """Verify that multiple consume events accumulate in the counter."""
         # Act
         for _ in range(5):
@@ -116,15 +115,11 @@ class TestConsumeCounters:
         assert value == 5.0, "success counter should accumulate to 5"
 
 
-# ---------------------------------------------------------------------------
-# Consume event: gauge updates
-# ---------------------------------------------------------------------------
-
-
 class TestConsumeGauges:
     """Verify that consume events update the point-in-time gauges."""
 
-    def test_gauges_updated_on_consume(self, exporter, registry, default_limiter_id):
+    @staticmethod
+    def test_gauges_updated_on_consume(exporter, registry, default_limiter_id):
         """Verify that all gauges are set after a consume event."""
         # Act
         exporter(
@@ -164,7 +159,8 @@ class TestConsumeGauges:
             == 7.0
         ), "buffer depth gauge should reflect the event value"
 
-    def test_gauges_reflect_latest_value(self, exporter, registry, default_limiter_id):
+    @staticmethod
+    def test_gauges_reflect_latest_value(exporter, registry, default_limiter_id):
         """Verify that gauges reflect the most recent event, not accumulate."""
         # Arrange
         exporter(
@@ -218,15 +214,11 @@ class TestConsumeGauges:
         ), "buffer depth gauge should reflect the latest value"
 
 
-# ---------------------------------------------------------------------------
-# Schedule event
-# ---------------------------------------------------------------------------
-
-
 class TestScheduleCounter:
     """Verify that schedule events increment the correct counter."""
 
-    def test_scheduled_true(self, exporter, registry, default_limiter_id):
+    @staticmethod
+    def test_scheduled_true(exporter, registry, default_limiter_id):
         """Verify that a successful schedule event increments the true counter."""
         # Act
         exporter("schedule", {"scheduled": True, "task_id": "abc123"})
@@ -238,7 +230,8 @@ class TestScheduleCounter:
         )
         assert value == 1.0, "scheduled=true counter should be incremented to 1"
 
-    def test_scheduled_false(self, exporter, registry, default_limiter_id):
+    @staticmethod
+    def test_scheduled_false(exporter, registry, default_limiter_id):
         """Verify that a duplicate schedule event increments the false counter."""
         # Act
         exporter("schedule", {"scheduled": False, "task_id": "abc123"})
@@ -251,21 +244,18 @@ class TestScheduleCounter:
         assert value == 1.0, "scheduled=false counter should be incremented to 1"
 
 
-# ---------------------------------------------------------------------------
-# Edge cases
-# ---------------------------------------------------------------------------
-
-
 class TestEdgeCases:
     """Verify graceful handling of unexpected inputs."""
 
-    def test_unknown_event_is_ignored(self, exporter, registry):
+    @staticmethod
+    def test_unknown_event_is_ignored(exporter, registry):
         """Verify that unknown event names do not raise exceptions."""
         # Act & Assert
         # This invocation must not raise.
         exporter("unknown_event", {"key": "value"})
 
-    def test_custom_registry_isolation(self):
+    @staticmethod
+    def test_custom_registry_isolation():
         """Verify that metrics registered on a custom registry do not appear on another."""
         # Arrange
         registry_a = CollectorRegistry()

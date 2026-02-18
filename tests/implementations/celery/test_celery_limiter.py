@@ -9,8 +9,9 @@ import pytest
 class TestCeleryRateLimiter:
     """Tests that are specific to the Celery backend dispatch and payload logic."""
 
+    @staticmethod
     def test_schedule_task_with_use_executor_false_stores_meta(
-        self, limiter, redis_client, func_path, default_payload
+        limiter, redis_client, func_path, default_payload
     ):
         """Verify that ``schedule_task`` stores ``use_executor=False`` in the task payload metadata."""
         # Act
@@ -27,8 +28,9 @@ class TestCeleryRateLimiter:
             "task metadata should store use_executor as false"
         )
 
+    @staticmethod
     def test_dispatch_task_use_executor_true_sends_generic_worker(
-        self, limiter, default_payload, task_id
+        limiter, default_payload, task_id
     ):
         """Verify that ``_dispatch_task`` sends the generic worker task when ``use_executor`` is true."""
         # Arrange
@@ -49,8 +51,9 @@ class TestCeleryRateLimiter:
                 },
             )
 
+    @staticmethod
     def test_dispatch_task_use_executor_false_sends_custom_task(
-        self, limiter, default_payload, task_id
+        limiter, default_payload, task_id
     ):
         """Verify that ``_dispatch_task`` sends a custom task directly when ``use_executor`` is false."""
         # Arrange
@@ -68,7 +71,8 @@ class TestCeleryRateLimiter:
                 kwargs={"_rate_limit_task_id": task_id},
             )
 
-    def test_schedule_drain_wakes_drain_loop(self, limiter):
+    @staticmethod
+    def test_schedule_drain_wakes_drain_loop(limiter):
         """Verify that ``_schedule_drain`` delegates to the base-class ``DrainLoop``."""
         # Arrange
         delay = 1.75
@@ -80,8 +84,9 @@ class TestCeleryRateLimiter:
         # Assert
         mock_wake.assert_called_once_with(delay)
 
+    @staticmethod
     def test_dispatch_task_send_task_failure_propagates(
-        self, limiter, default_payload, task_id
+        limiter, default_payload, task_id
     ):
         """Verify that a ``send_task()`` failure propagates from ``_dispatch_task()``."""
         # Arrange
@@ -94,7 +99,8 @@ class TestCeleryRateLimiter:
             with pytest.raises(Exception, match="broker down"):
                 limiter._dispatch_task("myapp.tasks.process", payload, task_id)
 
-    def test_enhanced_payload_structure(self, limiter, default_payload):
+    @staticmethod
+    def test_enhanced_payload_structure(limiter, default_payload):
         """Verify that ``_get_enhanced_payload`` wraps the payload in the expected data/meta structure."""
         # Act
         enhanced_payload = limiter._get_enhanced_payload(
