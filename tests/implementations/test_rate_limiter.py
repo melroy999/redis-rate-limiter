@@ -277,52 +277,6 @@ class TestRateLimiterImplementation:
         assert_task_existence(limiter, redis_client, func_path, payload, task_id)
 
     @staticmethod
-    def test_lua_script_recovery_on_noscript_error(
-        limiter, redis_client, func_path, payload
-    ):
-        """Verify that the limiter recovers from a ``NoScriptError`` by reloading the Lua script."""
-        # Arrange
-        real_evalsha = redis_client.evalsha
-        real_script_load = redis_client.script_load
-
-        # Create a function that raises NoScriptError only on the first invocation.
-        def mocked_evalsha_func(*args, **kwargs):
-            if mocked_evalsha_func.call_count == 0:
-                mocked_evalsha_func.call_count += 1
-                raise redis.exceptions.NoScriptError("NOSCRIPT")
-            return real_evalsha(*args, **kwargs)
-
-        mocked_evalsha_func.call_count = 0
-
-        # Act
-        with (
-            patch.object(
-                limiter.redis, "evalsha", side_effect=mocked_evalsha_func
-            ) as mock_eval,
-            patch.object(
-                limiter.redis, "script_load", side_effect=real_script_load
-            ) as mock_load,
-        ):
-            success, task_id = limiter.schedule_task(func_path, payload)
-
-            # Assert
-            assert success is True, "task should be scheduled after recovery"
-            assert_task_existence(
-                limiter, redis_client, func_path, payload, task_id
-            )
-
-            # Verify that the recovery path was taken.
-            assert mock_eval.call_count == 2, (
-                "evalsha should be called twice (fail then retry)"
-            )
-            assert mock_load.call_count == 1, "script_load should be called to recover"
-
-        # Verify that the script SHA was reloaded and cached.
-        assert limiter.schedule_script_sha is not None, (
-            "script SHA should be cached after reload"
-        )
-
-    @staticmethod
     def test_lua_script_permanent_failure_raises_error(limiter, redis_client):
         """Verify that a permanent Lua script failure raises a RuntimeError."""
         # Arrange
@@ -377,79 +331,6 @@ class TestRateLimiterImplementation:
         assert redis_client.zcard(limiter.buffer_key) == 0, (
             "failed schedule should not leave buffered tasks behind"
         )
-
-    @staticmethod
-    def test_consume_lua_script_recovery_on_noscript_error(limiter, redis_client):
-        """Verify that ``consume()`` recovers from a ``NoScriptError`` by reloading the Lua script."""
-        # Arrange
-        real_evalsha = redis_client.evalsha
-        real_script_load = redis_client.script_load
-
-        def mocked_evalsha_func(*args, **kwargs):
-            if mocked_evalsha_func.call_count == 0:
-                mocked_evalsha_func.call_count += 1
-                raise redis.exceptions.NoScriptError("NOSCRIPT")
-            return real_evalsha(*args, **kwargs)
-
-        mocked_evalsha_func.call_count = 0
-
-        # Act
-        with (
-            patch.object(
-                limiter.redis, "evalsha", side_effect=mocked_evalsha_func
-            ) as mock_eval,
-            patch.object(
-                limiter.redis, "script_load", side_effect=real_script_load
-            ) as mock_load,
-        ):
-            result = limiter.consume()
-
-            # Assert
-            assert result["success"] is False, (
-                "consume should return unsuccessful on empty buffer"
-            )
-            assert mock_eval.call_count == 2, (
-                "evalsha should be called twice (fail then retry)"
-            )
-            assert mock_load.call_count == 1, "script_load should be called to recover"
-
-        assert limiter.consume_script_sha is not None, (
-            "script sha should be cached after reload"
-        )
-
-    @staticmethod
-    def test_consume_lua_script_permanent_failure_raises_error(limiter):
-        """Verify that a permanent ``NoScriptError`` during ``consume()`` raises a RuntimeError."""
-        # Arrange
-        with patch.object(
-            limiter.redis,
-            "evalsha",
-            side_effect=redis.exceptions.NoScriptError("Permanent Failure"),
-        ) as mock_eval:
-            # Act & Assert
-            with pytest.raises(
-                RuntimeError, match="Redis failed to retain the Lua script"
-            ):
-                limiter.consume()
-
-            assert mock_eval.call_count == 2, (
-                "consume should attempt one retry before failing"
-            )
-
-    @staticmethod
-    def test_consume_connection_error_propagates(limiter):
-        """Verify that a non-NoScript Redis error during ``consume()`` propagates to the caller."""
-        # Arrange
-        with patch.object(
-            limiter.redis,
-            "evalsha",
-            side_effect=redis.exceptions.ConnectionError("redis unreachable"),
-        ):
-            # Act & Assert
-            with pytest.raises(
-                redis.exceptions.ConnectionError, match="redis unreachable"
-            ):
-                limiter.consume()
 
     @staticmethod
     def test_get_buffer_count_returns_zero_when_empty(limiter):

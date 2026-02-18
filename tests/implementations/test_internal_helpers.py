@@ -1,13 +1,16 @@
 """Tests for the internal helper methods of the rate limiter.
 
 This module tests internal implementation details such as Lua script loading
-via ``_register_script``, task data formatting, and other utility methods.
+via ``_register_script``, ``_eval_script`` NOSCRIPT recovery, task data
+formatting, and other utility methods.
 """
 
 from unittest.mock import patch
 
 import pytest
+import redis
 
+from celery_rate_limiter.core.base import AbstractAsyncRateLimiter, AbstractSyncRateLimiter
 from celery_rate_limiter.core.scripts import DEFAULT_RESOURCE_PACKAGES
 
 
@@ -185,3 +188,209 @@ class TestTokenRecoveryDelay:
         assert delay == 0.001, (
             "delay should be 0.001 when decay has already freed a token"
         )
+
+
+class _MinimalSyncLimiter(AbstractSyncRateLimiter):
+    """Bare subclass that exposes ``_eval_script`` without any mixin logic."""
+
+    pass
+
+
+class _MinimalAsyncLimiter(AbstractAsyncRateLimiter):
+    """Bare async subclass that exposes ``_eval_script`` without any mixin logic."""
+
+    pass
+
+
+class TestSyncEvalScript:
+    """Tests for ``AbstractSyncRateLimiter._eval_script`` NOSCRIPT recovery."""
+
+    @pytest.fixture
+    def limiter(self, redis_client):
+        """Create a minimal sync limiter with a pre-registered script."""
+        _limiter = _MinimalSyncLimiter(
+            redis_client=redis_client,
+            limiter_id="eval_script_sync",
+            limit=5,
+            window=60,
+        )
+        _limiter._register_script("health.lua")
+        return _limiter
+
+    @staticmethod
+    def test_eval_script_recovers_from_transient_noscript(limiter):
+        """Verify that ``_eval_script`` re-registers and retries on a single NoScriptError."""
+        # Arrange
+        real_evalsha = limiter.redis.evalsha
+        real_script_load = limiter.redis.script_load
+
+        def fail_once(*args, **kwargs):
+            if fail_once.calls == 0:
+                fail_once.calls += 1
+                raise redis.exceptions.NoScriptError("NOSCRIPT")
+            return real_evalsha(*args, **kwargs)
+
+        fail_once.calls = 0
+
+        # Act
+        with (
+            patch.object(
+                limiter.redis, "evalsha", side_effect=fail_once
+            ) as mock_eval,
+            patch.object(
+                limiter.redis, "script_load", side_effect=real_script_load
+            ) as mock_load,
+        ):
+            result = limiter._eval_script(
+                "health.lua", 3,
+                "eval_script_sync", "eval_script_sync:buffer",
+                "eval_script_sync:concurrency", 60, 5, 2,
+            )
+
+        # Assert
+        assert result is not None, "eval_script should return the script result after recovery"
+        assert mock_eval.call_count == 2, (
+            "evalsha should be called twice (fail then retry)"
+        )
+        assert mock_load.call_count == 1, (
+            "script_load should be called once to re-register"
+        )
+
+    @staticmethod
+    def test_eval_script_raises_runtime_error_on_permanent_noscript(limiter):
+        """Verify that ``_eval_script`` raises RuntimeError when the script cannot be retained."""
+        # Arrange
+        with patch.object(
+            limiter.redis,
+            "evalsha",
+            side_effect=redis.exceptions.NoScriptError("Permanent"),
+        ) as mock_eval:
+            # Act & Assert
+            with pytest.raises(
+                RuntimeError, match="Redis failed to retain the Lua script"
+            ):
+                limiter._eval_script("health.lua", 0)
+
+            assert mock_eval.call_count == 2, (
+                "evalsha should be attempted twice before raising"
+            )
+
+    @staticmethod
+    def test_eval_script_propagates_non_noscript_errors(limiter):
+        """Verify that non-NoScriptError exceptions pass through without retry."""
+        # Arrange
+        with patch.object(
+            limiter.redis,
+            "evalsha",
+            side_effect=redis.exceptions.ConnectionError("redis down"),
+        ) as mock_eval:
+            # Act & Assert
+            with pytest.raises(
+                redis.exceptions.ConnectionError, match="redis down"
+            ):
+                limiter._eval_script("health.lua", 0)
+
+            assert mock_eval.call_count == 1, (
+                "evalsha should not retry on non-NoScriptError exceptions"
+            )
+
+
+class TestAsyncEvalScript:
+    """Tests for ``AbstractAsyncRateLimiter._eval_script`` NOSCRIPT recovery."""
+
+    @pytest.fixture
+    async def limiter(self, async_redis_client):
+        """Create a minimal async limiter with a pre-registered script."""
+        _limiter = _MinimalAsyncLimiter(
+            redis_client=async_redis_client,
+            limiter_id="eval_script_async",
+            limit=5,
+            window=60,
+        )
+        await _limiter._register_script("health.lua")
+        return _limiter
+
+    @staticmethod
+    async def test_eval_script_recovers_from_transient_noscript(limiter):
+        """Verify that the async ``_eval_script`` re-registers and retries on a single NoScriptError."""
+        # Arrange
+        real_evalsha = limiter.redis.evalsha
+        real_script_load = limiter.redis.script_load
+
+        async def fail_once(*args, **kwargs):
+            if fail_once.calls == 0:
+                fail_once.calls += 1
+                raise redis.exceptions.NoScriptError("NOSCRIPT")
+            return await real_evalsha(*args, **kwargs)
+
+        fail_once.calls = 0
+
+        # Act
+        with (
+            patch.object(
+                limiter.redis, "evalsha", side_effect=fail_once
+            ) as mock_eval,
+            patch.object(
+                limiter.redis, "script_load", side_effect=real_script_load
+            ) as mock_load,
+        ):
+            result = await limiter._eval_script(
+                "health.lua", 3,
+                "eval_script_async", "eval_script_async:buffer",
+                "eval_script_async:concurrency", 60, 5, 2,
+            )
+
+        # Assert
+        assert result is not None, "eval_script should return the script result after recovery"
+        assert mock_eval.call_count == 2, (
+            "evalsha should be called twice (fail then retry)"
+        )
+        assert mock_load.call_count == 1, (
+            "script_load should be called once to re-register"
+        )
+
+    @staticmethod
+    async def test_eval_script_raises_runtime_error_on_permanent_noscript(
+        limiter,
+    ):
+        """Verify that the async ``_eval_script`` raises RuntimeError when the script cannot be retained."""
+        # Arrange
+        async def always_fail(*args, **kwargs):
+            raise redis.exceptions.NoScriptError("Permanent")
+
+        with patch.object(
+            limiter.redis,
+            "evalsha",
+            side_effect=always_fail,
+        ) as mock_eval:
+            # Act & Assert
+            with pytest.raises(
+                RuntimeError, match="Redis failed to retain the Lua script"
+            ):
+                await limiter._eval_script("health.lua", 0)
+
+            assert mock_eval.call_count == 2, (
+                "evalsha should be attempted twice before raising"
+            )
+
+    @staticmethod
+    async def test_eval_script_propagates_non_noscript_errors(limiter):
+        """Verify that non-NoScriptError exceptions pass through without retry."""
+        # Arrange
+        async def connection_error(*args, **kwargs):
+            raise redis.exceptions.ConnectionError("redis down")
+
+        with patch.object(
+            limiter.redis,
+            "evalsha",
+            side_effect=connection_error,
+        ) as mock_eval:
+            # Act & Assert
+            with pytest.raises(
+                redis.exceptions.ConnectionError, match="redis down"
+            ):
+                await limiter._eval_script("health.lua", 0)
+
+            assert mock_eval.call_count == 1, (
+                "evalsha should not retry on non-NoScriptError exceptions"
+            )

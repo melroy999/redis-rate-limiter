@@ -12,7 +12,6 @@ from typing import Literal
 from unittest.mock import MagicMock, patch
 
 import pytest
-import redis
 
 from celery_rate_limiter import TaskLifecycle
 from tests.contracts.test_task_lifecycle import TaskLifecycleContractTest
@@ -317,65 +316,7 @@ class TestHeartbeatLoop:
 
 
 class TestExtendLease:
-    """Tests for the ``extend_lease()`` Lua script recovery and error handling."""
-
-    @staticmethod
-    def test_extend_lease_recovery_on_noscript_error(
-        generic_limiter, redis_client, task_id
-    ):
-        """Verify that ``extend_lease()`` reloads the Lua script and retries on a NoScriptError."""
-        # Arrange
-        redis_client.zadd(
-            generic_limiter.concurrency_key, {task_id: int(time.time()) + 5}
-        )
-        real_evalsha = redis_client.evalsha
-        real_script_load = redis_client.script_load
-
-        def mocked_evalsha_func(*args, **kwargs):
-            if mocked_evalsha_func.call_count == 0:
-                mocked_evalsha_func.call_count += 1
-                raise redis.exceptions.NoScriptError("NOSCRIPT")
-            return real_evalsha(*args, **kwargs)
-
-        mocked_evalsha_func.call_count = 0
-
-        # Act
-        with (
-            patch.object(
-                generic_limiter.redis, "evalsha", side_effect=mocked_evalsha_func
-            ) as mock_eval,
-            patch.object(
-                generic_limiter.redis, "script_load", side_effect=real_script_load
-            ) as mock_load,
-        ):
-            generic_limiter.extend_lease(task_id, 30)
-
-            # Assert
-            assert mock_eval.call_count == 2, (
-                "evalsha should be called twice (fail then retry)"
-            )
-            assert mock_load.call_count == 1, (
-                "script_load should be called once for recovery"
-            )
-
-    @staticmethod
-    def test_extend_lease_permanent_failure_raises_error(generic_limiter):
-        """Verify that a permanent NoScriptError during ``extend_lease()`` raises a RuntimeError."""
-        # Arrange
-        with patch.object(
-            generic_limiter.redis,
-            "evalsha",
-            side_effect=redis.exceptions.NoScriptError("Permanent Failure"),
-        ) as mock_eval:
-            # Act & Assert
-            with pytest.raises(
-                RuntimeError, match="Redis failed to retain the Lua script"
-            ):
-                generic_limiter.extend_lease("task123", 30)
-
-            assert mock_eval.call_count == 2, (
-                "extend_lease should attempt one retry before failing"
-            )
+    """Tests for ``extend_lease()`` error handling."""
 
     @staticmethod
     def test_extend_lease_raises_key_error_for_unknown_task(generic_limiter):

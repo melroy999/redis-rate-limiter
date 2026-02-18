@@ -22,7 +22,6 @@ from typing import (
     cast,
 )
 
-import redis
 from redis import Redis
 
 from celery_rate_limiter.core.base import AbstractRateLimiter, AbstractSyncRateLimiter
@@ -903,10 +902,10 @@ class AbstractDistributedRateLimiter(
             self._drain_signal_subscriber = None
 
         # Register Lua scripts with the Redis server.
-        self.consume_script_sha = self._register_script("consume.lua")
-        self.schedule_script_sha = self._register_script("schedule.lua")
-        self.health_script_sha = self._register_script("health.lua")
-        self.renew_script_sha = self._register_script("renew.lua")
+        self._register_script("consume.lua")
+        self._register_script("schedule.lua")
+        self._register_script("health.lua")
+        self._register_script("renew.lua")
 
         logger.info(
             "Rate limiter initialized: id=%s, limit=%d, window_s=%g, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s, drain_enabled=%s.",
@@ -954,7 +953,6 @@ class AbstractDistributedRateLimiter(
         payload: dict,
         priority: int = 100,
         max_age: Optional[int] = None,
-        retry: bool = True,
     ) -> tuple[bool, str]:
         """Schedule a task for execution once the rate limit permits.
 
@@ -963,7 +961,6 @@ class AbstractDistributedRateLimiter(
             payload: The payload dictionary for the task in question.
             priority: The priority of the task (default: 100).
             max_age: An optional override for the maximum age of the task, in seconds.
-            retry: Whether to retry the scheduling operation upon a NoScriptError (e.g., Redis restart).
 
         Returns:
             A tuple of (``was_scheduled``, ``task_id``). The ``was_scheduled`` value is ``False``
@@ -1004,8 +1001,8 @@ class AbstractDistributedRateLimiter(
 
         try:
             # Attempt to schedule the task via the Lua script.
-            self.redis.evalsha(
-                self.schedule_script_sha,
+            self._eval_script(
+                "schedule.lua",
                 1,
                 # KEYS: [buffer]
                 self.buffer_key,
@@ -1021,32 +1018,8 @@ class AbstractDistributedRateLimiter(
                 func_path,
                 priority,
             )
-
-        except redis.exceptions.NoScriptError:
-            # The Redis script cache is volatile; hence, the SHA may become invalid unexpectedly.
-            # Determine whether a retry should be performed; raise a runtime error if not.
-            if not retry:
-                # Clean up the in-flight key to avoid an orphaned lock.
-                self._cleanup_inflight_key(inflight_key, task_id)
-                raise RuntimeError(
-                    "Redis failed to retain the Lua script after a reload attempt."
-                )
-
-            # Reload the script SHA and reattempt the operation.
-            logger.warning(
-                "Lua script cache miss during schedule; reloading script: limiter=%s, script=%s, task_id=%s.",
-                self.id,
-                "schedule.lua",
-                task_id,
-            )
-            self.schedule_script_sha = self._register_script("schedule.lua")
-            # Release the claim so that the retry can re-acquire it.
-            self._cleanup_inflight_key(inflight_key, task_id)
-            return self.schedule_task(
-                func_path, payload, priority, max_age=max_age, retry=False
-            )
         except Exception:
-            # Any non-NOSCRIPT scheduling failure must release the claim so that retries
+            # Any scheduling failure must release the claim so that retries
             # from callers are not blocked by a stale in-flight marker.
             self._cleanup_inflight_key(inflight_key, task_id)
             raise
@@ -1060,11 +1033,8 @@ class AbstractDistributedRateLimiter(
     # Task consumption and lease management
     # ------------------------------------------------------------------
 
-    def consume(self, retry: bool = True) -> ConsumeResult:
+    def consume(self) -> ConsumeResult:
         """Attempt to consume a task from the queue.
-
-        Args:
-            retry: Whether to retry the consumption upon a NoScriptError.
 
         Returns:
             A result containing the task data if consumption was successful, or an empty result otherwise.
@@ -1073,85 +1043,65 @@ class AbstractDistributedRateLimiter(
             RuntimeError: If the required Lua scripts cannot be (re)loaded.
         """
         logger.debug("Consume attempt started: limiter=%s.", self.id)
-        try:
-            # Execute the consume Lua script and obtain the result.
-            result = cast(
-                list[str],
-                cast(
-                    object,
-                    self.redis.evalsha(
-                        self.consume_script_sha,
-                        4,
-                        # KEYS: [base, buffer, concurrency, dlq]
-                        self.id,
-                        self.buffer_key,
-                        self.concurrency_key,
-                        self.dlq_key,
-                        # ARGV: [window, limit, max_concurrency, max_age, lease_duration]
-                        self.window,
-                        self.limit,
-                        self.max_concurrency,
-                        self.max_age,
-                        self.lease_duration,
-                    ),
-                ),
-            )
 
-            # Parse and structure the result.
-            consume_result: ConsumeResult = {
-                "success": int(result[0]) == 1,
-                "expired": int(result[0]) == -1,
-                "task": cast(TaskData, json.loads(result[1])) if result[1] else None,
-                "remaining_tokens": int(result[2]),
-                "active_concurrency": int(result[3]),
-                "reset_in_ms": int(result[4]),
-                "remaining_tasks": int(result[5]),
-                "val_previous": int(result[6]),
-                "val_current": int(result[7]),
-            }
-            task_id = consume_result["task"]["id"] if consume_result["task"] else None
-            logger.debug(
-                "Consume result: limiter=%s, success=%s, expired=%s, task_id=%s, remaining_tokens=%d, active_concurrency=%d, remaining_tasks=%d, reset_in_ms=%d.",
-                self.id,
-                consume_result["success"],
-                consume_result["expired"],
-                task_id,
-                consume_result["remaining_tokens"],
-                consume_result["active_concurrency"],
-                consume_result["remaining_tasks"],
-                consume_result["reset_in_ms"],
-            )
-            self._emit_metric(
-                "consume",
-                {
-                    "success": consume_result["success"],
-                    "expired": consume_result["expired"],
-                    "remaining_tokens": consume_result["remaining_tokens"],
-                    "active_concurrency": consume_result["active_concurrency"],
-                    "reset_in_ms": consume_result["reset_in_ms"],
-                    "remaining_tasks": consume_result["remaining_tasks"],
-                },
-            )
-            return consume_result
-
-        except redis.exceptions.NoScriptError:
-            # The Redis script cache is volatile; hence, the SHA may become invalid unexpectedly.
-            # Determine whether a retry should be performed; raise a runtime error if not.
-            if not retry:
-                raise RuntimeError(
-                    "Redis failed to retain the Lua script after a reload attempt."
-                )
-
-            # Reload the script SHA and reattempt the operation.
-            logger.warning(
-                "Lua script cache miss during consume; reloading script: limiter=%s, script=%s.",
-                self.id,
+        # Execute the consume Lua script and obtain the result.
+        result = cast(
+            list[str],
+            self._eval_script(
                 "consume.lua",
-            )
-            self.consume_script_sha = self._register_script("consume.lua")
-            return self.consume(retry=False)
+                4,
+                # KEYS: [base, buffer, concurrency, dlq]
+                self.id,
+                self.buffer_key,
+                self.concurrency_key,
+                self.dlq_key,
+                # ARGV: [window, limit, max_concurrency, max_age, lease_duration]
+                self.window,
+                self.limit,
+                self.max_concurrency,
+                self.max_age,
+                self.lease_duration,
+            ),
+        )
 
-    def extend_lease(self, task_id: str, duration: int, retry: bool = True) -> None:
+        # Parse and structure the result.
+        consume_result: ConsumeResult = {
+            "success": int(result[0]) == 1,
+            "expired": int(result[0]) == -1,
+            "task": cast(TaskData, json.loads(result[1])) if result[1] else None,
+            "remaining_tokens": int(result[2]),
+            "active_concurrency": int(result[3]),
+            "reset_in_ms": int(result[4]),
+            "remaining_tasks": int(result[5]),
+            "val_previous": int(result[6]),
+            "val_current": int(result[7]),
+        }
+        task_id = consume_result["task"]["id"] if consume_result["task"] else None
+        logger.debug(
+            "Consume result: limiter=%s, success=%s, expired=%s, task_id=%s, remaining_tokens=%d, active_concurrency=%d, remaining_tasks=%d, reset_in_ms=%d.",
+            self.id,
+            consume_result["success"],
+            consume_result["expired"],
+            task_id,
+            consume_result["remaining_tokens"],
+            consume_result["active_concurrency"],
+            consume_result["remaining_tasks"],
+            consume_result["reset_in_ms"],
+        )
+        self._emit_metric(
+            "consume",
+            {
+                "success": consume_result["success"],
+                "expired": consume_result["expired"],
+                "remaining_tokens": consume_result["remaining_tokens"],
+                "active_concurrency": consume_result["active_concurrency"],
+                "reset_in_ms": consume_result["reset_in_ms"],
+                "remaining_tasks": consume_result["remaining_tasks"],
+            },
+        )
+        return consume_result
+
+    def extend_lease(self, task_id: str, duration: int) -> None:
         """Extend the lease on a concurrency slot.
 
         A lease-based concurrency system is employed such that proper cleanup can be performed
@@ -1164,56 +1114,38 @@ class AbstractDistributedRateLimiter(
             duration: The number of seconds by which to extend the lease. This value is decoupled
                 from the actual lease duration such that it may be set to a fraction thereof,
                 ensuring that the lease is always refreshed well before expiration.
-            retry: An internal flag indicating whether the operation should be reattempted if a
-                script error occurs.
 
         Raises:
             KeyError: If the task identifier is not present in the concurrency set.
             RuntimeError: If the renew Lua script cannot be reloaded after a NoScriptError.
         """
-        try:
-            renewed = int(
-                cast(
-                    str,
-                    self.redis.evalsha(
-                        self.renew_script_sha,
-                        1,
-                        # KEYS: [concurrency]
-                        self.concurrency_key,
-                        # ARGV: [task_id, duration]
-                        task_id,
-                        duration,
-                    ),
-                )
+        renewed = int(
+            cast(
+                str,
+                self._eval_script(
+                    "renew.lua",
+                    1,
+                    # KEYS: [concurrency]
+                    self.concurrency_key,
+                    # ARGV: [task_id, duration]
+                    task_id,
+                    duration,
+                ),
             )
+        )
 
-            logger.debug(
-                "Lease extension result: limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
-                self.id,
-                task_id,
-                duration,
-                renewed == 1,
+        logger.debug(
+            "Lease extension result: limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
+            self.id,
+            task_id,
+            duration,
+            renewed == 1,
+        )
+        if renewed != 1:
+            raise KeyError(
+                f"Could not extend lease for task '{task_id}' on limiter '{self.id}': "
+                "task id was not found in the concurrency set."
             )
-            if renewed != 1:
-                raise KeyError(
-                    f"Could not extend lease for task '{task_id}' on limiter '{self.id}': "
-                    "task id was not found in the concurrency set."
-                )
-        except redis.exceptions.NoScriptError:
-            if not retry:
-                raise RuntimeError(
-                    "Redis failed to retain the Lua script after a reload attempt."
-                )
-
-            # Reload the script SHA and reattempt the operation.
-            logger.warning(
-                "Lua script cache miss during lease extension; reloading script: limiter=%s, script=%s, task_id=%s.",
-                self.id,
-                "renew.lua",
-                task_id,
-            )
-            self.renew_script_sha = self._register_script("renew.lua")
-            self.extend_lease(task_id, duration, retry=False)
 
     # ------------------------------------------------------------------
     # Drain orchestration
@@ -1520,11 +1452,8 @@ class AbstractDistributedRateLimiter(
     # Status and monitoring
     # ------------------------------------------------------------------
 
-    def get_status(self, retry: bool = True) -> dict:
+    def get_status(self) -> dict:
         """Return a snapshot of the current state of the limiter.
-
-        Args:
-            retry: Whether to retry the operation upon a script error.
 
         Returns:
             A dictionary containing all status information for the limiter.
@@ -1532,62 +1461,42 @@ class AbstractDistributedRateLimiter(
         Raises:
             RuntimeError: If the required Lua scripts cannot be (re)loaded.
         """
-        try:
-            result = cast(
-                list[str],
-                cast(
-                    object,
-                    self.redis.evalsha(
-                        self.health_script_sha,
-                        3,
-                        # KEYS: [base, buffer, concurrency]
-                        self.id,
-                        self.buffer_key,
-                        self.concurrency_key,
-                        # ARGV: [window, limit, max_concurrency]
-                        self.window,
-                        self.limit,
-                        self.max_concurrency,
-                    ),
-                ),
-            )
-
-            # Map the result list to a structured dictionary.
-            return {
-                "limiter_id": self.id,
-                "concurrency": {
-                    "current": result[3],
-                    "max": self.max_concurrency,
-                    "available": max(0, self.max_concurrency - int(result[3])),
-                },
-                "buffer": {
-                    "count": result[5],
-                },
-                "rate_limit": {
-                    "val_previous": result[0],
-                    "val_current": result[1],
-                    "tokens_used": float(result[2]),  # Estimated count is a float
-                    "limit": self.limit,
-                    "window": self.window,
-                    "reset_in_ms": result[4],
-                },
-                "dispatcher": {
-                    "is_locked": self.redis.exists(f"{self.id}:dispatch_lock")
-                },
-            }
-        except redis.exceptions.NoScriptError:
-            # The Redis script cache is volatile; hence, the SHA may become invalid unexpectedly.
-            # Determine whether a retry should be performed; raise a runtime error if not.
-            if not retry:
-                raise RuntimeError(
-                    "Redis failed to retain the Lua script after a reload attempt."
-                )
-
-            # Reload the script SHA and reattempt the operation.
-            logger.warning(
-                "Lua script cache miss during status fetch; reloading script: limiter=%s, script=%s.",
-                self.id,
+        result = cast(
+            list[str],
+            self._eval_script(
                 "health.lua",
-            )
-            self.health_script_sha = self._register_script("health.lua")
-            return self.get_status(retry=False)
+                3,
+                # KEYS: [base, buffer, concurrency]
+                self.id,
+                self.buffer_key,
+                self.concurrency_key,
+                # ARGV: [window, limit, max_concurrency]
+                self.window,
+                self.limit,
+                self.max_concurrency,
+            ),
+        )
+
+        # Map the result list to a structured dictionary.
+        return {
+            "limiter_id": self.id,
+            "concurrency": {
+                "current": result[3],
+                "max": self.max_concurrency,
+                "available": max(0, self.max_concurrency - int(result[3])),
+            },
+            "buffer": {
+                "count": result[5],
+            },
+            "rate_limit": {
+                "val_previous": result[0],
+                "val_current": result[1],
+                "tokens_used": float(result[2]),  # Estimated count is a float
+                "limit": self.limit,
+                "window": self.window,
+                "reset_in_ms": result[4],
+            },
+            "dispatcher": {
+                "is_locked": self.redis.exists(f"{self.id}:dispatch_lock")
+            },
+        }

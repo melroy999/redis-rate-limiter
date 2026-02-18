@@ -116,21 +116,15 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
         payload: dict,
         priority: int = 100,
         max_age: Optional[int] = None,
-        retry: bool = True,
         use_executor: bool = True,
     ) -> tuple[bool, str]:
         # Augment the payload with the executor flag.
-        # This is only performed on the initial attempt; on retries the payload already contains it.
-        enhanced_payload = payload
-        if retry:
-            enhanced_payload = self._get_enhanced_payload(payload, use_executor)
+        enhanced_payload = self._get_enhanced_payload(payload, use_executor)
 
         # Delegate to the parent scheduler.
         return cast(
             tuple[bool, str],
-            super().schedule_task(
-                func_path, enhanced_payload, priority, max_age, retry
-            ),
+            super().schedule_task(func_path, enhanced_payload, priority, max_age),
         )
 
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:

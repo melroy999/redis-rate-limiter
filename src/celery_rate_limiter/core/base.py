@@ -162,7 +162,7 @@ class AbstractSyncRateLimiter(AbstractRateLimiter):
                 return self.redis.evalsha(new_sha, num_keys, *args)
             except redis.exceptions.NoScriptError:
                 raise RuntimeError(
-                    f"Redis failed to retain Lua script '{script_name}' after reload."
+                    f"Redis failed to retain the Lua script '{script_name}' after reload."
                 )
 
 
@@ -237,7 +237,7 @@ class AbstractAsyncRateLimiter(AbstractRateLimiter):
                 )
             except redis.exceptions.NoScriptError:
                 raise RuntimeError(
-                    f"Redis failed to retain Lua script '{script_name}' after reload."
+                    f"Redis failed to retain the Lua script '{script_name}' after reload."
                 )
 
     async def start(self) -> None:

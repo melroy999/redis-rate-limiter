@@ -27,7 +27,6 @@ from typing import (
 )
 
 import redis.asyncio
-import redis.exceptions
 
 from celery_rate_limiter.core.base import AbstractAsyncRateLimiter
 from celery_rate_limiter.core.limiters import (
@@ -512,10 +511,11 @@ class AbstractAsyncDistributedRateLimiter(
         """
         await super().start()
 
-        self.consume_script_sha = await self._register_script("consume.lua")
-        self.schedule_script_sha = await self._register_script("schedule.lua")
-        self.health_script_sha = await self._register_script("health.lua")
-        self.renew_script_sha = await self._register_script("renew.lua")
+        # Register Lua scripts with the Redis server. 
+        await self._register_script("consume.lua")
+        await self._register_script("schedule.lua")
+        await self._register_script("health.lua")
+        await self._register_script("renew.lua")
 
         if self._drain_signal_subscriber is not None:
             await self._drain_signal_subscriber.start()
@@ -565,7 +565,6 @@ class AbstractAsyncDistributedRateLimiter(
         payload: dict,
         priority: int = 100,
         max_age: Optional[int] = None,
-        retry: bool = True,
     ) -> tuple[bool, str]:
         """Schedule a task for execution once the rate limit permits.
 
@@ -574,7 +573,6 @@ class AbstractAsyncDistributedRateLimiter(
             payload: The task payload dictionary.
             priority: The task priority (default: 100).
             max_age: An optional override for the maximum age.
-            retry: Whether to retry on NoScriptError.
 
         Returns:
             A tuple of (``was_scheduled``, ``task_id``).
@@ -603,16 +601,13 @@ class AbstractAsyncDistributedRateLimiter(
         full_data = self._get_task_data_str(task_id, func_path, payload)
 
         try:
-            await cast(
-                Awaitable,
-                self.redis.evalsha(
-                    self.schedule_script_sha,
-                    1,
-                    self.buffer_key,
-                    full_data,
-                    priority,
-                    max_age or "",
-                ),
+            await self._eval_script(
+                "schedule.lua",
+                1,
+                self.buffer_key,
+                full_data,
+                priority,
+                max_age or "",
             )
             logger.info(
                 "Task scheduled (async): limiter=%s, task_id=%s, func_path=%s, priority=%d.",
@@ -620,24 +615,6 @@ class AbstractAsyncDistributedRateLimiter(
                 task_id,
                 func_path,
                 priority,
-            )
-
-        except redis.exceptions.NoScriptError:
-            if not retry:
-                await self._cleanup_inflight_key(inflight_key, task_id)
-                raise RuntimeError(
-                    "Redis failed to retain the Lua script after a reload attempt."
-                )
-
-            logger.warning(
-                "Lua script cache miss during schedule (async); reloading: limiter=%s, script=%s.",
-                self.id,
-                "schedule.lua",
-            )
-            self.schedule_script_sha = await self._register_script("schedule.lua")
-            await self._cleanup_inflight_key(inflight_key, task_id)
-            return await self.schedule_task(
-                func_path, payload, priority, max_age=max_age, retry=False
             )
         except Exception:
             await self._cleanup_inflight_key(inflight_key, task_id)
@@ -651,136 +628,96 @@ class AbstractAsyncDistributedRateLimiter(
     # Task consumption and lease management
     # ------------------------------------------------------------------
 
-    async def consume(self, retry: bool = True) -> ConsumeResult:
+    async def consume(self) -> ConsumeResult:
         """Attempt to consume a task from the queue.
-
-        Args:
-            retry: Whether to retry on NoScriptError.
 
         Returns:
             A result containing the task data if consumption was successful.
         """
         logger.debug("Consume attempt started (async): limiter=%s.", self.id)
-        try:
-            result = cast(
-                list[str],
-                await cast(
-                    Awaitable,
-                    self.redis.evalsha(
-                        self.consume_script_sha,
-                        4,
-                        self.id,
-                        self.buffer_key,
-                        self.concurrency_key,
-                        self.dlq_key,
-                        self.window,
-                        self.limit,
-                        self.max_concurrency,
-                        self.max_age,
-                        self.lease_duration,
-                    ),
-                ),
-            )
 
-            consume_result: ConsumeResult = {
-                "success": int(result[0]) == 1,
-                "expired": int(result[0]) == -1,
-                "task": cast(TaskData, json.loads(result[1])) if result[1] else None,
-                "remaining_tokens": int(result[2]),
-                "active_concurrency": int(result[3]),
-                "reset_in_ms": int(result[4]),
-                "remaining_tasks": int(result[5]),
-                "val_previous": int(result[6]),
-                "val_current": int(result[7]),
-            }
-            task_id = consume_result["task"]["id"] if consume_result["task"] else None
-            logger.debug(
-                "Consume result (async): limiter=%s, success=%s, task_id=%s, remaining_tokens=%d, active_concurrency=%d.",
-                self.id,
-                consume_result["success"],
-                task_id,
-                consume_result["remaining_tokens"],
-                consume_result["active_concurrency"],
-            )
-            self._emit_metric(
-                "consume",
-                {
-                    "success": consume_result["success"],
-                    "expired": consume_result["expired"],
-                    "remaining_tokens": consume_result["remaining_tokens"],
-                    "active_concurrency": consume_result["active_concurrency"],
-                    "reset_in_ms": consume_result["reset_in_ms"],
-                    "remaining_tasks": consume_result["remaining_tasks"],
-                },
-            )
-            return consume_result
-
-        except redis.exceptions.NoScriptError:
-            if not retry:
-                raise RuntimeError(
-                    "Redis failed to retain the Lua script after a reload attempt."
-                )
-
-            logger.warning(
-                "Lua script cache miss during consume (async); reloading: limiter=%s, script=%s.",
-                self.id,
+        result = cast(
+            list[str],
+            await self._eval_script(
                 "consume.lua",
-            )
-            self.consume_script_sha = await self._register_script("consume.lua")
-            return await self.consume(retry=False)
+                4,
+                self.id,
+                self.buffer_key,
+                self.concurrency_key,
+                self.dlq_key,
+                self.window,
+                self.limit,
+                self.max_concurrency,
+                self.max_age,
+                self.lease_duration,
+            ),
+        )
 
-    async def extend_lease(
-        self, task_id: str, duration: int, retry: bool = True
-    ) -> None:
+        consume_result: ConsumeResult = {
+            "success": int(result[0]) == 1,
+            "expired": int(result[0]) == -1,
+            "task": cast(TaskData, json.loads(result[1])) if result[1] else None,
+            "remaining_tokens": int(result[2]),
+            "active_concurrency": int(result[3]),
+            "reset_in_ms": int(result[4]),
+            "remaining_tasks": int(result[5]),
+            "val_previous": int(result[6]),
+            "val_current": int(result[7]),
+        }
+        task_id = consume_result["task"]["id"] if consume_result["task"] else None
+        logger.debug(
+            "Consume result (async): limiter=%s, success=%s, task_id=%s, remaining_tokens=%d, active_concurrency=%d.",
+            self.id,
+            consume_result["success"],
+            task_id,
+            consume_result["remaining_tokens"],
+            consume_result["active_concurrency"],
+        )
+        self._emit_metric(
+            "consume",
+            {
+                "success": consume_result["success"],
+                "expired": consume_result["expired"],
+                "remaining_tokens": consume_result["remaining_tokens"],
+                "active_concurrency": consume_result["active_concurrency"],
+                "reset_in_ms": consume_result["reset_in_ms"],
+                "remaining_tasks": consume_result["remaining_tasks"],
+            },
+        )
+        return consume_result
+
+    async def extend_lease(self, task_id: str, duration: int) -> None:
         """Extend the lease on a concurrency slot.
 
         Args:
             task_id: The task identifier.
             duration: The number of seconds by which to extend the lease.
-            retry: Whether to retry on NoScriptError.
         """
-        try:
-            renewed = int(
-                cast(
-                    str,
-                    await cast(
-                        Awaitable,
-                        self.redis.evalsha(
-                            self.renew_script_sha,
-                            1,
-                            self.concurrency_key,
-                            task_id,
-                            duration,
-                        ),
-                    ),
-                )
+        renewed = int(
+            cast(
+                str,
+                await self._eval_script(
+                    "renew.lua",
+                    1,
+                    self.concurrency_key,
+                    task_id,
+                    duration,
+                ),
             )
+        )
 
-            logger.debug(
-                "Lease extension result (async): limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
-                self.id,
-                task_id,
-                duration,
-                renewed == 1,
+        logger.debug(
+            "Lease extension result (async): limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
+            self.id,
+            task_id,
+            duration,
+            renewed == 1,
+        )
+        if renewed != 1:
+            raise KeyError(
+                f"Could not extend lease for task '{task_id}' on limiter '{self.id}': "
+                "task id was not found in the concurrency set."
             )
-            if renewed != 1:
-                raise KeyError(
-                    f"Could not extend lease for task '{task_id}' on limiter '{self.id}': "
-                    "task id was not found in the concurrency set."
-                )
-        except redis.exceptions.NoScriptError:
-            if not retry:
-                raise RuntimeError(
-                    "Redis failed to retain the Lua script after a reload attempt."
-                )
-
-            logger.warning(
-                "Lua script cache miss during lease extension (async); reloading: limiter=%s, script=%s.",
-                self.id,
-                "renew.lua",
-            )
-            self.renew_script_sha = await self._register_script("renew.lua")
-            await self.extend_lease(task_id, duration, retry=False)
 
     # ------------------------------------------------------------------
     # Drain orchestration
@@ -1031,65 +968,45 @@ class AbstractAsyncDistributedRateLimiter(
     # Status and monitoring
     # ------------------------------------------------------------------
 
-    async def get_status(self, retry: bool = True) -> dict:
+    async def get_status(self) -> dict:
         """Return a snapshot of the current state of the limiter.
-
-        Args:
-            retry: Whether to retry on NoScriptError.
 
         Returns:
             A dictionary containing all status information.
         """
-        try:
-            result = cast(
-                list[str],
-                await cast(
-                    Awaitable,
-                    self.redis.evalsha(
-                        self.health_script_sha,
-                        3,
-                        self.id,
-                        self.buffer_key,
-                        self.concurrency_key,
-                        self.window,
-                        self.limit,
-                        self.max_concurrency,
-                    ),
-                ),
-            )
-
-            return {
-                "limiter_id": self.id,
-                "concurrency": {
-                    "current": result[3],
-                    "max": self.max_concurrency,
-                    "available": max(0, self.max_concurrency - int(result[3])),
-                },
-                "buffer": {
-                    "count": result[5],
-                },
-                "rate_limit": {
-                    "val_previous": result[0],
-                    "val_current": result[1],
-                    "tokens_used": float(result[2]),
-                    "limit": self.limit,
-                    "window": self.window,
-                    "reset_in_ms": result[4],
-                },
-                "dispatcher": {
-                    "is_locked": await self.redis.exists(f"{self.id}:dispatch_lock")
-                },
-            }
-        except redis.exceptions.NoScriptError:
-            if not retry:
-                raise RuntimeError(
-                    "Redis failed to retain the Lua script after a reload attempt."
-                )
-
-            logger.warning(
-                "Lua script cache miss during status fetch (async); reloading: limiter=%s, script=%s.",
-                self.id,
+        result = cast(
+            list[str],
+            await self._eval_script(
                 "health.lua",
-            )
-            self.health_script_sha = await self._register_script("health.lua")
-            return await self.get_status(retry=False)
+                3,
+                self.id,
+                self.buffer_key,
+                self.concurrency_key,
+                self.window,
+                self.limit,
+                self.max_concurrency,
+            ),
+        )
+
+        return {
+            "limiter_id": self.id,
+            "concurrency": {
+                "current": result[3],
+                "max": self.max_concurrency,
+                "available": max(0, self.max_concurrency - int(result[3])),
+            },
+            "buffer": {
+                "count": result[5],
+            },
+            "rate_limit": {
+                "val_previous": result[0],
+                "val_current": result[1],
+                "tokens_used": float(result[2]),
+                "limit": self.limit,
+                "window": self.window,
+                "reset_in_ms": result[4],
+            },
+            "dispatcher": {
+                "is_locked": await self.redis.exists(f"{self.id}:dispatch_lock")
+            },
+        }

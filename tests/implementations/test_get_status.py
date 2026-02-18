@@ -1,10 +1,5 @@
 """Tests for ``get_status()`` on the generic rate limiter implementation."""
 
-from unittest.mock import patch
-
-import pytest
-import redis
-
 
 class TestGetStatus:
     """Test suite for ``get_status()`` behavior on the AbstractDistributedRateLimiter."""
@@ -78,73 +73,3 @@ class TestGetStatus:
             "tokens_used should increase after a successful consume"
         )
 
-    @staticmethod
-    def test_get_status_recovery_on_noscript_error(generic_limiter, redis_client):
-        """Verify that ``get_status()`` reloads the Lua script and retries on a ``NoScriptError``."""
-        # Arrange
-        real_evalsha = redis_client.evalsha
-        real_script_load = redis_client.script_load
-
-        def mocked_evalsha_func(*args, **kwargs):
-            if mocked_evalsha_func.call_count == 0:
-                mocked_evalsha_func.call_count += 1
-                raise redis.exceptions.NoScriptError("NOSCRIPT")
-            return real_evalsha(*args, **kwargs)
-
-        mocked_evalsha_func.call_count = 0
-
-        # Act
-        with (
-            patch.object(
-                generic_limiter.redis, "evalsha", side_effect=mocked_evalsha_func
-            ) as mock_eval,
-            patch.object(
-                generic_limiter.redis, "script_load", side_effect=real_script_load
-            ) as mock_load,
-        ):
-            status = generic_limiter.get_status()
-
-            # Assert
-            assert status["limiter_id"] == generic_limiter.id, (
-                "status should still be returned after script recovery"
-            )
-            assert mock_eval.call_count == 2, (
-                "evalsha should be called twice (fail then retry)"
-            )
-            assert mock_load.call_count == 1, (
-                "script_load should be called once to recover"
-            )
-
-    @staticmethod
-    def test_get_status_connection_error_propagates(generic_limiter):
-        """Verify that a non-NoScript Redis error during ``get_status()`` propagates to the caller."""
-        # Arrange
-        with patch.object(
-            generic_limiter.redis,
-            "evalsha",
-            side_effect=redis.exceptions.ConnectionError("redis unreachable"),
-        ):
-            # Act & Assert
-            with pytest.raises(
-                redis.exceptions.ConnectionError, match="redis unreachable"
-            ):
-                generic_limiter.get_status()
-
-    @staticmethod
-    def test_get_status_permanent_failure_raises_error(generic_limiter):
-        """Verify that a permanent ``NoScriptError`` during ``get_status()`` raises a RuntimeError."""
-        # Arrange
-        with patch.object(
-            generic_limiter.redis,
-            "evalsha",
-            side_effect=redis.exceptions.NoScriptError("Permanent Failure"),
-        ) as mock_eval:
-            # Act & Assert
-            with pytest.raises(
-                RuntimeError, match="Redis failed to retain the Lua script"
-            ):
-                generic_limiter.get_status()
-
-            assert mock_eval.call_count == 2, (
-                "get_status should retry exactly once before failing"
-            )
