@@ -37,6 +37,11 @@ from examples.tasks import ASYNC_FAILING_FUNC_PATH, ASYNC_FUNC_PATH
 
 logger = logging.getLogger("examples.asyncio_demo")
 
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
 LIMITER_ID = "asyncio_demo"
 
 

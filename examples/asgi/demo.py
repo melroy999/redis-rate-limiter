@@ -2,7 +2,8 @@
 
 Starts a FastAPI application with per-client-IP rate limiting, fires a sequence
 of HTTP requests to demonstrate the middleware behaviour, and prints formatted
-results showing rate limit headers, 429 responses, and health endpoint bypass.
+results showing rate limit headers, 429 responses, health endpoint bypass, and
+gradual recovery as the sliding window counter decays.
 
 Usage (Docker Redis on 6380):
     REDIS_HOST=localhost REDIS_PORT=6380 poetry run python -m examples.asgi.demo
@@ -26,6 +27,11 @@ from celery_rate_limiter.backends.asgi import ASGIRateLimiter, by_client_ip
 from examples.config import ASGI_LIMIT, ASGI_WINDOW, REDIS_HOST, REDIS_PORT
 
 logger = logging.getLogger("examples.asgi_demo")
+
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
 
 LIMITER_ID = "asgi_demo"
 HOST = "127.0.0.1"
@@ -227,16 +233,50 @@ async def run_demo() -> None:
             "Phase 3: request=%d, status=%d, retry_after=%s", seq, status, retry_after
         )
 
-    # Phase 4: Health still accessible after exhaustion
-    print("\n--- Phase 4: Health endpoint still accessible ---")
+    # Phase 4: Gradual recovery during the next window
+    reset_ms = int(headers.get("x-ratelimit-reset", str(int(ASGI_WINDOW * 1000))))
+    wait_secs = reset_ms / 1000 + 0.5
+    print(f"\n--- Phase 4: Gradual recovery (waiting {wait_secs:.1f}s for next window) ---")
+    logger.info("Phase 4: sleeping %.1fs for window rollover.", wait_secs)
+    await asyncio.sleep(wait_secs)
+
+    recovery_allowed = 0
+    recovery_denied = 0
+    recovery_total = ASGI_LIMIT
+    interval = 0.25
+    for i in range(1, recovery_total + 1):
+        status, headers, _ = await asyncio.to_thread(_request, "/")
+        remaining = headers.get("x-ratelimit-remaining", "?")
+        tag = "allowed" if status == 200 else "limited"
+        print(f"  Request {i:>3}: {status}  remaining={remaining}  ({tag})")
+        logger.info(
+            "Phase 4: request=%d, status=%d, remaining=%s", i, status, remaining
+        )
+        if status == 200:
+            recovery_allowed += 1
+        else:
+            recovery_denied += 1
+        if i < recovery_total:
+            await asyncio.sleep(interval)
+
+    print(
+        f"  Recovery: {recovery_allowed} allowed, {recovery_denied} limited"
+        f" (sliding window still decaying)"
+    )
+
+    # Phase 5: Health still accessible after exhaustion
+    print("\n--- Phase 5: Health endpoint still accessible ---")
     status, headers, _ = await asyncio.to_thread(_request, "/health")
     print(f"  GET /health -> {status}")
-    logger.info("Phase 4: health=%d", status)
+    logger.info("Phase 5: health=%d", status)
 
     # Summary
+    total_requests = ASGI_LIMIT + EXTRA_REQUESTS + recovery_total
     print(f"\n{'=' * 50}")
-    print(f"  Done. Sent {ASGI_LIMIT + EXTRA_REQUESTS} requests to /")
-    print(f"  {ASGI_LIMIT} allowed, {EXTRA_REQUESTS} rate-limited (429)")
+    print(f"  Done. Sent {total_requests} requests to /")
+    print(f"  Phase 2: {ASGI_LIMIT} allowed (within limit)")
+    print(f"  Phase 3: {EXTRA_REQUESTS} rate-limited (429)")
+    print(f"  Phase 4: {recovery_allowed} allowed, {recovery_denied} limited (recovery)")
     print("  /health bypassed rate limiting throughout")
     print(f"{'=' * 50}\n")
 

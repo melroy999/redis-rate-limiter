@@ -9,12 +9,14 @@ The core algorithm is a sliding window counter implemented as atomic Lua scripts
 ## Features
 
 - **Sliding window counter**: smooth rate limiting without sudden token resets at window boundaries.
+- **Sync and async support**: both synchronous (threading, Celery) and asynchronous (asyncio, ASGI) backends, sharing the same Redis-backed rate limiting state.
 - **Concurrency control**: lease-based concurrency slots with automatic expiry, such that crashed workers do not permanently consume capacity.
 - **Task deduplication**: identical tasks, i.e., tasks with the same function and payload, are deduplicated via atomic Redis markers.
 - **Priority queue**: tasks are buffered in a Redis sorted set and consumed in priority order.
 - **Dead letter queue**: tasks that exceed their maximum age are moved to a DLQ instead of being silently dropped.
 - **Dynamic configuration**: rate limits, concurrency caps and window sizes can be changed in Redis at runtime. All existing limiter instances across workers and machines pick up the new configuration on their next drain cycle.
 - **Smart jitter**: adaptive retry delays that scale with queue depth and concurrency pressure to prevent the thundering herd problem at window resets (see [docs/smart-jitter.md](docs/smart-jitter.md)).
+- **ASGI middleware**: request-level rate limiting for FastAPI/Starlette with per-client identity keys, standard rate limit headers and configurable bypass rules.
 - **Metrics callbacks**: an optional hook for observability, invoked after every consume and schedule operation.
 
 ## Installation
@@ -25,6 +27,9 @@ pip install celery-rate-limiter
 
 # With the Celery backend.
 pip install celery-rate-limiter[celery]
+
+# With the ASGI middleware backend (FastAPI/Starlette).
+pip install celery-rate-limiter[asgi]
 ```
 
 The project requires Python 3.12+ and a single Redis instance (not Redis Cluster, see the class docstring for details).
@@ -60,16 +65,93 @@ success, task_id = limiter.schedule_task(
 status = limiter.get_status()
 ```
 
-The `examples/` directory contains a full working demo with a Celery worker, task simulator and a live status inspector.
+### Quick Start (Thread Pool)
+
+```python
+import redis
+from concurrent.futures import ThreadPoolExecutor
+from celery_rate_limiter import ThreadPoolRateLimiter
+
+redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
+executor = ThreadPoolExecutor(max_workers=4)
+ThreadPoolRateLimiter.configure(redis_client, executor=executor)
+
+limiter = ThreadPoolRateLimiter.create(
+    limiter_id="api_calls",
+    limit=100,
+    window=60,
+    max_concurrency=10,
+    override=True,
+)
+
+success, task_id = limiter.schedule_task(
+    "myapp.services.call_external_api",
+    {"user_id": 42},
+)
+```
+
+### Quick Start (AsyncIO)
+
+```python
+import redis.asyncio
+from celery_rate_limiter import AsyncIOTaskLimiter
+
+redis_client = redis.asyncio.Redis(host="localhost", port=6379, decode_responses=True)
+AsyncIOTaskLimiter.configure(redis_client, max_tasks=10)
+
+limiter = await AsyncIOTaskLimiter.create(
+    limiter_id="api_calls",
+    limit=100,
+    window=60,
+    max_concurrency=10,
+    override=True,
+)
+
+success, task_id = await limiter.schedule_task(
+    "myapp.services.call_external_api",
+    {"user_id": 42},
+)
+```
+
+### Quick Start (ASGI Middleware)
+
+```python
+import redis.asyncio
+from fastapi import FastAPI
+from celery_rate_limiter.backends.asgi import ASGIRateLimiter, RateLimitMiddleware, by_client_ip
+
+app = FastAPI()
+
+@app.on_event("startup")
+async def startup():
+    redis_client = redis.asyncio.Redis(host="localhost", port=6379, decode_responses=True)
+    ASGIRateLimiter.configure(redis_client)
+    limiter = await ASGIRateLimiter.create(
+        limiter_id="api_gateway",
+        limit=1000,
+        window=60,
+        override=True,
+    )
+    app.state.limiter = limiter
+
+# Option A: wrap the ASGI app directly.
+app = RateLimitMiddleware(app, limiter_id="api_gateway", key_func=by_client_ip)
+
+# Option B: use a framework middleware for more control (see examples/asgi/demo.py).
+```
+
+The `examples/` directory contains full working demos for each backend with task simulators and live status dashboards.
 
 ## How It Works
 
 1. `schedule_task()` adds a task to a Redis priority queue, with deduplication.
 2. A drain loop acquires a distributed lock and calls `consume()`.
 3. `consume()` runs a Lua script that atomically checks the sliding window counter, verifies the concurrency capacity and pops the next task from the buffer.
-4. The task is dispatched to the configured backend (Celery, thread pool, etc.).
-5. The worker holds a concurrency lease that is renewed via a heartbeat thread. If the worker crashes, the lease expires and the slot is reclaimed automatically.
+4. The task is dispatched to the configured backend (Celery, thread pool, asyncio, etc.).
+5. The worker holds a concurrency lease that is renewed via a background heartbeat (thread or asyncio task, depending on the backend). If the worker crashes, the lease expires and the slot is reclaimed automatically.
 6. On completion or failure, the concurrency slot is released and the next drain is triggered.
+
+The ASGI middleware follows a simpler path: `acquire()` atomically checks the sliding window counter for a given client identity key and returns an allow/deny decision with standard rate limit headers. There is no task buffer, concurrency tracking or drain loop.
 
 ## Backend Roadmap
 
@@ -79,11 +161,11 @@ All task-oriented backends compose `SyncManagedRateLimiter` (or `AsyncManagedRat
 |------------------|------------------------------------------|---------|
 | Celery           | Celery broker (`send_task`)              | Done    |
 | Threading        | `concurrent.futures.ThreadPoolExecutor`  | Done    |
-| AsyncIO          | `asyncio` event loop / task group        | Planned |
+| AsyncIO          | `asyncio` event loop / task group        | Done    |
+| ASGI Middleware  | Starlette/FastAPI request handling       | Done    |
 | Multiprocessing  | `concurrent.futures.ProcessPoolExecutor` | Planned |
 | RQ (Redis Queue) | RQ job queue                             | Planned |
 | Dramatiq         | Dramatiq broker                          | Planned |
-| ASGI Middleware  | Starlette/FastAPI request handling       | Planned |
 
 ### Class Hierarchy
 

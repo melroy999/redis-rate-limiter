@@ -64,4 +64,4 @@ ASYNCIO_MAX_TASKS = 4  # maximum number of concurrent asyncio tasks
 # ---------------------------------------------------------------------------
 
 ASGI_LIMIT = 10  # maximum requests per window for the ASGI demo
-ASGI_WINDOW = 60.0  # duration of the sliding window in seconds
+ASGI_WINDOW = 5.0  # duration of the sliding window in seconds

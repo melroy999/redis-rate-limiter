@@ -23,9 +23,8 @@ from examples.runner import (
 )
 
 # ---------------------------------------------------------------------------
-# Thread pool configuration
+# Configuration
 # ---------------------------------------------------------------------------
-
 
 LIMITER_ID = "threadpool_demo"
 

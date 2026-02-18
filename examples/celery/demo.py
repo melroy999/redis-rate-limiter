@@ -41,8 +41,14 @@ from examples.runner import (
 
 logger = logging.getLogger("examples.celery.demo")
 
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
 LIMITER_ID = "celery_demo"
 REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
+
 
 # ---------------------------------------------------------------------------
 # Celery application (imported by the worker subprocess via the -A flag)
