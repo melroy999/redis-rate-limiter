@@ -2,65 +2,49 @@
 
 The metrics callback enables observability by emitting events after consume
 and schedule operations, thereby allowing integration with external monitoring
-systems.
+systems. Tests are written once in async form; the sync implementation
+participates via the ``SyncToAsyncLimiterAdapter``.
 """
 
 from unittest.mock import MagicMock
 
 import pytest
 
-from tests.implementations.conftest import MinimalRateLimiter
+from tests.helpers.adapters import SyncToAsyncLimiterAdapter
+from tests.implementations.conftest import MinimalAsyncRateLimiter, MinimalRateLimiter
 
 
-class TestMetricsCallback:
-    """Test suite for the metrics callback behavior."""
+class MetricsCallbackTests:
+    """Unified test suite for the metrics callback behavior.
+
+    Subclasses must provide:
+        - ``limiter``: a rate limiter with a metrics callback set.
+        - ``limiter_no_callback``: a rate limiter without a metrics callback.
+    """
 
     @pytest.fixture
     def callback(self):
         """Provide a mock callback for capturing metric emissions."""
         return MagicMock()
 
-    @pytest.fixture
-    def limiter(self, redis_client, callback, limiter_id):
-        """Create a generic limiter with a metrics callback for testing."""
-        return MinimalRateLimiter(
-            redis_client=redis_client,
-            limiter_id=f"{limiter_id}_with_metrics",
-            limit=10,
-            window=60,
-            max_concurrency=5,
-            metrics_callback=callback,
-        )
-
-    @pytest.fixture
-    def limiter_no_callback(self, redis_client, limiter_id):
-        """Create a generic limiter without a metrics callback."""
-        return MinimalRateLimiter(
-            redis_client=redis_client,
-            limiter_id=f"{limiter_id}_without_metrics",
-            limit=10,
-            window=60,
-            max_concurrency=5,
-        )
-
     @staticmethod
-    def test_metrics_callback_none_by_default(limiter_no_callback):
+    async def test_metrics_callback_none_by_default(limiter_no_callback):
         """Verify that the metrics_callback defaults to ``None`` and does not cause errors."""
         # Arrange
         limiter = limiter_no_callback
 
         # Act
-        result = limiter.consume()
+        result = await limiter.consume()
 
         # Assert
         assert result is not None, "consume should succeed without a callback"
         assert limiter.metrics_callback is None, "callback should default to None"
 
     @staticmethod
-    def test_consume_emits_metric(limiter, callback):
+    async def test_consume_emits_metric(limiter, callback):
         """Verify that consume emits a metric with the correct event name and data keys."""
         # Act
-        limiter.consume()
+        await limiter.consume()
 
         # Assert
         callback.assert_called_once()
@@ -79,10 +63,12 @@ class TestMetricsCallback:
         )
 
     @staticmethod
-    def test_schedule_emits_metric(limiter, callback, func_path):
+    async def test_schedule_emits_metric(limiter, callback, func_path):
         """Verify that ``schedule_task()`` emits a metric with the correct event name and data."""
         # Act
-        was_scheduled, task_id = limiter.schedule_task(func_path, {"key": "value"})
+        was_scheduled, task_id = await limiter.schedule_task(
+            func_path, {"key": "value"}
+        )
 
         # Assert
         # Backend implementations may trigger a follow-up consume asynchronously.
@@ -99,16 +85,18 @@ class TestMetricsCallback:
         )
 
     @staticmethod
-    def test_schedule_duplicate_emits_not_scheduled(limiter, callback, func_path):
+    async def test_schedule_duplicate_emits_not_scheduled(limiter, callback, func_path):
         """Verify that scheduling a duplicate task emits ``scheduled=False``."""
         # Arrange
         # Schedule the task once so that it becomes in-flight.
-        limiter.schedule_task(func_path, {"key": "value"})
+        await limiter.schedule_task(func_path, {"key": "value"})
         callback.reset_mock()
 
         # Act
         # Schedule the same task again.
-        was_scheduled, task_id = limiter.schedule_task(func_path, {"key": "value"})
+        was_scheduled, task_id = await limiter.schedule_task(
+            func_path, {"key": "value"}
+        )
 
         # Assert
         assert was_scheduled is False, "duplicate task should not be scheduled"
@@ -117,10 +105,10 @@ class TestMetricsCallback:
         )
 
     @staticmethod
-    def test_consume_metric_data_matches_result(limiter, callback):
+    async def test_consume_metric_data_matches_result(limiter, callback):
         """Verify that the metric data values match the ConsumeResult."""
         # Act
-        result = limiter.consume()
+        result = await limiter.consume()
 
         # Assert
         callback.assert_called_once()
@@ -145,13 +133,13 @@ class TestMetricsCallback:
         )
 
     @staticmethod
-    def test_callback_exception_does_not_break_consume(limiter, callback):
+    async def test_callback_exception_does_not_break_consume(limiter, callback):
         """Verify that consume continues to function when the callback raises an exception."""
         # Arrange
         callback.side_effect = RuntimeError("callback failure")
 
         # Act
-        result = limiter.consume()
+        result = await limiter.consume()
 
         # Assert
         assert result is not None, (
@@ -160,7 +148,7 @@ class TestMetricsCallback:
         assert "success" in result, "consume result should contain expected keys"
 
     @staticmethod
-    def test_callback_exception_does_not_break_schedule(
+    async def test_callback_exception_does_not_break_schedule(
         limiter, callback, func_path
     ):
         """Verify that ``schedule_task()`` continues to function when the callback raises an exception."""
@@ -168,7 +156,9 @@ class TestMetricsCallback:
         callback.side_effect = RuntimeError("callback failure")
 
         # Act
-        was_scheduled, task_id = limiter.schedule_task(func_path, {"key": "value"})
+        was_scheduled, task_id = await limiter.schedule_task(
+            func_path, {"key": "value"}
+        )
 
         # Assert
         assert was_scheduled is True, (
@@ -179,18 +169,87 @@ class TestMetricsCallback:
         )
 
     @staticmethod
-    def test_consume_after_schedule_emits_both_events(
+    async def test_consume_after_schedule_emits_both_events(
         limiter, callback, func_path
     ):
         """Verify that both the schedule and consume events are emitted in sequence."""
         # Arrange
-        limiter.schedule_task(func_path, {"key": "value"})
+        await limiter.schedule_task(func_path, {"key": "value"})
         callback.reset_mock()
 
         # Act
-        limiter.consume()
+        await limiter.consume()
 
         # Assert
         callback.assert_called_once()
         event_name, _ = callback.call_args[0]
         assert event_name == "consume", "standalone consume should emit a consume event"
+
+
+# ---------------------------------------------------------------------------
+# Concrete test classes
+# ---------------------------------------------------------------------------
+
+
+class TestSyncMetricsCallback(MetricsCallbackTests):
+    """Sync rate limiter metrics callback exercised through the async adapter."""
+
+    @pytest.fixture
+    def limiter(self, redis_client, callback, limiter_id):
+        """Create a sync limiter with a metrics callback, wrapped in the async adapter."""
+        return SyncToAsyncLimiterAdapter(
+            MinimalRateLimiter(
+                redis_client=redis_client,
+                limiter_id=f"{limiter_id}_sync_metrics",
+                limit=10,
+                window=60,
+                max_concurrency=5,
+                metrics_callback=callback,
+            )
+        )
+
+    @pytest.fixture
+    def limiter_no_callback(self, redis_client, limiter_id):
+        """Create a sync limiter without a metrics callback, wrapped in the async adapter."""
+        return SyncToAsyncLimiterAdapter(
+            MinimalRateLimiter(
+                redis_client=redis_client,
+                limiter_id=f"{limiter_id}_sync_no_metrics",
+                limit=10,
+                window=60,
+                max_concurrency=5,
+            )
+        )
+
+
+class TestAsyncMetricsCallback(MetricsCallbackTests):
+    """Async rate limiter metrics callback exercised natively."""
+
+    @pytest.fixture
+    async def limiter(self, async_redis_client, callback, limiter_id):
+        """Create an async limiter with a metrics callback."""
+        lim = MinimalAsyncRateLimiter(
+            redis_client=async_redis_client,
+            limiter_id=f"{limiter_id}_async_metrics",
+            limit=10,
+            window=60,
+            max_concurrency=5,
+            metrics_callback=callback,
+        )
+        await lim.start()
+        yield lim
+        await lim.shutdown()
+
+    @pytest.fixture
+    async def limiter_no_callback(self, async_redis_client, limiter_id):
+        """Create an async limiter without a metrics callback."""
+        lim = MinimalAsyncRateLimiter(
+            redis_client=async_redis_client,
+            limiter_id=f"{limiter_id}_async_no_metrics",
+            limit=10,
+            window=60,
+            max_concurrency=5,
+        )
+        await lim.start()
+        yield lim
+        await lim.shutdown()

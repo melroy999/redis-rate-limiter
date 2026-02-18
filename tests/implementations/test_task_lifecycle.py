@@ -52,13 +52,22 @@ def inflight_key(mock_limiter, task_id):
 
 
 @pytest.fixture
-def lifecycle_class():
-    """Provide the TaskLifecycle class for the contract tests."""
-    return TaskLifecycle
+def create_lifecycle():
+    """Provide a factory for sync ``TaskLifecycle`` instances wrapped in an async adapter.
+
+    The unified contract tests use ``async with create_lifecycle(limiter, task_id):``,
+    so the sync lifecycle is wrapped in a ``SyncToAsyncLifecycleAdapter``.
+    """
+    from tests.helpers.adapters import SyncToAsyncLifecycleAdapter
+
+    def _factory(limiter, task_id, **kwargs):
+        return SyncToAsyncLifecycleAdapter(TaskLifecycle(limiter, task_id, **kwargs))
+
+    return _factory
 
 
 class TestTaskLifecycle(TaskLifecycleContractTest):
-    """Contract compliance for the TaskLifecycle context manager implementation."""
+    """Contract compliance for the sync TaskLifecycle context manager implementation."""
 
     pass
 

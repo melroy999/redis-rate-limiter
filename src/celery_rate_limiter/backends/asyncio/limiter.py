@@ -117,9 +117,13 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
         async def _run_task() -> None:
             try:
                 async with self.task_lifecycle(task_id):
-                    result = target_func(**payload)
-                    if asyncio.iscoroutine(result):
-                        await result
+                    if not asyncio.iscoroutinefunction(target_func):
+                        raise TypeError(
+                            f"AsyncIOTaskLimiter requires coroutine functions, "
+                            f"but '{func_path}' is synchronous. Define it with "
+                            f"'async def' or use ThreadPoolRateLimiter instead."
+                        )
+                    await target_func(**payload)
             except Exception:
                 logger.exception(
                     "Task raised an exception: limiter=%s, task_id=%s, func_path=%s.",

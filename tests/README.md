@@ -18,19 +18,16 @@ The following backends are currently supported:
 - `tests/implementations/asyncio/...` for AsyncIO-specific assertions.
 - `tests/implementations/asgi/...` for ASGI-specific assertions.
 
-Sync backends inherit the shared contract suite via `RateLimiterContractTest`, while async backends inherit from `AsyncRateLimiterContractTest`. Each backend only adds tests for behavior that is unique to that backend.
+All backends inherit the shared contract suite via `RateLimiterContractTest` (unified async). Sync backends participate by wrapping their implementations with `SyncToAsyncLimiterAdapter`, while async backends run natively. Each backend only adds tests for behavior that is unique to that backend.
 
 ## Directory Structure
 
 ```text
 tests/
 ├── contracts/                          # Abstract interface contracts
-│   ├── test_rate_limiter.py            # Tests any sync limiter must satisfy
-│   ├── test_rate_limiter_async.py      # Tests any async limiter must satisfy
-│   ├── test_distributed_lock.py        # Tests any sync lock must satisfy
-│   ├── test_distributed_lock_async.py  # Tests any async lock must satisfy
-│   ├── test_task_lifecycle.py          # Tests any sync lifecycle manager must satisfy
-│   └── test_task_lifecycle_async.py    # Tests any async lifecycle manager must satisfy
+│   ├── test_rate_limiter.py            # Tests any limiter must satisfy (unified async)
+│   ├── test_distributed_lock.py        # Tests any lock must satisfy (unified async)
+│   └── test_task_lifecycle.py          # Tests any lifecycle manager must satisfy (unified async)
 │
 ├── implementations/                    # Core implementation tests (backend-agnostic)
 │   ├── conftest.py                     # Shared core test fixtures/limiters
@@ -545,7 +542,7 @@ Fixtures are placed at the **narrowest scope** that serves all their consumers:
 | **Category** | `tests/{category}/conftest.py` | Shared fixtures for a test category (e.g., `implementations/conftest.py` has `generic_limiter`, `tracking_limiter`, while `properties/conftest.py` has `property_redis_client`) |
 | **Backend** | `tests/implementations/{backend}/conftest.py` | Backend-specific `limiter` fixture and autouse reset fixtures |
 | **External module** | `tests/fixtures/{backend}_backend.py` | Sync backend fixture definitions re-exported by conftest (Celery, ThreadPool: needed for cross-directory import) |
-| **Test file** | The test file itself | Fixtures used exclusively by that file (`mock_limiter`, `inflight_key`, `lifecycle_class`, local factories) |
+| **Test file** | The test file itself | Fixtures used exclusively by that file (`mock_limiter`, `inflight_key`, `create_lifecycle`, local factories) |
 
 **Rule: never duplicate a fixture across files.** If two files need the same fixture, promote it to the nearest shared conftest.
 
