@@ -7,7 +7,7 @@ It inherits the async contract tests and adds implementation-specific tests.
 import pytest
 
 from celery_rate_limiter.core import AsyncDistributedLock
-from tests.contracts.test_distributed_lock_async import AsyncDistributedLockContractTest
+from tests.contracts.test_distributed_lock import DistributedLockContractTest
 
 
 @pytest.fixture
@@ -22,10 +22,10 @@ def create_lock():
     return AsyncDistributedLock
 
 
-class TestAsyncDistributedLock(AsyncDistributedLockContractTest):
+class TestAsyncDistributedLock(DistributedLockContractTest):
     """Tests for the async Redis-based ``AsyncDistributedLock`` implementation.
 
-    This class inherits all async contract tests from ``AsyncDistributedLockContractTest``
+    This class inherits all contract tests from ``DistributedLockContractTest``
     and adds implementation-specific tests for the async Redis-based lock.
     """
 

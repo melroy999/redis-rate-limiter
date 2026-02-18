@@ -11,6 +11,7 @@ import pytest
 
 from celery_rate_limiter import DistributedLock
 from tests.contracts.test_distributed_lock import DistributedLockContractTest
+from tests.helpers.adapters import SyncToAsyncLockAdapter
 
 
 @pytest.fixture
@@ -21,14 +22,33 @@ def lock_key(default_lock_key):
 
 @pytest.fixture
 def create_lock():
-    """Factory fixture for creating DistributedLock instances."""
+    """Factory fixture for creating sync DistributedLock instances.
+
+    Used by the implementation-specific test classes below. The contract
+    compliance class overrides this with an async-adapted variant.
+    """
     return DistributedLock
 
 
 class TestDistributedLock(DistributedLockContractTest):
     """Contract compliance for the Redis-based DistributedLock implementation."""
 
-    pass
+    @pytest.fixture
+    def create_lock(self, redis_client):
+        """Override the module-level factory to return async-adapted sync locks.
+
+        The unified contract tests pass ``async_redis_client`` as the first
+        argument, but the sync ``DistributedLock`` requires a sync client.
+        This factory captures ``redis_client`` from the fixture closure and
+        ignores the async client passed by the contract.
+        """
+
+        def _factory(client, lock_key, **kwargs):
+            return SyncToAsyncLockAdapter(
+                DistributedLock(redis_client, lock_key, **kwargs)
+            )
+
+        return _factory
 
 
 class TestDistributedLockImplementation:

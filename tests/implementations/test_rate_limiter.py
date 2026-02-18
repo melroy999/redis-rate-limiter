@@ -11,6 +11,7 @@ import pytest
 import redis
 
 from tests.contracts.test_rate_limiter import RateLimiterContractTest
+from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 from tests.helpers.utils import is_subset
 
 
@@ -70,8 +71,8 @@ class TestRateLimiterContracts(RateLimiterContractTest):
 
     @pytest.fixture
     def limiter(self, generic_limiter):
-        """Provide the generic limiter instance under the contract fixture name."""
-        return generic_limiter
+        """Wrap the sync generic limiter in an async adapter for the unified contracts."""
+        return SyncToAsyncLimiterAdapter(generic_limiter)
 
 
 class TestRateLimiterImplementation:

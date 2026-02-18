@@ -8,6 +8,7 @@ defined in the accompanying conftest module.
 import pytest
 
 from tests.contracts.test_rate_limiter import RateLimiterContractTest
+from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 
 
 class TestThreadPoolContracts(RateLimiterContractTest):
@@ -15,5 +16,5 @@ class TestThreadPoolContracts(RateLimiterContractTest):
 
     @pytest.fixture
     def limiter(self, limiter):
-        """Re-expose the conftest-provided limiter under the contract fixture name."""
-        return limiter
+        """Wrap the sync ThreadPool limiter in an async adapter for the unified contracts."""
+        return SyncToAsyncLimiterAdapter(limiter)
