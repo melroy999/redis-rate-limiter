@@ -514,12 +514,12 @@ class TestDrainDisabled:
 
     @staticmethod
     def test_schedule_drain_is_noop_when_drain_disabled(
-        redis_client, default_limiter_id
+        redis_client, limiter_id
     ):
         """Verify that ``_schedule_drain()`` is a no-op when ``drain_enabled=False``."""
         from tests.implementations.conftest import TrackingRateLimiter
 
-        limiter_id = f"{default_limiter_id}_drain_disabled"
+        limiter_id = f"{limiter_id}_drain_disabled"
         limiter = TrackingRateLimiter(
             redis_client=redis_client,
             limiter_id=limiter_id,
@@ -553,12 +553,12 @@ class TestDrainDisabled:
 
     @staticmethod
     def test_shutdown_is_safe_when_drain_disabled(
-        redis_client, default_limiter_id
+        redis_client, limiter_id
     ):
         """Verify that ``shutdown()`` does not raise when ``drain_enabled=False``."""
         from tests.implementations.conftest import MinimalRateLimiter
 
-        limiter_id = f"{default_limiter_id}_drain_disabled_shutdown"
+        limiter_id = f"{limiter_id}_drain_disabled_shutdown"
         limiter = MinimalRateLimiter(
             redis_client=redis_client,
             limiter_id=limiter_id,
@@ -578,12 +578,12 @@ class TestCrossProcessDrainSignal:
 
     @staticmethod
     def test_trigger_consume_publishes_drain_signal(
-        redis_client, default_limiter_id
+        redis_client, limiter_id
     ):
         """Verify that ``trigger_consume()`` publishes a drain signal to the Pub/Sub channel."""
         # Arrange
         # Set up a test subscriber to capture the message.
-        limiter_id = f"{default_limiter_id}_pubsub"
+        limiter_id = f"{limiter_id}_pubsub"
         channel = f"{limiter_id}:drain_signal"
         test_sub = redis_client.pubsub()
         test_sub.subscribe(channel)
@@ -617,12 +617,12 @@ class TestCrossProcessDrainSignal:
 
     @staticmethod
     def test_subscriber_wakes_drain_on_cross_process_signal(
-        redis_client, default_limiter_id
+        redis_client, limiter_id
     ):
         """Verify that a drain signal from one limiter wakes another limiter's drain loop."""
         # Arrange
         # Two limiter instances with the same ID (simulating two workers).
-        limiter_id = f"{default_limiter_id}_cross"
+        limiter_id = f"{limiter_id}_cross"
         limiter_a = TrackingRateLimiter(
             redis_client=redis_client,
             limiter_id=limiter_id,
@@ -658,11 +658,11 @@ class TestCrossProcessDrainSignal:
 
     @staticmethod
     def test_subscriber_ignores_self_notification(
-        redis_client, default_limiter_id
+        redis_client, limiter_id
     ):
         """Verify that the subscriber ignores drain signals originating from the local process."""
         # Arrange
-        limiter_id = f"{default_limiter_id}_self"
+        limiter_id = f"{limiter_id}_self"
         limiter = TrackingRateLimiter(
             redis_client=redis_client,
             limiter_id=limiter_id,
@@ -691,10 +691,10 @@ class TestCrossProcessDrainSignal:
             limiter.shutdown()
 
     @staticmethod
-    def test_drain_disabled_still_publishes(redis_client, default_limiter_id):
+    def test_drain_disabled_still_publishes(redis_client, limiter_id):
         """Verify that ``trigger_consume()`` publishes even when ``drain_enabled=False``."""
         # Arrange
-        limiter_id = f"{default_limiter_id}_disabled_pub"
+        limiter_id = f"{limiter_id}_disabled_pub"
         channel = f"{limiter_id}:drain_signal"
         test_sub = redis_client.pubsub()
         test_sub.subscribe(channel)

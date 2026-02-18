@@ -85,15 +85,15 @@ class TestRateLimiterImplementation:
 
     @staticmethod
     def test_schedule_single_task_stores_correctly(
-        limiter, redis_client, func_path, default_payload
+        limiter, redis_client, func_path, payload
     ):
         """Verify that a single task is stored with all required metadata."""
         # Act
-        _, task_id = limiter.schedule_task(func_path, default_payload)
+        _, task_id = limiter.schedule_task(func_path, payload)
 
         # Assert
         assert_task_existence(
-            limiter, redis_client, func_path, default_payload, task_id
+            limiter, redis_client, func_path, payload, task_id
         )
         assert redis_client.zcard(limiter.buffer_key) == 1, (
             "buffer should contain exactly one task"
@@ -101,19 +101,19 @@ class TestRateLimiterImplementation:
 
     @staticmethod
     def test_schedule_duplicate_task_skips_second(
-        limiter, redis_client, func_path, default_payload
+        limiter, redis_client, func_path, payload
     ):
         """Verify that duplicate tasks are not scheduled twice."""
         # Act
-        success_1, task_id_1 = limiter.schedule_task(func_path, default_payload)
-        success_2, task_id_2 = limiter.schedule_task(func_path, default_payload)
+        success_1, task_id_1 = limiter.schedule_task(func_path, payload)
+        success_2, task_id_2 = limiter.schedule_task(func_path, payload)
 
         # Assert
         assert success_1 is True, "first task should be scheduled successfully"
         assert success_2 is False, "duplicate task should not be scheduled"
         assert task_id_1 == task_id_2, "duplicate task should have same ID"
         assert_task_existence(
-            limiter, redis_client, func_path, default_payload, task_id_1
+            limiter, redis_client, func_path, payload, task_id_1
         )
 
     @staticmethod
@@ -148,11 +148,11 @@ class TestRateLimiterImplementation:
 
     @staticmethod
     def test_schedule_task_default_priority_is_100(
-        limiter, redis_client, func_path, default_payload
+        limiter, redis_client, func_path, payload
     ):
         """Verify that tasks scheduled without an explicit priority use the default value of 100."""
         # Act
-        success, _ = limiter.schedule_task(func_path, default_payload)
+        success, _ = limiter.schedule_task(func_path, payload)
 
         # Assert
         assert success is True, "scheduling should succeed"
@@ -163,7 +163,7 @@ class TestRateLimiterImplementation:
 
     @staticmethod
     def test_schedule_task_uses_max_age_to_set_inflight_ttl(
-        limiter, redis_client, func_path, default_payload
+        limiter, redis_client, func_path, payload
     ):
         """Verify that the in-flight key TTL is derived from the effective max_age."""
         # Arrange
@@ -173,7 +173,7 @@ class TestRateLimiterImplementation:
         # Act
         with patch.object(limiter.redis, "set", wraps=redis_client.set) as mocked_set:
             success, _ = limiter.schedule_task(
-                func_path, default_payload, max_age=per_task_max_age
+                func_path, payload, max_age=per_task_max_age
             )
 
         # Assert
@@ -185,7 +185,7 @@ class TestRateLimiterImplementation:
 
     @staticmethod
     def test_schedule_task_stores_custom_priority_as_score(
-        limiter, redis_client, func_path, default_payload
+        limiter, redis_client, func_path, payload
     ):
         """Verify that tasks scheduled with a custom priority store it as the ZSET score."""
         # Arrange
@@ -193,7 +193,7 @@ class TestRateLimiterImplementation:
 
         # Act
         success, _ = limiter.schedule_task(
-            func_path, default_payload, priority=priority
+            func_path, payload, priority=priority
         )
 
         # Assert
@@ -278,7 +278,7 @@ class TestRateLimiterImplementation:
 
     @staticmethod
     def test_lua_script_recovery_on_noscript_error(
-        limiter, redis_client, func_path, default_payload
+        limiter, redis_client, func_path, payload
     ):
         """Verify that the limiter recovers from a ``NoScriptError`` by reloading the Lua script."""
         # Arrange
@@ -303,12 +303,12 @@ class TestRateLimiterImplementation:
                 limiter.redis, "script_load", side_effect=real_script_load
             ) as mock_load,
         ):
-            success, task_id = limiter.schedule_task(func_path, default_payload)
+            success, task_id = limiter.schedule_task(func_path, payload)
 
             # Assert
             assert success is True, "task should be scheduled after recovery"
             assert_task_existence(
-                limiter, redis_client, func_path, default_payload, task_id
+                limiter, redis_client, func_path, payload, task_id
             )
 
             # Verify that the recovery path was taken.
@@ -351,7 +351,7 @@ class TestRateLimiterImplementation:
 
     @staticmethod
     def test_schedule_non_noscript_failure_cleans_inflight_and_reraises(
-        limiter, redis_client, func_path, default_payload
+        limiter, redis_client, func_path, payload
     ):
         """Verify that non-NoScript schedule failures clean the in-flight marker before re-raising."""
         # Arrange
@@ -364,7 +364,7 @@ class TestRateLimiterImplementation:
             with pytest.raises(
                 redis.exceptions.ConnectionError, match="redis down"
             ) as exc_info:
-                limiter.schedule_task(func_path, default_payload)
+                limiter.schedule_task(func_path, payload)
 
         # Assert
         assert "redis down" in str(exc_info.value), (

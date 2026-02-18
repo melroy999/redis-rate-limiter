@@ -30,14 +30,13 @@ def _reset_limiter_class_state(redis_client, executor):
 
 
 @pytest.fixture
-def limiter(redis_client, executor, default_limiter_id):
+def limiter(redis_client, limiter_id, _reset_limiter_class_state):
     """Perform setup and teardown for a ThreadPoolRateLimiter instance.
 
     Yields:
         A configured ThreadPoolRateLimiter instance ready for testing.
     """
     # Setup.
-    limiter_id = default_limiter_id
     test_limiter = ThreadPoolRateLimiter.create(
         limiter_id=limiter_id,
         limit=5,

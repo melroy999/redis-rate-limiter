@@ -12,7 +12,7 @@ class TestThreadPoolRateLimiter:
 
     @staticmethod
     def test_dispatch_task_submits_to_executor(
-        limiter, default_payload, func_path, task_id
+        limiter, payload, func_path, task_id
     ):
         """Verify that ``_dispatch_task`` submits a callable to the thread pool executor."""
         # Act
@@ -23,7 +23,7 @@ class TestThreadPoolRateLimiter:
             ),
             patch.object(limiter.executor, "submit") as mock_submit,
         ):
-            limiter._dispatch_task(func_path, default_payload, task_id)
+            limiter._dispatch_task(func_path, payload, task_id)
 
         # Assert
         mock_submit.assert_called_once()
@@ -32,7 +32,7 @@ class TestThreadPoolRateLimiter:
 
     @staticmethod
     def test_dispatch_task_resolves_function_path(
-        limiter, default_payload, func_path, task_id
+        limiter, payload, func_path, task_id
     ):
         """Verify that ``_dispatch_task`` uses ``import_string`` to resolve the function path."""
         # Act
@@ -43,14 +43,14 @@ class TestThreadPoolRateLimiter:
             ) as mock_import,
         ):
             mock_import.return_value = MagicMock()
-            limiter._dispatch_task(func_path, default_payload, task_id)
+            limiter._dispatch_task(func_path, payload, task_id)
 
         # Assert
         mock_import.assert_called_once_with(func_path)
 
     @staticmethod
     def test_dispatch_task_wraps_in_lifecycle(
-        limiter, default_payload, func_path, task_id
+        limiter, payload, func_path, task_id
     ):
         """Verify that ``_dispatch_task`` wraps execution within the ``task_lifecycle`` context manager."""
         # Arrange
@@ -67,7 +67,7 @@ class TestThreadPoolRateLimiter:
             patch.object(limiter.executor, "submit") as mock_submit,
         ):
             mock_import.return_value = MagicMock()
-            limiter._dispatch_task(func_path, default_payload, task_id)
+            limiter._dispatch_task(func_path, payload, task_id)
 
             # Execute the submitted wrapper to trigger the lifecycle context.
             submitted_fn = mock_submit.call_args[0][0]
@@ -80,7 +80,7 @@ class TestThreadPoolRateLimiter:
 
     @staticmethod
     def test_dispatch_task_import_failure_propagates(
-        limiter, default_payload, func_path, task_id
+        limiter, payload, func_path, task_id
     ):
         """Verify that an ``import_string()`` failure propagates from ``_dispatch_task()``."""
         # Act & Assert
@@ -91,7 +91,7 @@ class TestThreadPoolRateLimiter:
             with pytest.raises(
                 ModuleNotFoundError, match="No module named 'nonexistent'"
             ):
-                limiter._dispatch_task(func_path, default_payload, task_id)
+                limiter._dispatch_task(func_path, payload, task_id)
 
     @staticmethod
     def test_schedule_drain_wakes_drain_loop(limiter):

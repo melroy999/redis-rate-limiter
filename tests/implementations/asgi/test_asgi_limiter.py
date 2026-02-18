@@ -5,21 +5,21 @@ class TestASGIRateLimiter:
     """Tests for the ``ASGIRateLimiter`` ``acquire`` method."""
 
     @staticmethod
-    async def test_acquire_allowed_under_limit(asgi_limiter):
+    async def test_acquire_allowed_under_limit(limiter):
         """Verify that ``acquire`` returns ``allowed=True`` when under the rate limit."""
         # Act
-        result = await asgi_limiter.acquire("user_1")
+        result = await limiter.acquire("user_1")
 
         # Assert
         assert result["allowed"] is True, "first request should be allowed"
         assert result["remaining"] >= 0, "remaining should be non-negative"
 
     @staticmethod
-    async def test_acquire_returns_remaining_count(asgi_limiter):
+    async def test_acquire_returns_remaining_count(limiter):
         """Verify that ``remaining`` decreases with each ``acquire``."""
         # Act
-        first = await asgi_limiter.acquire("user_2")
-        second = await asgi_limiter.acquire("user_2")
+        first = await limiter.acquire("user_2")
+        second = await limiter.acquire("user_2")
 
         # Assert
         assert second["remaining"] < first["remaining"], (
@@ -27,30 +27,30 @@ class TestASGIRateLimiter:
         )
 
     @staticmethod
-    async def test_acquire_denied_at_limit(asgi_limiter):
+    async def test_acquire_denied_at_limit(limiter):
         """Verify that ``acquire`` returns ``allowed=False`` when the limit is exceeded."""
         # Arrange
         for _ in range(10):
-            await asgi_limiter.acquire("user_3")
+            await limiter.acquire("user_3")
 
         # Act
-        result = await asgi_limiter.acquire("user_3")
+        result = await limiter.acquire("user_3")
 
         # Assert
         assert result["allowed"] is False, "request should be denied at the limit"
         assert result["remaining"] == 0, "remaining should be 0 when denied"
 
     @staticmethod
-    async def test_per_identity_isolation(asgi_limiter):
+    async def test_per_identity_isolation(limiter):
         """Verify that different identities have independent rate limits."""
         # Arrange
         # Exhaust one identity.
         for _ in range(10):
-            await asgi_limiter.acquire("user_a")
+            await limiter.acquire("user_a")
 
         # Act
-        result_b = await asgi_limiter.acquire("user_b")
-        result_a = await asgi_limiter.acquire("user_a")
+        result_b = await limiter.acquire("user_b")
+        result_a = await limiter.acquire("user_a")
 
         # Assert
         assert result_b["allowed"] is True, (
@@ -61,10 +61,10 @@ class TestASGIRateLimiter:
         )
 
     @staticmethod
-    async def test_acquire_returns_reset_in_ms(asgi_limiter):
+    async def test_acquire_returns_reset_in_ms(limiter):
         """Verify that ``reset_in_ms`` is a positive integer."""
         # Act
-        result = await asgi_limiter.acquire("user_4")
+        result = await limiter.acquire("user_4")
 
         # Assert
         assert isinstance(result["reset_in_ms"], int), (
@@ -73,10 +73,10 @@ class TestASGIRateLimiter:
         assert result["reset_in_ms"] > 0, "reset_in_ms should be positive"
 
     @staticmethod
-    async def test_acquire_returns_window_counters(asgi_limiter):
+    async def test_acquire_returns_window_counters(limiter):
         """Verify that ``val_previous`` and ``val_current`` are returned."""
         # Act
-        result = await asgi_limiter.acquire("user_5")
+        result = await limiter.acquire("user_5")
 
         # Assert
         assert "val_previous" in result, "result should include val_previous"

@@ -74,7 +74,7 @@ class TestDistributedRateLimiting:
     @staticmethod
     def test_multi_consumer_per_window_consumption_bounded(
         redis_client,
-        default_limiter_id,
+        limiter_id,
         func_path,
     ):
         """N concurrent consumers never exceed the configured limit per window.
@@ -90,7 +90,7 @@ class TestDistributedRateLimiting:
         n_workers = 4
         n_windows = 3
 
-        limiter_id = f"{default_limiter_id}_multi_consumer"
+        limiter_id = f"{limiter_id}_multi_consumer"
         limiters = [
             make_distributed_limiter(
                 redis_client, limiter_id, limit=limit, window=window
@@ -149,7 +149,7 @@ class TestDistributedRateLimiting:
     @staticmethod
     def test_buffer_grows_when_offered_exceeds_limit(
         redis_client,
-        default_limiter_id,
+        limiter_id,
         func_path,
     ):
         """The buffer depth increases when tasks are scheduled faster than the limit allows.
@@ -161,7 +161,7 @@ class TestDistributedRateLimiting:
         # Arrange
         limit = 25
         window = 1.0
-        limiter_id = f"{default_limiter_id}_buffer_grows"
+        limiter_id = f"{limiter_id}_buffer_grows"
         limiter = make_distributed_limiter(
             redis_client,
             limiter_id,
@@ -211,7 +211,7 @@ class TestDistributedRateLimiting:
     @staticmethod
     def test_buffer_drains_when_offered_below_limit(
         redis_client,
-        default_limiter_id,
+        limiter_id,
         func_path,
     ):
         """The buffer eventually empties when the offered rate drops below the limit.
@@ -223,7 +223,7 @@ class TestDistributedRateLimiting:
         # Arrange
         limit = 25
         window = 1.0
-        limiter_id = f"{default_limiter_id}_buffer_drains"
+        limiter_id = f"{limiter_id}_buffer_drains"
         limiter = make_distributed_limiter(
             redis_client,
             limiter_id,
@@ -279,7 +279,7 @@ class TestDistributedRateLimiting:
     @staticmethod
     def test_sine_wave_throughput_bounded(
         redis_client,
-        default_limiter_id,
+        limiter_id,
         func_path,
     ):
         """Under sine-wave traffic, the consumed rate per window never exceeds 2x the limit.
@@ -296,7 +296,7 @@ class TestDistributedRateLimiting:
         n_workers = 3
         n_cycles = 2
 
-        limiter_id = f"{default_limiter_id}_sine_wave"
+        limiter_id = f"{limiter_id}_sine_wave"
         limiters = [
             make_distributed_limiter(
                 redis_client, limiter_id, limit=limit, window=window

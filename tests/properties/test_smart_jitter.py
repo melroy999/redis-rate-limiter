@@ -35,18 +35,11 @@ random_stream_strategy = st.lists(
 
 
 @pytest.fixture(scope="module")
-def property_redis_client(_redis_connection):
-    """Provide a module-scoped Redis client for property-based tests."""
-    yield _redis_connection
-    _redis_connection.flushdb()
-
-
-@pytest.fixture(scope="module")
-def property_limiter(property_redis_client, default_module_limiter_id):
+def property_limiter(property_redis_client, module_limiter_id):
     """Provide a module-scoped rate limiter for jitter property tests."""
     return MinimalRateLimiter(
         redis_client=property_redis_client,
-        limiter_id=f"{default_module_limiter_id}_property_jitter",
+        limiter_id=f"{module_limiter_id}_property_jitter",
         limit=10,
         window=1,
         max_concurrency=5,

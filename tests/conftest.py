@@ -73,7 +73,7 @@ def func_path():
 
 
 @pytest.fixture(scope="session")
-def default_payload():
+def payload():
     """Provide a default payload dictionary for test task scheduling.
 
     Returns:
@@ -84,21 +84,21 @@ def default_payload():
 
 
 @pytest.fixture
-def default_limiter_id(request) -> str:
+def limiter_id(request) -> str:
     """Provide a unique limiter identifier for each test to prevent accidental coupling."""
     test_name = _safe_id_component(request.node.name)
     return f"limiter_{test_name}_{uuid4().hex[:8]}"
 
 
 @pytest.fixture(scope="module")
-def default_module_limiter_id(request) -> str:
+def module_limiter_id(request) -> str:
     """Provide a unique limiter identifier per module for use in module-scoped fixtures."""
     module_name = _safe_id_component(request.module.__name__)
     return f"module_limiter_{module_name}_{uuid4().hex[:8]}"
 
 
 @pytest.fixture
-def default_lock_key(request) -> str:
+def lock_key(request) -> str:
     """Provide a unique lock key for each test."""
     test_name = _safe_id_component(request.node.name)
     return f"lock_{test_name}_{uuid4().hex[:8]}"

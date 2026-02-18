@@ -17,7 +17,7 @@ from tests.integration.conftest import consume_and_complete, precise_sleep
 
 
 @pytest.fixture
-def integration_limiter(redis_client, default_limiter_id):
+def integration_limiter(redis_client, limiter_id):
     """Create a rate limiter with an explicit configuration for integration tests.
 
     Config:
@@ -29,7 +29,7 @@ def integration_limiter(redis_client, default_limiter_id):
     """
     limiter = MinimalRateLimiter(
         redis_client=redis_client,
-        limiter_id=f"{default_limiter_id}_integration_default",
+        limiter_id=f"{limiter_id}_integration_default",
         limit=5,
         window=60,
         max_concurrency=2,
@@ -363,13 +363,13 @@ class TestRateLimitingIntegration:
 
     @staticmethod
     def test_expired_task_moved_to_dlq(
-        redis_client, func_path, default_limiter_id
+        redis_client, func_path, limiter_id
     ):
         """Verify that expired queued tasks are moved to the DLQ and reported as expired."""
         # Arrange
         limiter = MinimalRateLimiter(
             redis_client=redis_client,
-            limiter_id=f"{default_limiter_id}_integration_expired_dlq",
+            limiter_id=f"{limiter_id}_integration_expired_dlq",
             limit=5,
             window=60,
             max_concurrency=2,
@@ -409,13 +409,13 @@ class TestRateLimitingIntegration:
 
     @staticmethod
     def test_per_task_max_age_override_expires_sooner(
-        redis_client, func_path, default_limiter_id
+        redis_client, func_path, limiter_id
     ):
         """Verify that a per-task max_age override can cause expiration earlier than the global max_age."""
         # Arrange
         limiter = MinimalRateLimiter(
             redis_client=redis_client,
-            limiter_id=f"{default_limiter_id}_integration_per_task_max_age",
+            limiter_id=f"{limiter_id}_integration_per_task_max_age",
             limit=5,
             window=60,
             max_concurrency=2,
@@ -445,13 +445,13 @@ class TestRateLimitingIntegration:
 
     @staticmethod
     def test_per_task_max_age_stored_in_buffer(
-        redis_client, func_path, default_limiter_id
+        redis_client, func_path, limiter_id
     ):
         """Verify that ``schedule_task()`` with ``max_age`` stores the ``__meta_max_age`` field in the buffered payload."""
         # Arrange
         limiter = MinimalRateLimiter(
             redis_client=redis_client,
-            limiter_id=f"{default_limiter_id}_integration_meta_max_age",
+            limiter_id=f"{limiter_id}_integration_meta_max_age",
             limit=5,
             window=60,
             max_concurrency=2,
@@ -476,13 +476,13 @@ class TestRateLimitingIntegration:
 
     @staticmethod
     def test_expired_lease_cleaned_up_on_consume(
-        redis_client, func_path, default_limiter_id
+        redis_client, func_path, limiter_id
     ):
         """Verify that stale concurrency lease entries are cleaned during consumption."""
         # Arrange
         limiter = MinimalRateLimiter(
             redis_client=redis_client,
-            limiter_id=f"{default_limiter_id}_integration_stale_lease",
+            limiter_id=f"{limiter_id}_integration_stale_lease",
             limit=5,
             window=60,
             max_concurrency=2,
@@ -593,7 +593,7 @@ class TestSlidingWindowBehavior:
     """
 
     @pytest.fixture
-    def sliding_window_limiter(self, redis_client, default_limiter_id):
+    def sliding_window_limiter(self, redis_client, limiter_id):
         """Create a rate limiter with production-realistic settings for sliding window behaviour tests.
 
         Config:
@@ -603,7 +603,7 @@ class TestSlidingWindowBehavior:
         """
         limiter = MinimalRateLimiter(
             redis_client=redis_client,
-            limiter_id=f"{default_limiter_id}_sliding_window",
+            limiter_id=f"{limiter_id}_sliding_window",
             limit=25,
             window=1.0,
             max_concurrency=100,
@@ -832,7 +832,7 @@ class TestSlidingWindowBehavior:
 
     @staticmethod
     def test_drain_retry_delay_reflects_token_recovery_not_window_reset(
-        redis_client, default_limiter_id, func_path
+        redis_client, limiter_id, func_path
     ):
         """Verify that the drain schedules its retry at the token recovery interval, not at the window reset time.
 
@@ -854,7 +854,7 @@ class TestSlidingWindowBehavior:
 
         limiter = TrackingRateLimiter(
             redis_client=redis_client,
-            limiter_id=f"{default_limiter_id}_drain_delay",
+            limiter_id=f"{limiter_id}_drain_delay",
             limit=limit,
             window=window,
             max_concurrency=100,

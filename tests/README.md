@@ -18,7 +18,7 @@ The following backends are currently supported:
 - `tests/implementations/asyncio/...` for AsyncIO-specific assertions.
 - `tests/implementations/asgi/...` for ASGI-specific assertions.
 
-Sync backends inherit the shared contract suite via `RateLimiterContractTest`; async backends inherit from `AsyncRateLimiterContractTest`. Each backend only adds tests for behavior that is unique to that backend.
+Sync backends inherit the shared contract suite via `RateLimiterContractTest`, while async backends inherit from `AsyncRateLimiterContractTest`. Each backend only adds tests for behavior that is unique to that backend.
 
 ## Directory Structure
 
@@ -117,7 +117,7 @@ tests/
 
 ## Within-File Organization
 
-Tests that cover the same feature, function, or component are grouped within a single class. Each class acts as a logical unit of related assertions; when a file tests multiple distinct features, each feature gets its own class. Methods that do not use `self` are decorated with `@staticmethod`. The only exception is Hypothesis `@given`-decorated methods, which require `self` due to a framework limitation.
+Tests that cover the same feature, function, or component are grouped within a single class. Each class acts as a logical unit of related assertions, and when a file tests multiple distinct features, each feature gets its own class. Methods that do not use `self` are decorated with `@staticmethod`. The only exception is Hypothesis `@given`-decorated methods, which require `self` due to a framework limitation.
 
 ## Testing Philosophy
 
@@ -220,11 +220,11 @@ Integration tests verify the end-to-end behavior of the rate limiter with real R
 ```python
 # integration/test_rate_limiting.py
 @pytest.fixture
-def integration_limiter(redis_client, default_limiter_id):
+def integration_limiter(redis_client, limiter_id):
     """Create a backend-agnostic limiter for integration tests."""
     return MinimalRateLimiter(
         redis_client=redis_client,
-        limiter_id=f"{default_limiter_id}_integration_default",
+        limiter_id=f"{limiter_id}_integration_default",
         limit=5,
         window=60,
         max_concurrency=2,
@@ -373,9 +373,9 @@ from your_module import MyBackendRateLimiter
 
 
 @pytest.fixture
-def limiter(default_limiter_id):
+def limiter(limiter_id):
     return MyBackendRateLimiter(
-        limiter_id=f"{default_limiter_id}_mybackend_default",
+        limiter_id=f"{limiter_id}_mybackend_default",
         limit=100,
         window=60,
         max_concurrency=10,
@@ -485,7 +485,7 @@ Test method names should be descriptive and read like sentences. They should sta
 **Examples:**
 ```python
 @staticmethod
-def test_schedule_duplicate_task_returns_false(limiter, func_path, default_payload):
+def test_schedule_duplicate_task_returns_false(limiter, func_path, payload):
     """Contract: scheduling identical tasks must return False on duplicate."""
 
 @given(payload=json_value)
@@ -527,56 +527,82 @@ redis_client.flushdb()
 redis_client.flushdb()  # Clean state
 ```
 
-## Fixtures
+## Fixture Architecture
 
-### Session-Scoped Fixtures
+### Naming Convention
 
-Used for expensive, one-time setup:
+Fixtures use natural, descriptive names without prefixes. A fixture's name describes what it provides, not its role in a derivation chain.
 
-- `_redis_connection`: a single Redis connection for the entire test suite (configurable via `REDIS_HOST`/`REDIS_PORT` environment variables).
-- `func_path`: a fictional function path for test task scheduling.
-- `default_payload`: the default payload `{"user_id": 123}` for tests.
+For example, `limiter_id` is preferred over `default_limiter_id`: callers already know it is a base from context. Backend limiter fixtures are all named `limiter`, since directory-scoped conftests prevent collisions.
 
-### Function-Scoped Fixtures (Default)
+### Definition Location
 
-Used for most tests to ensure a clean state between tests:
+Fixtures are placed at the **narrowest scope** that serves all their consumers:
 
-- `redis_client`: wraps `_redis_connection` with `flushall()` before and after each test.
-- `async_redis_client`: a per-test async Redis client (`redis.asyncio.Redis`) with `flushall()` before and after each test. Used by all async backend tests. Each test receives a fresh connection to avoid event loop conflicts between session-scoped async fixtures and function-scoped tests.
-- `default_limiter_id`: a unique limiter ID per test (UUID-backed).
-- `default_lock_key`: a unique lock key per test for distributed lock tests.
+| Level | Location | What belongs here |
+|---|---|---|
+| **Root** | `tests/conftest.py` | Global infrastructure (`redis_client`, `async_redis_client`) and universal identifiers/values (`limiter_id`, `module_limiter_id`, `lock_key`, `func_path`, `payload`) |
+| **Category** | `tests/{category}/conftest.py` | Shared fixtures for a test category (e.g., `implementations/conftest.py` has `generic_limiter`, `tracking_limiter`, while `properties/conftest.py` has `property_redis_client`) |
+| **Backend** | `tests/implementations/{backend}/conftest.py` | Backend-specific `limiter` fixture and autouse reset fixtures |
+| **External module** | `tests/fixtures/{backend}_backend.py` | Sync backend fixture definitions re-exported by conftest (Celery, ThreadPool: needed for cross-directory import) |
+| **Test file** | The test file itself | Fixtures used exclusively by that file (`mock_limiter`, `inflight_key`, `lifecycle_class`, local factories) |
 
-### Core Implementation Fixtures
+**Rule: never duplicate a fixture across files.** If two files need the same fixture, promote it to the nearest shared conftest.
 
-Defined in `implementations/conftest.py`:
+### No Redefinition Without Transformation
+
+Each backend conftest provides its limiter under the name `limiter`. Contract test binding follows naturally:
+
+- **Async backends** (AsyncIO): conftest provides `limiter`: the contract test class inherits directly (no override needed).
+- **Sync backends** (Celery, ThreadPool): conftest provides `limiter`: the contract test class overrides with `SyncToAsyncLimiterAdapter` wrapping (genuine transformation, justified).
+- **Generic implementations**: `implementations/conftest.py` provides `generic_limiter` (distinct name because it coexists with backend `limiter` fixtures in the same directory tree): test classes map to `limiter` at class level.
+
+**Rule: a fixture override at the class or file level is only justified when it transforms the value.** A pass-through that returns the input unchanged must be removed, and the source fixture should be renamed to match the expected name instead.
+
+### Scoping Conventions
+
+| Scope | When to use | Examples |
+|---|---|---|
+| `session` | Expensive creation (connections, apps, executors), immutable constants | `_redis_connection`, `celery_app`, `executor`, `func_path`, `payload` |
+| `module` | Property-based test fixtures needing persistence across Hypothesis examples | `module_limiter_id`, `property_redis_client`, `property_limiter` |
+| `function` | Everything else: ensures test isolation (this is the default) | `redis_client`, `limiter_id`, `lock_key`, `limiter`, all test-specific fixtures |
+
+### Fixture Reference
+
+#### Root fixtures (`tests/conftest.py`)
+
+- `_redis_connection` (session): a single Redis connection for the entire test suite (configurable via `REDIS_HOST`/`REDIS_PORT`).
+- `redis_client` (function): wraps `_redis_connection` with `flushall()` before and after each test.
+- `async_redis_client` (function): a per-test async Redis client with `flushall()` before and after each test.
+- `limiter_id` (function): a unique limiter ID per test (UUID-backed).
+- `module_limiter_id` (module): a unique limiter ID per module.
+- `lock_key` (function): a unique lock key per test.
+- `func_path` (session): a fictional function path for test task scheduling.
+- `payload` (session): the default payload `{"user_id": 123}` for tests.
+
+#### Implementation fixtures (`tests/implementations/conftest.py`)
 
 - `generic_limiter`: a `MinimalRateLimiter` instance (no-op dispatch/schedule) for testing `AbstractDistributedRateLimiter` behavior.
 - `tracking_limiter`: a `TrackingRateLimiter` instance that records `_dispatch_task()` and `_schedule_drain()` calls.
 - `make_limiter_pool`: a factory fixture that creates N limiter instances sharing the same Redis-backed limiter ID.
 - `task_id`: a unique task ID string for testing.
 
-### Backend Fixture Modules
+#### Backend fixtures
 
 Sync backend fixtures are centralized in `tests/fixtures/` and imported where needed:
 
 - `tests/fixtures/celery_backend.py` defines Celery fixtures (`celery_app`, `celery_config`, `limiter`, class-state reset fixture).
 - `tests/fixtures/threadpool_backend.py` defines ThreadPool fixtures (`executor`, `limiter`, class-state reset fixture).
-- Backend-local conftests (e.g., `tests/implementations/celery/conftest.py`) import from the corresponding fixture module.
 
-Async backend fixtures are defined directly in their backend-local conftests, since async fixtures cannot be shared via simple module-level imports:
+Async backend fixtures are defined directly in their backend-local conftests:
 
-- `tests/implementations/asyncio/conftest.py` defines `asyncio_limiter` (function-scoped, creates an `AsyncIOTaskLimiter`) and an autouse class-state reset fixture.
-- `tests/implementations/asgi/conftest.py` defines `asgi_limiter` (function-scoped, creates an `ASGIRateLimiter`) and an autouse class-state reset fixture.
+- `tests/implementations/asyncio/conftest.py` defines `limiter` (function-scoped, creates an `AsyncIOTaskLimiter`) and an autouse class-state reset fixture.
+- `tests/implementations/asgi/conftest.py` defines `limiter` (function-scoped, creates an `ASGIRateLimiter`) and an autouse class-state reset fixture.
 
-This avoids leaking backend fixtures into unrelated test categories.
+#### Property test fixtures
 
-### Module-Scoped Fixtures
-
-Used in property tests to improve performance. `default_module_limiter_id` is defined in the global `conftest.py`; `property_redis_client` and `property_limiter` are defined locally in each property test file that needs them, rather than in a shared conftest.
-
-- `default_module_limiter_id`: a unique limiter ID per module.
-- `property_redis_client`: a shared Redis client for a module's Hypothesis runs (defined locally per property test module).
-- `property_limiter`: a shared limiter for a module's Hypothesis runs (defined locally per property test module).
+- `property_redis_client` (module): a shared Redis client for a module's Hypothesis runs (defined in `tests/properties/conftest.py`).
+- `property_limiter` (module): a shared limiter for a module's Hypothesis runs (defined locally per property test module, as each module uses different limiter configurations).
 
 ## Best Practices
 
@@ -609,9 +635,8 @@ Fixtures with proper teardown or context managers should be used to ensure that 
 Fixture-provided unique IDs should be preferred over hardcoded IDs for limiter names, lock keys and task IDs.
 
 ```python
-def test_example(default_limiter_id, default_lock_key):
-    limiter_id = f"{default_limiter_id}_example"
-    lock_key = default_lock_key
+def test_example(limiter_id, lock_key):
+    derived_id = f"{limiter_id}_example"
 ```
 
 Explicit hardcoded IDs should only be used when the test is specifically about ID identity or the readability of a known failure case.

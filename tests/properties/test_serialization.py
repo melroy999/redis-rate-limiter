@@ -16,21 +16,14 @@ from tests.implementations.conftest import MinimalRateLimiter
 
 
 @pytest.fixture(scope="module")
-def property_redis_client(_redis_connection):
-    """Provide a module-scoped Redis client for property-based tests."""
-    yield _redis_connection
-    _redis_connection.flushdb()
-
-
-@pytest.fixture(scope="module")
 def property_limiter(
     property_redis_client,
-    default_module_limiter_id,
+    module_limiter_id,
 ):
     """Provide the default module-scoped rate limiter for property-based tests."""
     return MinimalRateLimiter(
         redis_client=property_redis_client,
-        limiter_id=f"{default_module_limiter_id}_property_default",
+        limiter_id=f"{module_limiter_id}_property_default",
         limit=100,
         window=60,
         max_concurrency=50,

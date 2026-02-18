@@ -15,10 +15,10 @@ async def _reset_asyncio_limiter_class_state(async_redis_client):
 
 
 @pytest.fixture
-async def asyncio_limiter(async_redis_client, default_limiter_id):
+async def limiter(async_redis_client, limiter_id):
     """Create an AsyncIOTaskLimiter instance for testing."""
-    limiter = await AsyncIOTaskLimiter.create(
-        limiter_id=f"{default_limiter_id}_asyncio",
+    _limiter = await AsyncIOTaskLimiter.create(
+        limiter_id=f"{limiter_id}_asyncio",
         limit=5,
         window=60,
         max_concurrency=2,
@@ -26,5 +26,5 @@ async def asyncio_limiter(async_redis_client, default_limiter_id):
         lease_duration=30,
         override=True,
     )
-    yield limiter
-    await limiter.shutdown()
+    yield _limiter
+    await _limiter.shutdown()

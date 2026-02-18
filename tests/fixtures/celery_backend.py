@@ -55,14 +55,13 @@ def _reset_limiter_class_state(redis_client, celery_app):
 
 
 @pytest.fixture
-def limiter(redis_client, celery_app, default_limiter_id):
+def limiter(redis_client, limiter_id, _reset_limiter_class_state):
     """Perform setup and teardown for a CeleryRateLimiter instance.
 
     Yields:
         A configured CeleryRateLimiter instance ready for testing.
     """
     # Setup.
-    limiter_id = default_limiter_id
     test_limiter = CeleryRateLimiter.create(
         limiter_id=limiter_id,
         limit=5,

@@ -11,12 +11,6 @@ from tests.contracts.test_distributed_lock import DistributedLockContractTest
 
 
 @pytest.fixture
-def lock_key(default_lock_key):
-    """Provide a unique lock key for the test."""
-    return default_lock_key
-
-
-@pytest.fixture
 def create_lock():
     """Factory fixture for creating ``AsyncDistributedLock`` instances."""
     return AsyncDistributedLock

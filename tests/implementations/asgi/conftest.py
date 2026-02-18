@@ -15,12 +15,12 @@ async def _reset_asgi_limiter_class_state(async_redis_client):
 
 
 @pytest.fixture
-async def asgi_limiter(async_redis_client, default_limiter_id):
+async def limiter(async_redis_client, limiter_id):
     """Create an ASGIRateLimiter instance for testing."""
-    limiter = await ASGIRateLimiter.create(
-        limiter_id=f"{default_limiter_id}_asgi",
+    _limiter = await ASGIRateLimiter.create(
+        limiter_id=f"{limiter_id}_asgi",
         limit=10,
         window=60,
         override=True,
     )
-    yield limiter
+    yield _limiter

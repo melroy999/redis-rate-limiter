@@ -23,7 +23,7 @@ class TestSmartJitter:
         return [seeded_rng.random() for _ in range(samples)]
 
     @pytest.fixture
-    def make_limiter(self, redis_client, default_limiter_id):
+    def make_limiter(self, redis_client, limiter_id):
         """Factory fixture for creating generic limiters with specific jitter settings."""
 
         def _make_limiter(
@@ -38,7 +38,7 @@ class TestSmartJitter:
         ) -> MinimalRateLimiter:
             return MinimalRateLimiter(
                 redis_client=redis_client,
-                limiter_id=f"{default_limiter_id}_{limiter_suffix}",
+                limiter_id=f"{limiter_id}_{limiter_suffix}",
                 limit=limit,
                 window=window,
                 max_concurrency=max_concurrency,

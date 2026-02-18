@@ -141,7 +141,7 @@ class TestTaskLifecycleImplementation:
     def test_heartbeat_failure_override_precedence(
         redis_client,
         task_id,
-        default_limiter_id,
+        limiter_id,
         original: HeartbeatFailureMode,
         override: HeartbeatFailureMode,
     ):
@@ -150,7 +150,7 @@ class TestTaskLifecycleImplementation:
         # A real limiter is used to test the override mechanism.
         limiter = MinimalRateLimiter(
             redis_client=redis_client,
-            limiter_id=f"{default_limiter_id}_task_lifecycle_heartbeat_override_precedence",
+            limiter_id=f"{limiter_id}_task_lifecycle_heartbeat_override_precedence",
             limit=1,
             window=1,
             max_concurrency=1,

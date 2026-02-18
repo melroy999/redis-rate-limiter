@@ -21,11 +21,11 @@ class TestMetricsCallback:
         return MagicMock()
 
     @pytest.fixture
-    def limiter(self, redis_client, callback, default_limiter_id):
+    def limiter(self, redis_client, callback, limiter_id):
         """Create a generic limiter with a metrics callback for testing."""
         return MinimalRateLimiter(
             redis_client=redis_client,
-            limiter_id=f"{default_limiter_id}_with_metrics",
+            limiter_id=f"{limiter_id}_with_metrics",
             limit=10,
             window=60,
             max_concurrency=5,
@@ -33,11 +33,11 @@ class TestMetricsCallback:
         )
 
     @pytest.fixture
-    def limiter_no_callback(self, redis_client, default_limiter_id):
+    def limiter_no_callback(self, redis_client, limiter_id):
         """Create a generic limiter without a metrics callback."""
         return MinimalRateLimiter(
             redis_client=redis_client,
-            limiter_id=f"{default_limiter_id}_without_metrics",
+            limiter_id=f"{limiter_id}_without_metrics",
             limit=10,
             window=60,
             max_concurrency=5,

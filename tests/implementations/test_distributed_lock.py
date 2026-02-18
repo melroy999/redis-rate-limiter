@@ -15,12 +15,6 @@ from tests.helpers.adapters import SyncToAsyncLockAdapter
 
 
 @pytest.fixture
-def lock_key(default_lock_key):
-    """Provide a unique lock key for the test."""
-    return default_lock_key
-
-
-@pytest.fixture
 def create_lock():
     """Factory fixture for creating sync DistributedLock instances.
 

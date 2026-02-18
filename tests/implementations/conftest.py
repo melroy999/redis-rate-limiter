@@ -53,7 +53,7 @@ def task_id():
 
 
 @pytest.fixture
-def generic_limiter(redis_client, default_limiter_id):
+def generic_limiter(redis_client, limiter_id):
     """Create a minimal rate limiter instance for testing abstract behavior.
 
     This fixture provides a concrete implementation without Celery dependencies,
@@ -61,13 +61,13 @@ def generic_limiter(redis_client, default_limiter_id):
 
     Args:
         redis_client: The Redis client fixture provided by the parent conftest.
-        default_limiter_id: A unique base limiter identifier from which the fixture limiter identifier is derived.
+        limiter_id: A unique base limiter identifier from which the fixture limiter identifier is derived.
 
     Yields:
         A configured MinimalRateLimiter instance ready for testing.
     """
     # Setup.
-    limiter_id = f"{default_limiter_id}_generic"
+    limiter_id = f"{limiter_id}_generic"
     test_limiter = MinimalRateLimiter(
         redis_client=redis_client,
         limiter_id=limiter_id,
@@ -88,10 +88,10 @@ def generic_limiter(redis_client, default_limiter_id):
 
 
 @pytest.fixture
-def tracking_limiter(redis_client, default_limiter_id):
+def tracking_limiter(redis_client, limiter_id):
     """Create a tracking rate limiter that records all dispatch and schedule invocations."""
     # Setup.
-    limiter_id = f"{default_limiter_id}_tracking"
+    limiter_id = f"{limiter_id}_tracking"
     test_limiter = TrackingRateLimiter(
         redis_client=redis_client,
         limiter_id=limiter_id,
@@ -112,7 +112,7 @@ def tracking_limiter(redis_client, default_limiter_id):
 
 
 @pytest.fixture
-def make_limiter_pool(redis_client, default_limiter_id):
+def make_limiter_pool(redis_client, limiter_id):
     """Factory fixture that creates N rate limiter instances sharing the same Redis state.
 
     This simulates N independent workers that all operate against the same
@@ -120,23 +120,23 @@ def make_limiter_pool(redis_client, default_limiter_id):
 
     Args:
         redis_client: The Redis client fixture provided by the parent conftest.
-        default_limiter_id: A unique base identifier for the current test.
+        limiter_id: A unique base identifier for the current test.
 
     Yields:
         A factory function that accepts (n, *, limiter_cls, **kwargs).
     """
-    limiter_id = None
+    pool_limiter_id = None
     created_limiters: list = []
 
     def _factory(n, *, limiter_cls=MinimalRateLimiter, **kwargs):
-        nonlocal limiter_id
-        limiter_id = f"{default_limiter_id}_concurrent"
+        nonlocal pool_limiter_id
+        pool_limiter_id = f"{limiter_id}_concurrent"
         defaults = dict(
             limit=5, window=60, max_concurrency=2, max_age=3600, lease_duration=30
         )
         defaults.update(kwargs)
         limiters = [
-            limiter_cls(redis_client=redis_client, limiter_id=limiter_id, **defaults)
+            limiter_cls(redis_client=redis_client, limiter_id=pool_limiter_id, **defaults)
             for _ in range(n)
         ]
         created_limiters.extend(limiters)
@@ -147,7 +147,7 @@ def make_limiter_pool(redis_client, default_limiter_id):
     # Teardown: stop subscriber threads, then clear all Redis keys.
     for lim in created_limiters:
         lim.shutdown()
-    if limiter_id:
-        keys = redis_client.keys(f"{limiter_id}:*")
+    if pool_limiter_id:
+        keys = redis_client.keys(f"{pool_limiter_id}:*")
         if keys:
             redis_client.delete(*keys)

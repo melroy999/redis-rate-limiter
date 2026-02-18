@@ -13,16 +13,16 @@ def registry():
 
 
 @pytest.fixture
-def exporter(registry, default_limiter_id):
+def exporter(registry, limiter_id):
     """Create a PrometheusMetricsExporter backed by an isolated registry."""
-    return PrometheusMetricsExporter(limiter_id=default_limiter_id, registry=registry)
+    return PrometheusMetricsExporter(limiter_id=limiter_id, registry=registry)
 
 
 class TestConsumeCounters:
     """Verify that consume events increment the correct outcome counter."""
 
     @staticmethod
-    def test_success_increments_counter(exporter, registry, default_limiter_id):
+    def test_success_increments_counter(exporter, registry, limiter_id):
         """Verify that a successful consume event increments the success counter."""
         # Act
         exporter(
@@ -40,12 +40,12 @@ class TestConsumeCounters:
         # Assert
         value = registry.get_sample_value(
             "celery_rate_limiter_consume_total",
-            {"limiter_id": default_limiter_id, "outcome": "success"},
+            {"limiter_id": limiter_id, "outcome": "success"},
         )
         assert value == 1.0, "success counter should be incremented to 1"
 
     @staticmethod
-    def test_rejected_increments_counter(exporter, registry, default_limiter_id):
+    def test_rejected_increments_counter(exporter, registry, limiter_id):
         """Verify that a rejected consume event increments the rejected counter."""
         # Act
         exporter(
@@ -63,12 +63,12 @@ class TestConsumeCounters:
         # Assert
         value = registry.get_sample_value(
             "celery_rate_limiter_consume_total",
-            {"limiter_id": default_limiter_id, "outcome": "rejected"},
+            {"limiter_id": limiter_id, "outcome": "rejected"},
         )
         assert value == 1.0, "rejected counter should be incremented to 1"
 
     @staticmethod
-    def test_expired_increments_counter(exporter, registry, default_limiter_id):
+    def test_expired_increments_counter(exporter, registry, limiter_id):
         """Verify that an expired consume event increments the expired counter."""
         # Act
         exporter(
@@ -86,12 +86,12 @@ class TestConsumeCounters:
         # Assert
         value = registry.get_sample_value(
             "celery_rate_limiter_consume_total",
-            {"limiter_id": default_limiter_id, "outcome": "expired"},
+            {"limiter_id": limiter_id, "outcome": "expired"},
         )
         assert value == 1.0, "expired counter should be incremented to 1"
 
     @staticmethod
-    def test_multiple_events_accumulate(exporter, registry, default_limiter_id):
+    def test_multiple_events_accumulate(exporter, registry, limiter_id):
         """Verify that multiple consume events accumulate in the counter."""
         # Act
         for _ in range(5):
@@ -110,7 +110,7 @@ class TestConsumeCounters:
         # Assert
         value = registry.get_sample_value(
             "celery_rate_limiter_consume_total",
-            {"limiter_id": default_limiter_id, "outcome": "success"},
+            {"limiter_id": limiter_id, "outcome": "success"},
         )
         assert value == 5.0, "success counter should accumulate to 5"
 
@@ -119,7 +119,7 @@ class TestConsumeGauges:
     """Verify that consume events update the point-in-time gauges."""
 
     @staticmethod
-    def test_gauges_updated_on_consume(exporter, registry, default_limiter_id):
+    def test_gauges_updated_on_consume(exporter, registry, limiter_id):
         """Verify that all gauges are set after a consume event."""
         # Act
         exporter(
@@ -138,7 +138,7 @@ class TestConsumeGauges:
         assert (
             registry.get_sample_value(
                 "celery_rate_limiter_remaining_tokens",
-                {"limiter_id": default_limiter_id},
+                {"limiter_id": limiter_id},
             )
             == 18.0
         ), "remaining tokens gauge should reflect the event value"
@@ -146,7 +146,7 @@ class TestConsumeGauges:
         assert (
             registry.get_sample_value(
                 "celery_rate_limiter_active_concurrency",
-                {"limiter_id": default_limiter_id},
+                {"limiter_id": limiter_id},
             )
             == 3.0
         ), "active concurrency gauge should reflect the event value"
@@ -154,13 +154,13 @@ class TestConsumeGauges:
         assert (
             registry.get_sample_value(
                 "celery_rate_limiter_buffer_depth",
-                {"limiter_id": default_limiter_id},
+                {"limiter_id": limiter_id},
             )
             == 7.0
         ), "buffer depth gauge should reflect the event value"
 
     @staticmethod
-    def test_gauges_reflect_latest_value(exporter, registry, default_limiter_id):
+    def test_gauges_reflect_latest_value(exporter, registry, limiter_id):
         """Verify that gauges reflect the most recent event, not accumulate."""
         # Arrange
         exporter(
@@ -192,7 +192,7 @@ class TestConsumeGauges:
         assert (
             registry.get_sample_value(
                 "celery_rate_limiter_remaining_tokens",
-                {"limiter_id": default_limiter_id},
+                {"limiter_id": limiter_id},
             )
             == 5.0
         ), "remaining tokens gauge should reflect the latest value"
@@ -200,7 +200,7 @@ class TestConsumeGauges:
         assert (
             registry.get_sample_value(
                 "celery_rate_limiter_active_concurrency",
-                {"limiter_id": default_limiter_id},
+                {"limiter_id": limiter_id},
             )
             == 3.0
         ), "active concurrency gauge should reflect the latest value"
@@ -208,7 +208,7 @@ class TestConsumeGauges:
         assert (
             registry.get_sample_value(
                 "celery_rate_limiter_buffer_depth",
-                {"limiter_id": default_limiter_id},
+                {"limiter_id": limiter_id},
             )
             == 2.0
         ), "buffer depth gauge should reflect the latest value"
@@ -218,7 +218,7 @@ class TestScheduleCounter:
     """Verify that schedule events increment the correct counter."""
 
     @staticmethod
-    def test_scheduled_true(exporter, registry, default_limiter_id):
+    def test_scheduled_true(exporter, registry, limiter_id):
         """Verify that a successful schedule event increments the true counter."""
         # Act
         exporter("schedule", {"scheduled": True, "task_id": "abc123"})
@@ -226,12 +226,12 @@ class TestScheduleCounter:
         # Assert
         value = registry.get_sample_value(
             "celery_rate_limiter_schedule_total",
-            {"limiter_id": default_limiter_id, "scheduled": "true"},
+            {"limiter_id": limiter_id, "scheduled": "true"},
         )
         assert value == 1.0, "scheduled=true counter should be incremented to 1"
 
     @staticmethod
-    def test_scheduled_false(exporter, registry, default_limiter_id):
+    def test_scheduled_false(exporter, registry, limiter_id):
         """Verify that a duplicate schedule event increments the false counter."""
         # Act
         exporter("schedule", {"scheduled": False, "task_id": "abc123"})
@@ -239,7 +239,7 @@ class TestScheduleCounter:
         # Assert
         value = registry.get_sample_value(
             "celery_rate_limiter_schedule_total",
-            {"limiter_id": default_limiter_id, "scheduled": "false"},
+            {"limiter_id": limiter_id, "scheduled": "false"},
         )
         assert value == 1.0, "scheduled=false counter should be incremented to 1"
 

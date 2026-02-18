@@ -18,11 +18,9 @@ class RateLimiterContractTest:
           (or a ``SyncToAsyncLimiterAdapter`` wrapping a sync limiter).
         - async_redis_client: An async fixture that returns an async Redis client.
 
-    Example (async backend):
+    Example (async backend — conftest provides ``limiter`` directly):
         class TestAsyncIOContracts(RateLimiterContractTest):
-            @pytest.fixture
-            async def limiter(self, asyncio_limiter):
-                return asyncio_limiter
+            pass
 
     Example (sync backend via adapter):
         class TestThreadPoolContracts(RateLimiterContractTest):
@@ -33,11 +31,11 @@ class RateLimiterContractTest:
 
     @staticmethod
     async def test_schedule_task_returns_success_and_task_id(
-        limiter, func_path, default_payload
+        limiter, func_path, payload
     ):
         """Contract: ``schedule_task()`` must return a ``(bool, str)`` tuple."""
         # Act
-        success, task_id = await limiter.schedule_task(func_path, default_payload)
+        success, task_id = await limiter.schedule_task(func_path, payload)
 
         # Assert
         assert isinstance(success, bool), "first return value must be a boolean"
@@ -46,11 +44,11 @@ class RateLimiterContractTest:
 
     @staticmethod
     async def test_schedule_task_marks_task_as_inflight(
-        limiter, async_redis_client, func_path, default_payload
+        limiter, async_redis_client, func_path, payload
     ):
         """Contract: scheduled tasks must be marked as in-flight within Redis."""
         # Act
-        success, task_id = await limiter.schedule_task(func_path, default_payload)
+        success, task_id = await limiter.schedule_task(func_path, payload)
 
         # Assert
         assert success is True, "scheduling should succeed for first task"
@@ -61,11 +59,11 @@ class RateLimiterContractTest:
 
     @staticmethod
     async def test_schedule_task_adds_to_buffer(
-        limiter, async_redis_client, func_path, default_payload
+        limiter, async_redis_client, func_path, payload
     ):
         """Contract: scheduled tasks must be appended to the buffer."""
         # Act
-        success, task_id = await limiter.schedule_task(func_path, default_payload)
+        success, task_id = await limiter.schedule_task(func_path, payload)
 
         # Assert
         assert success is True, "scheduling should succeed"
@@ -74,12 +72,12 @@ class RateLimiterContractTest:
 
     @staticmethod
     async def test_schedule_duplicate_task_returns_false(
-        limiter, func_path, default_payload
+        limiter, func_path, payload
     ):
         """Contract: scheduling identical tasks must return ``False`` for the duplicate."""
         # Act
-        success_1, task_id_1 = await limiter.schedule_task(func_path, default_payload)
-        success_2, task_id_2 = await limiter.schedule_task(func_path, default_payload)
+        success_1, task_id_1 = await limiter.schedule_task(func_path, payload)
+        success_2, task_id_2 = await limiter.schedule_task(func_path, payload)
 
         # Assert
         assert success_1 is True, "first scheduling should succeed"
@@ -209,11 +207,11 @@ class RateLimiterContractTest:
 
     @staticmethod
     async def test_consume_expired_field_is_boolean(
-        limiter, func_path, default_payload
+        limiter, func_path, payload
     ):
         """Contract: the ``consume()`` expired flag must always be a boolean."""
         # Arrange
-        await limiter.schedule_task(func_path, default_payload)
+        await limiter.schedule_task(func_path, payload)
 
         # Act
         result = await limiter.consume()

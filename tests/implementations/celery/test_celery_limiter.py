@@ -11,12 +11,12 @@ class TestCeleryRateLimiter:
 
     @staticmethod
     def test_schedule_task_with_use_executor_false_stores_meta(
-        limiter, redis_client, func_path, default_payload
+        limiter, redis_client, func_path, payload
     ):
         """Verify that ``schedule_task`` stores ``use_executor=False`` in the task payload metadata."""
         # Act
         success, task_id = limiter.schedule_task(
-            func_path, default_payload, use_executor=False
+            func_path, payload, use_executor=False
         )
 
         # Assert
@@ -30,15 +30,15 @@ class TestCeleryRateLimiter:
 
     @staticmethod
     def test_dispatch_task_use_executor_true_sends_generic_worker(
-        limiter, default_payload, task_id
+        limiter, payload, task_id
     ):
         """Verify that ``_dispatch_task`` sends the generic worker task when ``use_executor`` is true."""
         # Arrange
-        payload = limiter._get_enhanced_payload(default_payload, use_executor=True)
+        enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=True)
 
         # Act
         with patch.object(limiter.app, "send_task") as mock_send_task:
-            limiter._dispatch_task("myapp.tasks.process", payload, task_id)
+            limiter._dispatch_task("myapp.tasks.process", enhanced_payload, task_id)
 
             # Assert
             mock_send_task.assert_called_once_with(
@@ -46,28 +46,28 @@ class TestCeleryRateLimiter:
                 kwargs={
                     "limiter_id": limiter.id,
                     "func_path": "myapp.tasks.process",
-                    "payload": default_payload,
+                    "payload": payload,
                     "_rate_limit_task_id": task_id,
                 },
             )
 
     @staticmethod
     def test_dispatch_task_use_executor_false_sends_custom_task(
-        limiter, default_payload, task_id
+        limiter, payload, task_id
     ):
         """Verify that ``_dispatch_task`` sends a custom task directly when ``use_executor`` is false."""
         # Arrange
         func_path = "myapp.tasks.custom"
-        payload = limiter._get_enhanced_payload(default_payload, use_executor=False)
+        enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=False)
 
         # Act
         with patch.object(limiter.app, "send_task") as mock_send_task:
-            limiter._dispatch_task(func_path, payload, task_id)
+            limiter._dispatch_task(func_path, enhanced_payload, task_id)
 
             # Assert
             mock_send_task.assert_called_once_with(
                 func_path,
-                args=[default_payload],
+                args=[payload],
                 kwargs={"_rate_limit_task_id": task_id},
             )
 
@@ -86,29 +86,29 @@ class TestCeleryRateLimiter:
 
     @staticmethod
     def test_dispatch_task_send_task_failure_propagates(
-        limiter, default_payload, task_id
+        limiter, payload, task_id
     ):
         """Verify that a ``send_task()`` failure propagates from ``_dispatch_task()``."""
         # Arrange
-        payload = limiter._get_enhanced_payload(default_payload, use_executor=True)
+        enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=True)
 
         # Act & Assert
         with patch.object(
             limiter.app, "send_task", side_effect=Exception("broker down")
         ):
             with pytest.raises(Exception, match="broker down"):
-                limiter._dispatch_task("myapp.tasks.process", payload, task_id)
+                limiter._dispatch_task("myapp.tasks.process", enhanced_payload, task_id)
 
     @staticmethod
-    def test_enhanced_payload_structure(limiter, default_payload):
+    def test_enhanced_payload_structure(limiter, payload):
         """Verify that ``_get_enhanced_payload`` wraps the payload in the expected data/meta structure."""
         # Act
         enhanced_payload = limiter._get_enhanced_payload(
-            default_payload, use_executor=False
+            payload, use_executor=False
         )
 
         # Assert
-        assert enhanced_payload["data"] == default_payload, (
+        assert enhanced_payload["data"] == payload, (
             "enhanced payload should preserve original data"
         )
         assert enhanced_payload["meta"] == {"use_executor": False}, (

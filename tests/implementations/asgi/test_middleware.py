@@ -36,7 +36,7 @@ class TestRateLimitMiddleware:
         await middleware(scope, receive, send)
         return messages
 
-    async def test_allowed_request_passes_through(self, asgi_limiter):
+    async def test_allowed_request_passes_through(self, limiter):
         """Verify that an allowed request receives 200 from the inner app."""
 
         # Arrange
@@ -45,7 +45,7 @@ class TestRateLimitMiddleware:
             await send({"type": "http.response.body", "body": b"OK"})
 
         middleware = RateLimitMiddleware(
-            inner_app, limiter=asgi_limiter, key_func=by_client_ip
+            inner_app, limiter=limiter, key_func=by_client_ip
         )
 
         # Act
@@ -54,7 +54,7 @@ class TestRateLimitMiddleware:
         # Assert
         assert messages[0]["status"] == 200, "allowed request should receive 200"
 
-    async def test_allowed_response_includes_rate_limit_headers(self, asgi_limiter):
+    async def test_allowed_response_includes_rate_limit_headers(self, limiter):
         """Verify that rate limit headers are injected into allowed responses."""
 
         # Arrange
@@ -63,7 +63,7 @@ class TestRateLimitMiddleware:
             await send({"type": "http.response.body", "body": b"OK"})
 
         middleware = RateLimitMiddleware(
-            inner_app, limiter=asgi_limiter, key_func=by_client_ip
+            inner_app, limiter=limiter, key_func=by_client_ip
         )
 
         # Act
@@ -81,7 +81,7 @@ class TestRateLimitMiddleware:
             "response should include x-ratelimit-reset header"
         )
 
-    async def test_blocked_request_returns_429(self, asgi_limiter):
+    async def test_blocked_request_returns_429(self, limiter):
         """Verify that a blocked request receives a 429 response."""
 
         # Arrange
@@ -90,7 +90,7 @@ class TestRateLimitMiddleware:
             await send({"type": "http.response.body", "body": b"OK"})
 
         middleware = RateLimitMiddleware(
-            inner_app, limiter=asgi_limiter, key_func=by_client_ip
+            inner_app, limiter=limiter, key_func=by_client_ip
         )
 
         # Exhaust the rate limit (limit=10).
@@ -105,7 +105,7 @@ class TestRateLimitMiddleware:
         # Assert
         assert messages[0]["status"] == 429, "blocked request should receive 429"
 
-    async def test_blocked_response_includes_retry_after(self, asgi_limiter):
+    async def test_blocked_response_includes_retry_after(self, limiter):
         """Verify that the 429 response includes a ``Retry-After`` header."""
 
         # Arrange
@@ -114,7 +114,7 @@ class TestRateLimitMiddleware:
             await send({"type": "http.response.body", "body": b"OK"})
 
         middleware = RateLimitMiddleware(
-            inner_app, limiter=asgi_limiter, key_func=by_client_ip
+            inner_app, limiter=limiter, key_func=by_client_ip
         )
 
         scope = self._make_scope(client_ip="10.0.0.2")
@@ -130,7 +130,7 @@ class TestRateLimitMiddleware:
             "429 response should include Retry-After header"
         )
 
-    async def test_custom_on_blocked_callback(self, asgi_limiter):
+    async def test_custom_on_blocked_callback(self, limiter):
         """Verify that ``on_blocked`` callback is invoked instead of the default 429."""
         # Arrange
         callback_invoked = False
@@ -147,7 +147,7 @@ class TestRateLimitMiddleware:
 
         middleware = RateLimitMiddleware(
             inner_app,
-            limiter=asgi_limiter,
+            limiter=limiter,
             key_func=by_client_ip,
             on_blocked=custom_blocked,
         )
@@ -163,7 +163,7 @@ class TestRateLimitMiddleware:
         assert callback_invoked is True, "custom on_blocked callback should be invoked"
         assert messages[0]["status"] == 503, "custom callback should set status 503"
 
-    async def test_non_http_scope_passes_through(self, asgi_limiter):
+    async def test_non_http_scope_passes_through(self, limiter):
         """Verify that non-HTTP scopes pass through without rate limiting."""
         # Arrange
         app_invoked = False
@@ -173,7 +173,7 @@ class TestRateLimitMiddleware:
             app_invoked = True
 
         middleware = RateLimitMiddleware(
-            inner_app, limiter=asgi_limiter, key_func=by_client_ip
+            inner_app, limiter=limiter, key_func=by_client_ip
         )
 
         scope = self._make_scope(scope_type="websocket")
@@ -191,7 +191,7 @@ class TestRateLimitMiddleware:
         # Assert
         assert app_invoked is True, "non-HTTP scope should pass through to inner app"
 
-    async def test_key_func_none_bypasses_rate_limiting(self, asgi_limiter):
+    async def test_key_func_none_bypasses_rate_limiting(self, limiter):
         """Verify that returning ``None`` from ``key_func`` bypasses rate limiting."""
 
         # Arrange
@@ -203,7 +203,7 @@ class TestRateLimitMiddleware:
             return None
 
         middleware = RateLimitMiddleware(
-            inner_app, limiter=asgi_limiter, key_func=null_key_func
+            inner_app, limiter=limiter, key_func=null_key_func
         )
 
         # Act
@@ -217,7 +217,7 @@ class TestRateLimitMiddleware:
             "bypassed request should not include rate limit headers"
         )
 
-    async def test_fail_open_allows_on_error(self, asgi_limiter):
+    async def test_fail_open_allows_on_error(self, limiter):
         """Verify that ``fail_open`` mode allows the request when ``acquire`` raises."""
         # Arrange
         app_invoked = False
@@ -230,12 +230,12 @@ class TestRateLimitMiddleware:
 
         middleware = RateLimitMiddleware(
             inner_app,
-            limiter=asgi_limiter,
+            limiter=limiter,
             key_func=by_client_ip,
             on_error="fail_open",
         )
 
-        asgi_limiter.acquire = AsyncMock(side_effect=ConnectionError("redis down"))
+        limiter.acquire = AsyncMock(side_effect=ConnectionError("redis down"))
 
         # Act
         await self._capture_response(middleware, self._make_scope())
@@ -243,7 +243,7 @@ class TestRateLimitMiddleware:
         # Assert
         assert app_invoked is True, "fail_open should pass request through on error"
 
-    async def test_fail_closed_returns_503_on_error(self, asgi_limiter):
+    async def test_fail_closed_returns_503_on_error(self, limiter):
         """Verify that ``fail_closed`` mode returns 503 when ``acquire`` raises."""
 
         # Arrange
@@ -253,12 +253,12 @@ class TestRateLimitMiddleware:
 
         middleware = RateLimitMiddleware(
             inner_app,
-            limiter=asgi_limiter,
+            limiter=limiter,
             key_func=by_client_ip,
             on_error="fail_closed",
         )
 
-        asgi_limiter.acquire = AsyncMock(side_effect=ConnectionError("redis down"))
+        limiter.acquire = AsyncMock(side_effect=ConnectionError("redis down"))
 
         # Act
         messages = await self._capture_response(middleware, self._make_scope())
