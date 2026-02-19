@@ -16,7 +16,6 @@ import os
 import signal
 import time
 import uuid
-from abc import ABC, abstractmethod
 from typing import (
     Any,
     Awaitable,
@@ -430,7 +429,7 @@ class AsyncDrainSignalSubscriber:
 
 # noinspection PyUnnecessaryCast
 class AbstractAsyncDistributedRateLimiter(
-    DistributedRateLimiterMixin, AbstractAsyncRateLimiter, ABC
+    DistributedRateLimiterMixin, AbstractAsyncRateLimiter
 ):
     """Asynchronous implementation of the distributed rate limiter.
 
@@ -871,7 +870,6 @@ class AbstractAsyncDistributedRateLimiter(
                 )
                 self._schedule_drain(delay=delay_seconds)
 
-    @abstractmethod
     async def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
         """Dispatch the task to the concrete async execution backend.
 
@@ -880,7 +878,7 @@ class AbstractAsyncDistributedRateLimiter(
             payload: The task payload dictionary.
             task_id: The unique task identifier.
         """
-        pass
+        raise NotImplementedError("Subclasses must implement _dispatch_task")
 
     def _schedule_drain(self, delay: float = 0.0) -> None:
         """Schedule the drain method to execute again after ``delay`` seconds.

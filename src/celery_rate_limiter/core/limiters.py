@@ -9,7 +9,6 @@ import random
 import signal
 import time
 import uuid
-from abc import ABC, abstractmethod
 from threading import Condition, Event, Lock, Thread
 from typing import (
     TYPE_CHECKING,
@@ -819,7 +818,7 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
 
 # noinspection PyUnnecessaryCast
 class AbstractDistributedRateLimiter(
-    DistributedRateLimiterMixin, AbstractSyncRateLimiter, ABC
+    DistributedRateLimiterMixin, AbstractSyncRateLimiter
 ):
     """Synchronous implementation of the distributed rate limiter.
 
@@ -1334,7 +1333,6 @@ class AbstractDistributedRateLimiter(
                 )
                 self._schedule_drain(delay=delay_seconds)
 
-    @abstractmethod
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
         """Dispatch the task to the concrete execution backend (e.g., Celery worker, thread).
 
@@ -1343,7 +1341,7 @@ class AbstractDistributedRateLimiter(
             payload: The task payload dictionary.
             task_id: The unique task identifier.
         """
-        pass
+        raise NotImplementedError("Subclasses must implement _dispatch_task")
 
     def _schedule_drain(self, delay: float = 0.0) -> None:
         """Schedule the drain method to execute again after ``delay`` seconds.

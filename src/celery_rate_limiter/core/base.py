@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import logging
 import time
-from abc import ABC
 from typing import Any, Awaitable, cast
 
 import redis
@@ -26,7 +25,7 @@ from celery_rate_limiter.core.scripts import load_lua_script
 logger = logging.getLogger(__name__)
 
 
-class AbstractRateLimiter(ABC):
+class AbstractRateLimiter:
     """Configuration-only base for all rate limiters.
 
     Stores the limiter identity and the core rate limit parameters. All
@@ -53,7 +52,7 @@ class AbstractRateLimiter(ABC):
         self._paused_until: float = 0.0
 
         # Guards against unconsumed kwargs, i.e., a TypeError will be thrown
-        # by the ABC class if kwargs is non-empty.
+        # by object.__init__() if kwargs is non-empty.
         super().__init__(**kwargs)
 
     def _build_persist_config(self) -> dict[str, Any]:

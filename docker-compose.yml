@@ -77,6 +77,18 @@ services:
     profiles:
       - test-all
 
+  # Mutation testing service (runs mutmut inside Docker; requires Linux fork support).
+  mutate:
+    <<: *test-base
+    container_name: celery-rate-limiter-mutate
+    volumes:
+      # Output directory only; /app/mutants is mutmut's internal working directory.
+      # Rebuild with --build to pick up source changes.
+      - ./mutmut-results:/app/mutation-output
+    command: bash -c "mutmut run; echo '--- MUTATION RESULTS ---'; mutmut results | tee /app/mutation-output/results.txt"
+    profiles:
+      - mutate
+
   # Optional: Redis Commander (web UI for debugging).
   redis-commander:
     image: rediscommander/redis-commander:latest

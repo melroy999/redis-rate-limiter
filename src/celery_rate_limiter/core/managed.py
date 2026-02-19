@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import json
 import logging
-from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Awaitable, ClassVar, Dict, Optional, cast
 
 from redis import Redis
@@ -29,7 +28,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class ManagedRateLimiterMixin(ABC):
+class ManagedRateLimiterMixin:
     """Pure Python logic for singleton-style managed rate limiters.
 
     Rate limiter configuration is persisted to Redis as a single source of truth. All workers sharing the same limiter ID read from this authoritative store, and configuration updates (via ``update()``) are propagated automatically through a Redis-backed version counter that each instance polls via ``refresh_config()``.
@@ -63,29 +62,29 @@ class ManagedRateLimiterMixin(ABC):
     # ------------------------------------------------------------------
 
     @classmethod
-    @abstractmethod
     def _configure_backend(cls, **backend_context: Any) -> None:
         """Store the backend-specific class context during ``configure()``."""
+        raise NotImplementedError("Subclasses must implement _configure_backend")
 
     @classmethod
-    @abstractmethod
     def _has_backend_context(cls) -> bool:
         """Determine whether the backend-specific class context has been configured."""
+        raise NotImplementedError("Subclasses must implement _has_backend_context")
 
     @classmethod
-    @abstractmethod
     def _get_instance_context(cls) -> dict[str, Any]:
         """Return the backend context to be forwarded to concrete instance constructors."""
+        raise NotImplementedError("Subclasses must implement _get_instance_context")
 
     @classmethod
-    @abstractmethod
     def _reset_backend_context(cls) -> None:
         """Clear the backend-specific class context, intended for testing and resets."""
+        raise NotImplementedError("Subclasses must implement _reset_backend_context")
 
     @classmethod
-    @abstractmethod
     def _configure_hint(cls) -> str:
         """Return a human-readable ``configure()`` usage hint suitable for error messages."""
+        raise NotImplementedError("Subclasses must implement _configure_hint")
 
     # ------------------------------------------------------------------
     # Construction guard and lifecycle helpers
@@ -161,7 +160,7 @@ class ManagedRateLimiterMixin(ABC):
 
 
 # noinspection PyUnnecessaryCast
-class SyncManagedRateLimiter(ManagedRateLimiterMixin, ABC):
+class SyncManagedRateLimiter(ManagedRateLimiterMixin):
     """Synchronous Redis-backed managed rate limiter.
 
     Provides ``configure``, ``create``, ``get``, ``update``, and ``refresh_config``
@@ -391,7 +390,7 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin, ABC):
 
 
 # noinspection PyUnnecessaryCast
-class AsyncManagedRateLimiter(ManagedRateLimiterMixin, ABC):
+class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
     """Asynchronous Redis-backed managed rate limiter.
 
     Provides ``configure``, ``create``, ``get``, ``update``, and ``refresh_config``

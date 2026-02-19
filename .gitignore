@@ -305,3 +305,7 @@ __marimo__/
 # Demo state (created by demo/scripts/setup.sh)
 demo/scripts/.demo-state
 demo/scripts/.port-forward.log
+
+# Mutation testing (mutmut)
+.mutmut-cache/
+mutmut-results/

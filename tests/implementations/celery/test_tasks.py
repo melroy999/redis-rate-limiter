@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
+from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
 from celery_rate_limiter.backends.celery.tasks.worker import generic_rate_limited_worker
 
 
@@ -21,26 +22,27 @@ class TestGenericWorkerTask:
         payload = {"alpha": 1, "beta": 2}
 
         # Act
-        with (
-            patch(
-                "celery_rate_limiter.core.decorators._get_default_limiter",
-                return_value=limiter,
-            ) as mock_get,
-            patch(
+        # The @rate_limited decorator captures CeleryRateLimiter.get as a bound
+        # method at decoration time. Patching the class attribute after import
+        # does not affect the captured reference, so we inject the mock limiter
+        # directly into the managed class instance cache instead.
+        CeleryRateLimiter._instances["worker_limiter"] = limiter
+        try:
+            with patch(
                 "celery_rate_limiter.backends.celery.tasks.worker.import_string",
                 return_value=target_func,
-            ) as mock_import,
-        ):
-            result = generic_rate_limited_worker.run(
-                limiter_id="worker_limiter",
-                func_path="json.dumps",
-                payload=payload,
-                _rate_limit_task_id="task-42",
-            )
+            ) as mock_import:
+                result = generic_rate_limited_worker.run(
+                    limiter_id="worker_limiter",
+                    func_path="json.dumps",
+                    payload=payload,
+                    _rate_limit_task_id="task-42",
+                )
+        finally:
+            CeleryRateLimiter._instances.pop("worker_limiter", None)
 
         # Assert
         assert result == {"ok": True}, "generic worker should return target result"
-        mock_get.assert_called_once_with("worker_limiter")
         limiter.task_lifecycle.assert_called_once_with("task-42")
         mock_import.assert_called_once_with("json.dumps")
         target_func.assert_called_once_with(**payload)
