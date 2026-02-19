@@ -387,7 +387,7 @@ class ContentionAwareCooldownTests:
 
 
 # ---------------------------------------------------------------------------
-# Concrete test classes: sync variant
+# Concrete test cases: sync variant
 # ---------------------------------------------------------------------------
 
 
@@ -422,7 +422,7 @@ class TestSyncContentionAwareCooldown(ContentionAwareCooldownTests):
 
 
 # ---------------------------------------------------------------------------
-# Concrete test classes: async variant
+# Concrete test cases: async variant
 # ---------------------------------------------------------------------------
 
 

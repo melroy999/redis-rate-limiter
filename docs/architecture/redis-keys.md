@@ -23,6 +23,7 @@ All rate limiting state is persisted in Redis and mutated exclusively through at
 The following diagram illustrates how each key is created, read, updated, and deleted throughout the lifecycle of a task. Solid arrows represent write operations, and dashed arrows represent read operations.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 graph LR
     subgraph Schedule ["schedule_task()"]
         S1["SET NX inflight key"]
@@ -30,27 +31,27 @@ graph LR
     end
 
     subgraph Consume ["consume()"]
-        C1["ZREMRANGEBYSCORE concurrency\n(prune expired leases)"]
-        C2["GET window counters\n(current + previous)"]
-        C3["ZRANGE + ZREM buffer\n(pop task)"]
-        C4["INCR window counter\n+ PEXPIRE on first use"]
-        C5["ZADD concurrency\n(register lease)"]
-        C6["RPUSH dlq\n(if task expired)"]
-        C7["DEL inflight key\n(if task expired)"]
+        C1["ZREMRANGEBYSCORE concurrency<br>(prune expired leases)"]
+        C2["GET window counters<br>(current + previous)"]
+        C3["ZRANGE + ZREM buffer<br>(pop task)"]
+        C4["INCR window counter<br>+ PEXPIRE on first use"]
+        C5["ZADD concurrency<br>(register lease)"]
+        C6["RPUSH dlq<br>(if task expired)"]
+        C7["DEL inflight key<br>(if task expired)"]
     end
 
     subgraph Renew ["extend_lease()"]
-        R1["ZSCORE + ZADD concurrency\n(update lease expiry)"]
+        R1["ZSCORE + ZADD concurrency<br>(update lease expiry)"]
     end
 
     subgraph Complete ["TaskLifecycle.__exit__()"]
-        E1["ZREM concurrency\n(release slot)"]
-        E2["DEL inflight key\n(clear dedup marker)"]
+        E1["ZREM concurrency<br>(release slot)"]
+        E2["DEL inflight key<br>(clear dedup marker)"]
     end
 
     subgraph Drain ["drain()"]
-        D1["Acquire dispatch_lock:\ncheck cooldown key,\nSET NX lock,\nINCR contention on failure"]
-        D2["Release dispatch_lock:\nverify token, DEL lock,\ncheck contention counter,\nSET cooldown + DEL contention\nif contention > 0"]
+        D1["Acquire dispatch_lock:<br>check cooldown key,<br>SET NX lock,<br>INCR contention on failure"]
+        D2["Release dispatch_lock:<br>verify token, DEL lock,<br>check contention counter,<br>SET cooldown + DEL contention<br>if contention > 0"]
     end
 
     subgraph Registry ["create() / update()"]

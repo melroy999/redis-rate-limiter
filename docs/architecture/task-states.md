@@ -7,6 +7,7 @@ There are seven distinct states in total. Of these, six represent physical locat
 ## State Diagram
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 stateDiagram-v2
     [*] --> Scheduled : task submitted
 
@@ -17,14 +18,14 @@ stateDiagram-v2
 
     Buffered --> Active : consumed and dispatched
     Buffered --> ExpiredDLQ : task expired
-    Buffered --> Buffered : rate or concurrency\nlimit reached
+    Buffered --> Buffered : rate or concurrency<br>limit reached
 
     ExpiredDLQ --> [*] : moved to dead letter queue
 
     Active --> Completed : execution completes
-    Active --> LeaseExpired : worker crash leads\nto lease timeout
+    Active --> LeaseExpired : worker crash leads<br>to lease timeout
 
-    Completed --> [*] : cleanup complete,\nnext drain triggered
+    Completed --> [*] : cleanup complete,<br>next drain triggered
 
     LeaseExpired --> [*] : stale lease reclaimed
 

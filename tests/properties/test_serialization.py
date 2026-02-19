@@ -14,6 +14,10 @@ from tests.helpers.strategies import nested_dict
 from tests.helpers.utils import dict_equals_approx
 from tests.implementations.conftest import MinimalRateLimiter
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="module")
 def property_limiter(
@@ -30,6 +34,11 @@ def property_limiter(
         max_age=3600,
         lease_duration=30,
     )
+
+
+# ---------------------------------------------------------------------------
+# Concrete test cases
+# ---------------------------------------------------------------------------
 
 
 class TestSerializationProperties:

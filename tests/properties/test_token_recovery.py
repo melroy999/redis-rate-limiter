@@ -17,6 +17,10 @@ from hypothesis import strategies as st
 from tests.algorithms.sliding_window_counter import sliding_window_estimate
 from tests.implementations.conftest import MinimalRateLimiter
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="module")
 def property_limiter(property_redis_client, module_limiter_id):
@@ -30,6 +34,11 @@ def property_limiter(property_redis_client, module_limiter_id):
         max_age=3600,
         lease_duration=30,
     )
+
+
+# ---------------------------------------------------------------------------
+# Concrete test cases
+# ---------------------------------------------------------------------------
 
 
 class TestTokenRecoveryDelayProperties:

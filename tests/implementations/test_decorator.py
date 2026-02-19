@@ -6,6 +6,10 @@ import pytest
 
 from celery_rate_limiter import rate_limited
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def limiter_mock():
@@ -17,6 +21,11 @@ def limiter_mock():
     limiter = MagicMock()
     limiter.task_lifecycle.return_value = lifecycle_context
     return limiter, lifecycle_context
+
+
+# ---------------------------------------------------------------------------
+# Concrete test cases
+# ---------------------------------------------------------------------------
 
 
 class TestRateLimitedDecorator:

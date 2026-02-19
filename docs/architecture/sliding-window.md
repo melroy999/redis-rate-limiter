@@ -7,6 +7,7 @@ The sliding window counter algorithm is the mechanism by which the rate limiter 
 The following diagram illustrates how the sliding window overlaps with two adjacent fixed windows. The key insight is that the sliding window always spans exactly one `window_size` duration, but it does not align with the fixed window boundaries. Instead, it straddles the boundary between the previous and current fixed windows, and the proportion of overlap determines how much weight the previous window receives.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 gantt
     title Sliding Window Example (window = 10s, now at t = 14s)
     dateFormat X
@@ -104,6 +105,7 @@ The sliding window counter is an approximation, and as such, it can allow more t
 The following Gantt chart illustrates why the burst occurs. With `limit = 10` and `window = 10s`, Window 0 is empty, all 10 requests in Window 1 arrive in a narrow cluster at the tail end, and 10 more requests are admitted across Window 2 as the weight decays. The sliding window bar at the bottom shows that all 20 requests (2x limit) fall within a span of exactly one window.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 gantt
     title 2× Burst Scenario (limit = 10, window = 10s)
     dateFormat x
@@ -133,6 +135,7 @@ gantt
 The sequence diagram below traces the same scenario step by step, showing the weight decay and estimate calculation at each decision point.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 sequenceDiagram
     participant C as Client
     participant RL as Rate Limiter
@@ -151,7 +154,7 @@ sequenceDiagram
         Note right of RL: All accepted (est never reaches limit)
         C-xRL: Request 11
         Note right of RL: est = 10 ≥ limit → rejected
-        Note over C,RL: Critical: the 2× burst requires all 10 requests to<br/>cluster at the window boundary. A sliding window<br/>starting at this cluster captures them plus<br/>nearly all of Window 2, a full 2× limit.
+        Note over C,RL: Critical: the 2× burst requires all 10 requests to<br>cluster at the window boundary. A sliding window<br>starting at this cluster captures them plus<br>nearly all of Window 2, a full 2× limit.
     end
 
     rect rgb(255, 243, 224)
@@ -197,6 +200,7 @@ current_count <= estimated <= previous_count + current_count
 The 2x burst bound describes the theoretical worst case, but a more subtle variant arises during steady-state operation. If a scheduling hiccup (e.g., a garbage collection pause, a network stall, or OS-level scheduling jitter) temporarily prevents the system from consuming tasks, the affected window becomes *under-saturated*: its counter ends up lower than the limit. When processing resumes in the next window, the low previous-window count translates to a low weighted contribution, which frees additional tokens beyond the normal steady-state rate. The result is a *compensating burst*, a cluster of requests that arrives faster than the configured rate, even though each individual fixed window counter never exceeds the limit.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 gantt
     title Compensating Burst After Hiccup (limit = 10, window = 10s)
     dateFormat x

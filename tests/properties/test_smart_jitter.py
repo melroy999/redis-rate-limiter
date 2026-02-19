@@ -19,6 +19,10 @@ from hypothesis import strategies as st
 
 from tests.implementations.conftest import MinimalRateLimiter
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 # Random values used by the jitter calculations.
 # `random.random()` yields values in [0.0, 1.0); hence, 1.0 is excluded.
 random_stream_strategy = st.lists(
@@ -47,6 +51,11 @@ def property_limiter(property_redis_client, module_limiter_id):
         jitter_min_pct=0.02,
         jitter_max_pct=0.08,
     )
+
+
+# ---------------------------------------------------------------------------
+# Concrete test cases
+# ---------------------------------------------------------------------------
 
 
 class TestSmartJitterProperties:

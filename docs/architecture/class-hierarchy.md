@@ -21,6 +21,7 @@ Backends are required to implement `_dispatch_task()` (for task-oriented backend
 The supporting classes come in sync and async pairs. For the sync path: `DrainLoop` (Thread + Lock + Condition), `DrainSignalSubscriber` (Thread + sync pubsub), `DistributedLock` (sync context manager), and `TaskLifecycle` (Thread + Event). For the async path: `AsyncDrainLoop` (asyncio.Task + asyncio.Condition), `AsyncDrainSignalSubscriber` (asyncio.Task + redis.asyncio pubsub), `AsyncDistributedLock` (async context manager), and `AsyncTaskLifecycle` (asyncio.Task + asyncio.Event). All helpers are *composed* rather than inherited; the drain helpers are owned by the limiter and created during construction (unless `drain_enabled=False`), while the lock and lifecycle instances are created on demand through factory methods.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 classDiagram
     class AbstractRateLimiter {
         <<abstract>>

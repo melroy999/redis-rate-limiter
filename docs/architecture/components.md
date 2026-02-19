@@ -11,23 +11,24 @@ There are several aspects of the architecture that are worth highlighting:
 ## Overview
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 graph LR
     User["User Code"]
 
     subgraph Limiter ["Rate Limiter Core"]
-        LimiterBlock["Scheduler, DrainLoop,\nDistributedLock, Consumer"]
+        LimiterBlock["Scheduler, DrainLoop,<br>DistributedLock, Consumer"]
     end
 
     subgraph RedisLayer ["Redis"]
-        RedisBlock["Lua Scripts, Buffer,\nWindow Counters, Concurrency Set,\nInflight Keys, Dead Letter Queue"]
+        RedisBlock["Lua Scripts, Buffer,<br>Window Counters, Concurrency Set,<br>Inflight Keys, Dead Letter Queue"]
     end
 
     subgraph Backends ["Backend"]
-        BackendBlock["CeleryRateLimiter,\nThreadPoolRateLimiter,\nAsyncIOTaskLimiter"]
+        BackendBlock["CeleryRateLimiter,<br>ThreadPoolRateLimiter,<br>AsyncIOTaskLimiter"]
     end
 
     subgraph Execution ["Task Execution"]
-        ExecBlock["Worker / Thread,\nTaskLifecycle"]
+        ExecBlock["Worker / Thread,<br>TaskLifecycle"]
     end
 
     User -->|"schedule_task()"| LimiterBlock
@@ -35,7 +36,7 @@ graph LR
     LimiterBlock -->|"_dispatch_task()"| BackendBlock
     BackendBlock -->|"send_task() / submit()"| ExecBlock
     ExecBlock -->|"cleanup + renew"| RedisBlock
-    ExecBlock -.->|"trigger_consume()\nfeedback loop"| LimiterBlock
+    ExecBlock -.->|"trigger_consume()<br>feedback loop"| LimiterBlock
 
     style Limiter fill:#e8f4f8,stroke:#2196F3
     style RedisLayer fill:#fff3e0,stroke:#FF9800
@@ -57,18 +58,19 @@ graph LR
 The scheduling phase covers the path from user code to the Redis buffer. When `schedule_task()` is called, the scheduler acquires the inflight deduplication key, buffers the task via the `schedule.lua` Lua script, and wakes the drain loop.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 graph TD
-    User["User Code\nschedule_task(func, payload)"]
+    User["User Code<br>schedule_task(func, payload)"]
 
     subgraph Limiter ["Rate Limiter Core"]
-        Scheduler["Scheduler\nDedup check + buffer task"]
-        DrainLoop["DrainLoop\nBackground thread\nCoalesces wake signals"]
+        Scheduler["Scheduler<br>Dedup check + buffer task"]
+        DrainLoop["DrainLoop<br>Background thread<br>Coalesces wake signals"]
     end
 
     subgraph Redis ["Redis"]
-        LuaScripts["Lua Scripts\nschedule.lua"]
-        Buffer["Buffer\nZSET: priority queue"]
-        Inflight["Inflight Keys\nDedup markers via SET NX"]
+        LuaScripts["Lua Scripts<br>schedule.lua"]
+        Buffer["Buffer<br>ZSET: priority queue"]
+        Inflight["Inflight Keys<br>Dedup markers via SET NX"]
     end
 
     User -->|"schedule_task()"| Scheduler
@@ -95,28 +97,29 @@ graph TD
 The drain, consume and dispatch phase covers the path from the drain loop through consumption to backend dispatch. The drain loop acquires the distributed lock, the consumer invokes `consume.lua` to atomically check the rate window, verify concurrency capacity, pop a task from the buffer and register the concurrency lease, and then the consumer dispatches the task to the configured backend.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 graph TD
     subgraph Limiter ["Rate Limiter Core"]
-        DrainLoop["DrainLoop\nBackground thread\nCoalesces wake signals"]
-        Lock["DistributedLock\nContention-aware fairness\nPrevents concurrent drains"]
-        Consumer["Consumer\nCheck window + concurrency\nPop task from buffer"]
+        DrainLoop["DrainLoop<br>Background thread<br>Coalesces wake signals"]
+        Lock["DistributedLock<br>Contention-aware fairness<br>Prevents concurrent drains"]
+        Consumer["Consumer<br>Check window + concurrency<br>Pop task from buffer"]
     end
 
     subgraph Redis ["Redis"]
-        LuaScripts["Lua Scripts\nconsume.lua"]
-        Buffer["Buffer\nZSET: priority queue"]
-        WindowCounters["Window Counters\nSliding window tokens"]
-        ConcurrencySet["Concurrency Set\nZSET: lease-based slots"]
-        DLQ["Dead Letter Queue\nExpired tasks"]
+        LuaScripts["Lua Scripts<br>consume.lua"]
+        Buffer["Buffer<br>ZSET: priority queue"]
+        WindowCounters["Window Counters<br>Sliding window tokens"]
+        ConcurrencySet["Concurrency Set<br>ZSET: lease-based slots"]
+        DLQ["Dead Letter Queue<br>Expired tasks"]
     end
 
     subgraph Backends ["Backend"]
-        Celery["CeleryRateLimiter\napp.send_task()"]
-        ThreadPool["ThreadPoolRateLimiter\nexecutor.submit()"]
-        AsyncIO["AsyncIOTaskLimiter\nasyncio.create_task()"]
+        Celery["CeleryRateLimiter<br>app.send_task()"]
+        ThreadPool["ThreadPoolRateLimiter<br>executor.submit()"]
+        AsyncIO["AsyncIOTaskLimiter<br>asyncio.create_task()"]
     end
 
-    Worker["Worker / Thread / Coroutine\nRuns user function"]
+    Worker["Worker / Thread / Coroutine<br>Runs user function"]
 
     DrainLoop -->|"drain()"| Lock
     Lock -->|"if acquired"| Consumer
@@ -155,26 +158,27 @@ graph TD
 The execution and completion phase covers the path from the worker through the `TaskLifecycle` context manager back to the drain loop. The lifecycle manages the heartbeat thread that renews the concurrency lease, and upon completion (or exception), it releases the concurrency slot, deletes the inflight deduplication key, and triggers the drain loop to consume the next buffered task.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 graph TD
     subgraph Execution ["Task Execution"]
-        Worker["Worker / Thread\nRuns user function"]
-        Lifecycle["TaskLifecycle\nHeartbeat thread\nLease renewal"]
+        Worker["Worker / Thread<br>Runs user function"]
+        Lifecycle["TaskLifecycle<br>Heartbeat thread<br>Lease renewal"]
     end
 
     subgraph Redis ["Redis"]
-        LuaScripts["Lua Scripts\nrenew.lua"]
-        ConcurrencySet["Concurrency Set\nZSET: lease-based slots"]
-        Inflight["Inflight Keys\nDedup markers via SET NX"]
+        LuaScripts["Lua Scripts<br>renew.lua"]
+        ConcurrencySet["Concurrency Set<br>ZSET: lease-based slots"]
+        Inflight["Inflight Keys<br>Dedup markers via SET NX"]
     end
 
-    DrainLoop["DrainLoop\nBackground thread\nCoalesces wake signals"]
+    DrainLoop["DrainLoop<br>Background thread<br>Coalesces wake signals"]
 
     Worker -->|"wraps execution"| Lifecycle
     Lifecycle -->|"EVALSHA renew.lua"| LuaScripts
     LuaScripts -->|"ZADD new expiry"| ConcurrencySet
     Lifecycle -->|"ZREM slot"| ConcurrencySet
     Lifecycle -->|"DEL marker"| Inflight
-    Lifecycle -.->|"trigger_consume()\nfeedback loop"| DrainLoop
+    Lifecycle -.->|"trigger_consume()<br>feedback loop"| DrainLoop
 
     style Execution fill:#f3e5f5,stroke:#9C27B0
     style Redis fill:#fff3e0,stroke:#FF9800

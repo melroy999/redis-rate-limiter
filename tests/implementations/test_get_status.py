@@ -86,6 +86,11 @@ class GetStatusTests:
         )
 
 
+# ---------------------------------------------------------------------------
+# Concrete test cases
+# ---------------------------------------------------------------------------
+
+
 class TestSyncGetStatus(GetStatusTests):
     """Sync rate limiter ``get_status()`` exercised through the async adapter."""
 

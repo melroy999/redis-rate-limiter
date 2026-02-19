@@ -11,6 +11,7 @@ Several observations can be made about the lifecycle:
 - **The cycle repeats**: the completion of a task triggers the `DrainLoop` to wake up and consume the next buffered task, which in turn closes the feedback loop.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 sequenceDiagram
     participant U as User Code
     participant L as Limiter
@@ -26,7 +27,7 @@ sequenceDiagram
     R-->>L: OK (first time) / nil (duplicate)
 
     L->>R: EVALSHA schedule.lua
-    note right of R: Injects __meta_arrived_at,<br/>ZADD buffer with priority
+    note right of R: Injects __meta_arrived_at,<br>ZADD buffer with priority
 
     L->>D: wake(delay=0)
     L-->>-U: return (True, task_id)
@@ -38,7 +39,7 @@ sequenceDiagram
     R-->>L: OK (lock acquired)
 
     L->>R: EVALSHA consume.lua
-    note right of R: Atomic: check window rate,<br/>check concurrency cap,<br/>pop task from buffer,<br/>increment window counter,<br/>register concurrency lease
+    note right of R: Atomic: check window rate,<br>check concurrency cap,<br>pop task from buffer,<br>increment window counter,<br>register concurrency lease
 
     R-->>L: task_data + telemetry
 
@@ -54,7 +55,7 @@ sequenceDiagram
 
     loop Every lease_duration / 2
         W->>R: EVALSHA renew.lua
-        note right of R: ZADD concurrency<br/>with new expiry
+        note right of R: ZADD concurrency<br>with new expiry
     end
 
     note over W: Execute user function

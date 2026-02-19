@@ -17,6 +17,10 @@ from celery_rate_limiter import TaskLifecycle
 from tests.contracts.test_task_lifecycle import TaskLifecycleContractTest
 from tests.implementations.conftest import MinimalRateLimiter
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 HeartbeatFailureMode = Literal["warn", "kill"]
 HEARTBEAT_OVERRIDE_CASES: list[tuple[HeartbeatFailureMode, HeartbeatFailureMode]] = [
     ("warn", "kill"),
@@ -64,6 +68,11 @@ def create_lifecycle():
         return SyncToAsyncLifecycleAdapter(TaskLifecycle(limiter, task_id, **kwargs))
 
     return _factory
+
+
+# ---------------------------------------------------------------------------
+# Concrete test cases
+# ---------------------------------------------------------------------------
 
 
 class TestTaskLifecycle(TaskLifecycleContractTest):

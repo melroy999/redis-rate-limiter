@@ -5,30 +5,31 @@ This document serves as a reference for understanding how exceptions propagate t
 ## Overview
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 flowchart TD
     subgraph SL ["Scheduling Layer"]
-        S_BLOCK["NoScript retry,\ninflight cleanup,\nre-raise to caller"]
+        S_BLOCK["NoScript retry,<br>inflight cleanup,<br>re-raise to caller"]
     end
 
     subgraph CL ["Consumption and Dispatch Layer"]
-        C_BLOCK["NoScript retry,\npropagate to drain"]
+        C_BLOCK["NoScript retry,<br>propagate to drain"]
     end
 
     subgraph DL ["Drain Control Layer"]
-        D_BLOCK["Catch all exceptions,\nbackoff, schedule recovery"]
+        D_BLOCK["Catch all exceptions,<br>backoff, schedule recovery"]
     end
 
     subgraph EL ["Execution Layer"]
-        E_BLOCK["Decorator guards,\nlifecycle cleanup,\nheartbeat strategies"]
+        E_BLOCK["Decorator guards,<br>lifecycle cleanup,<br>heartbeat strategies"]
     end
 
-    CALLER["Caller\n(user code)"]
+    CALLER["Caller<br>(user code)"]
 
-    S_BLOCK -. "non-recoverable\nexception" .-> CALLER
+    S_BLOCK -. "non-recoverable<br>exception" .-> CALLER
     C_BLOCK -. "exception" .-> D_BLOCK
-    D_BLOCK -. "double failure:\nrely on watchdog" .-> D_BLOCK
-    E_BLOCK -. "trigger_consume()\nwakes DrainLoop" .-> D_BLOCK
-    E_BLOCK -. "user exception\npropagates" .-> CALLER
+    D_BLOCK -. "double failure:<br>rely on watchdog" .-> D_BLOCK
+    E_BLOCK -. "trigger_consume()<br>wakes DrainLoop" .-> D_BLOCK
+    E_BLOCK -. "user exception<br>propagates" .-> CALLER
 
     style SL fill:#e8f5e9,stroke:#388E3C
     style CL fill:#e3f2fd,stroke:#1976D2
@@ -49,16 +50,17 @@ flowchart TD
 The scheduling layer handles exceptions raised during `schedule_task()`. The two primary concerns are recovering from `NoScriptError` (Lua script cache flush) and cleaning up the inflight deduplication key when any exception prevents successful buffering.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 flowchart TD
-    S_EVAL["schedule_task() calls\nEVALSHA schedule.lua"]
+    S_EVAL["schedule_task() calls<br>EVALSHA schedule.lua"]
     S_NOSCRIPT{"NoScriptError?"}
-    S_RETRY["Reload SHA,\ncleanup inflight key,\nretry with retry=False"]
-    S_RETRY_FAIL{"2nd attempt\nalso fails?"}
-    S_RUNTIME["RuntimeError:\nscript not retained"]
-    S_OTHER["Non-NoScript exception\n(e.g., ConnectionError)"]
-    S_CLEANUP["Cleanup inflight key\nvia _cleanup_inflight_key()"]
-    S_RERAISE["Re-raise original\nexception to caller"]
-    S_INFLIGHT_FAIL["Cleanup itself fails:\ncatch, log warning,\ncontinue with re-raise"]
+    S_RETRY["Reload SHA,<br>cleanup inflight key,<br>retry with retry=False"]
+    S_RETRY_FAIL{"2nd attempt<br>also fails?"}
+    S_RUNTIME["RuntimeError:<br>script not retained"]
+    S_OTHER["Non-NoScript exception<br>(e.g., ConnectionError)"]
+    S_CLEANUP["Cleanup inflight key<br>via _cleanup_inflight_key()"]
+    S_RERAISE["Re-raise original<br>exception to caller"]
+    S_INFLIGHT_FAIL["Cleanup itself fails:<br>catch, log warning,<br>continue with re-raise"]
 
     S_EVAL --> S_NOSCRIPT
     S_NOSCRIPT -- "Yes" --> S_RETRY --> S_RETRY_FAIL
@@ -104,15 +106,16 @@ All four Lua script operations (`schedule_task`, `consume`, `extend_lease`, `get
 The consumption and dispatch layer handles exceptions raised during `consume()` and `_dispatch_task()`. Non-recoverable exceptions from either operation propagate to the `drain()` method, which catches them and applies exponential backoff (see [Drain Control Layer](#drain-control-layer)).
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 flowchart TD
-    C_EVAL["consume() calls\nEVALSHA consume.lua"]
+    C_EVAL["consume() calls<br>EVALSHA consume.lua"]
     C_NOSCRIPT{"NoScriptError?"}
-    C_RETRY["Reload SHA,\nretry with retry=False"]
-    C_RETRY_FAIL{"2nd attempt\nalso fails?"}
-    C_RUNTIME["RuntimeError:\nscript not retained"]
-    C_PROPAGATE["Non-NoScript exception\npropagates to drain()"]
-    C_DISPATCH["_dispatch_task() calls\nbackend (send_task / executor)"]
-    C_DISPATCH_FAIL["Backend exception\npropagates to drain()"]
+    C_RETRY["Reload SHA,<br>retry with retry=False"]
+    C_RETRY_FAIL{"2nd attempt<br>also fails?"}
+    C_RUNTIME["RuntimeError:<br>script not retained"]
+    C_PROPAGATE["Non-NoScript exception<br>propagates to drain()"]
+    C_DISPATCH["_dispatch_task() calls<br>backend (send_task / executor)"]
+    C_DISPATCH_FAIL["Backend exception<br>propagates to drain()"]
 
     C_EVAL --> C_NOSCRIPT
     C_NOSCRIPT -- "Yes" --> C_RETRY --> C_RETRY_FAIL
@@ -149,14 +152,15 @@ flowchart TD
 The drain control layer wraps `_drain_inner()` in a `try/except` that catches all exceptions from the consumption and dispatch operations. It applies exponential backoff and schedules recovery drains. The [Drain Loop Flow](drain-flow.md) documents the control flow in detail; this section focuses specifically on the error handling aspects.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 flowchart TD
-    D_INNER["_drain_inner() orchestrates\nlock, consume, dispatch"]
-    D_CATCH["drain() catches\nall exceptions"]
-    D_BACKOFF["Increment failure count\ndelay = min(window, 0.1 × 2^(n−1))"]
-    D_SCHEDULE["Schedule recovery drain\nvia _schedule_drain(delay)"]
-    D_DOUBLE_FAIL{"Recovery scheduling\nalso fails?"}
-    D_CRITICAL["Log critical:\nrely on watchdog,\ntrigger_consume(),\nor task completion"]
-    D_RESET["On success:\nreset failure count to 0"]
+    D_INNER["_drain_inner() orchestrates<br>lock, consume, dispatch"]
+    D_CATCH["drain() catches<br>all exceptions"]
+    D_BACKOFF["Increment failure count<br>delay = min(window, 0.1 × 2^(n−1))"]
+    D_SCHEDULE["Schedule recovery drain<br>via _schedule_drain(delay)"]
+    D_DOUBLE_FAIL{"Recovery scheduling<br>also fails?"}
+    D_CRITICAL["Log critical:<br>rely on watchdog,<br>trigger_consume(),<br>or task completion"]
+    D_RESET["On success:<br>reset failure count to 0"]
 
     D_INNER -- "exception" --> D_CATCH --> D_BACKOFF --> D_SCHEDULE
     D_SCHEDULE -- "exception" --> D_DOUBLE_FAIL
@@ -187,20 +191,21 @@ flowchart TD
 The execution layer encompasses the `@rate_limited` decorator, the `TaskLifecycle` context manager, and the heartbeat loop. These components handle task execution errors, concurrency slot cleanup, and lease renewal failures.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 flowchart TD
-    E_DEC_LID["@rate_limited: resolve\nlimiter_id and limiter"]
-    E_DEC_TID["Pop _rate_limit_task_id\nfrom kwargs"]
-    E_MISSING_LID["ValueError:\nmissing limiter_id"]
-    E_MISSING_TID["KeyError:\nmissing _rate_limit_task_id"]
-    E_LIFECYCLE["TaskLifecycle context:\nexecute user function"]
-    E_USER_EXC["User function raises:\nexception propagates"]
-    E_CLEANUP["__exit__: ZREM concurrency,\nDEL inflight key"]
-    E_CLEANUP_FAIL["Redis error during cleanup:\npropagates, but finally\nstill runs trigger_consume()"]
-    E_TRIGGER["finally: trigger_consume()\nalways called"]
-    E_HB_LOOP["Heartbeat loop:\nextend_lease() every\nlease_duration / 2"]
-    E_HB_FAIL{"on_heartbeat_failure\nstrategy?"}
-    E_HB_WARN["warn: set is_healthy=False,\nlog critical, continue"]
-    E_HB_KILL["kill: os.kill(SIGTERM),\nbreak heartbeat loop"]
+    E_DEC_LID["@rate_limited: resolve<br>limiter_id and limiter"]
+    E_DEC_TID["Pop _rate_limit_task_id<br>from kwargs"]
+    E_MISSING_LID["ValueError:<br>missing limiter_id"]
+    E_MISSING_TID["KeyError:<br>missing _rate_limit_task_id"]
+    E_LIFECYCLE["TaskLifecycle context:<br>execute user function"]
+    E_USER_EXC["User function raises:<br>exception propagates"]
+    E_CLEANUP["__exit__: ZREM concurrency,<br>DEL inflight key"]
+    E_CLEANUP_FAIL["Redis error during cleanup:<br>propagates, but finally<br>still runs trigger_consume()"]
+    E_TRIGGER["finally: trigger_consume()<br>always called"]
+    E_HB_LOOP["Heartbeat loop:<br>extend_lease() every<br>lease_duration / 2"]
+    E_HB_FAIL{"on_heartbeat_failure<br>strategy?"}
+    E_HB_WARN["warn: set is_healthy=False,<br>log critical, continue"]
+    E_HB_KILL["kill: os.kill(SIGTERM),<br>break heartbeat loop"]
 
     E_DEC_LID -- "missing" --> E_MISSING_LID
     E_DEC_TID -- "missing" --> E_MISSING_TID
