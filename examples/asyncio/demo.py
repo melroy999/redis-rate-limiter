@@ -98,8 +98,14 @@ async def flush_stale_keys(redis_client: redis.asyncio.Redis, limiter_id: str) -
 # ---------------------------------------------------------------------------
 
 
-async def run_async_demo(limiter: AsyncIOTaskLimiter) -> None:
-    """Execute the standard demonstration sequence using async operations."""
+async def run_async_demo(scheduler: AsyncIOTaskLimiter) -> None:
+    """Execute the standard demonstration sequence using async operations.
+
+    Uses a two-limiter pattern: the *scheduler* instance has its drain loop
+    disabled and is used solely for scheduling. After all tasks have been
+    enqueued, a consumer instance is created with the drain loop enabled to
+    process the pre-filled buffer.
+    """
     rng = random.Random(PRIORITY_SEED)
 
     logger.info(
@@ -115,7 +121,7 @@ async def run_async_demo(limiter: AsyncIOTaskLimiter) -> None:
     logger.info("Scheduling the same task %d times...", DEDUP_COUNT)
     accepted = 0
     for _ in range(DEDUP_COUNT):
-        scheduled, _ = await limiter.schedule_task(ASYNC_FUNC_PATH, {"user_id": 1})
+        scheduled, _ = await scheduler.schedule_task(ASYNC_FUNC_PATH, {"user_id": 1})
         if scheduled:
             accepted += 1
     logger.info("Accepted: %d/%d (duplicates rejected)", accepted, DEDUP_COUNT)
@@ -151,20 +157,31 @@ async def run_async_demo(limiter: AsyncIOTaskLimiter) -> None:
         BURST_COUNT,
         ERROR_COUNT,
     )
+
     for func_path, payload, priority in tasks:
-        await limiter.schedule_task(func_path, payload, priority=priority)
+        await scheduler.schedule_task(func_path, payload, priority=priority)
     logger.info("All %d tasks queued", total)
 
-    await asyncio.sleep(0.5)
+    # --- Create consumer and begin draining -----------------------------------
+    consumer = await AsyncIOTaskLimiter.create(
+        limiter_id=LIMITER_ID,
+        limit=LIMIT,
+        window=WINDOW,
+        max_concurrency=MAX_CONCURRENCY,
+        override=True,
+        persist=False,
+    )
+    await consumer.trigger_consume()
+    logger.info("Consumer created; drain loop active")
 
-    # --- Live monitoring ------------------------------------------------------
     dashboard = Dashboard(limiter_id=LIMITER_ID, limit=LIMIT)
+
     grace_period = 2.0
     start = time.time()
 
     try:
         while True:
-            status = await limiter.get_status()
+            status = await consumer.get_status()
             dashboard.render(status)
 
             elapsed = time.time() - start
@@ -179,6 +196,8 @@ async def run_async_demo(limiter: AsyncIOTaskLimiter) -> None:
             await asyncio.sleep(0.05)
     except KeyboardInterrupt:
         logger.info("Interrupted")
+    finally:
+        await consumer.shutdown()
 
 
 # ---------------------------------------------------------------------------
@@ -193,18 +212,18 @@ async def main() -> None:
     await flush_stale_keys(redis_client, LIMITER_ID)
 
     AsyncIOTaskLimiter.configure(redis_client, max_tasks=ASYNCIO_MAX_TASKS)
-    limiter = await AsyncIOTaskLimiter.create(
+    scheduler = await AsyncIOTaskLimiter.create(
         limiter_id=LIMITER_ID,
         limit=LIMIT,
         window=WINDOW,
         max_concurrency=MAX_CONCURRENCY,
+        drain_enabled=False,
         override=True,
     )
 
     try:
-        await run_async_demo(limiter)
+        await run_async_demo(scheduler)
     finally:
-        await limiter.shutdown()
         await redis_client.aclose()
 
     logger.info("Done.")

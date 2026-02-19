@@ -34,7 +34,7 @@ TASK_SLEEP_MAX = 0.15  # maximum simulated API latency, in seconds
 # ---------------------------------------------------------------------------
 
 DEDUP_COUNT = 10  # number of identical tasks scheduled in the deduplication test
-BURST_COUNT = 300  # number of unique tasks enqueued in the burst test
+BURST_COUNT = 10 * LIMIT  # number of unique tasks enqueued in the burst test
 ERROR_COUNT = (
     3  # number of tasks that raise an exception for the error-recovery demonstration
 )

@@ -97,11 +97,13 @@ def main() -> None:
     flush_stale_keys(redis_client, LIMITER_ID)
 
     CeleryRateLimiter.configure(redis_client, celery_app=celery_app)
-    limiter = CeleryRateLimiter.create(
+
+    scheduler = CeleryRateLimiter.create(
         limiter_id=LIMITER_ID,
         limit=LIMIT,
         window=WINDOW,
         max_concurrency=MAX_CONCURRENCY,
+        drain_enabled=False,
         override=True,
     )
 
@@ -127,13 +129,27 @@ def main() -> None:
     time.sleep(3)  # Allow the worker sufficient time to connect to the broker.
     logger.info("Worker ready.")
 
+    def create_consumer():
+        return CeleryRateLimiter.create(
+            limiter_id=LIMITER_ID,
+            limit=LIMIT,
+            window=WINDOW,
+            max_concurrency=MAX_CONCURRENCY,
+            override=True,
+            persist=False,
+        )
+
     def cleanup():
         logger.info("Shutting down worker...")
         worker_proc.terminate()
         worker_proc.wait(timeout=5)
-        limiter.shutdown()
 
-    run_demo(limiter=limiter, limiter_id=LIMITER_ID, cleanup=cleanup)
+    run_demo(
+        scheduler=scheduler,
+        create_consumer=create_consumer,
+        limiter_id=LIMITER_ID,
+        cleanup=cleanup,
+    )
 
 
 if __name__ == "__main__":

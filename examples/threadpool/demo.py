@@ -42,19 +42,35 @@ def main() -> None:
 
     executor = ThreadPoolExecutor(max_workers=THREADPOOL_MAX_WORKERS)
     ThreadPoolRateLimiter.configure(redis_client, executor=executor)
-    limiter = ThreadPoolRateLimiter.create(
+
+    scheduler = ThreadPoolRateLimiter.create(
         limiter_id=LIMITER_ID,
         limit=LIMIT,
         window=WINDOW,
         max_concurrency=MAX_CONCURRENCY,
+        drain_enabled=False,
         override=True,
     )
 
+    def create_consumer():
+        return ThreadPoolRateLimiter.create(
+            limiter_id=LIMITER_ID,
+            limit=LIMIT,
+            window=WINDOW,
+            max_concurrency=MAX_CONCURRENCY,
+            override=True,
+            persist=False,
+        )
+
     def cleanup():
-        limiter.shutdown()
         executor.shutdown(wait=True)
 
-    run_demo(limiter=limiter, limiter_id=LIMITER_ID, cleanup=cleanup)
+    run_demo(
+        scheduler=scheduler,
+        create_consumer=create_consumer,
+        limiter_id=LIMITER_ID,
+        cleanup=cleanup,
+    )
 
 
 if __name__ == "__main__":
