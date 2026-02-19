@@ -36,12 +36,12 @@ def by_header(name: str) -> Callable[[Scope], Optional[str]]:
     """
     # ASGI headers are raw byte pairs; Latin-1 (ISO-8859-1) is the standard
     # HTTP/1.1 header encoding and provides a lossless byte-to-character mapping.
-    target = name.lower().encode("latin-1")
+    target = name.lower().encode("latin-1")  # pragma: no mutate
 
     def _extract(scope: Scope) -> Optional[str]:
         for header_name, header_value in scope.get("headers", []):
             if header_name == target:
-                return str(header_value.decode("latin-1"))
+                return str(header_value.decode("latin-1"))  # pragma: no mutate
         return None
 
     return _extract

@@ -122,7 +122,7 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
         enhanced_payload = self._get_enhanced_payload(payload, use_executor)
 
         # Delegate to the parent scheduler.
-        return cast(
+        return cast(  # pragma: no mutate
             tuple[bool, str],
             super().schedule_task(func_path, enhanced_payload, priority, max_age),
         )

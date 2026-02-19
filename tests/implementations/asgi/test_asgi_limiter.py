@@ -1,5 +1,10 @@
 """Tests for the ASGI rate limiter backend."""
 
+import logging
+from unittest.mock import patch
+
+import pytest
+
 
 class TestASGIRateLimiter:
     """Tests for the ``ASGIRateLimiter`` ``acquire`` method."""
@@ -84,3 +89,22 @@ class TestASGIRateLimiter:
         assert result["val_current"] >= 1, (
             "val_current should be at least 1 after acquire"
         )
+
+    @staticmethod
+    async def test_acquire_logs_exception_on_script_failure(limiter, caplog):
+        """Verify that ``acquire`` logs an exception when the Lua script fails."""
+        # Act & Assert
+        with caplog.at_level(logging.ERROR, logger="celery_rate_limiter.backends.asgi.limiter"):
+            with patch.object(
+                limiter, "_eval_script", side_effect=RuntimeError("script failed")
+            ):
+                with pytest.raises(RuntimeError, match="script failed"):
+                    await limiter.acquire("user_error")
+
+        # Assert
+        assert any(
+            record.levelname == "ERROR"
+            and limiter.id in record.message
+            and "user_error" in record.message
+            for record in caplog.records
+        ), "should emit an error log containing the limiter id and the key"

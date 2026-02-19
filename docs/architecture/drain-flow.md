@@ -258,7 +258,7 @@ flowchart TD
 | Buffer empty → stop | No follow-up scheduled | `implementations/test_drain::test_drain_stops_when_buffer_empty` |
 | Concurrency full → stop | Wait for `TaskLifecycle.__exit__()` trigger | `implementations/test_drain::test_drain_stops_when_concurrency_at_capacity` |
 | Rate limited → fallback (jitter) | Window reset delay + smart jitter | `implementations/test_drain::test_drain_schedules_delayed_retry_when_rate_limited` |
-| Rate limited → token recovery (no jitter) | Sliding-window decay calculation, jitter skipped | `implementations/test_drain::test_drain_skips_jitter_on_token_recovery_path`, `properties/test_token_recovery` (mathematical invariants) |
+| Rate limited → token recovery (no jitter) | Sliding-window decay calculation, jitter skipped | `implementations/test_drain::test_drain_skips_jitter_on_token_recovery_path`, `implementations/test_internal_helpers::test_token_recovery_primary_path_exact_value`, `implementations/test_internal_helpers::test_token_recovery_fallback_when_val_previous_is_zero`, `properties/test_token_recovery` (mathematical invariants) |
 | Concurrent lock serialization | Distributed lock serializes drains across workers | `implementations/test_concurrent_access::test_distributed_lock_serializes_drains` |
 | All tasks eventually consumed | Buffer fully drained under contention | `implementations/test_concurrent_access::test_all_tasks_eventually_consumed_under_contention` |
 | Cooldown distributes drains | Multiple workers dispatch under contention | `implementations/test_concurrent_access::test_contention_aware_cooldown_distributes_drains` |

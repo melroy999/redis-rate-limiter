@@ -4,6 +4,8 @@ Tests are written once in async form. The sync implementation participates
 via the ``SyncToAsyncLimiterAdapter``; the async implementation runs natively.
 """
 
+import inspect
+
 import pytest
 
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
@@ -83,6 +85,72 @@ class GetStatusTests:
         )
         assert float(status["rate_limit"]["tokens_used"]) >= 1.0, (
             "tokens_used should increase after a successful consume"
+        )
+
+    @staticmethod
+    async def test_get_status_clean_state_values(limiter):
+        """Verify that ``get_status()`` returns correct initial values for a fresh limiter."""
+        # Act
+        status = await limiter.get_status()
+
+        # Assert
+        assert status["limiter_id"] == limiter.id, (
+            "limiter_id should match the configured identifier"
+        )
+
+        assert int(status["concurrency"]["current"]) == 0, (
+            "concurrency current should be zero for a fresh limiter"
+        )
+        assert status["concurrency"]["max"] == limiter.max_concurrency, (
+            "concurrency max should match the configured max_concurrency"
+        )
+        assert status["concurrency"]["available"] == limiter.max_concurrency, (
+            "concurrency available should equal max when no tasks are active"
+        )
+
+        assert int(status["buffer"]["count"]) == 0, (
+            "buffer count should be zero for a fresh limiter"
+        )
+
+        assert float(status["rate_limit"]["tokens_used"]) == 0.0, (
+            "tokens_used should be zero for a fresh limiter"
+        )
+        assert status["rate_limit"]["limit"] == limiter.limit, (
+            "rate_limit limit should match the configured limit"
+        )
+        assert status["rate_limit"]["window"] == limiter.window, (
+            "rate_limit window should match the configured window"
+        )
+
+        assert status["dispatcher"]["is_locked"] == 0, (
+            "dispatcher should not be locked for a fresh limiter"
+        )
+
+    @staticmethod
+    async def test_get_status_available_is_zero_when_all_slots_used(limiter):
+        """Verify that ``available`` is exactly 0 when all concurrency slots are occupied."""
+        # Arrange
+        # Seed the concurrency sorted set with max_concurrency tasks.
+        # The ``zadd`` call may return a coroutine (async Redis) or an int (sync Redis).
+        for i in range(limiter.max_concurrency):
+            result = limiter.redis.zadd(
+                limiter.concurrency_key, {f"saturating_task_{i}": 9999999999.0}
+            )
+            if inspect.isawaitable(result):
+                await result
+
+        # Act
+        status = await limiter.get_status()
+
+        # Assert
+        assert int(status["concurrency"]["current"]) == limiter.max_concurrency, (
+            "concurrency current should equal max_concurrency when all slots are used"
+        )
+        assert status["concurrency"]["available"] == 0, (
+            "concurrency available should be exactly 0 when all slots are occupied"
+        )
+        assert float(status["rate_limit"]["tokens_used"]) == 0.0, (
+            "tokens_used should remain 0 when only concurrency slots are seeded without consuming"
         )
 
 

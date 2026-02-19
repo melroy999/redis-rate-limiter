@@ -1,6 +1,7 @@
 """Celery-specific behavioural tests for the ``CeleryRateLimiter`` implementation."""
 
 import json
+import logging
 from unittest.mock import patch
 
 import pytest
@@ -30,30 +31,38 @@ class TestCeleryRateLimiter:
 
     @staticmethod
     def test_dispatch_task_use_executor_true_sends_generic_worker(
-        limiter, payload, task_id
+        limiter, payload, task_id, caplog
     ):
         """Verify that ``_dispatch_task`` sends the generic worker task when ``use_executor`` is true."""
         # Arrange
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=True)
 
         # Act
-        with patch.object(limiter.app, "send_task") as mock_send_task:
-            limiter._dispatch_task("myapp.tasks.process", enhanced_payload, task_id)
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.backends.celery.limiter"):
+            with patch.object(limiter.app, "send_task") as mock_send_task:
+                limiter._dispatch_task("myapp.tasks.process", enhanced_payload, task_id)
 
-            # Assert
-            mock_send_task.assert_called_once_with(
-                "celery_rate_limiter.generic_worker",
-                kwargs={
-                    "limiter_id": limiter.id,
-                    "func_path": "myapp.tasks.process",
-                    "payload": payload,
-                    "_rate_limit_task_id": task_id,
-                },
-            )
+        # Assert
+        mock_send_task.assert_called_once_with(
+            "celery_rate_limiter.generic_worker",
+            kwargs={
+                "limiter_id": limiter.id,
+                "func_path": "myapp.tasks.process",
+                "payload": payload,
+                "_rate_limit_task_id": task_id,
+            },
+        )
+        assert any(
+            record.levelname == "DEBUG"
+            and limiter.id in record.message
+            and task_id in record.message
+            and "myapp.tasks.process" in record.message
+            for record in caplog.records
+        ), "should emit a debug log containing the limiter id, task id, and func path"
 
     @staticmethod
     def test_dispatch_task_use_executor_false_sends_custom_task(
-        limiter, payload, task_id
+        limiter, payload, task_id, caplog
     ):
         """Verify that ``_dispatch_task`` sends a custom task directly when ``use_executor`` is false."""
         # Arrange
@@ -61,15 +70,23 @@ class TestCeleryRateLimiter:
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=False)
 
         # Act
-        with patch.object(limiter.app, "send_task") as mock_send_task:
-            limiter._dispatch_task(func_path, enhanced_payload, task_id)
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.backends.celery.limiter"):
+            with patch.object(limiter.app, "send_task") as mock_send_task:
+                limiter._dispatch_task(func_path, enhanced_payload, task_id)
 
-            # Assert
-            mock_send_task.assert_called_once_with(
-                func_path,
-                args=[payload],
-                kwargs={"_rate_limit_task_id": task_id},
-            )
+        # Assert
+        mock_send_task.assert_called_once_with(
+            func_path,
+            args=[payload],
+            kwargs={"_rate_limit_task_id": task_id},
+        )
+        assert any(
+            record.levelname == "DEBUG"
+            and limiter.id in record.message
+            and task_id in record.message
+            and func_path in record.message
+            for record in caplog.records
+        ), "should emit a debug log containing the limiter id, task id, and func path"
 
     @staticmethod
     def test_schedule_drain_wakes_drain_loop(limiter):
@@ -113,4 +130,66 @@ class TestCeleryRateLimiter:
         )
         assert enhanced_payload["meta"] == {"use_executor": False}, (
             "enhanced payload meta should contain use_executor flag"
+        )
+
+    @staticmethod
+    def test_dispatch_task_missing_meta_uses_default_executor(limiter, task_id):
+        """Verify that ``_dispatch_task`` defaults to the generic worker when the meta key is absent."""
+        # Arrange
+        # A raw payload without the ``meta`` wrapper triggers the default path.
+        payload_without_meta = {"data": {"key": "value"}}
+
+        # Act
+        with patch.object(limiter.app, "send_task") as mock_send_task:
+            limiter._dispatch_task("myapp.tasks.process", payload_without_meta, task_id)
+
+        # Assert
+        mock_send_task.assert_called_once()
+        call_args = mock_send_task.call_args
+        assert call_args[0][0] == "celery_rate_limiter.generic_worker", (
+            "missing meta should default to the generic worker task name"
+        )
+
+    @staticmethod
+    def test_dispatch_task_missing_data_uses_empty_dict(limiter, task_id):
+        """Verify that ``_dispatch_task`` uses an empty dict when the data key is absent."""
+        # Arrange
+        payload_without_data = {"meta": {"use_executor": True}}
+
+        # Act
+        with patch.object(limiter.app, "send_task") as mock_send_task:
+            limiter._dispatch_task("myapp.tasks.process", payload_without_data, task_id)
+
+        # Assert
+        mock_send_task.assert_called_once()
+        call_kwargs = mock_send_task.call_args[1]
+        assert call_kwargs["kwargs"]["payload"] == {}, (
+            "missing data key should result in an empty dict payload"
+        )
+
+    @staticmethod
+    def test_dispatch_task_custom_path_sends_data_as_list_arg(
+        limiter, payload, task_id
+    ):
+        """Verify that the custom task path sends data wrapped in a single-element list."""
+        # Arrange
+        enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=False)
+
+        # Act
+        with patch.object(limiter.app, "send_task") as mock_send_task:
+            limiter._dispatch_task("myapp.tasks.custom", enhanced_payload, task_id)
+
+        # Assert
+        call_kwargs = mock_send_task.call_args[1]
+        assert "args" in call_kwargs, (
+            "custom task path should pass args keyword argument"
+        )
+        assert isinstance(call_kwargs["args"], list), (
+            "args should be a list, not a tuple or other sequence"
+        )
+        assert len(call_kwargs["args"]) == 1, (
+            "args should contain exactly one element (the data dict)"
+        )
+        assert call_kwargs["args"][0] == payload, (
+            "args should contain the original payload data"
         )

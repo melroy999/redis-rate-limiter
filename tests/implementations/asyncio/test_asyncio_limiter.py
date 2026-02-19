@@ -1,6 +1,7 @@
 """Tests for the AsyncIO task limiter backend."""
 
 import asyncio
+import logging
 
 
 class TestAsyncIOTaskLimiter:
@@ -118,21 +119,29 @@ class TestAsyncIOTaskLimiter:
         )
 
     @staticmethod
-    async def test_dispatch_task_creates_asyncio_task(limiter):
+    async def test_dispatch_task_creates_asyncio_task(limiter, caplog):
         """Verify that ``_dispatch_task`` creates an asyncio task and tracks it."""
         # Arrange
         assert limiter._active_count == 0, "active count should start at zero"
 
         # Act
-        await limiter._dispatch_task(
-            "tests.helpers.tasks.async_noop_task", {}, "test-task-id"
-        )
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.backends.asyncio.limiter"):
+            await limiter._dispatch_task(
+                "tests.helpers.tasks.async_noop_task", {}, "test-task-id"
+            )
 
         # Assert
         assert limiter._active_count == 1, "active count should be incremented"
         assert len(limiter._active_tasks) == 1, (
             "active tasks set should have one entry"
         )
+        assert any(
+            record.levelname == "DEBUG"
+            and limiter.id in record.message
+            and "test-task-id" in record.message
+            and "tests.helpers.tasks.async_noop_task" in record.message
+            for record in caplog.records
+        ), "should emit a debug log containing the limiter id, task id, and func path"
 
     @staticmethod
     async def test_dispatch_sync_function_raises_type_error(limiter):

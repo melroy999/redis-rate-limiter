@@ -5,6 +5,7 @@ slots and task cleanup. It inherits the contract tests and adds generic
 implementation-specific tests that operate with any rate limiter implementation.
 """
 
+import logging
 import os
 import signal
 import time
@@ -334,13 +335,75 @@ class TestHeartbeatLoop:
 
 
 class TestExtendLease:
-    """Tests for ``extend_lease()`` error handling."""
+    """Tests for ``extend_lease()`` success and error handling."""
 
     @staticmethod
-    def test_extend_lease_raises_key_error_for_unknown_task(generic_limiter):
+    def test_extend_lease_raises_key_error_for_unknown_task(generic_limiter, caplog):
         """Verify that ``extend_lease()`` raises a KeyError for unknown task identifiers."""
         # Act & Assert
-        with pytest.raises(
-            KeyError, match="task id was not found in the concurrency set"
-        ):
-            generic_limiter.extend_lease("nonexistent", 30)
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.limiters"):
+            with pytest.raises(
+                KeyError, match=r'in the concurrency set\."'
+            ):
+                generic_limiter.extend_lease("nonexistent", 30)
+
+        # Assert
+        assert any(
+            record.levelname == "DEBUG"
+            and generic_limiter.id in record.message
+            and "nonexistent" in record.message
+            for record in caplog.records
+        ), "should emit a debug log containing the limiter id and task id"
+
+    @staticmethod
+    def test_extend_lease_succeeds_for_existing_task(
+        generic_limiter, redis_client, task_id, caplog
+    ):
+        """Verify that ``extend_lease()`` updates the score for a task present in the concurrency set."""
+        # Arrange
+        # Seed the concurrency sorted set with a low score so the update is observable.
+        initial_score = 1000.0
+        redis_client.zadd(
+            generic_limiter.concurrency_key, {task_id: initial_score}
+        )
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.limiters"):
+            generic_limiter.extend_lease(task_id, 30)
+
+        # Assert
+        new_score = redis_client.zscore(generic_limiter.concurrency_key, task_id)
+        assert new_score is not None, (
+            "task should still be present in the concurrency set after lease extension"
+        )
+        assert new_score > initial_score, (
+            "lease extension should update the score to a value greater than the initial score"
+        )
+        assert any(
+            record.levelname == "DEBUG"
+            and generic_limiter.id in record.message
+            and task_id in record.message
+            and "True" in record.message
+            for record in caplog.records
+        ), "should emit a debug log containing the limiter id, task id, and renewed=True"
+
+    @staticmethod
+    def test_extend_lease_passes_correct_arguments_to_lua(generic_limiter, task_id):
+        """Verify that ``extend_lease()`` invokes ``_eval_script`` with the expected arguments."""
+        # Arrange
+        duration = 45
+
+        with patch.object(
+            generic_limiter, "_eval_script", return_value=1
+        ) as mock_eval:
+            # Act
+            generic_limiter.extend_lease(task_id, duration)
+
+        # Assert
+        mock_eval.assert_called_once_with(
+            "renew.lua",
+            1,
+            generic_limiter.concurrency_key,
+            task_id,
+            duration,
+        )

@@ -1,5 +1,6 @@
 """Tests for the ``DrainLoop`` scheduling component."""
 
+import logging
 import time
 from threading import Event
 from unittest.mock import MagicMock
@@ -145,7 +146,7 @@ class TestDrainLoop:
         loop.shutdown()
 
     @staticmethod
-    def test_drain_loop_survives_drain_exception():
+    def test_drain_loop_survives_drain_exception(caplog):
         """Verify that the drain loop thread survives when ``drain()`` raises an exception."""
         # Arrange
         limiter = MagicMock()
@@ -165,17 +166,23 @@ class TestDrainLoop:
 
         # Act
         # First wake triggers the exception, second wake should still work.
-        loop.wake(0)
-        time.sleep(0.1)
-        loop.wake(0)
-        fired = second_call.wait(timeout=2.0)
-        loop.shutdown()
+        with caplog.at_level(logging.ERROR, logger="celery_rate_limiter.core.limiters"):
+            loop.wake(0)
+            time.sleep(0.1)
+            loop.wake(0)
+            fired = second_call.wait(timeout=2.0)
+            loop.shutdown()
 
         # Assert
         assert fired, (
             "drain loop should survive an exception and process subsequent wakes"
         )
         assert call_count >= 2, "drain should have been called at least twice"
+        assert any(
+            record.levelname == "ERROR"
+            and "test-resilience" in record.message
+            for record in caplog.records
+        ), "should emit an error log containing the limiter id when drain raises"
 
     @staticmethod
     def test_ensure_started_restarts_dead_thread():

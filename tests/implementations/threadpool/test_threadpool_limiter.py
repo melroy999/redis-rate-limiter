@@ -1,5 +1,6 @@
 """Threading-specific behavioural tests for the ``ThreadPoolRateLimiter`` implementation."""
 
+import logging
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -12,23 +13,31 @@ class TestThreadPoolRateLimiter:
 
     @staticmethod
     def test_dispatch_task_submits_to_executor(
-        limiter, payload, func_path, task_id
+        limiter, payload, func_path, task_id, caplog
     ):
         """Verify that ``_dispatch_task`` submits a callable to the thread pool executor."""
         # Act
-        with (
-            patch(
-                "celery_rate_limiter.backends.threading.limiter.import_string",
-                return_value=MagicMock(),
-            ),
-            patch.object(limiter.executor, "submit") as mock_submit,
-        ):
-            limiter._dispatch_task(func_path, payload, task_id)
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.backends.threading.limiter"):
+            with (
+                patch(
+                    "celery_rate_limiter.backends.threading.limiter.import_string",
+                    return_value=MagicMock(),
+                ),
+                patch.object(limiter.executor, "submit") as mock_submit,
+            ):
+                limiter._dispatch_task(func_path, payload, task_id)
 
         # Assert
         mock_submit.assert_called_once()
         submitted_fn = mock_submit.call_args[0][0]
         assert callable(submitted_fn), "submitted argument should be callable"
+        assert any(
+            record.levelname == "DEBUG"
+            and limiter.id in record.message
+            and task_id in record.message
+            and func_path in record.message
+            for record in caplog.records
+        ), "should emit a debug log containing the limiter id, task id, and func path"
 
     @staticmethod
     def test_dispatch_task_resolves_function_path(
@@ -92,6 +101,41 @@ class TestThreadPoolRateLimiter:
                 ModuleNotFoundError, match="No module named 'nonexistent'"
             ):
                 limiter._dispatch_task(func_path, payload, task_id)
+
+    @staticmethod
+    def test_dispatch_task_calls_function_with_payload_kwargs(
+        limiter, func_path, task_id
+    ):
+        """Verify that ``_dispatch_task`` calls the target function with keyword-unpacked payload."""
+        # Arrange
+        payload = {"user_id": 42, "action": "process"}
+        completed = threading.Event()
+
+        def tracking_func(**kwargs):
+            tracking_func.received_kwargs = kwargs
+            completed.set()
+
+        tracking_func.received_kwargs = {}
+
+        # Act
+        with (
+            patch(
+                "celery_rate_limiter.backends.threading.limiter.import_string",
+                return_value=tracking_func,
+            ),
+            patch.object(limiter, "task_lifecycle") as mock_lifecycle,
+        ):
+            mock_lifecycle.return_value.__enter__ = MagicMock(return_value=None)
+            mock_lifecycle.return_value.__exit__ = MagicMock(return_value=False)
+            limiter._dispatch_task(func_path, payload, task_id)
+
+            # Wait for the submitted wrapper to complete in the thread pool.
+            completed.wait(timeout=5.0)
+
+        # Assert
+        assert tracking_func.received_kwargs == payload, (
+            "target function should receive the payload as keyword arguments"
+        )
 
     @staticmethod
     def test_schedule_drain_wakes_drain_loop(limiter):
@@ -174,4 +218,64 @@ class TestLocalCapacityGuard:
         # Counter should return to 0 after completion.
         assert limiter._local_dispatched == 0, (
             "dispatch count should return to 0 after task completion"
+        )
+
+    @staticmethod
+    def test_dispatch_task_increments_counter_additively(
+        limiter, func_path, task_id
+    ):
+        """Verify that ``_dispatch_task()`` uses additive increment, not assignment, for the dispatch counter."""
+        # Arrange
+        started_1 = threading.Event()
+        started_2 = threading.Event()
+        proceed = threading.Event()
+
+        def blocking_task_1(**kwargs):
+            started_1.set()
+            proceed.wait(timeout=5.0)
+
+        def blocking_task_2(**kwargs):
+            started_2.set()
+            proceed.wait(timeout=5.0)
+
+        call_count = 0
+
+        def import_side_effect(path):
+            nonlocal call_count
+            call_count += 1
+            return blocking_task_1 if call_count == 1 else blocking_task_2
+
+        # Act
+        # Dispatch two tasks concurrently and check the counter reaches 2.
+        with (
+            patch(
+                "celery_rate_limiter.backends.threading.limiter.import_string",
+                side_effect=import_side_effect,
+            ),
+            patch.object(limiter, "task_lifecycle") as mock_lifecycle,
+        ):
+            mock_lifecycle.return_value.__enter__ = MagicMock(return_value=None)
+            mock_lifecycle.return_value.__exit__ = MagicMock(return_value=False)
+            limiter._dispatch_task(func_path, {}, f"{task_id}_1")
+            limiter._dispatch_task(func_path, {}, f"{task_id}_2")
+
+            # Wait for both tasks to start running in the thread pool.
+            started_1.wait(timeout=5.0)
+            started_2.wait(timeout=5.0)
+
+            # Assert
+            # Counter should be 2 with two concurrent tasks.
+            assert limiter._local_dispatched == 2, (
+                "dispatch count should be 2 with two concurrent tasks"
+            )
+
+            # Release both tasks.
+            proceed.set()
+
+        # Allow thread pool tasks to complete.
+        time.sleep(0.2)
+
+        # Counter should return to 0 after both complete.
+        assert limiter._local_dispatched == 0, (
+            "dispatch count should return to 0 after both tasks complete"
         )

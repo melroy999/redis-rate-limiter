@@ -38,7 +38,7 @@ tests/
 │   ├── test_drain.py                   # Drain and trigger_consume branch tests
 │   ├── test_drain_loop.py             # DrainLoop scheduling and coalescing tests
 │   ├── test_get_status.py              # Status reporting tests
-│   ├── test_internal_helpers.py        # Lua script loading and helpers
+│   ├── test_internal_helpers.py        # Internal helpers (eval, cleanup, token recovery, script loading)
 │   ├── test_smart_jitter.py            # Adaptive jitter calculation tests
 │   ├── test_metrics_callback.py        # Metrics callback observability tests
 │   ├── test_concurrent_access.py       # Multi-worker contention and atomicity tests
@@ -345,6 +345,38 @@ pytest tests/properties/
 # More thorough: 200 examples.
 pytest tests/properties/ --hypothesis-max-examples=200
 ```
+
+## Mutation Testing
+
+[Mutation testing](https://en.wikipedia.org/wiki/Mutation_testing) evaluates the quality of the test suite by systematically introducing small code changes (mutations) and checking whether the tests detect them. A mutation that causes at least one test to fail is "killed"; a mutation where all tests still pass is a "survivor", indicating a potential gap in assertions or coverage. The project uses [mutmut](https://mutmut.readthedocs.io/) for mutation testing, configured in `pyproject.toml` under `[tool.mutmut]`.
+
+### Running
+
+mutmut requires `fork()` support and must be run inside Docker. The `--build` flag is required because the source code is copied into the image rather than volume-mounted:
+
+```bash
+docker compose --profile mutate up --build --abort-on-container-exit --exit-code-from mutate
+```
+
+### Interpreting Results
+
+The output ends with a progress line and a list of unresolved mutants:
+
+```
+2114/2114  🎉 2082  🙁 26  ⏰ 4  🔇 2
+    celery_rate_limiter.core.limiters.xǁSomeClassǁsome_method__mutmut_6: survived
+```
+
+mutmut processes one mutant at a time. For each mutant, it applies the mutation, runs the mapped tests, classifies the outcome, and advances the progress counter. The progress line reads as `processed/total` followed by four cumulative outcome counts (i.e., the running totals across all mutants processed so far, summing to `processed`):
+
+- 🎉 **Killed** (2082): a mapped test failed, confirming the mutation was detected.
+- 🙁 **Survived** (26): all mapped tests passed despite the mutation; investigate whether a stronger assertion is needed.
+- ⏰ **Timeout** (4): the mapped tests timed out, typically because the mutation caused an infinite loop (e.g., mutating a shutdown flag); effectively killed.
+- 🔇 **No tests** (2): mutmut could not map the mutant to any test via coverage data.
+
+mutmut uses coverage data to select only the tests that exercise the mutated code path, rather than running the full suite for each mutant.
+
+Not all survivors are actionable. Logger format string mutations, type cast changes (e.g., `cast(int, x)` to `cast(float, x)`), and mutations in abstract methods that are always overridden are common false positives and can be suppressed with `# pragma: no mutate`.
 
 ## Adding a New Limiter Implementation
 

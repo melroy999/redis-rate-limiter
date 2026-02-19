@@ -1119,7 +1119,7 @@ class AbstractDistributedRateLimiter(
             RuntimeError: If the renew Lua script cannot be reloaded after a NoScriptError.
         """
         renewed = int(
-            cast(
+            cast(  # pragma: no mutate
                 str,
                 self._eval_script(
                     "renew.lua",
@@ -1459,7 +1459,7 @@ class AbstractDistributedRateLimiter(
         Raises:
             RuntimeError: If the required Lua scripts cannot be (re)loaded.
         """
-        result = cast(
+        result = cast(  # pragma: no mutate
             list[str],
             self._eval_script(
                 "health.lua",

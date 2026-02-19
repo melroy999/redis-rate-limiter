@@ -5,6 +5,7 @@ via ``_register_script``, ``_eval_script`` NOSCRIPT recovery, task data
 formatting, and other utility methods.
 """
 
+import logging
 from unittest.mock import patch
 
 import pytest
@@ -175,17 +176,65 @@ class TestCleanupInflightKey:
     """Tests for the best-effort in-flight key cleanup on scheduling failures."""
 
     @staticmethod
-    def test_cleanup_inflight_key_suppresses_redis_failure(generic_limiter):
+    def test_cleanup_inflight_key_suppresses_redis_failure(generic_limiter, caplog):
         """Verify that ``_cleanup_inflight_key`` does not propagate Redis exceptions."""
         # Arrange
         inflight_key = f"{generic_limiter.id}:inflight:cleanup-test"
 
         # Act & Assert
-        with patch.object(
-            generic_limiter.redis, "delete", side_effect=ConnectionError("redis down")
-        ):
-            # This invocation must not raise.
-            generic_limiter._cleanup_inflight_key(inflight_key, "cleanup-test")
+        with caplog.at_level(logging.WARNING, logger="celery_rate_limiter.core.limiters"):
+            with patch.object(
+                generic_limiter.redis, "delete", side_effect=ConnectionError("redis down")
+            ):
+                # This invocation must not raise.
+                generic_limiter._cleanup_inflight_key(inflight_key, "cleanup-test")
+
+        # Assert
+        assert any(
+            record.levelname == "WARNING"
+            and generic_limiter.id in record.message
+            and "cleanup-test" in record.message
+            and inflight_key in record.message
+            for record in caplog.records
+        ), "should emit a warning log containing the limiter id, task id, and inflight key"
+
+    @staticmethod
+    def test_cleanup_inflight_key_deletes_redis_key(
+        generic_limiter, redis_client, caplog
+    ):
+        """Verify that ``_cleanup_inflight_key`` removes the in-flight key from Redis."""
+        # Arrange
+        inflight_key = f"{generic_limiter.id}:inflight:cleanup-del"
+        redis_client.set(inflight_key, "1")
+        assert redis_client.exists(inflight_key) == 1, (
+            "precondition: inflight key must exist before cleanup"
+        )
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.limiters"):
+            generic_limiter._cleanup_inflight_key(inflight_key, "cleanup-del")
+
+        # Assert
+        assert redis_client.exists(inflight_key) == 0, (
+            "inflight key should be removed after cleanup"
+        )
+        assert any(
+            record.levelname == "DEBUG"
+            and generic_limiter.id in record.message
+            and "cleanup-del" in record.message
+            and inflight_key in record.message
+            for record in caplog.records
+        ), "should emit a debug log containing the limiter id, task id, and inflight key"
+
+    @staticmethod
+    def test_cleanup_inflight_key_handles_missing_key_gracefully(generic_limiter):
+        """Verify that ``_cleanup_inflight_key`` does not raise when the key does not exist."""
+        # Arrange
+        inflight_key = f"{generic_limiter.id}:inflight:nonexistent"
+
+        # Act & Assert
+        # This invocation must not raise.
+        generic_limiter._cleanup_inflight_key(inflight_key, "nonexistent")
 
 
 class TestTokenRecoveryDelay:
@@ -227,6 +276,83 @@ class TestTokenRecoveryDelay:
         # Assert
         assert delay == 0.001, (
             "delay should be 0.001 when decay has already freed a token"
+        )
+
+    @staticmethod
+    def test_token_recovery_fallback_when_val_previous_is_zero(generic_limiter):
+        """Verify that the delay falls back to reset_in_ms when the previous window has no requests."""
+        # Arrange
+        generic_limiter.window = 1.0
+        generic_limiter.limit = 5
+
+        # Act
+        delay = generic_limiter._calculate_token_recovery_delay(
+            val_previous=0, val_current=3, reset_in_ms=500
+        )
+
+        # Assert
+        # Fallback formula: reset_in_ms / 1000.0 + 0.001 = 0.501
+        assert delay == pytest.approx(0.501), (
+            "delay should equal reset_in_ms / 1000 + 0.001 when val_previous is zero"
+        )
+
+    @staticmethod
+    def test_token_recovery_fallback_when_val_current_equals_limit(generic_limiter):
+        """Verify that the delay falls back to reset_in_ms when the current window is at the limit."""
+        # Arrange
+        generic_limiter.window = 1.0
+        generic_limiter.limit = 5
+
+        # Act
+        delay = generic_limiter._calculate_token_recovery_delay(
+            val_previous=5, val_current=5, reset_in_ms=500
+        )
+
+        # Assert
+        # Fallback formula: reset_in_ms / 1000.0 + 0.001 = 0.501
+        assert delay == pytest.approx(0.501), (
+            "delay should equal reset_in_ms / 1000 + 0.001 when val_current equals limit"
+        )
+
+    @staticmethod
+    def test_token_recovery_primary_path_exact_value(generic_limiter):
+        """Verify the exact delay value computed via the primary decay formula."""
+        # Arrange
+        generic_limiter.window = 1.0
+        generic_limiter.limit = 5
+
+        # Act
+        delay = generic_limiter._calculate_token_recovery_delay(
+            val_previous=5, val_current=3, reset_in_ms=500
+        )
+
+        # Assert
+        # t_needed_ms = 1000 * (1.0 - (5 - 3) / 5) = 600
+        # time_passed_ms = 1000 - 500 = 500
+        # wait_ms = 600 - 500 = 100
+        # delay = 100 / 1000.0 = 0.1
+        assert delay == pytest.approx(0.1), (
+            "delay should be 0.1 seconds for the given inputs"
+        )
+
+    @staticmethod
+    def test_token_recovery_primary_path_floor_when_wait_ms_zero(generic_limiter):
+        """Verify that the 0.001 floor is returned when wait_ms is exactly zero."""
+        # Arrange
+        generic_limiter.window = 1.0
+        generic_limiter.limit = 5
+
+        # Act
+        # t_needed_ms = 1000 * (1.0 - (5 - 3) / 5) = 600
+        # time_passed_ms = 1000 - 400 = 600
+        # wait_ms = 600 - 600 = 0 (<= 0)
+        delay = generic_limiter._calculate_token_recovery_delay(
+            val_previous=5, val_current=3, reset_in_ms=400
+        )
+
+        # Assert
+        assert delay == 0.001, (
+            "delay should be 0.001 when wait_ms is exactly zero"
         )
 
 

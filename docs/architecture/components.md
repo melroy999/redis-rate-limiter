@@ -189,5 +189,5 @@ graph TD
 | Arrow | Interaction | Tested by |
 |-------|-------------|-----------|
 | Worker → Lifecycle | Wraps execution in TaskLifecycle | `implementations/test_decorator::test_decorator_wraps_function_in_task_lifecycle`, `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_wraps_in_lifecycle` |
-| Lifecycle → LuaScripts | EVALSHA renew.lua heartbeat | `implementations/test_task_lifecycle::test_heartbeat_loop_extends_lease_periodically` |
+| Lifecycle → LuaScripts | EVALSHA renew.lua heartbeat | `implementations/test_task_lifecycle::test_heartbeat_loop_extends_lease_periodically`, `implementations/test_task_lifecycle::test_extend_lease_succeeds_for_existing_task`, `implementations/test_task_lifecycle::test_extend_lease_passes_correct_arguments_to_lua` |
 | Lifecycle → DrainLoop | trigger_consume() feedback loop | `contracts/test_task_lifecycle::test_lifecycle_triggers_consume` |

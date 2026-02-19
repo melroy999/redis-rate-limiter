@@ -48,7 +48,8 @@ pytest_add_cli_args_test_selection = ["tests/"]
 pytest_add_cli_args = [
     "-x", "--tb=no", "-q",
     "--ignore=tests/properties/",
-    "--ignore=tests/integration/",
+    "--deselect=tests/integration/test_rate_limiting.py::TestSlidingWindowBehavior",
+    "--deselect=tests/integration/test_distributed_rate_limiting.py::TestDistributedRateLimiting",
 ]
 do_not_mutate = [
     "**/__init__.py",
