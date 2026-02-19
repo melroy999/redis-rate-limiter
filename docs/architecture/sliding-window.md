@@ -10,20 +10,20 @@ The following diagram illustrates how the sliding window overlaps with two adjac
 %%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 gantt
     title Sliding Window Example (window = 10s, now at t = 14s)
-    dateFormat X
+    dateFormat x
     axisFormat %Ss
 
     section Fixed Windows
-    Previous Window (count = 7)         :prev, 0, 10
-    Current Window (count = 3)          :curr, 10, 20
+    Previous Window (count = 7)         :prev, 0, 10000
+    Current Window (count = 3)          :curr, 10000, 20000
 
     section ⠀
     ⠀ :done, 0, 0
 
     section Sliding Window (t = 4s → t = 14s)
-    Sliding Window                       :sw, 4, 14
-    Previous window overlap (6s) :crit, 4, 10
-    Current window overlap (4s)  :active, 10, 14
+    Sliding Window                       :sw, 4000, 14000
+    Previous window overlap (6s) :crit, 4000, 10000
+    Current window overlap (4s)  :active, 10000, 14000
 ```
 
 **Reading the diagram:** the sliding window (grey bar) straddles the boundary between the two fixed windows (top two bars). The two bars beneath it decompose the sliding window into its overlap with each fixed window:
