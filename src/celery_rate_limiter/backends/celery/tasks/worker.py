@@ -3,13 +3,14 @@ from typing import Any
 
 from celery import shared_task
 
+from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
 from celery_rate_limiter.core import import_string, rate_limited
 
 logger = logging.getLogger(__name__)
 
 
 @shared_task(name="celery_rate_limiter.generic_worker")
-@rate_limited()
+@rate_limited(get_limiter=CeleryRateLimiter.get)
 def generic_rate_limited_worker(limiter_id: str, func_path: str, payload: dict) -> Any:
     """Execute a function identified by its fully qualified import path.
 
