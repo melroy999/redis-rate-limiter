@@ -12,6 +12,29 @@ class TestDrainLoop:
     """Test suite for ``DrainLoop`` wake, coalesce, watchdog, and shutdown behavior."""
 
     @staticmethod
+    def test_wake_default_delay_fires_immediately():
+        """Verify that ``wake()`` with no arguments uses the default delay of 0.0 and fires promptly."""
+        # Arrange
+        limiter = MagicMock()
+        drain_called = Event()
+        limiter.drain.side_effect = lambda: drain_called.set()
+        loop = DrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        start = time.monotonic()
+        loop.wake()
+        fired = drain_called.wait(timeout=2.0)
+        elapsed = time.monotonic() - start
+        loop.shutdown()
+
+        # Assert
+        assert fired, "drain should be called after wake() with default delay"
+        assert elapsed < 0.5, (
+            f"drain should fire promptly with default delay=0.0, took {elapsed:.2f}s"
+        )
+        limiter.drain.assert_called()
+
+    @staticmethod
     def test_wake_fires_drain_immediately():
         """Verify that ``wake(0)`` causes ``drain()`` to be called promptly."""
         # Arrange

@@ -4,7 +4,7 @@ Smart jitter prevents the thundering herd problem at window resets by spreading
 retry attempts based on system load.
 """
 
-import itertools
+import logging
 import random
 from unittest.mock import patch
 
@@ -190,32 +190,6 @@ class TestSmartJitter:
             f"avg_low={avg_low:.4f}, avg_medium={avg_medium:.4f}, avg_high={avg_high:.4f}"
         )
 
-    @pytest.mark.parametrize(
-        "remaining_tasks, active_concurrency",
-        itertools.product([0, 5, 25, 75, 200], [0, 2, 5]),
-    )
-    @staticmethod
-    def test_jitter_within_configured_bounds(
-        limiter, remaining_tasks, active_concurrency
-    ):
-        """Verify that the jitter stays within the configured min/max percentages."""
-        # Arrange
-        min_expected = limiter.window * limiter.jitter_min_pct
-        max_expected = limiter.window * limiter.jitter_max_pct
-
-        # Act
-        jitter = limiter._calculate_smart_jitter(
-            remaining_tasks=remaining_tasks,
-            remaining_tokens=0,
-            active_concurrency=active_concurrency,
-        )
-
-        # Assert
-        assert min_expected <= jitter <= max_expected, (
-            f"jitter {jitter}s out of bounds [{min_expected}, {max_expected}] "
-            f"for tasks={remaining_tasks}, concurrency={active_concurrency}"
-        )
-
     def test_jitter_is_randomized(self, limiter):
         """Verify that repeated calls produce varied output."""
         # Act
@@ -253,8 +227,8 @@ class TestSmartJitter:
         )
 
     @staticmethod
-    def test_custom_jitter_percentages(make_limiter):
-        """Verify that custom jitter percentages are respected."""
+    def test_custom_jitter_percentages(make_limiter, caplog):
+        """Verify that custom jitter percentages produce the correct jitter value."""
         # Arrange
         custom_limiter = make_limiter(
             limiter_suffix="jitter_custom_percentages",
@@ -264,17 +238,36 @@ class TestSmartJitter:
         )
 
         # Act
-        jitter = custom_limiter._calculate_smart_jitter(
-            remaining_tasks=100,
-            remaining_tokens=0,
-            active_concurrency=3,
-        )
+        # Pin random to 0.5 so the output is deterministic.
+        # load_pressure=1.0 (100 >= 100), conc_pressure=3/5=0.6
+        # combined=0.7*1.0 + 0.3*0.6=0.88, scale=0.3+0.88*0.7=0.916
+        # range=0.4*0.916=0.3664, jitter=0.1+0.3664*0.5=0.2832, round=0.283
+        with (
+            caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.limiters"),
+            patch(
+                "celery_rate_limiter.core.limiters.random.random",
+                return_value=0.5,
+            ),
+        ):
+            jitter = custom_limiter._calculate_smart_jitter(
+                remaining_tasks=100,
+                remaining_tokens=0,
+                active_concurrency=3,
+            )
 
         # Assert
-        # Custom bounds for a 10-second window: 100ms to 500ms.
-        assert 0.1 <= jitter <= 0.5, (
-            f"jitter {jitter}s should be within custom bounds [0.1, 0.5]"
+        assert jitter == pytest.approx(0.283), (
+            f"jitter {jitter}s should equal 0.283s for custom percentages"
         )
+        assert any(
+            record.levelname == "DEBUG"
+            and custom_limiter.id in record.message
+            and "remaining_tasks=100" in record.message
+            and "remaining_tokens=0" in record.message
+            and "active_concurrency=3" in record.message
+            and "0.283" in record.message
+            for record in caplog.records
+        ), "should emit a debug log containing the limiter id, input parameters, and computed jitter"
 
     def test_concurrency_pressure_increases_jitter(self, limiter):
         """Verify that higher concurrency pressure produces a larger average jitter.

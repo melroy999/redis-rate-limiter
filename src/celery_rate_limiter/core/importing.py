@@ -22,4 +22,4 @@ def import_string(import_path: str) -> Callable[..., Any]:
 
     # noinspection PyUnnecessaryCast
     # This cast is, in fact, necessary to satisfy mypy type validation.
-    return cast(Callable[..., Any], func)
+    return cast(Callable[..., Any], func)  # pragma: no mutate

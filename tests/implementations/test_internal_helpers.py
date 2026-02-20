@@ -192,11 +192,12 @@ class TestCleanupInflightKey:
         # Assert
         assert any(
             record.levelname == "WARNING"
-            and generic_limiter.id in record.message
-            and "cleanup-test" in record.message
-            and inflight_key in record.message
+            and f"limiter={generic_limiter.id}" in record.message
+            and "task_id=cleanup-test" in record.message
+            and f"inflight_key={inflight_key}" in record.message
+            and "redis down" in record.message
             for record in caplog.records
-        ), "should emit a warning log containing the limiter id, task id, and inflight key"
+        ), "should emit a warning log containing the limiter id, task id, inflight key, and error"
 
     @staticmethod
     def test_cleanup_inflight_key_deletes_redis_key(
@@ -220,11 +221,12 @@ class TestCleanupInflightKey:
         )
         assert any(
             record.levelname == "DEBUG"
-            and generic_limiter.id in record.message
-            and "cleanup-del" in record.message
-            and inflight_key in record.message
+            and f"limiter={generic_limiter.id}" in record.message
+            and "task_id=cleanup-del" in record.message
+            and f"inflight_key={inflight_key}" in record.message
+            and "removed=1" in record.message
             for record in caplog.records
-        ), "should emit a debug log containing the limiter id, task id, and inflight key"
+        ), "should emit a debug log containing the limiter id, task id, inflight key, and removal result"
 
     @staticmethod
     def test_cleanup_inflight_key_handles_missing_key_gracefully(generic_limiter):

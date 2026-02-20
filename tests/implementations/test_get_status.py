@@ -87,6 +87,23 @@ class GetStatusTests:
             "tokens_used should increase after a successful consume"
         )
 
+        # Verify individual result fields are not swapped.
+        # In the first window, val_previous is 0 and val_current is >= 1.
+        assert int(status["rate_limit"]["val_previous"]) == 0, (
+            "val_previous should be 0 in the first window"
+        )
+        assert int(status["rate_limit"]["val_current"]) >= 1, (
+            "val_current should reflect the consumed task count"
+        )
+        # reset_in_ms is a positive number (time until window expires);
+        # buffer count is 0 after the consume drained the buffer.
+        assert int(status["rate_limit"]["reset_in_ms"]) > 0, (
+            "reset_in_ms should be a positive number within the current window"
+        )
+        assert int(status["buffer"]["count"]) == 0, (
+            "buffer count should be 0 after consume drained the buffer"
+        )
+
     @staticmethod
     async def test_get_status_clean_state_values(limiter):
         """Verify that ``get_status()`` returns correct initial values for a fresh limiter."""

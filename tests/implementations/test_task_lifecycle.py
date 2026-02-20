@@ -352,8 +352,10 @@ class TestExtendLease:
             record.levelname == "DEBUG"
             and generic_limiter.id in record.message
             and "nonexistent" in record.message
+            and "duration_s=30" in record.message
+            and "renewed=False" in record.message
             for record in caplog.records
-        ), "should emit a debug log containing the limiter id and task id"
+        ), "should emit a debug log containing the limiter id, task id, duration, and renewed=False"
 
     @staticmethod
     def test_extend_lease_succeeds_for_existing_task(
@@ -383,9 +385,10 @@ class TestExtendLease:
             record.levelname == "DEBUG"
             and generic_limiter.id in record.message
             and task_id in record.message
-            and "True" in record.message
+            and "duration_s=30" in record.message
+            and "renewed=True" in record.message
             for record in caplog.records
-        ), "should emit a debug log containing the limiter id, task id, and renewed=True"
+        ), "should emit a debug log containing the limiter id, task id, duration, and renewed=True"
 
     @staticmethod
     def test_extend_lease_passes_correct_arguments_to_lua(generic_limiter, task_id):

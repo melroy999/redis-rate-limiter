@@ -71,7 +71,7 @@ class ThreadPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimit
         self,
         redis_client: Redis,
         executor: ThreadPoolExecutor,
-        *args: Any,
+        *,
         _sentinel: Any = None,
         **kwargs: Any,
     ):
@@ -84,7 +84,7 @@ class ThreadPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimit
 
         All remaining parameters are inherited from ``AbstractDistributedRateLimiter``.
         """
-        super().__init__(redis_client, *args, _sentinel=_sentinel, **kwargs)
+        super().__init__(redis_client, _sentinel=_sentinel, **kwargs)
         self.executor = executor
         self._local_dispatched: int = 0
         self._local_dispatch_lock = threading.Lock()

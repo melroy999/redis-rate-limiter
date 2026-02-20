@@ -373,15 +373,12 @@ class TestEdgeCases:
             exporter("unknown_event", {"key": "value"})
 
         # Assert
-        matching_records = [
-            record for record in caplog.records
-            if record.levelname == "DEBUG"
-            and limiter_id in record.getMessage()
-            and "unknown_event" in record.getMessage()
-        ]
-        assert len(matching_records) >= 1, (
-            "should emit a debug log containing the limiter id and the unknown event name"
-        )
+        assert any(
+            record.levelname == "DEBUG"
+            and f"limiter={limiter_id}" in record.message
+            and "event=unknown_event" in record.message
+            for record in caplog.records
+        ), "should emit a debug log containing the limiter id and the unknown event name"
 
     @staticmethod
     def test_custom_registry_isolation():

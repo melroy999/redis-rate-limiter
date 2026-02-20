@@ -76,6 +76,6 @@ def rate_limited(
 
         # noinspection PyUnnecessaryCast
         # This cast is, in fact, necessary to satisfy mypy type validation.
-        return cast(T, wrapper)
+        return cast(T, wrapper)  # pragma: no mutate
 
     return decorator

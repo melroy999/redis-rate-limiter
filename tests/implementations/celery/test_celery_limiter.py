@@ -28,6 +28,9 @@ class TestCeleryRateLimiter:
         assert task_data["payload"]["meta"]["use_executor"] is False, (
             "task metadata should store use_executor as false"
         )
+        assert task_data["func_path"] == func_path, (
+            "stored task data should contain the original func_path"
+        )
 
     @staticmethod
     def test_dispatch_task_use_executor_true_sends_generic_worker(

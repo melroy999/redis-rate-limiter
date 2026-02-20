@@ -220,11 +220,53 @@ class RateLimiterContractTest:
         assert isinstance(result["expired"], bool), "expired must be a bool"
 
     @staticmethod
+    async def test_consume_result_fields_have_distinct_values(
+        limiter, func_path, payload
+    ):
+        """Contract: ``consume()`` result fields must map to the correct Lua return indices.
+
+        This test creates a state where ``val_previous``, ``val_current``, and
+        ``reset_in_ms`` are distinguishable from one another to catch index swap
+        mutations in the result parsing logic.
+        """
+        # Arrange
+        await limiter.schedule_task(func_path, payload)
+
+        # Act
+        result = await limiter.consume()
+
+        # Assert
+        assert result["success"] is True, "consume should succeed with a scheduled task"
+        # In the first window, val_previous must be 0 and val_current must be >= 1.
+        assert result["val_previous"] == 0, (
+            "val_previous should be 0 in the first window"
+        )
+        assert result["val_current"] >= 1, (
+            "val_current should reflect the consumed task count"
+        )
+        # reset_in_ms is a positive countdown; remaining_tasks is 0 after the only task is consumed.
+        assert result["reset_in_ms"] > 0, (
+            "reset_in_ms should be a positive countdown within the current window"
+        )
+        assert result["remaining_tasks"] == 0, (
+            "remaining_tasks should be 0 after the only scheduled task is consumed"
+        )
+
+    @staticmethod
     async def test_execution_lock_context_manager_yields_boolean(limiter):
         """Contract: ``execution_lock()`` must yield a boolean indicating the acquisition result."""
         # Act & Assert
         async with limiter.execution_lock(timeout_ms=50) as acquired:
             assert isinstance(acquired, bool), "execution_lock must yield a boolean"
+
+    @staticmethod
+    async def test_execution_lock_default_timeout(limiter):
+        """Contract: ``execution_lock()`` must work with the default timeout_ms parameter."""
+        # Act & Assert
+        # Calling without arguments exercises the default timeout_ms=5000.
+        async with limiter.execution_lock() as acquired:
+            assert isinstance(acquired, bool), "execution_lock with default timeout must yield a boolean"
+            assert acquired is True, "execution_lock should succeed when uncontested"
 
     @staticmethod
     async def test_get_buffer_count_returns_nonnegative_integer(limiter):
