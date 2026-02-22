@@ -27,8 +27,8 @@ class TestASGIRateLimiter:
         second = await limiter.acquire("user_2")
 
         # Assert
-        assert second["remaining"] < first["remaining"], (
-            "remaining should decrease after each acquire"
+        assert second["remaining"] == first["remaining"] - 1, (
+            "remaining should decrement by exactly one per acquire"
         )
 
     @staticmethod
@@ -86,6 +86,9 @@ class TestASGIRateLimiter:
         # Assert
         assert "val_previous" in result, "result should include val_previous"
         assert "val_current" in result, "result should include val_current"
+        assert result["val_previous"] == 0, (
+            "val_previous should be zero on first acquire"
+        )
         assert result["val_current"] >= 1, (
             "val_current should be at least 1 after acquire"
         )

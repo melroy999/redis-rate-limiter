@@ -4,14 +4,10 @@
 -- KEYS[2]: Buffer key name (e.g., "rate_limit:api_buffer")
 -- KEYS[3]: Concurrency key name (e.g., "rate_limit:api_concurrency")
 -- ARGV[1]: The window size in seconds (e.g., 60)
--- ARGV[2]: The maximum number of requests permitted (e.g., 100)
--- ARGV[3]: The maximum number of simultaneously running tasks permitted (e.g., 10)
 local base_key = KEYS[1]
 local buffer_key = KEYS[2]
 local concurrency_key = KEYS[3]
 local window_size_ms = tonumber(ARGV[1]) * 1000
-local rate_limit = tonumber(ARGV[2])
-local max_concurrency = tonumber(ARGV[3])
 
 -- Retrieve the Redis server time to avoid clock skew in distributed systems.
 local redis_time = redis.call('TIME')

@@ -29,6 +29,21 @@ class TaskLifecycleContractTest:
     """
 
     @staticmethod
+    async def test_lifecycle_starts_healthy(
+        async_redis_client, mock_limiter, task_id, inflight_key, create_lifecycle
+    ):
+        """Contract: the lifecycle must report ``is_healthy=True`` upon entry."""
+        # Arrange
+        await async_redis_client.zadd(mock_limiter.concurrency_key, {task_id: 100})
+        await async_redis_client.set(inflight_key, "1")
+
+        # Act & Assert
+        async with create_lifecycle(mock_limiter, task_id) as lifecycle:
+            assert lifecycle.is_healthy is True, (
+                "lifecycle must start in a healthy state"
+            )
+
+    @staticmethod
     async def test_lifecycle_removes_task_from_concurrency_set(
         async_redis_client, mock_limiter, task_id, inflight_key, create_lifecycle
     ):
@@ -60,12 +75,11 @@ class TaskLifecycleContractTest:
             await async_redis_client.zscore(mock_limiter.concurrency_key, task_id)
             is None
         ), f"task {task_id} must be removed from concurrency set"
-        assert (
-            await async_redis_client.zscore(
-                mock_limiter.concurrency_key, "other_task_1"
-            )
-            is not None
-        ), "other tasks must remain in concurrency set"
+        assert await async_redis_client.zscore(
+            mock_limiter.concurrency_key, "other_task_1"
+        ) == pytest.approx(100.0), (
+            "other tasks must remain in concurrency set with their original score"
+        )
 
     @staticmethod
     async def test_lifecycle_removes_active_marker(

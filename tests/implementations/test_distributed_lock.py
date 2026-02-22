@@ -8,6 +8,7 @@ while the ``AsyncDistributedLock`` runs natively.
 """
 
 import asyncio
+import logging
 
 import pytest
 
@@ -52,37 +53,122 @@ class DistributedLockImplementationTests:
     """
 
     @staticmethod
-    async def test_lock_stores_uuid_token(async_redis_client, lock_key, create_lock):
+    async def test_lock_stores_uuid_token(
+        async_redis_client, lock_key, create_lock, caplog
+    ):
         """Implementation detail: the lock should use a UUID as the token format."""
         # Arrange
         lock = create_lock(lock_key, timeout_ms=1000)
 
         # Act
-        async with lock as acquired:
-            assert acquired is True, "lock should be acquired successfully"
-            token = await async_redis_client.get(lock_key)
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter"
+        ):
+            async with lock as acquired:
+                assert acquired is True, "lock should be acquired successfully"
+                token = await async_redis_client.get(lock_key)
 
-            # Assert
-            # The token should conform to UUID format (i.e., it contains dashes and has the expected length).
-            assert "-" in token, "token should be UUID format (contains dashes)"
-            assert len(token) == 36, "UUID should be 36 characters long"
+                # Assert
+                # The token should conform to UUID format (i.e., it contains dashes and has the expected length).
+                assert "-" in token, "token should be UUID format (contains dashes)"
+                assert len(token) == 36, "UUID should be 36 characters long"
+
+        # Verify that the lock acquisition log was emitted.
+        assert any(
+            record.levelname == "DEBUG"
+            and f"key={lock_key}" in record.message
+            and "token=" in record.message
+            and "timeout_ms=1000" in record.message
+            and "acquired" in record.message
+            for record in caplog.records
+        ), "should emit a debug log for lock acquisition with key, token, and timeout_ms"
 
     @staticmethod
-    async def test_lock_uses_redis_set_nx(async_redis_client, lock_key, create_lock):
+    async def test_lock_uses_redis_set_nx(
+        async_redis_client, lock_key, create_lock, caplog
+    ):
         """Implementation detail: the lock should use the Redis SET command with the NX option."""
         # Arrange
         lock = create_lock(lock_key, timeout_ms=1000)
 
         # Act
-        async with lock as acquired:
-            # Assert
-            # The key should exist and have a TTL assigned.
-            assert acquired is True, "lock should be acquired successfully"
-            assert await async_redis_client.exists(lock_key) == 1, (
-                "lock key must exist in Redis while held"
-            )
-            ttl = await async_redis_client.pttl(lock_key)
-            assert 0 < ttl <= 1000, f"TTL should be set and <= 1000ms, got {ttl}ms"
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter"
+        ):
+            async with lock as acquired:
+                # Assert
+                # The key should exist and have a TTL assigned.
+                assert acquired is True, "lock should be acquired successfully"
+                assert await async_redis_client.exists(lock_key) == 1, (
+                    "lock key must exist in Redis while held"
+                )
+                ttl = await async_redis_client.pttl(lock_key)
+                assert 0 < ttl <= 1000, f"TTL should be set and <= 1000ms, got {ttl}ms"
+
+        # Verify that the lock release log was emitted.
+        assert any(
+            record.levelname == "DEBUG"
+            and f"key={lock_key}" in record.message
+            and "token=" in record.message
+            and "released" in record.message
+            for record in caplog.records
+        ), "should emit a debug log for lock release with key and token"
+
+    @staticmethod
+    async def test_lock_contention_emits_debug_log(
+        async_redis_client, lock_key, create_lock, caplog
+    ):
+        """Verify that a contention event emits a debug log when the lock is already held."""
+        # Arrange
+        lock_holder = create_lock(lock_key, timeout_ms=5000)
+        lock_contender = create_lock(lock_key, timeout_ms=5000)
+
+        # Act
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter"
+        ):
+            async with lock_holder as acquired_holder:
+                assert acquired_holder is True, "holder should acquire successfully"
+
+                async with lock_contender as acquired_contender:
+                    # Assert
+                    assert acquired_contender is False, (
+                        "contender must fail while holder has the lock"
+                    )
+
+        # Verify that the contention log was emitted.
+        assert any(
+            record.levelname == "DEBUG"
+            and f"key={lock_key}" in record.message
+            and "contended" in record.message
+            for record in caplog.records
+        ), "should emit a debug log for lock contention with key"
+
+    @staticmethod
+    async def test_lock_expired_before_release_emits_debug_log(
+        async_redis_client, lock_key, create_lock, caplog
+    ):
+        """Verify that an expired-before-release event emits a debug log."""
+        # Arrange
+        # Use a very short timeout so the lock expires before explicit release.
+        lock = create_lock(lock_key, timeout_ms=50)
+
+        # Act
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter"
+        ):
+            async with lock as acquired:
+                assert acquired is True, "lock should be acquired successfully"
+                # Wait for the lock to expire.
+                await asyncio.sleep(0.1)
+
+        # Assert
+        assert any(
+            record.levelname == "DEBUG"
+            and f"key={lock_key}" in record.message
+            and "expired before release" in record.message
+            for record in caplog.records
+        ), "should emit a debug log for lock expired before release with key"
 
 
 class ContentionAwareCooldownTests:
@@ -335,8 +421,8 @@ class ContentionAwareCooldownTests:
             async with lock_contender:
                 pass
             # While the lock is still held, contention should be recorded.
-            assert int(await async_redis_client.get(contention_key) or 0) > 0, (
-                "contention counter must be > 0 while lock is held after failed acquisition"
+            assert int(await async_redis_client.get(contention_key) or 0) == 1, (
+                "contention counter must be 1 after exactly one failed acquisition attempt"
             )
 
         # Assert

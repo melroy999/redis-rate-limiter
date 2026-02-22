@@ -87,7 +87,7 @@ class TestTaskLifecycleImplementation:
 
     @staticmethod
     def test_lifecycle_with_multiple_concurrent_tasks(
-        redis_client, mock_limiter, task_id, inflight_key
+        redis_client, mock_limiter, task_id, inflight_key, caplog
     ):
         """Verify that the lifecycle only removes the specific task from the concurrency set."""
         # Arrange
@@ -104,12 +104,15 @@ class TestTaskLifecycleImplementation:
 
         # Act & Assert
         # Prevent the heartbeat thread from starting.
-        with patch("threading.Thread"):
-            with TaskLifecycle(mock_limiter, task_id):
-                # During execution, all five tasks should be present.
-                assert redis_client.zcard(mock_limiter.concurrency_key) == 5, (
-                    "all five tasks should be present during execution"
-                )
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.core.limiters"
+        ):
+            with patch("threading.Thread"):
+                with TaskLifecycle(mock_limiter, task_id):
+                    # During execution, all five tasks should be present.
+                    assert redis_client.zcard(mock_limiter.concurrency_key) == 5, (
+                        "all five tasks should be present during execution"
+                    )
 
         # After completion, only the target task should have been removed.
         assert redis_client.zcard(mock_limiter.concurrency_key) == 4, (
@@ -118,13 +121,22 @@ class TestTaskLifecycleImplementation:
         assert redis_client.zscore(mock_limiter.concurrency_key, task_id) is None, (
             "target task must be removed from concurrency set"
         )
-        assert (
-            redis_client.zscore(mock_limiter.concurrency_key, "other_task_1")
-            is not None
-        ), "other tasks must remain in concurrency set"
+        assert redis_client.zscore(
+            mock_limiter.concurrency_key, "other_task_1"
+        ) == pytest.approx(100.0), (
+            "other tasks must remain in concurrency set with their original score"
+        )
         assert redis_client.exists(inflight_key) == 0, (
             "inflight marker must be removed after completion"
         )
+        assert any(
+            record.levelname == "DEBUG"
+            and f"limiter={mock_limiter.id}" in record.message
+            and f"task_id={task_id}" in record.message
+            and "removed_concurrency=" in record.message
+            and "removed_inflight=" in record.message
+            for record in caplog.records
+        ), "should emit a debug log for concurrency slot release with limiter id, task id, and removal counts"
 
     @staticmethod
     def test_lifecycle_handles_redis_failure_during_cleanup(
@@ -149,6 +161,32 @@ class TestTaskLifecycleImplementation:
         # Assert that trigger_consume is still invoked.
         # noinspection PyUnboundLocalVariable
         mock_limiter.trigger_consume.assert_called_once()
+
+    @staticmethod
+    def test_empty_task_id_skips_inflight_cleanup(redis_client, caplog):
+        """Verify that an empty ``task_id`` skips inflight key deletion and logs ``removed_inflight=0``."""
+        # Arrange
+        limiter = MagicMock()
+        limiter.redis = redis_client
+        limiter.concurrency_key = "test:concurrency"
+        limiter.id = "test_limiter"
+        limiter.lease_duration = 0.2
+        limiter.extend_lease.return_value = None
+
+        # Act
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.core.limiters"
+        ):
+            with patch("threading.Thread"):
+                with TaskLifecycle(limiter, task_id=""):
+                    pass
+
+        # Assert
+        assert any(
+            record.levelname == "DEBUG"
+            and "removed_inflight=0" in record.message
+            for record in caplog.records
+        ), "empty task_id should log removed_inflight=0"
 
     @pytest.mark.parametrize(
         "original, override",
@@ -195,15 +233,18 @@ class TestHeartbeatLoop:
 
     @staticmethod
     def test_heartbeat_loop_extends_lease_periodically(
-        redis_client, mock_limiter, task_id
+        redis_client, mock_limiter, task_id, caplog
     ):
         """Verify that the heartbeat loop extends the lease at regular intervals."""
         # Act
-        with TaskLifecycle(mock_limiter, task_id):
-            # Wait for at least one heartbeat interval.
-            # The interval is lease_duration / 2.
-            # Sleep slightly longer to ensure the heartbeat executes.
-            time.sleep(0.75 * mock_limiter.lease_duration)
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.core.limiters"
+        ):
+            with TaskLifecycle(mock_limiter, task_id):
+                # Wait for at least one heartbeat interval.
+                # The interval is lease_duration / 2.
+                # Sleep slightly longer to ensure the heartbeat executes.
+                time.sleep(0.75 * mock_limiter.lease_duration)
 
         # Assert
         # The heartbeat should have been invoked at least once during the context.
@@ -215,6 +256,15 @@ class TestHeartbeatLoop:
         mock_limiter.extend_lease.assert_called_with(
             task_id, mock_limiter.lease_duration
         )
+
+        # Verify that the lifecycle entry log was emitted.
+        assert any(
+            record.levelname == "DEBUG"
+            and f"limiter={mock_limiter.id}" in record.message
+            and f"task_id={task_id}" in record.message
+            and "heartbeat_interval_s=" in record.message
+            for record in caplog.records
+        ), "should emit a debug log for lifecycle entry with limiter id, task id, and heartbeat interval"
 
     @staticmethod
     def test_heartbeat_interval_calculation(mock_limiter, task_id):
@@ -231,63 +281,99 @@ class TestHeartbeatLoop:
 
     @staticmethod
     def test_heartbeat_loop_restores_health_on_recovery(
-        redis_client, mock_limiter, task_id
+        redis_client, mock_limiter, task_id, caplog
     ):
         """Verify that the heartbeat loop restores the health status after recovering from a failure."""
         # Act
-        with TaskLifecycle(mock_limiter, task_id) as lifecycle:
-            # Simulate an unhealthy state.
-            lifecycle.is_healthy = False
+        with caplog.at_level(
+            logging.INFO, logger="celery_rate_limiter.core.limiters"
+        ):
+            with TaskLifecycle(mock_limiter, task_id) as lifecycle:
+                # Simulate an unhealthy state.
+                lifecycle.is_healthy = False
 
-            # Wait for the heartbeat to execute multiple times.
-            time.sleep(0.75 * mock_limiter.lease_duration)
+                # Wait for the heartbeat to execute multiple times.
+                time.sleep(0.75 * mock_limiter.lease_duration)
 
-            # Assert
-            # The lifecycle should have recovered and be marked as healthy.
-            assert lifecycle.is_healthy, "lifecycle must restore health after recovery"
+                # Assert
+                # The lifecycle should have recovered and be marked as healthy.
+                assert lifecycle.is_healthy, "lifecycle must restore health after recovery"
+
+        # Verify that the recovery log was emitted.
+        assert any(
+            record.levelname == "INFO"
+            and task_id in record.message
+            and mock_limiter.id in record.message
+            and "restored" in record.message
+            for record in caplog.records
+        ), "should emit an info log for heartbeat connection restoration with task id and limiter id"
 
     @staticmethod
     def test_heartbeat_loop_flags_unhealthy_on_failure_warn_mode(
-        redis_client, mock_limiter, task_id
+        redis_client, mock_limiter, task_id, caplog
     ):
         """Verify that the heartbeat loop flags the lifecycle as unhealthy on failure in warn mode."""
         # Arrange
         mock_limiter.extend_lease.side_effect = Exception("Simulated Redis failure")
 
         # Act
-        with TaskLifecycle(
-            mock_limiter, task_id, on_heartbeat_failure="warn"
-        ) as lifecycle:
-            # Wait for the heartbeat to fail.
-            time.sleep(0.75 * mock_limiter.lease_duration)
+        with caplog.at_level(
+            logging.CRITICAL, logger="celery_rate_limiter.core.limiters"
+        ):
+            with TaskLifecycle(
+                mock_limiter, task_id, on_heartbeat_failure="warn"
+            ) as lifecycle:
+                # Wait for the heartbeat to fail.
+                time.sleep(0.75 * mock_limiter.lease_duration)
 
-            # Assert
-            # The lifecycle should be marked as unhealthy.
-            assert not lifecycle.is_healthy, (
-                "lifecycle must be marked unhealthy after heartbeat failure"
-            )
+                # Assert
+                # The lifecycle should be marked as unhealthy.
+                assert not lifecycle.is_healthy, (
+                    "lifecycle must be marked unhealthy after heartbeat failure"
+                )
+
+        # Verify that the critical failure log was emitted.
+        assert any(
+            record.levelname == "CRITICAL"
+            and task_id in record.message
+            and "flagged as unhealthy" in record.message
+            and "Simulated Redis failure" in record.message
+            for record in caplog.records
+        ), "should emit a critical log for heartbeat failure with task id and error message"
 
     @staticmethod
     def test_heartbeat_loop_terminates_worker_on_failure_kill_mode(
-        redis_client, mock_limiter, task_id
+        redis_client, mock_limiter, task_id, caplog
     ):
         """Verify that the heartbeat loop terminates the worker on failure in kill mode."""
         # Arrange
         mock_limiter.extend_lease.side_effect = Exception("Simulated Redis failure")
 
         # Act & Assert
-        with patch("os.kill") as mock_kill:
-            with TaskLifecycle(mock_limiter, task_id, on_heartbeat_failure="kill"):
-                # Wait for the heartbeat to fail and trigger termination.
-                time.sleep(0.75 * mock_limiter.lease_duration)
+        with caplog.at_level(
+            logging.CRITICAL, logger="celery_rate_limiter.core.limiters"
+        ):
+            with patch("os.kill") as mock_kill:
+                with TaskLifecycle(mock_limiter, task_id, on_heartbeat_failure="kill"):
+                    # Wait for the heartbeat to fail and trigger termination.
+                    time.sleep(0.75 * mock_limiter.lease_duration)
 
-                # Verify that termination was attempted.
-                assert mock_kill.call_count > 0, (
-                    "os.kill must be called in kill mode on heartbeat failure"
-                )
+                    # Verify that termination was attempted.
+                    assert mock_kill.call_count > 0, (
+                        "os.kill must be called in kill mode on heartbeat failure"
+                    )
 
-                # Verify the correct signal and PID.
-                mock_kill.assert_called_with(os.getpid(), signal.SIGTERM)
+                    # Verify the correct signal and PID.
+                    mock_kill.assert_called_with(os.getpid(), signal.SIGTERM)
+
+        # Verify that the critical failure log was emitted.
+        assert any(
+            record.levelname == "CRITICAL"
+            and task_id in record.message
+            and "terminating worker" in record.message
+            and "Simulated Redis failure" in record.message
+            for record in caplog.records
+        ), "should emit a critical log for heartbeat failure with task id, error, and termination action"
 
     @staticmethod
     def test_heartbeat_loop_stops_on_exit(redis_client, mock_limiter, task_id):

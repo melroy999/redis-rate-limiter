@@ -13,11 +13,16 @@ class SyncToAsyncLimiterAdapter:
     Async tests can ``await`` the adapter's methods, which delegate to the
     underlying synchronous implementation. Attribute access for properties not
     explicitly wrapped (e.g., ``id``, ``limit``, ``buffer_key``) falls through
-    to the inner object via ``__getattr__``.
+    to the inner object via ``__getattr__``. Attribute writes are proxied to
+    the inner object via ``__setattr__`` so that tests can mutate limiter
+    state (e.g., ``limiter.window = 1.0``) transparently.
     """
 
     def __init__(self, inner):
-        self._inner = inner
+        super().__setattr__("_inner", inner)
+
+    def __setattr__(self, name, value):
+        setattr(self._inner, name, value)
 
     async def schedule_task(self, *args, **kwargs):
         return self._inner.schedule_task(*args, **kwargs)
@@ -74,9 +79,8 @@ class SyncToAsyncLockAdapter:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         return self._inner.__exit__(exc_type, exc_val, exc_tb)
 
-    @property
-    def token(self):
-        return self._inner.token
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
 
 
 class SyncToAsyncLifecycleAdapter:

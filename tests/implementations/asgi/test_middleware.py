@@ -265,3 +265,109 @@ class TestRateLimitMiddleware:
 
         # Assert
         assert messages[0]["status"] == 503, "fail_closed should return 503 on error"
+
+    async def test_wrap_send_preserves_existing_headers(self, limiter):
+        """Verify that ``_wrap_send`` preserves original response headers from the inner app."""
+
+        # Arrange
+        async def inner_app(scope, receive, send):
+            await send({
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"x-custom", b"preserved")],
+            })
+            await send({"type": "http.response.body", "body": b"OK"})
+
+        middleware = RateLimitMiddleware(
+            inner_app, limiter=limiter, key_func=by_client_ip
+        )
+
+        # Act
+        messages = await self._capture_response(middleware, self._make_scope())
+
+        # Assert
+        header_dict = dict(messages[0]["headers"])
+        assert header_dict.get(b"x-custom") == b"preserved", (
+            "original headers from the inner app should be preserved"
+        )
+
+    async def test_wrap_send_header_values_reflect_acquire_result(self, limiter):
+        """Verify that rate limit header values match the ``acquire()`` result."""
+
+        # Arrange
+        async def inner_app(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"OK"})
+
+        middleware = RateLimitMiddleware(
+            inner_app, limiter=limiter, key_func=by_client_ip
+        )
+
+        # Act
+        messages = await self._capture_response(middleware, self._make_scope())
+
+        # Assert
+        header_dict = dict(messages[0]["headers"])
+        remaining = header_dict.get(b"x-ratelimit-remaining")
+        reset = header_dict.get(b"x-ratelimit-reset")
+        limit = header_dict.get(b"x-ratelimit-limit")
+
+        assert limit == str(limiter.limit).encode(), (
+            "x-ratelimit-limit should match the configured limit"
+        )
+        assert remaining is not None and remaining != b"None", (
+            "x-ratelimit-remaining should be a numeric value, not None"
+        )
+        assert reset is not None and reset != b"None", (
+            "x-ratelimit-reset should be a numeric value, not None"
+        )
+        assert int(remaining) == limiter.limit - 1, (
+            "x-ratelimit-remaining should be limit minus one after first acquire"
+        )
+        assert int(reset) > 0, (
+            "x-ratelimit-reset should be a positive integer"
+        )
+
+    async def test_inner_app_receives_working_receive_callable(self, limiter):
+        """Verify that the inner app receives the original ``receive`` callable, not ``None``."""
+        # Arrange
+        received_body = None
+
+        async def inner_app(scope, receive, send):
+            nonlocal received_body
+            request = await receive()
+            received_body = request.get("body")
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"OK"})
+
+        middleware = RateLimitMiddleware(
+            inner_app, limiter=limiter, key_func=by_client_ip
+        )
+
+        # Act
+        await self._capture_response(middleware, self._make_scope())
+
+        # Assert
+        assert received_body == b"", (
+            "inner app should receive the original receive callable that returns request data"
+        )
+
+    async def test_wrap_send_handles_missing_headers_key(self, limiter):
+        """Verify that ``_wrap_send`` injects headers even when the response lacks a ``headers`` key."""
+        # Arrange
+        async def inner_app(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200})
+            await send({"type": "http.response.body", "body": b"OK"})
+
+        middleware = RateLimitMiddleware(
+            inner_app, limiter=limiter, key_func=by_client_ip
+        )
+
+        # Act
+        messages = await self._capture_response(middleware, self._make_scope())
+        header_names = [h[0] for h in messages[0]["headers"]]
+
+        # Assert
+        assert b"x-ratelimit-limit" in header_names, (
+            "rate limit headers should be injected even when inner app omits headers key"
+        )

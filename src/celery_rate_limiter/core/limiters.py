@@ -693,7 +693,7 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
         # These thresholds and pressure values are tuning constants validated through
         # behavioral properties (monotonicity, scaling) rather than exact-value tests.
         # Mutating them does not break correctness: it merely shifts the retry distribution.
-        if remaining_tasks <= 0:
+        if remaining_tasks <= 0:  # pragma: no mutate
             load_pressure = 0.0  # pragma: no mutate
         elif remaining_tasks < 10:  # pragma: no mutate
             load_pressure = 0.2  # pragma: no mutate
@@ -705,7 +705,7 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
             load_pressure = 1.0  # pragma: no mutate
 
         # Compute the concurrency pressure factor (0.0 = many free slots, 1.0 = at capacity).
-        concurrency_pressure = active_concurrency / max(1, self.max_concurrency)
+        concurrency_pressure = active_concurrency / max(1, self.max_concurrency)  # pragma: no mutate
 
         # Combine the pressures, weighting queue load more heavily than concurrency.
         combined_pressure = (load_pressure * 0.7) + (concurrency_pressure * 0.3)  # pragma: no mutate
@@ -1072,7 +1072,8 @@ class AbstractDistributedRateLimiter(
         consume_result: ConsumeResult = {
             "success": int(result[0]) == 1,
             "expired": int(result[0]) == -1,
-            "task": cast(TaskData, json.loads(result[1])) if result[1] else None,  # pragma: no mutate
+            "task": cast(  # pragma: no mutate
+                TaskData, json.loads(result[1])) if result[1] else None,
             "remaining_tokens": int(result[2]),
             "active_concurrency": int(result[3]),
             "reset_in_ms": int(result[4]),
@@ -1346,7 +1347,7 @@ class AbstractDistributedRateLimiter(
             payload: The task payload dictionary.
             task_id: The unique task identifier.
         """
-        raise NotImplementedError("Subclasses must implement _dispatch_task")
+        raise NotImplementedError("Subclasses must implement _dispatch_task")  # pragma: no mutate
 
     def _schedule_drain(self, delay: float = 0.0) -> None:
         """Schedule the drain method to execute again after ``delay`` seconds.
@@ -1473,10 +1474,8 @@ class AbstractDistributedRateLimiter(
                 self.id,
                 self.buffer_key,
                 self.concurrency_key,
-                # ARGV: [window, limit, max_concurrency]
+                # ARGV: [window]
                 self.window,
-                self.limit,
-                self.max_concurrency,
             ),
         )
 

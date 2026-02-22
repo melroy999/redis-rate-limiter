@@ -1,4 +1,4 @@
-"""Tests for the ``AsyncDrainLoop`` scheduling component.
+"""Tests for the ``AsyncDrainLoop`` and ``AsyncDrainSignalSubscriber`` scheduling components.
 
 Mirrors the sync ``DrainLoop`` tests in ``test_drain_loop.py`` using
 ``asyncio.Event``, ``asyncio.Task``, and ``asyncio.wait_for`` instead of
@@ -6,16 +6,31 @@ threading primitives.
 """
 
 import asyncio
+import inspect
 import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from celery_rate_limiter.core.async_limiters import AsyncDrainLoop
+from celery_rate_limiter.core.async_limiters import (
+    AsyncDrainLoop,
+    AsyncDrainSignalSubscriber,
+)
 
 
 class TestAsyncDrainLoop:
     """Test suite for ``AsyncDrainLoop`` wake, coalesce, watchdog, and shutdown behavior."""
+
+    @staticmethod
+    async def test_wake_default_delay_is_zero():
+        """Verify that the ``delay`` parameter of ``wake()`` defaults to ``0.0``."""
+        # Arrange
+        sig = inspect.signature(AsyncDrainLoop.wake)
+
+        # Assert
+        assert sig.parameters["delay"].default == 0.0, (
+            "wake() default delay should be 0.0 for immediate scheduling"
+        )
 
     @staticmethod
     async def test_wake_fires_drain_immediately():
@@ -155,6 +170,7 @@ class TestAsyncDrainLoop:
         await loop.shutdown()
 
         # Assert
+        assert loop._shutdown is True, "shutdown flag should be True after shutdown"
         assert loop._task is not None, "task should have been created"
         assert loop._task.done(), "task should be done after shutdown"
 
@@ -167,6 +183,7 @@ class TestAsyncDrainLoop:
         loop = AsyncDrainLoop(limiter, watchdog_interval=60.0)
 
         # Assert
+        assert loop._shutdown is False, "shutdown flag should be False before first wake"
         assert loop._task is None, "task should not exist before first wake"
 
         # Act
@@ -251,3 +268,26 @@ class TestAsyncDrainLoop:
 
         # Assert
         assert fired, "drain should be called again after task recovery"
+
+
+class TestAsyncDrainSignalSubscriber:
+    """Test suite for ``AsyncDrainSignalSubscriber`` shutdown behavior."""
+
+    @staticmethod
+    async def test_shutdown_sets_flag(async_generic_limiter):
+        """Verify that ``shutdown()`` sets the ``_shutdown`` flag to ``True``."""
+        # Arrange
+        subscriber = AsyncDrainSignalSubscriber(async_generic_limiter)
+
+        # Assert
+        assert subscriber._shutdown is False, (
+            "shutdown flag should be False before shutdown is called"
+        )
+
+        # Act
+        await subscriber.shutdown()
+
+        # Assert
+        assert subscriber._shutdown is True, (
+            "shutdown flag should be True after shutdown"
+        )

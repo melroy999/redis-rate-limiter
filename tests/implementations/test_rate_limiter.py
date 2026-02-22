@@ -7,6 +7,7 @@ async form; the sync implementation participates via the
 """
 
 import json
+import logging
 from unittest.mock import patch
 
 import pytest
@@ -67,6 +68,9 @@ async def assert_task_existence(
     assert isinstance(full_data_server["__meta_arrived_at"], int), (
         f"the __meta_arrived_at tag is not an int for task with ID {task_id}"
     )
+    assert full_data_server["__meta_arrived_at"] > 0, (
+        "arrival timestamp should be positive"
+    )
 
 
 class TestRateLimiterContracts(RateLimiterContractTest):
@@ -93,11 +97,14 @@ class RateLimiterImplementationTests:
 
     @staticmethod
     async def test_schedule_single_task_stores_correctly(
-        limiter, async_redis_client, func_path, payload
+        limiter, async_redis_client, func_path, payload, caplog
     ):
         """Verify that a single task is stored with all required metadata."""
         # Act
-        _, task_id = await limiter.schedule_task(func_path, payload)
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter"
+        ):
+            _, task_id = await limiter.schedule_task(func_path, payload)
 
         # Assert
         await assert_task_existence(
@@ -107,14 +114,36 @@ class RateLimiterImplementationTests:
             "buffer should contain exactly one task"
         )
 
+        # Verify that the scheduling attempt debug log was emitted.
+        assert any(
+            record.levelname == "DEBUG"
+            and f"limiter={limiter.id}" in record.message
+            and f"task_id={task_id}" in record.message
+            and f"func_path={func_path}" in record.message
+            and "priority=" in record.message
+            for record in caplog.records
+        ), "should emit a debug log for the scheduling attempt with limiter id, task id, func path, and priority"
+
+        # Verify that the task scheduled info log was emitted.
+        assert any(
+            record.levelname == "INFO"
+            and f"limiter={limiter.id}" in record.message
+            and f"task_id={task_id}" in record.message
+            and f"func_path={func_path}" in record.message
+            for record in caplog.records
+        ), "should emit an info log for the successfully scheduled task"
+
     @staticmethod
     async def test_schedule_duplicate_task_skips_second(
-        limiter, async_redis_client, func_path, payload
+        limiter, async_redis_client, func_path, payload, caplog
     ):
         """Verify that duplicate tasks are not scheduled twice."""
         # Act
         success_1, task_id_1 = await limiter.schedule_task(func_path, payload)
-        success_2, task_id_2 = await limiter.schedule_task(func_path, payload)
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter"
+        ):
+            success_2, task_id_2 = await limiter.schedule_task(func_path, payload)
 
         # Assert
         assert success_1 is True, "first task should be scheduled successfully"
@@ -123,6 +152,15 @@ class RateLimiterImplementationTests:
         await assert_task_existence(
             limiter, async_redis_client, func_path, payload, task_id_1
         )
+
+        # Verify that the duplicate-skip debug log was emitted.
+        assert any(
+            record.levelname == "DEBUG"
+            and f"limiter={limiter.id}" in record.message
+            and f"task_id={task_id_1}" in record.message
+            and "already in-flight" in record.message
+            for record in caplog.records
+        ), "should emit a debug log for the skipped duplicate with limiter id and task id"
 
     @staticmethod
     async def test_schedule_multiple_tasks_with_one_duplicate(
@@ -375,6 +413,52 @@ class RateLimiterImplementationTests:
 
         # Assert
         assert count == 3, "buffer count should match number of scheduled tasks"
+
+    @staticmethod
+    async def test_execution_lock_forwards_all_attributes(limiter):
+        """Verify that ``execution_lock()`` forwards all limiter attributes to the lock."""
+        # Act
+        lock = limiter.execution_lock()
+
+        # Assert
+        # cooldown_ms = min(int((window / limit) * 1000), 1000)
+        expected_cooldown = min(
+            int((limiter.window / limiter.limit) * 1000),
+            1000,
+        )
+        assert lock.cooldown_ms == expected_cooldown, (
+            f"lock cooldown_ms should be {expected_cooldown}, got {lock.cooldown_ms}"
+        )
+        assert lock.lock_key == limiter.lock_key, (
+            "lock_key must be forwarded from the limiter"
+        )
+        assert lock.worker_id == limiter._worker_id, (
+            "worker_id must be forwarded from the limiter"
+        )
+        assert lock.contention_key == limiter.contention_key, (
+            "contention_key must be forwarded from the limiter"
+        )
+        assert lock.timeout_ms == 5000, (
+            "timeout_ms must default to 5000 when not explicitly provided"
+        )
+
+    @staticmethod
+    async def test_execution_lock_cooldown_is_zero_when_limit_is_zero(limiter):
+        """Verify that ``execution_lock()`` sets ``cooldown_ms`` to zero when ``limit`` is zero."""
+        # Arrange
+        original_limit = limiter.limit
+        limiter.limit = 0
+
+        try:
+            # Act
+            lock = limiter.execution_lock()
+
+            # Assert
+            assert lock.cooldown_ms == 0, (
+                "cooldown_ms should be zero when limit is zero to avoid division by zero"
+            )
+        finally:
+            limiter.limit = original_limit
 
 
 # ---------------------------------------------------------------------------

@@ -17,7 +17,7 @@ def by_client_ip(scope: Scope) -> Optional[str]:
     Returns ``None`` when the ``client`` field is absent or empty.
     """
     client = scope.get("client")
-    if client and len(client) >= 1:
+    if client:
         return str(client[0])
     return None
 

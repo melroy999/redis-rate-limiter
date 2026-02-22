@@ -5,6 +5,7 @@ via the ``SyncToAsyncLimiterAdapter``; the async implementation runs natively.
 """
 
 import inspect
+from unittest.mock import patch
 
 import pytest
 
@@ -83,8 +84,8 @@ class GetStatusTests:
         assert status["rate_limit"]["limit"] == limiter.limit, (
             "status should report configured rate limit"
         )
-        assert float(status["rate_limit"]["tokens_used"]) >= 1.0, (
-            "tokens_used should increase after a successful consume"
+        assert float(status["rate_limit"]["tokens_used"]) == pytest.approx(1.0), (
+            "tokens_used should be 1.0 after a single consume in the first window"
         )
 
         # Verify individual result fields are not swapped.
@@ -92,8 +93,8 @@ class GetStatusTests:
         assert int(status["rate_limit"]["val_previous"]) == 0, (
             "val_previous should be 0 in the first window"
         )
-        assert int(status["rate_limit"]["val_current"]) >= 1, (
-            "val_current should reflect the consumed task count"
+        assert int(status["rate_limit"]["val_current"]) == 1, (
+            "val_current should be 1 after a single consume in the first window"
         )
         # reset_in_ms is a positive number (time until window expires);
         # buffer count is 0 after the consume drained the buffer.
@@ -184,6 +185,36 @@ class TestSyncGetStatus(GetStatusTests):
         """Wrap the sync generic limiter in an async adapter."""
         return SyncToAsyncLimiterAdapter(generic_limiter)
 
+    @staticmethod
+    async def test_get_status_val_current_uses_correct_result_index(
+        generic_limiter,
+    ):
+        """Verify that val_current maps to result[1], not result[2] (estimated_count).
+
+        This mirrors the async-specific test to ensure the sync ``get_status()``
+        implementation in ``limiters.py`` uses the correct result indices.
+        """
+        # Arrange
+        # health.lua returns: [prev_count, curr_count, estimated_count, active_now, reset_in_ms, buffer_count]
+        controlled_response = ["10", "5", "7.5", "2", "500", "3"]
+
+        # Act
+        with patch.object(
+            generic_limiter, "_eval_script", return_value=controlled_response
+        ):
+            status = generic_limiter.get_status()
+
+        # Assert
+        assert status["rate_limit"]["val_current"] == "5", (
+            "val_current should map to result[1] (current_count), not result[2] (estimated_count)"
+        )
+        assert float(status["rate_limit"]["tokens_used"]) == 7.5, (
+            "tokens_used should map to result[2] (estimated_count), not result[1] (current_count)"
+        )
+        assert status["rate_limit"]["val_previous"] == "10", (
+            "val_previous should map to result[0] (previous_count)"
+        )
+
 
 class TestAsyncGetStatus(GetStatusTests):
     """Async rate limiter ``get_status()`` exercised natively."""
@@ -192,3 +223,34 @@ class TestAsyncGetStatus(GetStatusTests):
     def limiter(self, async_generic_limiter):
         """Provide the async generic limiter directly."""
         return async_generic_limiter
+
+    @staticmethod
+    async def test_get_status_val_current_uses_correct_result_index(
+        async_generic_limiter,
+    ):
+        """Verify that val_current maps to result[1], not result[2] (estimated_count).
+
+        In the first window, val_current == tokens_used because estimated_count equals
+        current_count when previous_count is 0. This test uses a controlled health.lua
+        response where result[1] != result[2] to verify the index mapping.
+        """
+        # Arrange
+        # health.lua returns: [prev_count, curr_count, estimated_count, active_now, reset_in_ms, buffer_count]
+        controlled_response = ["10", "5", "7.5", "2", "500", "3"]
+
+        # Act
+        with patch.object(
+            async_generic_limiter, "_eval_script", return_value=controlled_response
+        ):
+            status = await async_generic_limiter.get_status()
+
+        # Assert
+        assert status["rate_limit"]["val_current"] == "5", (
+            "val_current should map to result[1] (current_count), not result[2] (estimated_count)"
+        )
+        assert float(status["rate_limit"]["tokens_used"]) == 7.5, (
+            "tokens_used should map to result[2] (estimated_count), not result[1] (current_count)"
+        )
+        assert status["rate_limit"]["val_previous"] == "10", (
+            "val_previous should map to result[0] (previous_count)"
+        )

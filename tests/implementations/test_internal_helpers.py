@@ -16,6 +16,7 @@ from celery_rate_limiter.core.base import (
     AbstractSyncRateLimiter,
 )
 from celery_rate_limiter.core.scripts import DEFAULT_RESOURCE_PACKAGES
+from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 
 
 @pytest.mark.parametrize(
@@ -239,19 +240,93 @@ class TestCleanupInflightKey:
         generic_limiter._cleanup_inflight_key(inflight_key, "nonexistent")
 
 
-class TestTokenRecoveryDelay:
-    """Tests for the sliding-window token recovery delay calculation."""
+class TestAsyncCleanupInflightKey:
+    """Tests for the async best-effort in-flight key cleanup on scheduling failures."""
 
     @staticmethod
-    def test_token_recovery_returns_fractional_wait_when_decay_applies(generic_limiter):
+    async def test_cleanup_inflight_key_suppresses_redis_failure(
+        async_generic_limiter, caplog
+    ):
+        """Verify that the async ``_cleanup_inflight_key`` does not propagate Redis exceptions."""
+        # Arrange
+        inflight_key = f"{async_generic_limiter.id}:inflight:cleanup-test"
+
+        # Act & Assert
+        with caplog.at_level(logging.WARNING, logger="celery_rate_limiter.core.async_limiters"):
+            with patch.object(
+                async_generic_limiter.redis, "delete", side_effect=ConnectionError("redis down")
+            ):
+                # This invocation must not raise.
+                await async_generic_limiter._cleanup_inflight_key(inflight_key, "cleanup-test")
+
+        # Assert
+        assert any(
+            record.levelname == "WARNING"
+            and f"limiter={async_generic_limiter.id}" in record.message
+            and "task_id=cleanup-test" in record.message
+            and "redis down" in record.message
+            for record in caplog.records
+        ), "should emit a warning log containing the limiter id, task id, and error"
+
+    @staticmethod
+    async def test_cleanup_inflight_key_deletes_redis_key(
+        async_generic_limiter, async_redis_client, caplog
+    ):
+        """Verify that the async ``_cleanup_inflight_key`` removes the in-flight key from Redis."""
+        # Arrange
+        inflight_key = f"{async_generic_limiter.id}:inflight:cleanup-del"
+        await async_redis_client.set(inflight_key, "1")
+        assert await async_redis_client.exists(inflight_key) == 1, (
+            "precondition: inflight key must exist before cleanup"
+        )
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.async_limiters"):
+            await async_generic_limiter._cleanup_inflight_key(inflight_key, "cleanup-del")
+
+        # Assert
+        assert await async_redis_client.exists(inflight_key) == 0, (
+            "inflight key should be removed after cleanup"
+        )
+        assert any(
+            record.levelname == "DEBUG"
+            and f"limiter={async_generic_limiter.id}" in record.message
+            and "task_id=cleanup-del" in record.message
+            and f"inflight_key={inflight_key}" in record.message
+            and "removed=1" in record.message
+            for record in caplog.records
+        ), "should emit a debug log containing the limiter id, task id, inflight key, and removal result"
+
+    @staticmethod
+    async def test_cleanup_inflight_key_handles_missing_key_gracefully(
+        async_generic_limiter,
+    ):
+        """Verify that the async ``_cleanup_inflight_key`` does not raise when the key does not exist."""
+        # Arrange
+        inflight_key = f"{async_generic_limiter.id}:inflight:nonexistent"
+
+        # Act & Assert
+        # This invocation must not raise.
+        await async_generic_limiter._cleanup_inflight_key(inflight_key, "nonexistent")
+
+
+class TokenRecoveryDelayTests:
+    """Unified tests for the sliding-window token recovery delay calculation.
+
+    Subclasses must provide a ``limiter`` fixture that returns either a
+    ``SyncToAsyncLimiterAdapter``-wrapped sync limiter or a native async limiter.
+    """
+
+    @staticmethod
+    async def test_token_recovery_returns_fractional_wait_when_decay_applies(limiter):
         """Verify that a positive fractional delay is returned when previous-window decay can free a token."""
         # Arrange
         # A 1-second window is used so the arithmetic is straightforward to verify.
-        generic_limiter.window = 1.0
-        generic_limiter.limit = 5
+        limiter.window = 1.0
+        limiter.limit = 5
 
         # Act
-        delay = generic_limiter._calculate_token_recovery_delay(
+        delay = limiter._calculate_token_recovery_delay(
             val_previous=5, val_current=3, reset_in_ms=500
         )
 
@@ -262,33 +337,33 @@ class TestTokenRecoveryDelay:
         assert delay < 1.0, "delay should be less than the full window"
 
     @staticmethod
-    def test_token_recovery_returns_immediate_when_decay_already_freed_token(
-        generic_limiter,
+    async def test_token_recovery_returns_immediate_when_decay_already_freed_token(
+        limiter,
     ):
         """Verify that an immediate retry is returned when previous-window decay has already freed a token."""
         # Arrange
-        generic_limiter.window = 1.0
-        generic_limiter.limit = 5
+        limiter.window = 1.0
+        limiter.limit = 5
 
         # Act
-        delay = generic_limiter._calculate_token_recovery_delay(
+        delay = limiter._calculate_token_recovery_delay(
             val_previous=10, val_current=1, reset_in_ms=100
         )
 
         # Assert
-        assert delay == 0.001, (
+        assert delay == pytest.approx(0.001), (
             "delay should be 0.001 when decay has already freed a token"
         )
 
     @staticmethod
-    def test_token_recovery_fallback_when_val_previous_is_zero(generic_limiter):
+    async def test_token_recovery_fallback_when_val_previous_is_zero(limiter):
         """Verify that the delay falls back to reset_in_ms when the previous window has no requests."""
         # Arrange
-        generic_limiter.window = 1.0
-        generic_limiter.limit = 5
+        limiter.window = 1.0
+        limiter.limit = 5
 
         # Act
-        delay = generic_limiter._calculate_token_recovery_delay(
+        delay = limiter._calculate_token_recovery_delay(
             val_previous=0, val_current=3, reset_in_ms=500
         )
 
@@ -299,14 +374,14 @@ class TestTokenRecoveryDelay:
         )
 
     @staticmethod
-    def test_token_recovery_fallback_when_val_current_equals_limit(generic_limiter):
+    async def test_token_recovery_fallback_when_val_current_equals_limit(limiter):
         """Verify that the delay falls back to reset_in_ms when the current window is at the limit."""
         # Arrange
-        generic_limiter.window = 1.0
-        generic_limiter.limit = 5
+        limiter.window = 1.0
+        limiter.limit = 5
 
         # Act
-        delay = generic_limiter._calculate_token_recovery_delay(
+        delay = limiter._calculate_token_recovery_delay(
             val_previous=5, val_current=5, reset_in_ms=500
         )
 
@@ -317,14 +392,14 @@ class TestTokenRecoveryDelay:
         )
 
     @staticmethod
-    def test_token_recovery_primary_path_exact_value(generic_limiter):
+    async def test_token_recovery_primary_path_exact_value(limiter):
         """Verify the exact delay value computed via the primary decay formula."""
         # Arrange
-        generic_limiter.window = 1.0
-        generic_limiter.limit = 5
+        limiter.window = 1.0
+        limiter.limit = 5
 
         # Act
-        delay = generic_limiter._calculate_token_recovery_delay(
+        delay = limiter._calculate_token_recovery_delay(
             val_previous=5, val_current=3, reset_in_ms=500
         )
 
@@ -338,34 +413,95 @@ class TestTokenRecoveryDelay:
         )
 
     @staticmethod
-    def test_token_recovery_primary_path_floor_when_wait_ms_zero(generic_limiter):
+    async def test_token_recovery_primary_path_floor_when_wait_ms_zero(limiter):
         """Verify that the 0.001 floor is returned when wait_ms is exactly zero."""
         # Arrange
-        generic_limiter.window = 1.0
-        generic_limiter.limit = 5
+        limiter.window = 1.0
+        limiter.limit = 5
 
         # Act
         # t_needed_ms = 1000 * (1.0 - (5 - 3) / 5) = 600
         # time_passed_ms = 1000 - 400 = 600
         # wait_ms = 600 - 600 = 0 (<= 0)
-        delay = generic_limiter._calculate_token_recovery_delay(
+        delay = limiter._calculate_token_recovery_delay(
             val_previous=5, val_current=3, reset_in_ms=400
         )
 
         # Assert
-        assert delay == 0.001, (
+        assert delay == pytest.approx(0.001), (
             "delay should be 0.001 when wait_ms is exactly zero"
         )
 
+    @staticmethod
+    async def test_token_recovery_primary_path_when_val_previous_is_one(limiter):
+        """Verify that ``val_previous=1`` takes the primary decay path, not the fallback."""
+        # Arrange
+        limiter.window = 1.0
+        limiter.limit = 5
 
-class _MinimalSyncLimiter(AbstractSyncRateLimiter):
-    """Bare subclass that exposes ``_eval_script`` without any mixin logic."""
+        # Act
+        # t_needed_ms = 1000 * (1.0 - (5 - 3) / 1) = -1000
+        # time_passed_ms = 1000 - 500 = 500
+        # wait_ms = -1000 - 500 = -1500 (<= 0)
+        # Primary path returns 0.001 (floor); the fallback would return 0.501.
+        delay = limiter._calculate_token_recovery_delay(
+            val_previous=1, val_current=3, reset_in_ms=500
+        )
+
+        # Assert
+        assert delay == pytest.approx(0.001), (
+            "val_previous=1 should take the primary path and return 0.001"
+        )
+
+    @staticmethod
+    async def test_token_recovery_primary_path_fractional_wait_ms(limiter):
+        """Verify that a fractional wait_ms between 0 and 1 returns the exact value, not the floor."""
+        # Arrange
+        limiter.window = 1.0
+        limiter.limit = 5
+
+        # Act
+        # t_needed_ms = 1000 * (1.0 - (5 - 4) / 3) = 666.667
+        # time_passed_ms = 1000 - 334 = 666
+        # wait_ms = 666.667 - 666 = 0.667 (positive but < 1)
+        delay = limiter._calculate_token_recovery_delay(
+            val_previous=3, val_current=4, reset_in_ms=334
+        )
+
+        # Assert
+        # delay = 0.667 / 1000 = 0.000667, NOT the 0.001 floor.
+        expected = (1000 * (1.0 - (5 - 4) / 3) - (1000 - 334)) / 1000.0
+        assert delay == pytest.approx(expected), (
+            "fractional wait_ms should return the exact delay, not the 0.001 floor"
+        )
+
+
+class TestSyncTokenRecoveryDelay(TokenRecoveryDelayTests):
+    """Sync rate limiter token recovery exercised through the async adapter."""
+
+    @pytest.fixture
+    def limiter(self, generic_limiter):
+        """Wrap the sync generic limiter in an async adapter."""
+        return SyncToAsyncLimiterAdapter(generic_limiter)
+
+
+class TestAsyncTokenRecoveryDelay(TokenRecoveryDelayTests):
+    """Async rate limiter token recovery exercised natively."""
+
+    @pytest.fixture
+    def limiter(self, async_generic_limiter):
+        """Provide the async generic limiter directly."""
+        return async_generic_limiter
+
+
+class _BareSyncLimiter(AbstractSyncRateLimiter):
+    """Subclass of the sync base without mixin logic, used to test ``_eval_script`` in isolation."""
 
     pass
 
 
-class _MinimalAsyncLimiter(AbstractAsyncRateLimiter):
-    """Bare async subclass that exposes ``_eval_script`` without any mixin logic."""
+class _BareAsyncLimiter(AbstractAsyncRateLimiter):
+    """Subclass of the async base without mixin logic, used to test ``_eval_script`` in isolation."""
 
     pass
 
@@ -376,7 +512,7 @@ class TestSyncEvalScript:
     @pytest.fixture
     def limiter(self, redis_client):
         """Create a minimal sync limiter with a pre-registered script."""
-        _limiter = _MinimalSyncLimiter(
+        _limiter = _BareSyncLimiter(
             redis_client=redis_client,
             limiter_id="eval_script_sync",
             limit=5,
@@ -386,7 +522,7 @@ class TestSyncEvalScript:
         return _limiter
 
     @staticmethod
-    def test_eval_script_recovers_from_transient_noscript(limiter):
+    def test_eval_script_recovers_from_transient_noscript(limiter, caplog):
         """Verify that ``_eval_script`` re-registers and retries on a single NoScriptError."""
         # Arrange
         real_evalsha = limiter.redis.evalsha
@@ -401,22 +537,23 @@ class TestSyncEvalScript:
         fail_once.calls = 0
 
         # Act
-        with (
-            patch.object(limiter.redis, "evalsha", side_effect=fail_once) as mock_eval,
-            patch.object(
-                limiter.redis, "script_load", side_effect=real_script_load
-            ) as mock_load,
-        ):
-            result = limiter._eval_script(
-                "health.lua",
-                3,
-                "eval_script_sync",
-                "eval_script_sync:buffer",
-                "eval_script_sync:concurrency",
-                60,
-                5,
-                2,
-            )
+        with caplog.at_level(logging.WARNING, logger="celery_rate_limiter.core.base"):
+            with (
+                patch.object(limiter.redis, "evalsha", side_effect=fail_once) as mock_eval,
+                patch.object(
+                    limiter.redis, "script_load", side_effect=real_script_load
+                ) as mock_load,
+            ):
+                result = limiter._eval_script(
+                    "health.lua",
+                    3,
+                    "eval_script_sync",
+                    "eval_script_sync:buffer",
+                    "eval_script_sync:concurrency",
+                    60,
+                    5,
+                    2,
+                )
 
         # Assert
         assert result is not None, (
@@ -428,6 +565,12 @@ class TestSyncEvalScript:
         assert mock_load.call_count == 1, (
             "script_load should be called once to re-register"
         )
+        assert any(
+            record.levelname == "WARNING"
+            and f"limiter={limiter.id}" in record.message
+            and "script=health.lua" in record.message
+            for record in caplog.records
+        ), "should emit a warning log containing the limiter id and script name on NOSCRIPT recovery"
 
     @staticmethod
     def test_eval_script_raises_runtime_error_on_permanent_noscript(limiter):
@@ -472,7 +615,7 @@ class TestAsyncEvalScript:
     @pytest.fixture
     async def limiter(self, async_redis_client):
         """Create a minimal async limiter with a pre-registered script."""
-        _limiter = _MinimalAsyncLimiter(
+        _limiter = _BareAsyncLimiter(
             redis_client=async_redis_client,
             limiter_id="eval_script_async",
             limit=5,
@@ -482,7 +625,7 @@ class TestAsyncEvalScript:
         return _limiter
 
     @staticmethod
-    async def test_eval_script_recovers_from_transient_noscript(limiter):
+    async def test_eval_script_recovers_from_transient_noscript(limiter, caplog):
         """Verify that the async ``_eval_script`` re-registers and retries on a single NoScriptError."""
         # Arrange
         real_evalsha = limiter.redis.evalsha
@@ -497,22 +640,23 @@ class TestAsyncEvalScript:
         fail_once.calls = 0
 
         # Act
-        with (
-            patch.object(limiter.redis, "evalsha", side_effect=fail_once) as mock_eval,
-            patch.object(
-                limiter.redis, "script_load", side_effect=real_script_load
-            ) as mock_load,
-        ):
-            result = await limiter._eval_script(
-                "health.lua",
-                3,
-                "eval_script_async",
-                "eval_script_async:buffer",
-                "eval_script_async:concurrency",
-                60,
-                5,
-                2,
-            )
+        with caplog.at_level(logging.WARNING, logger="celery_rate_limiter.core.base"):
+            with (
+                patch.object(limiter.redis, "evalsha", side_effect=fail_once) as mock_eval,
+                patch.object(
+                    limiter.redis, "script_load", side_effect=real_script_load
+                ) as mock_load,
+            ):
+                result = await limiter._eval_script(
+                    "health.lua",
+                    3,
+                    "eval_script_async",
+                    "eval_script_async:buffer",
+                    "eval_script_async:concurrency",
+                    60,
+                    5,
+                    2,
+                )
 
         # Assert
         assert result is not None, (
@@ -524,6 +668,12 @@ class TestAsyncEvalScript:
         assert mock_load.call_count == 1, (
             "script_load should be called once to re-register"
         )
+        assert any(
+            record.levelname == "WARNING"
+            and f"limiter={limiter.id}" in record.message
+            and "script=health.lua" in record.message
+            for record in caplog.records
+        ), "should emit a warning log containing the limiter id and script name on async NOSCRIPT recovery"
 
     @staticmethod
     async def test_eval_script_raises_runtime_error_on_permanent_noscript(
@@ -570,3 +720,177 @@ class TestAsyncEvalScript:
             assert mock_eval.call_count == 1, (
                 "evalsha should not retry on non-NoScriptError exceptions"
             )
+
+
+class WindowChangeLoggingTests:
+    """Unified tests for the window-change detection log in ``_apply_config_overrides``.
+
+    Subclasses must provide a ``limiter`` fixture that returns either a
+    ``SyncToAsyncLimiterAdapter``-wrapped sync limiter or a native async limiter.
+    """
+
+    @staticmethod
+    async def test_window_change_emits_info_log(limiter, caplog):
+        """Verify that changing the window via ``_apply_config_overrides`` emits an INFO log."""
+        # Arrange
+        old_window = limiter.window
+        new_window = old_window * 2
+
+        # Act
+        with caplog.at_level(logging.INFO, logger="celery_rate_limiter.core.base"):
+            limiter._apply_config_overrides({"window": new_window})
+
+        # Assert
+        assert limiter.window == new_window, (
+            "window should be updated to the new value"
+        )
+        assert any(
+            record.levelname == "INFO"
+            and f"limiter={limiter.id}" in record.message
+            and f"new_window={new_window:g}" in record.message
+            and "paused_for_s=" in record.message
+            for record in caplog.records
+        ), "should emit an info log containing the limiter id, new window, and pause duration"
+
+
+class TestSyncWindowChangeLogging(WindowChangeLoggingTests):
+    """Sync rate limiter window-change logging exercised through the async adapter."""
+
+    @pytest.fixture
+    def limiter(self, generic_limiter):
+        """Wrap the sync generic limiter in an async adapter."""
+        return SyncToAsyncLimiterAdapter(generic_limiter)
+
+
+class TestAsyncWindowChangeLogging(WindowChangeLoggingTests):
+    """Async rate limiter window-change logging exercised natively."""
+
+    @pytest.fixture
+    def limiter(self, async_generic_limiter):
+        """Provide the async generic limiter directly."""
+        return async_generic_limiter
+
+
+class EmitMetricLoggingTests:
+    """Unified tests for the ``_emit_metric`` warning log when the callback raises.
+
+    Subclasses must provide a ``limiter_with_failing_callback`` fixture that
+    returns a limiter configured with a callback that raises ``RuntimeError``.
+    """
+
+    @staticmethod
+    async def test_emit_metric_logs_warning_on_callback_exception(
+        limiter_with_failing_callback, caplog
+    ):
+        """Verify that ``_emit_metric`` emits a WARNING log when the callback raises."""
+        # Arrange
+        limiter = limiter_with_failing_callback
+
+        # Act
+        with caplog.at_level(logging.WARNING, logger="celery_rate_limiter.core.limiters"):
+            limiter._emit_metric("consume", {"success": True})
+
+        # Assert
+        assert any(
+            record.levelname == "WARNING"
+            and f"limiter={limiter.id}" in record.message
+            and "event=consume" in record.message
+            and "callback boom" in record.message
+            for record in caplog.records
+        ), "should emit a warning log containing the limiter id, event name, and error message"
+
+
+class TestSyncEmitMetricLogging(EmitMetricLoggingTests):
+    """Sync rate limiter ``_emit_metric`` logging exercised through the async adapter."""
+
+    @pytest.fixture
+    def limiter_with_failing_callback(self, redis_client, limiter_id):
+        """Create a sync limiter with a failing callback, wrapped in the adapter."""
+        from tests.implementations.conftest import MinimalRateLimiter
+
+        def failing_callback(event, data):
+            raise RuntimeError("callback boom")
+
+        limiter = MinimalRateLimiter(
+            redis_client=redis_client,
+            limiter_id=f"{limiter_id}_emit_metric_sync",
+            limit=5,
+            window=60,
+            max_concurrency=2,
+            metrics_callback=failing_callback,
+        )
+        yield SyncToAsyncLimiterAdapter(limiter)
+        limiter.shutdown()
+
+
+class TestAsyncEmitMetricLogging(EmitMetricLoggingTests):
+    """Async rate limiter ``_emit_metric`` logging exercised natively."""
+
+    @pytest.fixture
+    async def limiter_with_failing_callback(self, async_redis_client, limiter_id):
+        """Create an async limiter with a failing callback."""
+        from tests.implementations.conftest import MinimalAsyncRateLimiter
+
+        def failing_callback(event, data):
+            raise RuntimeError("callback boom")
+
+        limiter = MinimalAsyncRateLimiter(
+            redis_client=async_redis_client,
+            limiter_id=f"{limiter_id}_emit_metric_async",
+            limit=5,
+            window=60,
+            max_concurrency=2,
+            metrics_callback=failing_callback,
+        )
+        await limiter.start()
+        yield limiter
+        await limiter.shutdown()
+
+
+class InitialDefaultTests:
+    """Unified tests for the initial default values of freshly constructed limiters.
+
+    Subclasses must provide a ``limiter`` fixture that returns either a
+    ``SyncToAsyncLimiterAdapter``-wrapped sync limiter or a native async limiter.
+    """
+
+    @staticmethod
+    async def test_fresh_limiter_has_expected_defaults(limiter):
+        """Verify that a freshly constructed limiter exposes the correct initial defaults."""
+        # Assert
+        assert limiter._paused_until == pytest.approx(0.0), (
+            "fresh limiter should not be paused"
+        )
+        assert limiter._config_version == 0, (
+            "fresh limiter should start at config version 0"
+        )
+        assert limiter.jitter_enabled is True, (
+            "fresh limiter should have jitter enabled by default"
+        )
+        assert limiter.jitter_min_pct == pytest.approx(0.02), (
+            "fresh limiter should default to jitter_min_pct of 0.02"
+        )
+        assert limiter.jitter_max_pct == pytest.approx(0.08), (
+            "fresh limiter should default to jitter_max_pct of 0.08"
+        )
+        assert limiter.drain_enabled is True, (
+            "fresh limiter should have draining enabled by default"
+        )
+
+
+class TestSyncInitialDefaults(InitialDefaultTests):
+    """Sync rate limiter initial defaults exercised through the async adapter."""
+
+    @pytest.fixture
+    def limiter(self, generic_limiter):
+        """Wrap the sync generic limiter in an async adapter."""
+        return SyncToAsyncLimiterAdapter(generic_limiter)
+
+
+class TestAsyncInitialDefaults(InitialDefaultTests):
+    """Async rate limiter initial defaults exercised natively."""
+
+    @pytest.fixture
+    def limiter(self, async_generic_limiter):
+        """Provide the async generic limiter directly."""
+        return async_generic_limiter

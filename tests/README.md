@@ -363,20 +363,30 @@ docker compose --profile mutate up --build --abort-on-container-exit --exit-code
 The output ends with a progress line and a list of unresolved mutants:
 
 ```
-2114/2114  🎉 2082  🙁 26  ⏰ 4  🔇 2
+1912/1912  🎉 1906 🫥 0  ⏰ 5  🤔 0  🙁 1  🔇 0
     celery_rate_limiter.core.limiters.xǁSomeClassǁsome_method__mutmut_6: survived
 ```
 
-mutmut processes one mutant at a time. For each mutant, it applies the mutation, runs the mapped tests, classifies the outcome, and advances the progress counter. The progress line reads as `processed/total` followed by four cumulative outcome counts (i.e., the running totals across all mutants processed so far, summing to `processed`):
+mutmut processes one mutant at a time. For each mutant, it applies the mutation, runs the mapped tests, classifies the outcome, and advances the progress counter. The progress line reads as `processed/total` followed by six cumulative outcome counts (i.e., the running totals across all mutants processed so far, summing to `processed`):
 
-- 🎉 **Killed** (2082): a mapped test failed, confirming the mutation was detected.
-- 🙁 **Survived** (26): all mapped tests passed despite the mutation; investigate whether a stronger assertion is needed.
-- ⏰ **Timeout** (4): the mapped tests timed out, typically because the mutation caused an infinite loop (e.g., mutating a shutdown flag); effectively killed.
-- 🔇 **No tests** (2): mutmut could not map the mutant to any test via coverage data.
+- 🎉 **Killed** (1906): a mapped test failed, confirming the mutation was detected.
+- 🫥 **Suspicious** (0): the test suite exited with an unexpected status (e.g., a segfault or internal error rather than a clean pass or fail); warrants manual investigation.
+- ⏰ **Timeout** (5): the mapped tests timed out, typically because the mutation caused an infinite loop (e.g., mutating a shutdown flag); effectively killed.
+- 🤔 **Skipped** (0): the mutant was not tested, typically due to mutmut configuration or filters.
+- 🙁 **Survived** (1): all mapped tests passed despite the mutation; investigate whether a stronger assertion is needed.
+- 🔇 **No tests** (0): mutmut could not map the mutant to any test via coverage data.
 
 mutmut uses coverage data to select only the tests that exercise the mutated code path, rather than running the full suite for each mutant.
 
 Not all survivors are actionable. Logger format string mutations, type cast changes (e.g., `cast(int, x)` to `cast(float, x)`), and mutations in abstract methods that are always overridden are common false positives and can be suppressed with `# pragma: no mutate`.
+
+### Known Trampoline Limitations
+
+mutmut v3 rewrites each function with a trampoline dispatcher that uses `object.__getattribute__(self, ...)` to resolve the original and mutant variants. This approach has three known limitations:
+
+1. **`__init_subclass__`**: the trampoline generates `self` as the first parameter, but `__init_subclass__` receives `cls`. This causes a `NameError` that poisons test collection. The workaround is to annotate every mutable line in the method body with `# pragma: no mutate`, which prevents mutmut from generating a trampoline for that function. See `ManagedRateLimiterMixin.__init_subclass__` in `core/managed.py`.
+2. **`async def` methods**: in released versions (up to 3.4.0), the trampoline dispatcher is a synchronous function wrapping `async def` methods, causing `TypeError: object dict can't be used in 'await' expression`. This was fixed on the mutmut main branch in commit `810d761` ("Preserve original signature, including async keyword"), which is why the dependency points at the git main branch rather than a PyPI release.
+3. **Default parameter values**: the trampoline may not properly mutate default values in function signatures. Use `inspect.signature` tests to verify default values independently of the trampoline.
 
 ## Adding a New Limiter Implementation
 

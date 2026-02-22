@@ -1,11 +1,14 @@
-"""Tests for the ``DrainLoop`` scheduling component."""
+"""Tests for the ``DrainLoop`` and ``DrainSignalSubscriber`` scheduling components."""
 
+import inspect
 import logging
 import time
 from threading import Event
 from unittest.mock import MagicMock
 
-from celery_rate_limiter.core.limiters import DrainLoop
+import pytest
+
+from celery_rate_limiter.core.limiters import DrainLoop, DrainSignalSubscriber
 
 
 class TestDrainLoop:
@@ -33,6 +36,17 @@ class TestDrainLoop:
             f"drain should fire promptly with default delay=0.0, took {elapsed:.2f}s"
         )
         limiter.drain.assert_called()
+
+    @staticmethod
+    def test_wake_default_delay_is_zero():
+        """Verify that the ``delay`` parameter of ``wake()`` defaults to ``0.0``."""
+        # Arrange
+        sig = inspect.signature(DrainLoop.wake)
+
+        # Assert
+        assert sig.parameters["delay"].default == 0.0, (
+            "wake() default delay should be 0.0 for immediate scheduling"
+        )
 
     @staticmethod
     def test_wake_fires_drain_immediately():
@@ -148,6 +162,7 @@ class TestDrainLoop:
         loop.shutdown()
 
         # Assert
+        assert loop._shutdown is True, "shutdown flag should be True after shutdown"
         assert loop._thread is not None, "thread should have been created"
         assert not loop._thread.is_alive(), "thread should be stopped after shutdown"
 
@@ -159,6 +174,7 @@ class TestDrainLoop:
         loop = DrainLoop(limiter, watchdog_interval=60.0)
 
         # Assert
+        assert loop._shutdown is False, "shutdown flag should be False before first wake"
         assert loop._thread is None, "thread should not exist before first wake"
 
         # Act
@@ -203,7 +219,7 @@ class TestDrainLoop:
         assert call_count >= 2, "drain should have been called at least twice"
         assert any(
             record.levelname == "ERROR"
-            and "test-resilience" in record.message
+            and "limiter=test-resilience" in record.message
             for record in caplog.records
         ), "should emit an error log containing the limiter id when drain raises"
 
@@ -239,3 +255,26 @@ class TestDrainLoop:
 
         # Assert
         assert fired, "drain should be called again after thread recovery"
+
+
+class TestDrainSignalSubscriber:
+    """Test suite for ``DrainSignalSubscriber`` shutdown behavior."""
+
+    @staticmethod
+    def test_shutdown_sets_flag(generic_limiter):
+        """Verify that ``shutdown()`` sets the ``_shutdown`` flag to ``True``."""
+        # Arrange
+        subscriber = DrainSignalSubscriber(generic_limiter)
+
+        # Assert
+        assert subscriber._shutdown is False, (
+            "shutdown flag should be False before shutdown is called"
+        )
+
+        # Act
+        subscriber.shutdown()
+
+        # Assert
+        assert subscriber._shutdown is True, (
+            "shutdown flag should be True after shutdown"
+        )

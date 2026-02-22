@@ -256,7 +256,7 @@ class AsyncTaskLifecycle:
             inflight_removed = 0
             if self.task_id:
                 inflight_key = self.limiter.get_inflight_key(self.task_id)
-                inflight_removed = cast(
+                inflight_removed = cast(  # pragma: no mutate
                     int, await self.limiter.redis.delete(inflight_key)
                 )
 
@@ -635,7 +635,7 @@ class AbstractAsyncDistributedRateLimiter(
         """
         logger.debug("Consume attempt started (async): limiter=%s.", self.id)
 
-        result = cast(
+        result = cast(  # pragma: no mutate
             list[str],
             await self._eval_script(
                 "consume.lua",
@@ -655,7 +655,9 @@ class AbstractAsyncDistributedRateLimiter(
         consume_result: ConsumeResult = {
             "success": int(result[0]) == 1,
             "expired": int(result[0]) == -1,
-            "task": cast(TaskData, json.loads(result[1])) if result[1] else None,
+            "task": cast(  # pragma: no mutate
+                TaskData, json.loads(result[1])
+            ) if result[1] else None,
             "remaining_tokens": int(result[2]),
             "active_concurrency": int(result[3]),
             "reset_in_ms": int(result[4]),
@@ -693,7 +695,7 @@ class AbstractAsyncDistributedRateLimiter(
             duration: The number of seconds by which to extend the lease.
         """
         renewed = int(
-            cast(
+            cast(  # pragma: no mutate
                 str,
                 await self._eval_script(
                     "renew.lua",
@@ -878,7 +880,7 @@ class AbstractAsyncDistributedRateLimiter(
             payload: The task payload dictionary.
             task_id: The unique task identifier.
         """
-        raise NotImplementedError("Subclasses must implement _dispatch_task")
+        raise NotImplementedError("Subclasses must implement _dispatch_task")  # pragma: no mutate
 
     def _schedule_drain(self, delay: float = 0.0) -> None:
         """Schedule the drain method to execute again after ``delay`` seconds.
@@ -972,7 +974,7 @@ class AbstractAsyncDistributedRateLimiter(
         Returns:
             A dictionary containing all status information.
         """
-        result = cast(
+        result = cast(  # pragma: no mutate
             list[str],
             await self._eval_script(
                 "health.lua",
@@ -981,8 +983,6 @@ class AbstractAsyncDistributedRateLimiter(
                 self.buffer_key,
                 self.concurrency_key,
                 self.window,
-                self.limit,
-                self.max_concurrency,
             ),
         )
 

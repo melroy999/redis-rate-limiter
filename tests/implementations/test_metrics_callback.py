@@ -6,6 +6,7 @@ systems. Tests are written once in async form; the sync implementation
 participates via the ``SyncToAsyncLimiterAdapter``.
 """
 
+import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -38,13 +39,19 @@ class MetricsCallbackTests:
 
         # Assert
         assert result is not None, "consume should succeed without a callback"
+        assert result["success"] is False, (
+            "consume with empty buffer should not succeed"
+        )
         assert limiter.metrics_callback is None, "callback should default to None"
 
     @staticmethod
-    async def test_consume_emits_metric(limiter, callback):
+    async def test_consume_emits_metric(limiter, callback, caplog):
         """Verify that consume emits a metric with the correct event name and data keys."""
         # Act
-        await limiter.consume()
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter"
+        ):
+            await limiter.consume()
 
         # Assert
         callback.assert_called_once()
@@ -61,6 +68,15 @@ class MetricsCallbackTests:
         assert set(event_data.keys()) == expected_keys, (
             f"consume event should contain keys {expected_keys}, got {set(event_data.keys())}"
         )
+
+        # Verify that the consume result debug log was emitted.
+        assert any(
+            record.levelname == "DEBUG"
+            and f"limiter={limiter.id}" in record.message
+            and "success=" in record.message
+            and "remaining_tokens=" in record.message
+            for record in caplog.records
+        ), "should emit a debug log for the consume result with limiter id, success, and remaining tokens"
 
     @staticmethod
     async def test_schedule_emits_metric(limiter, callback, func_path):
@@ -145,7 +161,9 @@ class MetricsCallbackTests:
         assert result is not None, (
             "consume should return a result despite callback failure"
         )
-        assert "success" in result, "consume result should contain expected keys"
+        assert result["success"] is False, (
+            "consume with empty buffer should not succeed even when callback raises"
+        )
 
     @staticmethod
     async def test_callback_exception_does_not_break_schedule(
@@ -167,6 +185,7 @@ class MetricsCallbackTests:
         assert isinstance(task_id, str), (
             "task_id should be returned despite callback failure"
         )
+        assert len(task_id) > 0, "task id should be a non-empty string"
 
     @staticmethod
     async def test_consume_after_schedule_emits_both_events(

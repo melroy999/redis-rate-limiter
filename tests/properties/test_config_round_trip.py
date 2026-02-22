@@ -1,6 +1,6 @@
 """Property-based tests for the configuration persist/hydrate round-trip invariants.
 
-These tests verify that the ``_build_persist_config`` → JSON → ``_apply_config_overrides``
+These tests verify that the ``_build_persist_config`` to JSON to ``_apply_config_overrides``
 cycle preserves all configuration fields. The persist/apply chain is the mechanism
 by which the ``ManagedRateLimiter`` class API synchronizes configuration between
 multiple worker processes via Redis.

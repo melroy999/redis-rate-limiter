@@ -1,14 +1,48 @@
 """Celery-specific behavioural tests for the ``CeleryRateLimiter`` implementation."""
 
+import inspect
 import json
 import logging
 from unittest.mock import patch
 
 import pytest
 
+from celery_rate_limiter import CeleryRateLimiter
+
 
 class TestCeleryRateLimiter:
     """Tests that are specific to the Celery backend dispatch and payload logic."""
+
+    @staticmethod
+    def test_schedule_task_use_executor_default_is_true():
+        """Verify that the ``use_executor`` parameter defaults to ``True`` via signature inspection."""
+        # Arrange
+        sig = inspect.signature(CeleryRateLimiter.schedule_task)
+
+        # Assert
+        assert sig.parameters["use_executor"].default is True, (
+            "use_executor default should be True for generic worker dispatch"
+        )
+
+    @staticmethod
+    def test_schedule_task_defaults_use_executor_to_true(
+        limiter, redis_client, func_path, payload
+    ):
+        """Verify that ``schedule_task`` defaults ``use_executor`` to ``True`` when not specified."""
+        # Act
+        success, task_id = limiter.schedule_task(func_path, payload)
+
+        # Assert
+        assert success is True, "scheduling should succeed"
+        _, results = redis_client.zscan(limiter.buffer_key, match=f'*"{task_id}"*')
+        assert len(results) == 1, "scheduled task should exist in buffer exactly once"
+        task_data = json.loads(results[0][0])
+        assert task_data["payload"]["meta"]["use_executor"] is True, (
+            "task metadata should default use_executor to true"
+        )
+        assert task_data["payload"]["data"] == payload, (
+            "original payload should be forwarded as the data field"
+        )
 
     @staticmethod
     def test_schedule_task_with_use_executor_false_stores_meta(
@@ -168,6 +202,31 @@ class TestCeleryRateLimiter:
         call_kwargs = mock_send_task.call_args[1]
         assert call_kwargs["kwargs"]["payload"] == {}, (
             "missing data key should result in an empty dict payload"
+        )
+
+    @staticmethod
+    def test_schedule_task_forwards_max_age_override(
+        limiter, redis_client, func_path, payload
+    ):
+        """Verify that ``schedule_task`` passes the ``max_age`` override through to the parent scheduler."""
+        # Arrange
+        # The fixture limiter has max_age=3600. A much smaller override should
+        # produce a noticeably lower TTL on the inflight deduplication key.
+        max_age_override = 60
+
+        # Act
+        success, task_id = limiter.schedule_task(
+            func_path, payload, max_age=max_age_override
+        )
+
+        # Assert
+        assert success is True, "scheduling should succeed"
+        inflight_key = limiter.get_inflight_key(task_id)
+        ttl = redis_client.ttl(inflight_key)
+        # With max_age=60, lease_duration=30, window=60: TTL = ceil(60+30+60) = 150.
+        # If the override were ignored (None -> default 3600): TTL = ceil(3600+30+60) = 3690.
+        assert ttl <= 200, (
+            f"inflight key TTL should reflect the max_age override of {max_age_override}, got ttl={ttl}"
         )
 
     @staticmethod

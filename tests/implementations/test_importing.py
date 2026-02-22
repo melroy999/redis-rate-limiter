@@ -1,6 +1,7 @@
 """Tests for the core import-string utility behavior."""
 
 import json
+import logging
 
 import pytest
 
@@ -11,15 +12,25 @@ class TestImportString:
     """Test suite for ``import_string()`` behavior."""
 
     @staticmethod
-    def test_import_string_resolves_valid_function():
+    def test_import_string_resolves_valid_function(caplog):
         """Verify that ``import_string()`` resolves a valid callable import path."""
         # Act
-        resolved = import_string("json.dumps")
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.core.importing"
+        ):
+            resolved = import_string("json.dumps")
 
         # Assert
         assert resolved is json.dumps, (
             "import_string should resolve json.dumps callable"
         )
+        assert any(
+            record.levelname == "DEBUG"
+            and "import_path=json.dumps" in record.message
+            and "module=json" in record.message
+            and "callable=dumps" in record.message
+            for record in caplog.records
+        ), "should emit a debug log for the resolved import with import path, module, and callable"
 
     @staticmethod
     def test_import_string_raises_type_error_for_non_callable():

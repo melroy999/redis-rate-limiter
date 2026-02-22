@@ -47,11 +47,18 @@ class ManagedRateLimiterMixin:
     _instances: ClassVar[Dict[str, Any]] = {}
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
-        """Ensure that each subclass receives isolated class-level state."""
-        super().__init_subclass__(**kwargs)
-        cls._SENTINEL = object()
-        cls._redis_client = None
-        cls._instances = {}
+        """Ensure that each subclass receives isolated class-level state.
+
+        All lines carry ``pragma: no mutate`` because mutmut's trampoline
+        rewrites methods with ``self`` as the first parameter, but
+        ``__init_subclass__`` receives ``cls`` (the subclass being created).
+        Any mutation inside this method causes an ``AttributeError`` during
+        class construction, poisoning the entire test collection.
+        """
+        super().__init_subclass__(**kwargs)  # pragma: no mutate
+        cls._SENTINEL = object()  # pragma: no mutate
+        cls._redis_client = None  # pragma: no mutate
+        cls._instances = {}  # pragma: no mutate
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Cooperative ``__init__`` that forwards all arguments through the MRO."""

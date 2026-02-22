@@ -18,7 +18,7 @@ class RateLimiterContractTest:
           (or a ``SyncToAsyncLimiterAdapter`` wrapping a sync limiter).
         - async_redis_client: An async fixture that returns an async Redis client.
 
-    Example (async backend — conftest provides ``limiter`` directly):
+    Example (async backend, conftest provides ``limiter`` directly):
         class TestAsyncIOContracts(RateLimiterContractTest):
             pass
 
@@ -68,7 +68,7 @@ class RateLimiterContractTest:
         # Assert
         assert success is True, "scheduling should succeed"
         buffer_size = await async_redis_client.zcard(limiter.buffer_key)
-        assert buffer_size >= 1, "buffer must contain at least the scheduled task"
+        assert buffer_size == 1, "buffer must contain exactly the one scheduled task"
 
     @staticmethod
     async def test_schedule_duplicate_task_returns_false(
@@ -186,14 +186,16 @@ class RateLimiterContractTest:
         assert isinstance(result["val_current"], int), "val_current must be an int"
 
         # Assert that the values fall within valid bounds.
-        assert result["remaining_tokens"] >= 0, (
-            "remaining_tokens must be non-negative on empty buffer"
+        assert result["remaining_tokens"] == limiter.limit, (
+            "remaining_tokens must equal limit on empty buffer with no prior consumes"
         )
-        assert result["active_concurrency"] >= 0, (
-            "active_concurrency must be non-negative"
+        assert result["active_concurrency"] == 0, (
+            "active_concurrency must be 0 when no tasks are dispatched"
         )
         assert result["reset_in_ms"] >= 0, "reset_in_ms must be non-negative"
-        assert result["remaining_tasks"] >= 0, "remaining_tasks must be non-negative"
+        assert result["remaining_tasks"] == 0, (
+            "remaining_tasks must be 0 on empty buffer"
+        )
 
     @staticmethod
     async def test_consume_empty_buffer_returns_unsuccessful(limiter):
@@ -241,8 +243,8 @@ class RateLimiterContractTest:
         assert result["val_previous"] == 0, (
             "val_previous should be 0 in the first window"
         )
-        assert result["val_current"] >= 1, (
-            "val_current should reflect the consumed task count"
+        assert result["val_current"] == 1, (
+            "val_current should be 1 after a single consume in the first window"
         )
         # reset_in_ms is a positive countdown; remaining_tasks is 0 after the only task is consumed.
         assert result["reset_in_ms"] > 0, (
