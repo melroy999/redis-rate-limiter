@@ -211,9 +211,7 @@ class TestRateLimitingIntegration:
 
     @staticmethod
     @pytest.mark.parametrize("num_tasks", [3, 5, 10, 20])
-    def test_accurate_telemetry_tracking(
-        integration_limiter, num_tasks, func_path
-    ):
+    def test_accurate_telemetry_tracking(integration_limiter, num_tasks, func_path):
         """Verify that telemetry accurately tracks the remaining tokens and tasks."""
         # Arrange
         for i in range(num_tasks):
@@ -296,9 +294,7 @@ class TestRateLimitingIntegration:
         assert buffer_size == 1, f"buffer should contain 1 task, got {buffer_size}"
 
     @staticmethod
-    def test_bulk_scheduling_unique_tasks(
-        integration_limiter, redis_client, func_path
-    ):
+    def test_bulk_scheduling_unique_tasks(integration_limiter, redis_client, func_path):
         """Verify the bulk scheduling of unique tasks at scale.
 
         One hundred tasks with unique payloads are scheduled. All are
@@ -362,9 +358,7 @@ class TestRateLimitingIntegration:
         )
 
     @staticmethod
-    def test_expired_task_moved_to_dlq(
-        redis_client, func_path, limiter_id
-    ):
+    def test_expired_task_moved_to_dlq(redis_client, func_path, limiter_id):
         """Verify that expired queued tasks are moved to the DLQ and reported as expired."""
         # Arrange
         limiter = MinimalRateLimiter(
@@ -444,9 +438,7 @@ class TestRateLimitingIntegration:
         )
 
     @staticmethod
-    def test_per_task_max_age_stored_in_buffer(
-        redis_client, func_path, limiter_id
-    ):
+    def test_per_task_max_age_stored_in_buffer(redis_client, func_path, limiter_id):
         """Verify that ``schedule_task()`` with ``max_age`` stores the ``__meta_max_age`` field in the buffered payload."""
         # Arrange
         limiter = MinimalRateLimiter(
@@ -475,9 +467,7 @@ class TestRateLimitingIntegration:
         )
 
     @staticmethod
-    def test_expired_lease_cleaned_up_on_consume(
-        redis_client, func_path, limiter_id
-    ):
+    def test_expired_lease_cleaned_up_on_consume(redis_client, func_path, limiter_id):
         """Verify that stale concurrency lease entries are cleaned during consumption."""
         # Arrange
         limiter = MinimalRateLimiter(

@@ -183,9 +183,13 @@ class TestCleanupInflightKey:
         inflight_key = f"{generic_limiter.id}:inflight:cleanup-test"
 
         # Act & Assert
-        with caplog.at_level(logging.WARNING, logger="celery_rate_limiter.core.limiters"):
+        with caplog.at_level(
+            logging.WARNING, logger="celery_rate_limiter.core.limiters"
+        ):
             with patch.object(
-                generic_limiter.redis, "delete", side_effect=ConnectionError("redis down")
+                generic_limiter.redis,
+                "delete",
+                side_effect=ConnectionError("redis down"),
             ):
                 # This invocation must not raise.
                 generic_limiter._cleanup_inflight_key(inflight_key, "cleanup-test")
@@ -198,7 +202,9 @@ class TestCleanupInflightKey:
             and f"inflight_key={inflight_key}" in record.message
             and "redis down" in record.message
             for record in caplog.records
-        ), "should emit a warning log containing the limiter id, task id, inflight key, and error"
+        ), (
+            "should emit a warning log containing the limiter id, task id, inflight key, and error"
+        )
 
     @staticmethod
     def test_cleanup_inflight_key_deletes_redis_key(
@@ -227,7 +233,9 @@ class TestCleanupInflightKey:
             and f"inflight_key={inflight_key}" in record.message
             and "removed=1" in record.message
             for record in caplog.records
-        ), "should emit a debug log containing the limiter id, task id, inflight key, and removal result"
+        ), (
+            "should emit a debug log containing the limiter id, task id, inflight key, and removal result"
+        )
 
     @staticmethod
     def test_cleanup_inflight_key_handles_missing_key_gracefully(generic_limiter):
@@ -252,12 +260,18 @@ class TestAsyncCleanupInflightKey:
         inflight_key = f"{async_generic_limiter.id}:inflight:cleanup-test"
 
         # Act & Assert
-        with caplog.at_level(logging.WARNING, logger="celery_rate_limiter.core.async_limiters"):
+        with caplog.at_level(
+            logging.WARNING, logger="celery_rate_limiter.core.async_limiters"
+        ):
             with patch.object(
-                async_generic_limiter.redis, "delete", side_effect=ConnectionError("redis down")
+                async_generic_limiter.redis,
+                "delete",
+                side_effect=ConnectionError("redis down"),
             ):
                 # This invocation must not raise.
-                await async_generic_limiter._cleanup_inflight_key(inflight_key, "cleanup-test")
+                await async_generic_limiter._cleanup_inflight_key(
+                    inflight_key, "cleanup-test"
+                )
 
         # Assert
         assert any(
@@ -281,8 +295,12 @@ class TestAsyncCleanupInflightKey:
         )
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.async_limiters"):
-            await async_generic_limiter._cleanup_inflight_key(inflight_key, "cleanup-del")
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.core.async_limiters"
+        ):
+            await async_generic_limiter._cleanup_inflight_key(
+                inflight_key, "cleanup-del"
+            )
 
         # Assert
         assert await async_redis_client.exists(inflight_key) == 0, (
@@ -295,7 +313,9 @@ class TestAsyncCleanupInflightKey:
             and f"inflight_key={inflight_key}" in record.message
             and "removed=1" in record.message
             for record in caplog.records
-        ), "should emit a debug log containing the limiter id, task id, inflight key, and removal result"
+        ), (
+            "should emit a debug log containing the limiter id, task id, inflight key, and removal result"
+        )
 
     @staticmethod
     async def test_cleanup_inflight_key_handles_missing_key_gracefully(
@@ -539,7 +559,9 @@ class TestSyncEvalScript:
         # Act
         with caplog.at_level(logging.WARNING, logger="celery_rate_limiter.core.base"):
             with (
-                patch.object(limiter.redis, "evalsha", side_effect=fail_once) as mock_eval,
+                patch.object(
+                    limiter.redis, "evalsha", side_effect=fail_once
+                ) as mock_eval,
                 patch.object(
                     limiter.redis, "script_load", side_effect=real_script_load
                 ) as mock_load,
@@ -570,7 +592,9 @@ class TestSyncEvalScript:
             and f"limiter={limiter.id}" in record.message
             and "script=health.lua" in record.message
             for record in caplog.records
-        ), "should emit a warning log containing the limiter id and script name on NOSCRIPT recovery"
+        ), (
+            "should emit a warning log containing the limiter id and script name on NOSCRIPT recovery"
+        )
 
     @staticmethod
     def test_eval_script_raises_runtime_error_on_permanent_noscript(limiter):
@@ -642,7 +666,9 @@ class TestAsyncEvalScript:
         # Act
         with caplog.at_level(logging.WARNING, logger="celery_rate_limiter.core.base"):
             with (
-                patch.object(limiter.redis, "evalsha", side_effect=fail_once) as mock_eval,
+                patch.object(
+                    limiter.redis, "evalsha", side_effect=fail_once
+                ) as mock_eval,
                 patch.object(
                     limiter.redis, "script_load", side_effect=real_script_load
                 ) as mock_load,
@@ -673,7 +699,9 @@ class TestAsyncEvalScript:
             and f"limiter={limiter.id}" in record.message
             and "script=health.lua" in record.message
             for record in caplog.records
-        ), "should emit a warning log containing the limiter id and script name on async NOSCRIPT recovery"
+        ), (
+            "should emit a warning log containing the limiter id and script name on async NOSCRIPT recovery"
+        )
 
     @staticmethod
     async def test_eval_script_raises_runtime_error_on_permanent_noscript(
@@ -741,16 +769,16 @@ class WindowChangeLoggingTests:
             limiter._apply_config_overrides({"window": new_window})
 
         # Assert
-        assert limiter.window == new_window, (
-            "window should be updated to the new value"
-        )
+        assert limiter.window == new_window, "window should be updated to the new value"
         assert any(
             record.levelname == "INFO"
             and f"limiter={limiter.id}" in record.message
             and f"new_window={new_window:g}" in record.message
             and "paused_for_s=" in record.message
             for record in caplog.records
-        ), "should emit an info log containing the limiter id, new window, and pause duration"
+        ), (
+            "should emit an info log containing the limiter id, new window, and pause duration"
+        )
 
 
 class TestSyncWindowChangeLogging(WindowChangeLoggingTests):
@@ -787,7 +815,9 @@ class EmitMetricLoggingTests:
         limiter = limiter_with_failing_callback
 
         # Act
-        with caplog.at_level(logging.WARNING, logger="celery_rate_limiter.core.limiters"):
+        with caplog.at_level(
+            logging.WARNING, logger="celery_rate_limiter.core.limiters"
+        ):
             limiter._emit_metric("consume", {"success": True})
 
         # Assert
@@ -797,7 +827,9 @@ class EmitMetricLoggingTests:
             and "event=consume" in record.message
             and "callback boom" in record.message
             for record in caplog.records
-        ), "should emit a warning log containing the limiter id, event name, and error message"
+        ), (
+            "should emit a warning log containing the limiter id, event name, and error message"
+        )
 
 
 class TestSyncEmitMetricLogging(EmitMetricLoggingTests):

@@ -61,9 +61,7 @@ class DistributedLockImplementationTests:
         lock = create_lock(lock_key, timeout_ms=1000)
 
         # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter"
-        ):
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
             async with lock as acquired:
                 assert acquired is True, "lock should be acquired successfully"
                 token = await async_redis_client.get(lock_key)
@@ -81,7 +79,9 @@ class DistributedLockImplementationTests:
             and "timeout_ms=1000" in record.message
             and "acquired" in record.message
             for record in caplog.records
-        ), "should emit a debug log for lock acquisition with key, token, and timeout_ms"
+        ), (
+            "should emit a debug log for lock acquisition with key, token, and timeout_ms"
+        )
 
     @staticmethod
     async def test_lock_uses_redis_set_nx(
@@ -92,9 +92,7 @@ class DistributedLockImplementationTests:
         lock = create_lock(lock_key, timeout_ms=1000)
 
         # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter"
-        ):
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
             async with lock as acquired:
                 # Assert
                 # The key should exist and have a TTL assigned.
@@ -124,9 +122,7 @@ class DistributedLockImplementationTests:
         lock_contender = create_lock(lock_key, timeout_ms=5000)
 
         # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter"
-        ):
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
             async with lock_holder as acquired_holder:
                 assert acquired_holder is True, "holder should acquire successfully"
 
@@ -154,9 +150,7 @@ class DistributedLockImplementationTests:
         lock = create_lock(lock_key, timeout_ms=50)
 
         # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter"
-        ):
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
             async with lock as acquired:
                 assert acquired is True, "lock should be acquired successfully"
                 # Wait for the lock to expire.

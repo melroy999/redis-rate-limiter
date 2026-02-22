@@ -15,7 +15,6 @@ import pytest
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 from tests.implementations.conftest import MinimalAsyncRateLimiter, MinimalRateLimiter
 
-
 # ---------------------------------------------------------------------------
 # Unified implementation tests
 # ---------------------------------------------------------------------------
@@ -236,7 +235,9 @@ class SmartJitterTests:
             and "active_concurrency=3" in record.message
             and "0.283" in record.message
             for record in caplog.records
-        ), "should emit a debug log containing the limiter id, input parameters, and computed jitter"
+        ), (
+            "should emit a debug log containing the limiter id, input parameters, and computed jitter"
+        )
 
     async def test_concurrency_pressure_increases_jitter(self, limiter):
         """Verify that higher concurrency pressure produces a larger average jitter.

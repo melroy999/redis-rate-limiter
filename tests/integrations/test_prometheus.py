@@ -299,10 +299,17 @@ class TestMetricRegistration:
         """Verify that the consume counter uses the correct label names."""
         # Arrange
         # Emit one event to materialize label samples in the registry.
-        exporter("consume", {
-            "success": True, "expired": False, "remaining_tokens": 1,
-            "active_concurrency": 0, "reset_in_ms": 100, "remaining_tasks": 0,
-        })
+        exporter(
+            "consume",
+            {
+                "success": True,
+                "expired": False,
+                "remaining_tokens": 1,
+                "active_concurrency": 0,
+                "reset_in_ms": 100,
+                "remaining_tasks": 0,
+            },
+        )
 
         # Act
         label_names = set()
@@ -340,10 +347,17 @@ class TestMetricRegistration:
     def test_gauge_label_names(exporter, registry, limiter_id):
         """Verify that all gauges use only the limiter_id label."""
         # Arrange
-        exporter("consume", {
-            "success": True, "expired": False, "remaining_tokens": 1,
-            "active_concurrency": 0, "reset_in_ms": 100, "remaining_tasks": 0,
-        })
+        exporter(
+            "consume",
+            {
+                "success": True,
+                "expired": False,
+                "remaining_tokens": 1,
+                "active_concurrency": 0,
+                "reset_in_ms": 100,
+                "remaining_tasks": 0,
+            },
+        )
 
         # Act & Assert
         gauge_names = [
@@ -368,7 +382,9 @@ class TestEdgeCases:
     def test_unknown_event_is_ignored(exporter, registry, limiter_id, caplog):
         """Verify that unknown event names do not raise exceptions and emit a debug log."""
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.integrations.prometheus"):
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.integrations.prometheus"
+        ):
             # This invocation must not raise.
             exporter("unknown_event", {"key": "value"})
 
@@ -378,7 +394,9 @@ class TestEdgeCases:
             and f"limiter={limiter_id}" in record.message
             and "event=unknown_event" in record.message
             for record in caplog.records
-        ), "should emit a debug log containing the limiter id and the unknown event name"
+        ), (
+            "should emit a debug log containing the limiter id and the unknown event name"
+        )
 
     @staticmethod
     def test_custom_registry_isolation():

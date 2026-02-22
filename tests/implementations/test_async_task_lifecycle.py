@@ -110,9 +110,9 @@ class TestAsyncTaskLifecycleImplementation:
         ):
             async with AsyncTaskLifecycle(mock_limiter, task_id):
                 # During execution, all five tasks should be present.
-                assert await async_redis_client.zcard(mock_limiter.concurrency_key) == 5, (
-                    "all five tasks should be present during execution"
-                )
+                assert (
+                    await async_redis_client.zcard(mock_limiter.concurrency_key) == 5
+                ), "all five tasks should be present during execution"
 
         # After completion, only the target task should have been removed.
         assert await async_redis_client.zcard(mock_limiter.concurrency_key) == 4, (
@@ -137,7 +137,9 @@ class TestAsyncTaskLifecycleImplementation:
             and "removed_concurrency=" in record.message
             and "removed_inflight=" in record.message
             for record in caplog.records
-        ), "should emit a debug log for concurrency slot release with limiter id, task id, and removal counts"
+        ), (
+            "should emit a debug log for concurrency slot release with limiter id, task id, and removal counts"
+        )
 
     @staticmethod
     async def test_lifecycle_handles_redis_failure_during_cleanup(
@@ -182,8 +184,7 @@ class TestAsyncTaskLifecycleImplementation:
 
         # Assert
         assert any(
-            record.levelname == "DEBUG"
-            and "removed_inflight=0" in record.message
+            record.levelname == "DEBUG" and "removed_inflight=0" in record.message
             for record in caplog.records
         ), "empty task_id should log removed_inflight=0"
 
@@ -302,7 +303,9 @@ class TestAsyncHeartbeatLoop:
             and f"task_id={task_id}" in record.message
             and "heartbeat_interval_s=" in record.message
             for record in caplog.records
-        ), "should emit a debug log for lifecycle entry with limiter id, task id, and heartbeat interval"
+        ), (
+            "should emit a debug log for lifecycle entry with limiter id, task id, and heartbeat interval"
+        )
 
     @staticmethod
     async def test_heartbeat_interval_calculation(mock_limiter, task_id):
@@ -334,7 +337,9 @@ class TestAsyncHeartbeatLoop:
 
                 # Assert
                 # The lifecycle should have recovered and be marked as healthy.
-                assert lifecycle.is_healthy, "lifecycle must restore health after recovery"
+                assert lifecycle.is_healthy, (
+                    "lifecycle must restore health after recovery"
+                )
 
         # Verify that the recovery log was emitted.
         assert any(
@@ -343,7 +348,9 @@ class TestAsyncHeartbeatLoop:
             and mock_limiter.id in record.message
             and "restored" in record.message
             for record in caplog.records
-        ), "should emit an info log for heartbeat connection restoration with task id and limiter id"
+        ), (
+            "should emit an info log for heartbeat connection restoration with task id and limiter id"
+        )
 
     @staticmethod
     async def test_heartbeat_loop_flags_unhealthy_on_failure_warn_mode(
@@ -378,7 +385,9 @@ class TestAsyncHeartbeatLoop:
             and "flagged as unhealthy" in record.message
             and "Simulated Redis failure" in record.message
             for record in caplog.records
-        ), "should emit a critical log for heartbeat failure with task id and error message"
+        ), (
+            "should emit a critical log for heartbeat failure with task id and error message"
+        )
 
     @staticmethod
     async def test_heartbeat_loop_terminates_worker_on_failure_kill_mode(
@@ -416,7 +425,9 @@ class TestAsyncHeartbeatLoop:
             and "terminating worker" in record.message
             and "Simulated Redis failure" in record.message
             for record in caplog.records
-        ), "should emit a critical log for heartbeat kill mode with task id and error message"
+        ), (
+            "should emit a critical log for heartbeat kill mode with task id and error message"
+        )
 
     @staticmethod
     async def test_heartbeat_loop_stops_on_exit(
@@ -472,10 +483,10 @@ class TestAsyncExtendLease:
     ):
         """Verify that ``extend_lease()`` raises a KeyError for unknown task identifiers."""
         # Act & Assert
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.async_limiters"):
-            with pytest.raises(
-                KeyError, match=r'in the concurrency set\."'
-            ):
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.core.async_limiters"
+        ):
+            with pytest.raises(KeyError, match=r'in the concurrency set\."'):
                 await async_generic_limiter.extend_lease("nonexistent", 30)
 
         # Assert
@@ -486,7 +497,9 @@ class TestAsyncExtendLease:
             and "duration_s=30" in record.message
             and "renewed=False" in record.message
             for record in caplog.records
-        ), "should emit a debug log containing the limiter id, task id, duration, and renewed=False"
+        ), (
+            "should emit a debug log containing the limiter id, task id, duration, and renewed=False"
+        )
 
     @staticmethod
     async def test_extend_lease_succeeds_for_existing_task(
@@ -501,11 +514,15 @@ class TestAsyncExtendLease:
         )
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.async_limiters"):
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.core.async_limiters"
+        ):
             await async_generic_limiter.extend_lease(task_id, 30)
 
         # Assert
-        new_score = await async_redis_client.zscore(async_generic_limiter.concurrency_key, task_id)
+        new_score = await async_redis_client.zscore(
+            async_generic_limiter.concurrency_key, task_id
+        )
         assert new_score is not None, (
             "task should still be present in the concurrency set after lease extension"
         )
@@ -519,7 +536,9 @@ class TestAsyncExtendLease:
             and "duration_s=30" in record.message
             and "renewed=True" in record.message
             for record in caplog.records
-        ), "should emit a debug log containing the limiter id, task id, duration, and renewed=True"
+        ), (
+            "should emit a debug log containing the limiter id, task id, duration, and renewed=True"
+        )
 
     @staticmethod
     async def test_extend_lease_passes_correct_arguments_to_lua(

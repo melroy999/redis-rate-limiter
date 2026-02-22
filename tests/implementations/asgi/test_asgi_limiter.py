@@ -58,12 +58,8 @@ class TestASGIRateLimiter:
         result_a = await limiter.acquire("user_a")
 
         # Assert
-        assert result_b["allowed"] is True, (
-            "unrelated identity should still be allowed"
-        )
-        assert result_a["allowed"] is False, (
-            "exhausted identity should still be denied"
-        )
+        assert result_b["allowed"] is True, "unrelated identity should still be allowed"
+        assert result_a["allowed"] is False, "exhausted identity should still be denied"
 
     @staticmethod
     async def test_acquire_returns_reset_in_ms(limiter):
@@ -97,7 +93,9 @@ class TestASGIRateLimiter:
     async def test_acquire_logs_exception_on_script_failure(limiter, caplog):
         """Verify that ``acquire`` logs an exception when the Lua script fails."""
         # Act & Assert
-        with caplog.at_level(logging.ERROR, logger="celery_rate_limiter.backends.asgi.limiter"):
+        with caplog.at_level(
+            logging.ERROR, logger="celery_rate_limiter.backends.asgi.limiter"
+        ):
             with patch.object(
                 limiter, "_eval_script", side_effect=RuntimeError("script failed")
             ):

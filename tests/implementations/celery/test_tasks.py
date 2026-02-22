@@ -53,4 +53,6 @@ class TestGenericWorkerTask:
             and "limiter_id=worker_limiter" in record.message
             and "func_path=json.dumps" in record.message
             for record in caplog.records
-        ), "should emit a debug log for the worker execution with limiter id and func path"
+        ), (
+            "should emit a debug log for the worker execution with limiter id and func path"
+        )

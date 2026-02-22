@@ -165,9 +165,7 @@ class DistributedLockContractTest:
                 )
 
     @staticmethod
-    def test_lock_has_unique_token(
-        async_redis_client, lock_key, create_lock
-    ):
+    def test_lock_has_unique_token(async_redis_client, lock_key, create_lock):
         """Contract: each lock instance must possess a unique token."""
         # Arrange & Act
         lock_1 = create_lock(async_redis_client, lock_key, timeout_ms=1000)

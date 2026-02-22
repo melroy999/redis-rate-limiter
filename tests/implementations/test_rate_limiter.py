@@ -101,9 +101,7 @@ class RateLimiterImplementationTests:
     ):
         """Verify that a single task is stored with all required metadata."""
         # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter"
-        ):
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
             _, task_id = await limiter.schedule_task(func_path, payload)
 
         # Assert
@@ -122,7 +120,9 @@ class RateLimiterImplementationTests:
             and f"func_path={func_path}" in record.message
             and "priority=" in record.message
             for record in caplog.records
-        ), "should emit a debug log for the scheduling attempt with limiter id, task id, func path, and priority"
+        ), (
+            "should emit a debug log for the scheduling attempt with limiter id, task id, func path, and priority"
+        )
 
         # Verify that the task scheduled info log was emitted.
         assert any(
@@ -140,9 +140,7 @@ class RateLimiterImplementationTests:
         """Verify that duplicate tasks are not scheduled twice."""
         # Act
         success_1, task_id_1 = await limiter.schedule_task(func_path, payload)
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter"
-        ):
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
             success_2, task_id_2 = await limiter.schedule_task(func_path, payload)
 
         # Assert
@@ -160,7 +158,9 @@ class RateLimiterImplementationTests:
             and f"task_id={task_id_1}" in record.message
             and "already in-flight" in record.message
             for record in caplog.records
-        ), "should emit a debug log for the skipped duplicate with limiter id and task id"
+        ), (
+            "should emit a debug log for the skipped duplicate with limiter id and task id"
+        )
 
     @staticmethod
     async def test_schedule_multiple_tasks_with_one_duplicate(

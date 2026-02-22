@@ -70,9 +70,7 @@ class TestAsyncIOTaskLimiter:
         the combined count of buffered and dispatched tasks equals the expected total.
         """
         # Arrange
-        await limiter.schedule_task(
-            "tests.helpers.tasks.async_noop_task", {"key": "a"}
-        )
+        await limiter.schedule_task("tests.helpers.tasks.async_noop_task", {"key": "a"})
         await limiter.schedule_task(
             "tests.helpers.tasks.async_noop_task_2", {"key": "b"}
         )
@@ -125,16 +123,16 @@ class TestAsyncIOTaskLimiter:
         assert limiter._active_count == 0, "active count should start at zero"
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.backends.asyncio.limiter"):
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.backends.asyncio.limiter"
+        ):
             await limiter._dispatch_task(
                 "tests.helpers.tasks.async_noop_task", {}, "test-task-id"
             )
 
         # Assert
         assert limiter._active_count == 1, "active count should be incremented"
-        assert len(limiter._active_tasks) == 1, (
-            "active tasks set should have one entry"
-        )
+        assert len(limiter._active_tasks) == 1, "active tasks set should have one entry"
         assert any(
             record.levelname == "DEBUG"
             and limiter.id in record.message
@@ -188,6 +186,4 @@ class TestAsyncIOTaskLimiter:
         assert len(limiter._active_tasks) == 0, (
             "all tasks should be cleared after shutdown"
         )
-        assert limiter._active_count == 0, (
-            "active count should be zero after shutdown"
-        )
+        assert limiter._active_count == 0, "active count should be zero after shutdown"

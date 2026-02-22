@@ -50,9 +50,7 @@ class TestCeleryRateLimiter:
     ):
         """Verify that ``schedule_task`` stores ``use_executor=False`` in the task payload metadata."""
         # Act
-        success, task_id = limiter.schedule_task(
-            func_path, payload, use_executor=False
-        )
+        success, task_id = limiter.schedule_task(func_path, payload, use_executor=False)
 
         # Assert
         assert success is True, "scheduling should succeed"
@@ -75,7 +73,9 @@ class TestCeleryRateLimiter:
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=True)
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.backends.celery.limiter"):
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.backends.celery.limiter"
+        ):
             with patch.object(limiter.app, "send_task") as mock_send_task:
                 limiter._dispatch_task("myapp.tasks.process", enhanced_payload, task_id)
 
@@ -107,7 +107,9 @@ class TestCeleryRateLimiter:
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=False)
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.backends.celery.limiter"):
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.backends.celery.limiter"
+        ):
             with patch.object(limiter.app, "send_task") as mock_send_task:
                 limiter._dispatch_task(func_path, enhanced_payload, task_id)
 
@@ -139,9 +141,7 @@ class TestCeleryRateLimiter:
         mock_wake.assert_called_once_with(delay)
 
     @staticmethod
-    def test_dispatch_task_send_task_failure_propagates(
-        limiter, payload, task_id
-    ):
+    def test_dispatch_task_send_task_failure_propagates(limiter, payload, task_id):
         """Verify that a ``send_task()`` failure propagates from ``_dispatch_task()``."""
         # Arrange
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=True)
@@ -157,9 +157,7 @@ class TestCeleryRateLimiter:
     def test_enhanced_payload_structure(limiter, payload):
         """Verify that ``_get_enhanced_payload`` wraps the payload in the expected data/meta structure."""
         # Act
-        enhanced_payload = limiter._get_enhanced_payload(
-            payload, use_executor=False
-        )
+        enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=False)
 
         # Assert
         assert enhanced_payload["data"] == payload, (

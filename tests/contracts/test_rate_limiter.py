@@ -71,9 +71,7 @@ class RateLimiterContractTest:
         assert buffer_size == 1, "buffer must contain exactly the one scheduled task"
 
     @staticmethod
-    async def test_schedule_duplicate_task_returns_false(
-        limiter, func_path, payload
-    ):
+    async def test_schedule_duplicate_task_returns_false(limiter, func_path, payload):
         """Contract: scheduling identical tasks must return ``False`` for the duplicate."""
         # Act
         success_1, task_id_1 = await limiter.schedule_task(func_path, payload)
@@ -208,9 +206,7 @@ class RateLimiterContractTest:
         assert result["task"] is None, "consume should return no task on empty buffer"
 
     @staticmethod
-    async def test_consume_expired_field_is_boolean(
-        limiter, func_path, payload
-    ):
+    async def test_consume_expired_field_is_boolean(limiter, func_path, payload):
         """Contract: the ``consume()`` expired flag must always be a boolean."""
         # Arrange
         await limiter.schedule_task(func_path, payload)
@@ -267,7 +263,9 @@ class RateLimiterContractTest:
         # Act & Assert
         # Calling without arguments exercises the default timeout_ms=5000.
         async with limiter.execution_lock() as acquired:
-            assert isinstance(acquired, bool), "execution_lock with default timeout must yield a boolean"
+            assert isinstance(acquired, bool), (
+                "execution_lock with default timeout must yield a boolean"
+            )
             assert acquired is True, "execution_lock should succeed when uncontested"
 
     @staticmethod

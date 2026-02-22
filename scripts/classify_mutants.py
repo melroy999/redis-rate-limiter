@@ -158,9 +158,7 @@ def _extract_quoted_string(line: str) -> tuple[str | None, str, str]:
     return match.group(1), line[: match.start(1)], line[match.end(1) :]
 
 
-def _detect_string_mutation(
-    old_lines: list[str], new_lines: list[str]
-) -> str | None:
+def _detect_string_mutation(old_lines: list[str], new_lines: list[str]) -> str | None:
     """Detect XX wrap, lowercase, or uppercase string mutations.
 
     Returns "xx_wrap", "lowercase", "uppercase", or None.
@@ -198,9 +196,7 @@ def _detect_string_mutation(
 # Context detection
 # ---------------------------------------------------------------------------
 
-_LOGGER_PATTERN = re.compile(
-    r"logger\.(debug|info|warning|error|exception|critical)\("
-)
+_LOGGER_PATTERN = re.compile(r"logger\.(debug|info|warning|error|exception|critical)\(")
 _RAISE_PATTERN = re.compile(r"\braise\b|\bException\b|\bError\(")
 
 
@@ -221,9 +217,7 @@ def _has_raise_context(context_lines: list[str], old_lines: list[str]) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _detect_argument_removal(
-    old_lines: list[str], new_lines: list[str]
-) -> str | None:
+def _detect_argument_removal(old_lines: list[str], new_lines: list[str]) -> str | None:
     """Detect argument removal (lines removed, none added or net reduction).
 
     Returns a description of the removed argument, or None.
@@ -286,9 +280,7 @@ _OPERATOR_PAIRS = [
 ]
 
 
-def _detect_operator_swap(
-    old_lines: list[str], new_lines: list[str]
-) -> str | None:
+def _detect_operator_swap(old_lines: list[str], new_lines: list[str]) -> str | None:
     """Detect operator swaps on single-line diffs.
 
     Returns a description like '<= 0  ->  < 0' or None.
@@ -309,9 +301,7 @@ def _detect_operator_swap(
     return None
 
 
-def _detect_numeric_increment(
-    old_lines: list[str], new_lines: list[str]
-) -> str | None:
+def _detect_numeric_increment(old_lines: list[str], new_lines: list[str]) -> str | None:
     """Detect numeric literal increments (N -> N+1).
 
     Returns a description like '0  ->  1' or None.
@@ -345,9 +335,7 @@ def _detect_numeric_increment(
     return None
 
 
-def _detect_value_to_none(
-    old_lines: list[str], new_lines: list[str]
-) -> str | None:
+def _detect_value_to_none(old_lines: list[str], new_lines: list[str]) -> str | None:
     """Detect value-to-None replacements on single-line diffs.
 
     Returns a description like 'result["remaining"]  ->  None' or None.
@@ -372,16 +360,18 @@ def _detect_value_to_none(
         suffix = new[match.end() :]
 
         if old.startswith(prefix) and old.endswith(suffix):
-            replaced = old[len(prefix) : len(old) - len(suffix)] if suffix else old[len(prefix) :]
+            replaced = (
+                old[len(prefix) : len(old) - len(suffix)]
+                if suffix
+                else old[len(prefix) :]
+            )
             if replaced and replaced.strip():
                 return f"{replaced.strip()}  ->  None"
 
     return None
 
 
-def _detect_boolean_swap(
-    old_lines: list[str], new_lines: list[str]
-) -> str | None:
+def _detect_boolean_swap(old_lines: list[str], new_lines: list[str]) -> str | None:
     """Detect True/False swaps."""
     if len(old_lines) != 1 or len(new_lines) != 1:
         return None
@@ -397,9 +387,7 @@ def _detect_boolean_swap(
     return None
 
 
-def _detect_keyword_swap(
-    old_lines: list[str], new_lines: list[str]
-) -> str | None:
+def _detect_keyword_swap(old_lines: list[str], new_lines: list[str]) -> str | None:
     """Detect keyword mutations (break->return, continue->break, etc.)."""
     if len(old_lines) != 1 or len(new_lines) != 1:
         return None
@@ -419,9 +407,7 @@ def _detect_keyword_swap(
     return None
 
 
-def _detect_unary_removal(
-    old_lines: list[str], new_lines: list[str]
-) -> str | None:
+def _detect_unary_removal(old_lines: list[str], new_lines: list[str]) -> str | None:
     """Detect unary operator removal (not x -> x, ~x -> x)."""
     if len(old_lines) != 1 or len(new_lines) != 1:
         return None
@@ -447,7 +433,20 @@ def _detect_augmented_to_simple(
     old = old_lines[0].strip()
     new = new_lines[0].strip()
 
-    aug_ops = ["+=", "-=", "*=", "/=", "//=", "%=", "**=", "&=", "|=", "^=", "<<=", ">>="]
+    aug_ops = [
+        "+=",
+        "-=",
+        "*=",
+        "/=",
+        "//=",
+        "%=",
+        "**=",
+        "&=",
+        "|=",
+        "^=",
+        "<<=",
+        ">>=",
+    ]
     for op in aug_ops:
         if op in old and old.replace(op, "=", 1) == new:
             return f"{op}  ->  ="
@@ -576,9 +575,7 @@ def _classify(diff: MutationDiff) -> tuple[int, str, str]:
     return 3, "unknown", desc
 
 
-def _get_logger_level(
-    context_lines: list[str], old_lines: list[str]
-) -> str | None:
+def _get_logger_level(context_lines: list[str], old_lines: list[str]) -> str | None:
     """Extract the logger level from context if a logger call is present."""
     all_lines = context_lines + old_lines
     for line in all_lines:
@@ -606,7 +603,7 @@ def _shorten_name(mutation_id: str) -> str:
     name = mutation_id
     prefix = "celery_rate_limiter."
     if name.startswith(prefix):
-        name = name[len(prefix):]
+        name = name[len(prefix) :]
 
     # Strip intermediate subpackage segments (keep last module before xǁ).
     xsep = ".\x01"  # placeholder

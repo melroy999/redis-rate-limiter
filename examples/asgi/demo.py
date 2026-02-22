@@ -236,7 +236,9 @@ async def run_demo() -> None:
     # Phase 4: Gradual recovery during the next window
     reset_ms = int(headers.get("x-ratelimit-reset", str(int(ASGI_WINDOW * 1000))))
     wait_secs = reset_ms / 1000 + 0.5
-    print(f"\n--- Phase 4: Gradual recovery (waiting {wait_secs:.1f}s for next window) ---")
+    print(
+        f"\n--- Phase 4: Gradual recovery (waiting {wait_secs:.1f}s for next window) ---"
+    )
     logger.info("Phase 4: sleeping %.1fs for window rollover.", wait_secs)
     await asyncio.sleep(wait_secs)
 
@@ -276,7 +278,9 @@ async def run_demo() -> None:
     print(f"  Done. Sent {total_requests} requests to /")
     print(f"  Phase 2: {ASGI_LIMIT} allowed (within limit)")
     print(f"  Phase 3: {EXTRA_REQUESTS} rate-limited (429)")
-    print(f"  Phase 4: {recovery_allowed} allowed, {recovery_denied} limited (recovery)")
+    print(
+        f"  Phase 4: {recovery_allowed} allowed, {recovery_denied} limited (recovery)"
+    )
     print("  /health bypassed rate limiting throughout")
     print(f"{'=' * 50}\n")
 

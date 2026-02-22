@@ -510,7 +510,7 @@ class AbstractAsyncDistributedRateLimiter(
         """
         await super().start()
 
-        # Register Lua scripts with the Redis server. 
+        # Register Lua scripts with the Redis server.
         await self._register_script("consume.lua")
         await self._register_script("schedule.lua")
         await self._register_script("health.lua")
@@ -655,9 +655,9 @@ class AbstractAsyncDistributedRateLimiter(
         consume_result: ConsumeResult = {
             "success": int(result[0]) == 1,
             "expired": int(result[0]) == -1,
-            "task": cast(  # pragma: no mutate
-                TaskData, json.loads(result[1])
-            ) if result[1] else None,
+            "task": cast(TaskData, json.loads(result[1]))  # pragma: no mutate
+            if result[1]
+            else None,
             "remaining_tokens": int(result[2]),
             "active_concurrency": int(result[3]),
             "reset_in_ms": int(result[4]),
@@ -880,7 +880,9 @@ class AbstractAsyncDistributedRateLimiter(
             payload: The task payload dictionary.
             task_id: The unique task identifier.
         """
+        # fmt: off
         raise NotImplementedError("Subclasses must implement _dispatch_task")  # pragma: no mutate
+        # fmt: on
 
     def _schedule_drain(self, delay: float = 0.0) -> None:
         """Schedule the drain method to execute again after ``delay`` seconds.

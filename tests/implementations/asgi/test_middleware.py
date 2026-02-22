@@ -271,11 +271,13 @@ class TestRateLimitMiddleware:
 
         # Arrange
         async def inner_app(scope, receive, send):
-            await send({
-                "type": "http.response.start",
-                "status": 200,
-                "headers": [(b"x-custom", b"preserved")],
-            })
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"x-custom", b"preserved")],
+                }
+            )
             await send({"type": "http.response.body", "body": b"OK"})
 
         middleware = RateLimitMiddleware(
@@ -324,9 +326,7 @@ class TestRateLimitMiddleware:
         assert int(remaining) == limiter.limit - 1, (
             "x-ratelimit-remaining should be limit minus one after first acquire"
         )
-        assert int(reset) > 0, (
-            "x-ratelimit-reset should be a positive integer"
-        )
+        assert int(reset) > 0, "x-ratelimit-reset should be a positive integer"
 
     async def test_inner_app_receives_working_receive_callable(self, limiter):
         """Verify that the inner app receives the original ``receive`` callable, not ``None``."""
@@ -354,6 +354,7 @@ class TestRateLimitMiddleware:
 
     async def test_wrap_send_handles_missing_headers_key(self, limiter):
         """Verify that ``_wrap_send`` injects headers even when the response lacks a ``headers`` key."""
+
         # Arrange
         async def inner_app(scope, receive, send):
             await send({"type": "http.response.start", "status": 200})

@@ -7,6 +7,7 @@ threading primitives.
 
 import asyncio
 import inspect
+import logging
 import time
 from unittest.mock import AsyncMock, MagicMock
 
@@ -20,6 +21,33 @@ from celery_rate_limiter.core.async_limiters import (
 
 class TestAsyncDrainLoop:
     """Test suite for ``AsyncDrainLoop`` wake, coalesce, watchdog, and shutdown behavior."""
+
+    @staticmethod
+    async def test_wake_default_delay_fires_immediately():
+        """Verify that ``wake()`` with no arguments uses the default delay of ``0.0`` and fires promptly."""
+        # Arrange
+        limiter = MagicMock()
+        drain_called = asyncio.Event()
+        limiter.drain = AsyncMock(side_effect=lambda: drain_called.set())
+        loop = AsyncDrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        start = time.monotonic()
+        loop.wake()
+        try:
+            await asyncio.wait_for(drain_called.wait(), timeout=2.0)
+            fired = True
+        except asyncio.TimeoutError:
+            fired = False
+        elapsed = time.monotonic() - start
+        await loop.shutdown()
+
+        # Assert
+        assert fired, "drain should be called after wake() with default delay"
+        assert elapsed < 0.5, (
+            f"drain should fire promptly with default delay=0.0, took {elapsed:.2f}s"
+        )
+        limiter.drain.assert_called()
 
     @staticmethod
     async def test_wake_default_delay_is_zero():
@@ -183,7 +211,9 @@ class TestAsyncDrainLoop:
         loop = AsyncDrainLoop(limiter, watchdog_interval=60.0)
 
         # Assert
-        assert loop._shutdown is False, "shutdown flag should be False before first wake"
+        assert loop._shutdown is False, (
+            "shutdown flag should be False before first wake"
+        )
         assert loop._task is None, "task should not exist before first wake"
 
         # Act
@@ -195,7 +225,7 @@ class TestAsyncDrainLoop:
         await loop.shutdown()
 
     @staticmethod
-    async def test_drain_loop_survives_drain_exception():
+    async def test_drain_loop_survives_drain_exception(caplog):
         """Verify that the drain loop task survives when ``drain()`` raises an exception."""
         # Arrange
         limiter = MagicMock()
@@ -215,21 +245,28 @@ class TestAsyncDrainLoop:
 
         # Act
         # First wake triggers the exception, second wake should still work.
-        loop.wake(0)
-        await asyncio.sleep(0.1)
-        loop.wake(0)
-        try:
-            await asyncio.wait_for(second_call.wait(), timeout=2.0)
-            fired = True
-        except asyncio.TimeoutError:
-            fired = False
-        await loop.shutdown()
+        with caplog.at_level(
+            logging.ERROR, logger="celery_rate_limiter.core.async_limiters"
+        ):
+            loop.wake(0)
+            await asyncio.sleep(0.1)
+            loop.wake(0)
+            try:
+                await asyncio.wait_for(second_call.wait(), timeout=2.0)
+                fired = True
+            except asyncio.TimeoutError:
+                fired = False
+            await loop.shutdown()
 
         # Assert
         assert fired, (
             "drain loop should survive an exception and process subsequent wakes"
         )
         assert call_count >= 2, "drain should have been called at least twice"
+        assert any(
+            record.levelname == "ERROR" and "limiter=test-resilience" in record.message
+            for record in caplog.records
+        ), "should emit an error log containing the limiter id when drain raises"
 
     @staticmethod
     @pytest.mark.filterwarnings("ignore::RuntimeWarning")

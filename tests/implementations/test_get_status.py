@@ -11,7 +11,6 @@ import pytest
 
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 
-
 # ---------------------------------------------------------------------------
 # Unified implementation tests
 # ---------------------------------------------------------------------------

@@ -29,7 +29,6 @@ from tests.implementations.conftest import (
     TrackingRateLimiter,
 )
 
-
 # ---------------------------------------------------------------------------
 # Unified implementation tests
 # ---------------------------------------------------------------------------
@@ -172,7 +171,9 @@ class DrainBehaviorTests:
             and "task_id=task-1" in record.message
             and "func_path=myapp.tasks.work" in record.message
             for record in caplog.records
-        ), "should emit an info log for the dispatched task with limiter id, task id, and func path"
+        ), (
+            "should emit an info log for the dispatched task with limiter id, task id, and func path"
+        )
         assert any(
             record.levelname == "DEBUG"
             and f"limiter={limiter.id}" in record.message
@@ -216,7 +217,9 @@ class DrainBehaviorTests:
             and f"limiter={limiter.id}" in record.message
             and "attempt #1" in record.message
             for record in caplog.records
-        ), "should emit an error log containing the limiter id and failure attempt number"
+        ), (
+            "should emit an error log containing the limiter id and failure attempt number"
+        )
 
     async def test_drain_handles_dispatch_exception(self, limiter, mock_target):
         """Verify that dispatch exceptions are caught and a recovery drain is scheduled."""
@@ -375,7 +378,9 @@ class DrainBehaviorTests:
             and f"active={limiter.max_concurrency}" in record.message
             and f"max={limiter.max_concurrency}" in record.message
             for record in caplog.records
-        ), "should emit a debug log indicating concurrency is at capacity with active and max counts"
+        ), (
+            "should emit a debug log indicating concurrency is at capacity with active and max counts"
+        )
 
     async def test_drain_schedules_delayed_retry_when_rate_limited(
         self, limiter, mock_target, caplog
@@ -427,7 +432,9 @@ class DrainBehaviorTests:
             and "delay_s=" in record.message
             and "remaining_tasks=" in record.message
             for record in caplog.records
-        ), "should emit an info log for the rate-limited retry with delay and remaining tasks"
+        ), (
+            "should emit an info log for the rate-limited retry with delay and remaining tasks"
+        )
 
     async def test_drain_calls_refresh_config_if_available(self, limiter, mock_target):
         """Verify that ``drain()`` calls ``refresh_config()`` when the attribute exists."""
@@ -669,9 +676,7 @@ class DrainBehaviorTests:
             mock_target.redis, "publish", side_effect=Exception("publish boom")
         ):
             # Act
-            with caplog.at_level(
-                logging.DEBUG, logger="celery_rate_limiter"
-            ):
+            with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
                 await limiter.trigger_consume()
 
         # Assert
@@ -846,8 +851,11 @@ class TestAsyncScheduleDrainDelegation:
             )
 
         # Assert
-        mock_loop.wake.assert_called_once_with(1.5), (
-            "_schedule_drain should delegate to _drain_loop.wake with the provided delay"
+        (
+            mock_loop.wake.assert_called_once_with(1.5),
+            (
+                "_schedule_drain should delegate to _drain_loop.wake with the provided delay"
+            ),
         )
 
     @staticmethod
@@ -858,9 +866,7 @@ class TestAsyncScheduleDrainDelegation:
         # Act & Assert
         # Must not raise AttributeError.
         with patch.object(async_generic_limiter, "_drain_loop", None):
-            AbstractAsyncDistributedRateLimiter._schedule_drain(
-                async_generic_limiter
-            )
+            AbstractAsyncDistributedRateLimiter._schedule_drain(async_generic_limiter)
 
 
 class TestCrossProcessDrainSignal:

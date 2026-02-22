@@ -30,7 +30,9 @@ class TestImportString:
             and "module=json" in record.message
             and "callable=dumps" in record.message
             for record in caplog.records
-        ), "should emit a debug log for the resolved import with import path, module, and callable"
+        ), (
+            "should emit a debug log for the resolved import with import path, module, and callable"
+        )
 
     @staticmethod
     def test_import_string_raises_type_error_for_non_callable():

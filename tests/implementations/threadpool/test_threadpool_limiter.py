@@ -17,7 +17,9 @@ class TestThreadPoolRateLimiter:
     ):
         """Verify that ``_dispatch_task`` submits a callable to the thread pool executor."""
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.backends.threading.limiter"):
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.backends.threading.limiter"
+        ):
             with (
                 patch(
                     "celery_rate_limiter.backends.threading.limiter.import_string",
@@ -40,9 +42,7 @@ class TestThreadPoolRateLimiter:
         ), "should emit a debug log containing the limiter id, task id, and func path"
 
     @staticmethod
-    def test_dispatch_task_resolves_function_path(
-        limiter, payload, func_path, task_id
-    ):
+    def test_dispatch_task_resolves_function_path(limiter, payload, func_path, task_id):
         """Verify that ``_dispatch_task`` uses ``import_string`` to resolve the function path."""
         # Act
         with (
@@ -58,9 +58,7 @@ class TestThreadPoolRateLimiter:
         mock_import.assert_called_once_with(func_path)
 
     @staticmethod
-    def test_dispatch_task_wraps_in_lifecycle(
-        limiter, payload, func_path, task_id
-    ):
+    def test_dispatch_task_wraps_in_lifecycle(limiter, payload, func_path, task_id):
         """Verify that ``_dispatch_task`` wraps execution within the ``task_lifecycle`` context manager."""
         # Arrange
         mock_lifecycle = MagicMock()
@@ -221,9 +219,7 @@ class TestLocalCapacityGuard:
         )
 
     @staticmethod
-    def test_dispatch_task_increments_counter_additively(
-        limiter, func_path, task_id
-    ):
+    def test_dispatch_task_increments_counter_additively(limiter, func_path, task_id):
         """Verify that ``_dispatch_task()`` uses additive increment, not assignment, for the dispatch counter."""
         # Arrange
         started_1 = threading.Event()

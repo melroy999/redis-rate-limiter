@@ -152,9 +152,7 @@ class TestCreate:
         limiter = create_test_limiter(limiter_id)
 
         # Assert
-        assert limiter.id == limiter_id, (
-            "created limiter should keep requested id"
-        )
+        assert limiter.id == limiter_id, "created limiter should keep requested id"
         assert limiter.limit == 10, "created limiter should keep requested limit"
         assert limiter.window == 60, "created limiter should keep requested window"
         assert limiter.max_concurrency == 5, (
@@ -220,9 +218,7 @@ class TestCreate:
         )
 
     @staticmethod
-    def test_create_persist_writes_registry_config(
-        redis_client, limiter_id
-    ):
+    def test_create_persist_writes_registry_config(redis_client, limiter_id):
         """Verify that ``create()`` with ``persist=True`` writes the limiter configuration to the Redis registry."""
         # Act
         create_test_limiter(limiter_id)
@@ -262,17 +258,14 @@ class TestCreate:
         )
 
     @staticmethod
-    def test_create_without_persist_skips_registry_write(
-        redis_client, limiter_id
-    ):
+    def test_create_without_persist_skips_registry_write(redis_client, limiter_id):
         """Verify that ``create()`` with ``persist=False`` does not write to the Redis registry."""
         # Act
         create_test_limiter(limiter_id, persist=False)
 
         # Assert
         assert (
-            redis_client.hget(ManagedTestRateLimiter._REGISTRY_KEY, limiter_id)
-            is None
+            redis_client.hget(ManagedTestRateLimiter._REGISTRY_KEY, limiter_id) is None
         ), "persist=False should skip config registry write"
 
 
@@ -312,9 +305,7 @@ class TestGet:
         hydrated = ManagedTestRateLimiter.get(limiter_id)
 
         # Assert
-        assert hydrated.id == limiter_id, (
-            "hydrated limiter should retain persisted id"
-        )
+        assert hydrated.id == limiter_id, "hydrated limiter should retain persisted id"
         assert hydrated.limit == 10, "hydrated limiter should retain persisted limit"
         assert hydrated.window == 60, "hydrated limiter should retain persisted window"
         assert hydrated.max_concurrency == 5, (
@@ -322,9 +313,7 @@ class TestGet:
         )
 
     @staticmethod
-    def test_get_hydration_loads_current_config_version(
-        redis_client, limiter_id
-    ):
+    def test_get_hydration_loads_current_config_version(redis_client, limiter_id):
         """Verify that the hydrated limiter tracks the current persisted configuration version."""
         # Arrange
         create_test_limiter(limiter_id)
@@ -400,9 +389,7 @@ class TestUpdate:
         )
 
     @staticmethod
-    def test_update_persists_new_config_and_bumps_version(
-        redis_client, limiter_id
-    ):
+    def test_update_persists_new_config_and_bumps_version(redis_client, limiter_id):
         """Verify that ``update()`` writes the new configuration and increments the version counter."""
         # Arrange
         create_test_limiter(limiter_id)
@@ -524,9 +511,7 @@ class TestRefreshConfig:
         )
 
     @staticmethod
-    def test_refresh_config_applies_remote_change(
-        redis_client, limiter_id
-    ):
+    def test_refresh_config_applies_remote_change(redis_client, limiter_id):
         """Verify that ``refresh_config()`` applies a newer configuration written by another worker."""
         # Arrange
         limiter = create_test_limiter(limiter_id)
@@ -555,9 +540,7 @@ class TestRefreshConfig:
         )
 
     @staticmethod
-    def test_refresh_config_window_change_sets_pause_until(
-        redis_client, limiter_id
-    ):
+    def test_refresh_config_window_change_sets_pause_until(redis_client, limiter_id):
         """Verify that ``refresh_config()`` sets a pause when the remote configuration changes the window size."""
         # Arrange
         limiter = create_test_limiter(limiter_id)
@@ -602,9 +585,7 @@ class TestRefreshConfig:
         )
 
     @staticmethod
-    def test_refresh_config_handles_corrupted_redis_data(
-        redis_client, limiter_id
-    ):
+    def test_refresh_config_handles_corrupted_redis_data(redis_client, limiter_id):
         """Verify that ``refresh_config()`` handles malformed persisted JSON gracefully."""
         # Arrange
         limiter = create_test_limiter(limiter_id)

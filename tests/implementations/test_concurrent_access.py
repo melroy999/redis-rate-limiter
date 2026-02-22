@@ -494,9 +494,7 @@ class TestConcurrentLifecycle:
     """Tests for ``TaskLifecycle`` cleanup under concurrent access."""
 
     @staticmethod
-    def test_concurrent_lifecycle_cleanup_frees_slots(
-        make_limiter_pool, redis_client
-    ):
+    def test_concurrent_lifecycle_cleanup_frees_slots(make_limiter_pool, redis_client):
         """Verify that all concurrency slots are freed when multiple lifecycles exit concurrently."""
         # Arrange
         max_conc = 5
@@ -547,9 +545,7 @@ class TestConcurrentFullPipeline:
     """End-to-end distributed coordination test."""
 
     @staticmethod
-    def test_producers_and_consumers_under_contention(
-        make_limiter_pool, redis_client
-    ):
+    def test_producers_and_consumers_under_contention(make_limiter_pool, redis_client):
         """Verify that no tasks are lost when producers and consumers operate concurrently.
 
         Producer threads schedule tasks while consumer threads drain. Completed

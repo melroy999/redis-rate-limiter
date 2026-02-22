@@ -6,8 +6,6 @@ import time
 from threading import Event
 from unittest.mock import MagicMock
 
-import pytest
-
 from celery_rate_limiter.core.limiters import DrainLoop, DrainSignalSubscriber
 
 
@@ -174,7 +172,9 @@ class TestDrainLoop:
         loop = DrainLoop(limiter, watchdog_interval=60.0)
 
         # Assert
-        assert loop._shutdown is False, "shutdown flag should be False before first wake"
+        assert loop._shutdown is False, (
+            "shutdown flag should be False before first wake"
+        )
         assert loop._thread is None, "thread should not exist before first wake"
 
         # Act
@@ -218,8 +218,7 @@ class TestDrainLoop:
         )
         assert call_count >= 2, "drain should have been called at least twice"
         assert any(
-            record.levelname == "ERROR"
-            and "limiter=test-resilience" in record.message
+            record.levelname == "ERROR" and "limiter=test-resilience" in record.message
             for record in caplog.records
         ), "should emit an error log containing the limiter id when drain raises"
 

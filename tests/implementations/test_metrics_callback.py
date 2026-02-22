@@ -14,7 +14,6 @@ import pytest
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 from tests.implementations.conftest import MinimalAsyncRateLimiter, MinimalRateLimiter
 
-
 # ---------------------------------------------------------------------------
 # Unified implementation tests
 # ---------------------------------------------------------------------------
@@ -53,9 +52,7 @@ class MetricsCallbackTests:
     async def test_consume_emits_metric(limiter, callback, caplog):
         """Verify that consume emits a metric with the correct event name and data keys."""
         # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter"
-        ):
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
             await limiter.consume()
 
         # Assert
@@ -81,7 +78,9 @@ class MetricsCallbackTests:
             and "success=" in record.message
             and "remaining_tokens=" in record.message
             for record in caplog.records
-        ), "should emit a debug log for the consume result with limiter id, success, and remaining tokens"
+        ), (
+            "should emit a debug log for the consume result with limiter id, success, and remaining tokens"
+        )
 
     @staticmethod
     async def test_schedule_emits_metric(limiter, callback, func_path):

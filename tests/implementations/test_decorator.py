@@ -46,7 +46,9 @@ class TestRateLimitedDecorator:
             return value * 2
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.decorators"):
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.core.decorators"
+        ):
             with patch(
                 "celery_rate_limiter.core.decorators._get_default_limiter",
                 return_value=limiter,
@@ -60,7 +62,8 @@ class TestRateLimitedDecorator:
         lifecycle_context.__exit__.assert_called_once()
 
         debug_records = [
-            r for r in caplog.records
+            r
+            for r in caplog.records
             if r.levelname == "DEBUG"
             and limiter_id in r.message
             and task_id in r.message
@@ -70,7 +73,9 @@ class TestRateLimitedDecorator:
         )
 
     @staticmethod
-    def test_decorator_pops_rate_limit_task_id_from_kwargs(limiter_mock, limiter_id, task_id):
+    def test_decorator_pops_rate_limit_task_id_from_kwargs(
+        limiter_mock, limiter_id, task_id
+    ):
         """Verify that ``_rate_limit_task_id`` is consumed and not forwarded to the wrapped function."""
         # Arrange
         limiter, _ = limiter_mock
@@ -96,7 +101,9 @@ class TestRateLimitedDecorator:
         assert captured_kwargs["alpha"] == 1, "non-reserved kwargs should be preserved"
 
     @staticmethod
-    def test_decorator_resolves_limiter_id_from_argument(limiter_mock, limiter_id, task_id):
+    def test_decorator_resolves_limiter_id_from_argument(
+        limiter_mock, limiter_id, task_id
+    ):
         """Verify that the decorator's limiter_id argument takes precedence for limiter lookup."""
         # Arrange
         limiter, _ = limiter_mock
@@ -120,7 +127,9 @@ class TestRateLimitedDecorator:
         mock_get.assert_called_once_with(limiter_id)
 
     @staticmethod
-    def test_decorator_resolves_limiter_id_from_kwargs(limiter_mock, limiter_id, task_id):
+    def test_decorator_resolves_limiter_id_from_kwargs(
+        limiter_mock, limiter_id, task_id
+    ):
         """Verify that the decorator falls back to ``kwargs['limiter_id']`` when the argument is None."""
         # Arrange
         limiter, _ = limiter_mock
@@ -164,7 +173,9 @@ class TestRateLimitedDecorator:
         assert result == {"sum": 7}, "decorator should not alter wrapped return value"
 
     @staticmethod
-    def test_decorator_propagates_wrapped_function_exception(limiter_mock, limiter_id, task_id):
+    def test_decorator_propagates_wrapped_function_exception(
+        limiter_mock, limiter_id, task_id
+    ):
         """Verify that exceptions from the wrapped function propagate and that lifecycle cleanup is performed."""
         # Arrange
         limiter, lifecycle_context = limiter_mock
@@ -227,7 +238,9 @@ class TestRateLimitedDecorator:
         )
 
     @staticmethod
-    def test_decorator_uses_injected_limiter_resolver(limiter_mock, limiter_id, task_id):
+    def test_decorator_uses_injected_limiter_resolver(
+        limiter_mock, limiter_id, task_id
+    ):
         """Verify that the decorator can resolve limiters via an injected backend resolver."""
         # Arrange
         limiter, _ = limiter_mock
@@ -247,7 +260,9 @@ class TestRateLimitedDecorator:
         resolver.assert_called_once_with(limiter_id)
 
     @staticmethod
-    def test_decorator_raises_value_error_when_limiter_id_missing(limiter_mock, task_id):
+    def test_decorator_raises_value_error_when_limiter_id_missing(
+        limiter_mock, task_id
+    ):
         """Verify that a ``ValueError`` is raised when neither the decorator argument nor kwargs provide a limiter_id."""
         # Arrange
         limiter, _ = limiter_mock

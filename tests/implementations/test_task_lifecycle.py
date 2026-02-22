@@ -104,9 +104,7 @@ class TestTaskLifecycleImplementation:
 
         # Act & Assert
         # Prevent the heartbeat thread from starting.
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.core.limiters"
-        ):
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.limiters"):
             with patch("threading.Thread"):
                 with TaskLifecycle(mock_limiter, task_id):
                     # During execution, all five tasks should be present.
@@ -136,7 +134,9 @@ class TestTaskLifecycleImplementation:
             and "removed_concurrency=" in record.message
             and "removed_inflight=" in record.message
             for record in caplog.records
-        ), "should emit a debug log for concurrency slot release with limiter id, task id, and removal counts"
+        ), (
+            "should emit a debug log for concurrency slot release with limiter id, task id, and removal counts"
+        )
 
     @staticmethod
     def test_lifecycle_handles_redis_failure_during_cleanup(
@@ -174,17 +174,14 @@ class TestTaskLifecycleImplementation:
         limiter.extend_lease.return_value = None
 
         # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.core.limiters"
-        ):
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.limiters"):
             with patch("threading.Thread"):
                 with TaskLifecycle(limiter, task_id=""):
                     pass
 
         # Assert
         assert any(
-            record.levelname == "DEBUG"
-            and "removed_inflight=0" in record.message
+            record.levelname == "DEBUG" and "removed_inflight=0" in record.message
             for record in caplog.records
         ), "empty task_id should log removed_inflight=0"
 
@@ -237,9 +234,7 @@ class TestHeartbeatLoop:
     ):
         """Verify that the heartbeat loop extends the lease at regular intervals."""
         # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.core.limiters"
-        ):
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.limiters"):
             with TaskLifecycle(mock_limiter, task_id):
                 # Wait for at least one heartbeat interval.
                 # The interval is lease_duration / 2.
@@ -264,7 +259,9 @@ class TestHeartbeatLoop:
             and f"task_id={task_id}" in record.message
             and "heartbeat_interval_s=" in record.message
             for record in caplog.records
-        ), "should emit a debug log for lifecycle entry with limiter id, task id, and heartbeat interval"
+        ), (
+            "should emit a debug log for lifecycle entry with limiter id, task id, and heartbeat interval"
+        )
 
     @staticmethod
     def test_heartbeat_interval_calculation(mock_limiter, task_id):
@@ -285,9 +282,7 @@ class TestHeartbeatLoop:
     ):
         """Verify that the heartbeat loop restores the health status after recovering from a failure."""
         # Act
-        with caplog.at_level(
-            logging.INFO, logger="celery_rate_limiter.core.limiters"
-        ):
+        with caplog.at_level(logging.INFO, logger="celery_rate_limiter.core.limiters"):
             with TaskLifecycle(mock_limiter, task_id) as lifecycle:
                 # Simulate an unhealthy state.
                 lifecycle.is_healthy = False
@@ -297,7 +292,9 @@ class TestHeartbeatLoop:
 
                 # Assert
                 # The lifecycle should have recovered and be marked as healthy.
-                assert lifecycle.is_healthy, "lifecycle must restore health after recovery"
+                assert lifecycle.is_healthy, (
+                    "lifecycle must restore health after recovery"
+                )
 
         # Verify that the recovery log was emitted.
         assert any(
@@ -306,7 +303,9 @@ class TestHeartbeatLoop:
             and mock_limiter.id in record.message
             and "restored" in record.message
             for record in caplog.records
-        ), "should emit an info log for heartbeat connection restoration with task id and limiter id"
+        ), (
+            "should emit an info log for heartbeat connection restoration with task id and limiter id"
+        )
 
     @staticmethod
     def test_heartbeat_loop_flags_unhealthy_on_failure_warn_mode(
@@ -339,7 +338,9 @@ class TestHeartbeatLoop:
             and "flagged as unhealthy" in record.message
             and "Simulated Redis failure" in record.message
             for record in caplog.records
-        ), "should emit a critical log for heartbeat failure with task id and error message"
+        ), (
+            "should emit a critical log for heartbeat failure with task id and error message"
+        )
 
     @staticmethod
     def test_heartbeat_loop_terminates_worker_on_failure_kill_mode(
@@ -373,7 +374,9 @@ class TestHeartbeatLoop:
             and "terminating worker" in record.message
             and "Simulated Redis failure" in record.message
             for record in caplog.records
-        ), "should emit a critical log for heartbeat failure with task id, error, and termination action"
+        ), (
+            "should emit a critical log for heartbeat failure with task id, error, and termination action"
+        )
 
     @staticmethod
     def test_heartbeat_loop_stops_on_exit(redis_client, mock_limiter, task_id):
@@ -428,9 +431,7 @@ class TestExtendLease:
         """Verify that ``extend_lease()`` raises a KeyError for unknown task identifiers."""
         # Act & Assert
         with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.limiters"):
-            with pytest.raises(
-                KeyError, match=r'in the concurrency set\."'
-            ):
+            with pytest.raises(KeyError, match=r'in the concurrency set\."'):
                 generic_limiter.extend_lease("nonexistent", 30)
 
         # Assert
@@ -441,7 +442,9 @@ class TestExtendLease:
             and "duration_s=30" in record.message
             and "renewed=False" in record.message
             for record in caplog.records
-        ), "should emit a debug log containing the limiter id, task id, duration, and renewed=False"
+        ), (
+            "should emit a debug log containing the limiter id, task id, duration, and renewed=False"
+        )
 
     @staticmethod
     def test_extend_lease_succeeds_for_existing_task(
@@ -451,9 +454,7 @@ class TestExtendLease:
         # Arrange
         # Seed the concurrency sorted set with a low score so the update is observable.
         initial_score = 1000.0
-        redis_client.zadd(
-            generic_limiter.concurrency_key, {task_id: initial_score}
-        )
+        redis_client.zadd(generic_limiter.concurrency_key, {task_id: initial_score})
 
         # Act
         with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.limiters"):
@@ -474,7 +475,9 @@ class TestExtendLease:
             and "duration_s=30" in record.message
             and "renewed=True" in record.message
             for record in caplog.records
-        ), "should emit a debug log containing the limiter id, task id, duration, and renewed=True"
+        ), (
+            "should emit a debug log containing the limiter id, task id, duration, and renewed=True"
+        )
 
     @staticmethod
     def test_extend_lease_passes_correct_arguments_to_lua(generic_limiter, task_id):
@@ -482,9 +485,7 @@ class TestExtendLease:
         # Arrange
         duration = 45
 
-        with patch.object(
-            generic_limiter, "_eval_script", return_value=1
-        ) as mock_eval:
+        with patch.object(generic_limiter, "_eval_script", return_value=1) as mock_eval:
             # Act
             generic_limiter.extend_lease(task_id, duration)
 
