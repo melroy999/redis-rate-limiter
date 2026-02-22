@@ -3,7 +3,7 @@
 import inspect
 import logging
 import time
-from threading import Event
+from threading import Event, Timer
 from unittest.mock import MagicMock
 
 from celery_rate_limiter.core.limiters import DrainLoop, DrainSignalSubscriber
@@ -11,6 +11,25 @@ from celery_rate_limiter.core.limiters import DrainLoop, DrainSignalSubscriber
 
 class TestDrainLoop:
     """Test suite for ``DrainLoop`` wake, coalesce, watchdog, and shutdown behavior."""
+
+    @staticmethod
+    def test_shutdown_sets_flag():
+        """Verify that ``shutdown()`` sets the ``_shutdown`` flag to exactly ``True`` without a running thread."""
+        # Arrange
+        limiter = MagicMock()
+        loop = DrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        loop.shutdown()
+
+        # Assert
+        # Identity check catches mutations to None and False.
+        assert loop._shutdown is True, (
+            "shutdown flag must be exactly True after shutdown"
+        )
+        assert loop._thread is None, (
+            "thread should not have been started without a wake call"
+        )
 
     @staticmethod
     def test_wake_default_delay_fires_immediately():
@@ -257,7 +276,32 @@ class TestDrainLoop:
 
 
 class TestDrainSignalSubscriber:
-    """Test suite for ``DrainSignalSubscriber`` shutdown behavior."""
+    """Test suite for ``DrainSignalSubscriber`` shutdown and message-processing behavior."""
+
+    @staticmethod
+    def test_shutdown_sets_flag_without_starting_thread():
+        """Verify that ``shutdown()`` sets the ``_shutdown`` flag to ``True`` without a running thread."""
+        # Arrange
+        limiter = MagicMock()
+        subscriber = DrainSignalSubscriber(limiter)
+
+        # Assert
+        # Verify initial state.
+        assert subscriber._shutdown is False, (
+            "shutdown flag should be False before shutdown is called"
+        )
+
+        # Act
+        subscriber.shutdown()
+
+        # Assert
+        # Identity check catches mutations to None and False.
+        assert subscriber._shutdown is True, (
+            "shutdown flag must be exactly True after shutdown"
+        )
+        assert subscriber._thread is None, (
+            "thread should not have been started without a start call"
+        )
 
     @staticmethod
     def test_shutdown_sets_flag(generic_limiter):
@@ -277,3 +321,138 @@ class TestDrainSignalSubscriber:
         assert subscriber._shutdown is True, (
             "shutdown flag should be True after shutdown"
         )
+
+    @staticmethod
+    def test_subscriber_processes_remote_drain_signal():
+        """Verify that the subscriber calls ``_schedule_drain`` upon receiving a remote drain signal."""
+        # Arrange
+        limiter = MagicMock()
+        limiter._worker_id = "local-worker"
+        mock_pubsub = MagicMock()
+
+        drain_scheduled = Event()
+        limiter._schedule_drain.side_effect = lambda: drain_scheduled.set()
+
+        call_count = 0
+
+        def get_message_effect(timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {
+                    "type": "message",
+                    "data": "remote-worker",
+                    "channel": b"test:drain_signal",
+                }
+            # Subsequent calls simulate blocking on the pubsub socket.
+            time.sleep(timeout or 0.1)
+            return None
+
+        mock_pubsub.get_message.side_effect = get_message_effect
+        limiter.redis.pubsub.return_value = mock_pubsub
+
+        subscriber = DrainSignalSubscriber(limiter)
+
+        # Act
+        subscriber.start()
+        signaled = drain_scheduled.wait(timeout=2.0)
+        subscriber.shutdown()
+
+        # Assert
+        assert signaled, (
+            "subscriber should call _schedule_drain upon receiving a remote drain signal"
+        )
+
+    @staticmethod
+    def test_run_processes_message_in_main_thread(caplog):
+        """Verify that ``_run`` processes a remote message and calls ``_schedule_drain`` when invoked directly.
+
+        Calling ``_run()`` directly (rather than via ``start()``) ensures
+        coverage tracks the execution in the main thread, enabling mutmut
+        to select this test for mutations within ``_run``.
+
+        A ``Timer`` sets ``_shutdown`` from another thread after 0.5 seconds
+        as a safety net: if a mutation replaces the ``get_message()`` call
+        with ``None``, the side_effect that normally exits the loop never
+        executes, creating a tight infinite loop. The Timer breaks that
+        loop so the assertion ``get_message.assert_called()`` can execute
+        and fail, killing the mutation.
+        """
+        # Arrange
+        limiter = MagicMock()
+        limiter._worker_id = "local-worker"
+        subscriber = DrainSignalSubscriber(limiter)
+        mock_pubsub = MagicMock()
+        subscriber._pubsub = mock_pubsub
+
+        call_count = 0
+
+        def get_message_effect(timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {
+                    "type": "message",
+                    "data": "remote-worker",
+                    "channel": b"test:drain_signal",
+                }
+            # Return None without setting _shutdown on the second call so that
+            # an and-to-or mutation triggers a logged exception before exiting.
+            if call_count >= 3:
+                subscriber._shutdown = True
+            return None
+
+        mock_pubsub.get_message.side_effect = get_message_effect
+
+        # Act
+        safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
+        safety_timer.start()
+        with caplog.at_level(
+            logging.ERROR, logger="celery_rate_limiter.core.limiters"
+        ):
+            subscriber._run()
+        safety_timer.cancel()
+
+        # Assert
+        mock_pubsub.get_message.assert_called()
+        limiter._schedule_drain.assert_called_once()
+        assert not any(
+            record.levelname in ("ERROR", "CRITICAL")
+            for record in caplog.records
+        ), "no exceptions should be logged during normal message processing"
+
+    @staticmethod
+    def test_subscriber_ignores_local_drain_signal():
+        """Verify that the subscriber ignores drain signals originating from the local worker."""
+        # Arrange
+        limiter = MagicMock()
+        limiter._worker_id = "local-worker"
+        mock_pubsub = MagicMock()
+
+        call_count = 0
+
+        def get_message_effect(timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # Signal from the local worker should be ignored.
+                return {
+                    "type": "message",
+                    "data": "local-worker",
+                    "channel": b"test:drain_signal",
+                }
+            time.sleep(timeout or 0.1)
+            return None
+
+        mock_pubsub.get_message.side_effect = get_message_effect
+        limiter.redis.pubsub.return_value = mock_pubsub
+
+        subscriber = DrainSignalSubscriber(limiter)
+
+        # Act
+        subscriber.start()
+        time.sleep(0.3)
+        subscriber.shutdown()
+
+        # Assert
+        limiter._schedule_drain.assert_not_called()

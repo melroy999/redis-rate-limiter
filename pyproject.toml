@@ -33,6 +33,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.coverage.run]
 source = ["src/celery_rate_limiter"]
+concurrency = ["thread"]
 
 [tool.pytest.ini_options]
 # Exclude slow tests by default. Run with: pytest -m slow (or pytest --run-slow).
