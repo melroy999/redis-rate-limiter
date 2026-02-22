@@ -118,7 +118,9 @@ def run_demo(
         MAX_CONCURRENCY,
     )
 
-    # --- Deduplication demonstration ------------------------------------------
+    # ---------------------------------------------------------------------------
+    # Deduplication demonstration
+    # ---------------------------------------------------------------------------
     logger.info("--- Deduplication demo ---")
     logger.info("Scheduling the same task %d times...", DEDUP_COUNT)
     accepted = sum(
@@ -127,7 +129,9 @@ def run_demo(
     )
     logger.info("Accepted: %d/%d (duplicates rejected)", accepted, DEDUP_COUNT)
 
-    # --- Build the task list with random priorities --------------------------
+    # ---------------------------------------------------------------------------
+    # Build the task list with random priorities
+    # ---------------------------------------------------------------------------
     tasks: list[tuple[str, dict, int]] = []
 
     # Normal burst tasks
@@ -148,7 +152,9 @@ def run_demo(
     # Shuffle the list such that the scheduling order is also randomised.
     rng.shuffle(tasks)
 
-    # --- Schedule all tasks ---------------------------------------------------
+    # ---------------------------------------------------------------------------
+    # Schedule all tasks
+    # ---------------------------------------------------------------------------
     total = BURST_COUNT + ERROR_COUNT
     logger.info(
         "Scheduling %d tasks (seed=%d): %d normal + %d failing, interleaved by priority",
@@ -162,7 +168,9 @@ def run_demo(
         scheduler.schedule_task(func_path, payload, priority=priority)
     logger.info("All %d tasks queued", total)
 
-    # --- Create consumer and begin draining -----------------------------------
+    # ---------------------------------------------------------------------------
+    # Create consumer and begin draining
+    # ---------------------------------------------------------------------------
     consumer = create_consumer()
     consumer.trigger_consume()
     logger.info("Consumer created; drain loop active")
@@ -194,7 +202,9 @@ def run_demo(
     except KeyboardInterrupt:
         logger.info("Interrupted")
 
-    # --- Cleanup --------------------------------------------------------------
+    # ---------------------------------------------------------------------------
+    # Cleanup
+    # ---------------------------------------------------------------------------
     consumer.shutdown()
     cleanup()
     elapsed = time.time() - start

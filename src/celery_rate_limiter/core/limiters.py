@@ -554,9 +554,9 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
         self.dlq_key = f"{self.id}:dlq"
         self._drain_signal_channel = f"{self.id}:drain_signal"
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Task data helpers
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     @staticmethod
     def _get_task_signature_str(func_path: str, payload: dict) -> str:
@@ -608,9 +608,9 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
         )
         return int(math.ceil(ttl_seconds))
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Algorithm helpers
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def _calculate_token_recovery_delay(
         self,
@@ -733,9 +733,9 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
         )
         return rounded_jitter
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Metrics
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def _emit_metric(self, event: str, data: dict) -> None:
         """Safely invoke the metrics callback, if one has been configured.
@@ -760,9 +760,9 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
                 e,
             )
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Scheduling helpers
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     @property
     def _token_interval(self) -> float:
@@ -794,9 +794,9 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
         )
         self._schedule_drain(delay=self._token_interval)
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Config persistence hooks
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def _build_persist_config(self) -> dict[str, Any]:
         """Return the configuration dictionary for Redis persistence."""
@@ -927,9 +927,9 @@ class AbstractDistributedRateLimiter(
             self.drain_enabled,
         )
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Task scheduling
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def _cleanup_inflight_key(self, inflight_key: str, task_id: str) -> None:
         """Perform a best-effort cleanup of an in-flight key following a scheduling failure."""
@@ -1033,9 +1033,9 @@ class AbstractDistributedRateLimiter(
         self._emit_metric("schedule", {"scheduled": True, "task_id": task_id})
         return True, task_id
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Task consumption and lease management
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def consume(self) -> ConsumeResult:
         """Attempt to consume a task from the queue.
@@ -1152,9 +1152,9 @@ class AbstractDistributedRateLimiter(
                 "task id was not found in the concurrency set."
             )
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Drain orchestration
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def get_buffer_count(self) -> int:
         """Return the number of items currently in the buffer."""
@@ -1359,9 +1359,9 @@ class AbstractDistributedRateLimiter(
         if self._drain_loop is not None:
             self._drain_loop.wake(delay)
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Cross-process signaling
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def trigger_consume(self) -> None:
         """Trigger consumption from the task queue.
@@ -1390,9 +1390,9 @@ class AbstractDistributedRateLimiter(
                 self.id,
             )
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Lifecycle
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def shutdown(self) -> None:
         """Stop the drain loop and signal subscriber to facilitate a clean shutdown."""
@@ -1452,9 +1452,9 @@ class AbstractDistributedRateLimiter(
             limiter=self, task_id=task_id, on_heartbeat_failure=strategy
         )
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Status and monitoring
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def get_status(self) -> dict:
         """Return a snapshot of the current state of the limiter.

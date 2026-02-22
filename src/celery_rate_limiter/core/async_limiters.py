@@ -535,9 +535,9 @@ class AbstractAsyncDistributedRateLimiter(
             self.drain_enabled,
         )
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Task scheduling
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     async def _cleanup_inflight_key(self, inflight_key: str, task_id: str) -> None:
         """Perform a best-effort cleanup of an in-flight key following a scheduling failure."""
@@ -623,9 +623,9 @@ class AbstractAsyncDistributedRateLimiter(
         self._emit_metric("schedule", {"scheduled": True, "task_id": task_id})
         return True, task_id
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Task consumption and lease management
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     async def consume(self) -> ConsumeResult:
         """Attempt to consume a task from the queue.
@@ -720,9 +720,9 @@ class AbstractAsyncDistributedRateLimiter(
                 "task id was not found in the concurrency set."
             )
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Drain orchestration
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     async def get_buffer_count(self) -> int:
         """Return the number of items currently in the buffer."""
@@ -891,9 +891,9 @@ class AbstractAsyncDistributedRateLimiter(
         if self._drain_loop is not None:
             self._drain_loop.wake(delay)
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Cross-process signaling
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     async def trigger_consume(self) -> None:
         """Trigger consumption from the task queue."""
@@ -911,9 +911,9 @@ class AbstractAsyncDistributedRateLimiter(
                 self.id,
             )
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Lifecycle
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     async def shutdown(self) -> None:
         """Stop the drain loop and signal subscriber."""
@@ -964,9 +964,9 @@ class AbstractAsyncDistributedRateLimiter(
             limiter=self, task_id=task_id, on_heartbeat_failure=strategy
         )
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Status and monitoring
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     async def get_status(self) -> dict:
         """Return a snapshot of the current state of the limiter.

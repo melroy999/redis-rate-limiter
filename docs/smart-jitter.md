@@ -63,16 +63,17 @@ The jitter calculation also takes the available worker slots into account:
 ### Default Settings
 
 ```python
-limiter = CeleryRateLimiter(
-    redis_client=redis_client,
-    celery_app=celery_app,
+CeleryRateLimiter.configure(redis_client, celery_app=celery_app)
+
+limiter = CeleryRateLimiter.create(
     limiter_id="my_limiter",
     limit=100,
     window=60,
     max_concurrency=10,
-    jitter_enabled=True,        # Default: True
-    jitter_min_pct=0.02,        # Default: 2% of window
-    jitter_max_pct=0.08,        # Default: 8% of window
+    jitter_enabled=True,  # Default: True
+    jitter_min_pct=0.02,  # Default: 2% of window
+    jitter_max_pct=0.08,  # Default: 8% of window
+    override=True,
 )
 ```
 
@@ -81,29 +82,35 @@ limiter = CeleryRateLimiter(
 **Tighter jitter** (faster processing, higher risk of collisions):
 
 ```python
-limiter = CeleryRateLimiter(
+limiter = CeleryRateLimiter.create(
+    limiter_id="my_limiter",
     # ...
     jitter_min_pct=0.01,  # 1% of window
     jitter_max_pct=0.03,  # 3% of window
+    override=True,
 )
 ```
 
 **Wider jitter** (slower processing, less contention):
 
 ```python
-limiter = CeleryRateLimiter(
+limiter = CeleryRateLimiter.create(
+    limiter_id="my_limiter",
     # ...
     jitter_min_pct=0.05,  # 5% of window
     jitter_max_pct=0.15,  # 15% of window
+    override=True,
 )
 ```
 
 **Disable jitter** (not recommended):
 
 ```python
-limiter = CeleryRateLimiter(
+limiter = CeleryRateLimiter.create(
+    limiter_id="my_limiter",
     # ...
     jitter_enabled=False,
+    override=True,
 )
 ```
 
@@ -259,9 +266,8 @@ print(f"Jitter range: {limiter.jitter_min_pct * limiter.window}s - "
 
 **Solution:**
 ```python
-# Reduce the jitter percentages.
-limiter.jitter_min_pct = 0.01  # Was 0.02
-limiter.jitter_max_pct = 0.04  # Was 0.08
+# Reduce the jitter percentages via the managed API.
+CeleryRateLimiter.update("my_limiter", jitter_min_pct=0.01, jitter_max_pct=0.04)
 ```
 
 ### Issue: Redis Still Seeing Load Spikes
@@ -277,9 +283,8 @@ print(f"Tasks waiting: {result['remaining_tasks']}")
 
 **Solution:**
 ```python
-# Increase the jitter percentages.
-limiter.jitter_min_pct = 0.05  # Was 0.02
-limiter.jitter_max_pct = 0.12  # Was 0.08
+# Increase the jitter percentages via the managed API.
+CeleryRateLimiter.update("my_limiter", jitter_min_pct=0.05, jitter_max_pct=0.12)
 ```
 
 ### Issue: Jitter Not Being Applied
@@ -299,6 +304,6 @@ limiter.jitter_max_pct = 0.12  # Was 0.08
 
 ## References
 
-- Implementation: `src/celery_rate_limiter/limiters.py` (`_calculate_smart_jitter`)
+- Implementation: `src/celery_rate_limiter/core/limiters.py` (`_calculate_smart_jitter`)
 - Tests: `tests/implementations/test_smart_jitter.py`
 - Integration: `tests/integration/test_rate_limiting.py` (timing tests)

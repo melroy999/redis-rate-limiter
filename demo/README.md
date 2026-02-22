@@ -57,7 +57,7 @@ To tear down:
 
 ## Configuration
 
-All parameters are configurable via environment variables. The defaults produce a visually clear demonstration with a 25 tasks/sec effective rate limit (250 tokens per 10-second window) and a 120-second sine-wave period whose average rate is below the limit, allowing the buffer to fully drain between peaks.
+All parameters are configurable via environment variables. [config.py](config.py) is the source of truth for all default values. The sine-wave traffic generator is configured so that the average offered rate is below the limit, allowing the buffer to fully drain between peaks.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -69,8 +69,8 @@ All parameters are configurable via environment variables. The defaults produce 
 | `MAX_CONCURRENCY` | `9` | Maximum concurrent task executions (global across all workers) |
 | `TRAFFIC_GENERATOR` | `false` | Enable sine-wave traffic generation |
 | `SINE_PERIOD` | `120` | Full sine-wave cycle in seconds |
-| `SINE_CENTER` | `0.75` | Center of the sine wave as a fraction of the effective rate (0.75 means the average offered rate is 75% of the limit) |
-| `SINE_AMPLITUDE` | `0.65` | Amplitude as a fraction of the effective rate (with center=0.75, rate varies from 0.1x to 1.4x the limit) |
+| `SINE_CENTER` | `0.75` | Center of the sine wave as a fraction of the effective rate |
+| `SINE_AMPLITUDE` | `0.65` | Amplitude as a fraction of the effective rate |
 | `K8S_TOOL` | *(auto-detected)* | Kubernetes tool: `kind` or `minikube` |
 | `GRAFANA_PORT` | `3001` | Host port for the Grafana dashboard |
 | `METRICS_PORT` | `8000` | Prometheus HTTP metrics port |

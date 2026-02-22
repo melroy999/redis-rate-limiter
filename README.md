@@ -117,28 +117,38 @@ success, task_id = await limiter.schedule_task(
 
 ```python
 import redis.asyncio
-from fastapi import FastAPI
-from celery_rate_limiter.backends.asgi import ASGIRateLimiter, RateLimitMiddleware, by_client_ip
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from celery_rate_limiter.backends.asgi import ASGIRateLimiter, by_client_ip
 
-app = FastAPI()
-
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     redis_client = redis.asyncio.Redis(host="localhost", port=6379, decode_responses=True)
     ASGIRateLimiter.configure(redis_client)
-    limiter = await ASGIRateLimiter.create(
+    app.state.limiter = await ASGIRateLimiter.create(
         limiter_id="api_gateway",
         limit=1000,
         window=60,
         override=True,
     )
-    app.state.limiter = limiter
+    yield
+    await redis_client.aclose()
 
-# Option A: wrap the ASGI app directly.
-app = RateLimitMiddleware(app, limiter_id="api_gateway", key_func=by_client_ip)
+app = FastAPI(lifespan=lifespan)
 
-# Option B: use a framework middleware for more control (see examples/asgi/demo.py).
+@app.middleware("http")
+async def rate_limit(request: Request, call_next):
+    key = by_client_ip(request.scope)
+    if key is None:
+        return await call_next(request)
+    result = await request.app.state.limiter.acquire(key)
+    if not result["allowed"]:
+        return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded."})
+    return await call_next(request)
 ```
+
+The `by_client_ip` key function extracts the client IP from the ASGI scope. For header-based identity (e.g., API key), use `by_header("x-api-key")` instead. For the direct ASGI wrapper approach using `RateLimitMiddleware`, see [examples/asgi/demo.py](examples/asgi/demo.py).
 
 The `examples/` directory contains full working demos for each backend with task simulators and live status dashboards.
 
@@ -191,7 +201,20 @@ AsyncManagedRateLimiter + AbstractAsyncRateLimiter          -- async managed (no
 
 ## Testing
 
-The test suite is organized into contract, implementation, algorithm, property-based (Hypothesis) and integration tests. All tests require a running Redis instance. See [tests/README.md](tests/README.md) for the full breakdown.
+The test suite is organized into contract, implementation, algorithm, property-based (Hypothesis) and integration tests. All tests require a running Redis instance; running them through Docker is recommended because Windows has unreliable sub-second `time.sleep()` resolution, which causes timing-sensitive integration tests to flake. See [tests/README.md](tests/README.md) for the full breakdown.
+
+```bash
+# Fast tests (excludes slow integration tests).
+docker compose --profile test up --build --abort-on-container-exit --exit-code-from test
+
+# All tests including slow integration tests.
+docker compose --profile test-all up --build --abort-on-container-exit --exit-code-from test-all
+
+# Mutation testing (manual, on-demand).
+docker compose --profile mutate up --build --abort-on-container-exit --exit-code-from mutate
+```
+
+With a local Redis instance running, pytest can be invoked directly:
 
 ```bash
 # Run tests (excludes slow tests by default).

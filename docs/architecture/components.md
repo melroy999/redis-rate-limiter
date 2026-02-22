@@ -24,7 +24,7 @@ graph LR
     end
 
     subgraph Backends ["Backend"]
-        BackendBlock["CeleryRateLimiter,<br>ThreadPoolRateLimiter,<br>AsyncIOTaskLimiter"]
+        BackendBlock["CeleryRateLimiter,<br>ThreadPoolRateLimiter,<br>AsyncIOTaskLimiter,<br>ASGIRateLimiter"]
     end
 
     subgraph Execution ["Task Execution"]
@@ -88,7 +88,7 @@ graph TD
 | Arrow | Interaction | Tested by |
 |-------|-------------|-----------|
 | User → Scheduler | `schedule_task()` called | `contracts/test_rate_limiter::test_schedule_task_returns_success_and_task_id` |
-| Scheduler → LuaScripts | EVALSHA schedule.lua | `implementations/test_rate_limiter::test_schedule_single_task_stores_correctly`, `implementations/test_rate_limiter::test_lua_script_recovery_on_noscript_error` |
+| Scheduler → LuaScripts | EVALSHA schedule.lua | `implementations/test_rate_limiter::test_schedule_single_task_stores_correctly`, `implementations/test_internal_helpers::test_eval_script_recovers_from_transient_noscript` |
 | Scheduler → Inflight | SET NX dedup marker | `contracts/test_rate_limiter::test_schedule_task_marks_task_as_inflight`, `implementations/test_rate_limiter::test_schedule_duplicate_task_skips_second` |
 | Scheduler → DrainLoop | wake(delay=0) | `implementations/test_drain::test_trigger_consume_schedules_drain` |
 
@@ -146,7 +146,7 @@ graph TD
 |-------|-------------|-----------|
 | DrainLoop → Lock | drain() acquires dispatch_lock | `implementations/test_drain_loop::test_wake_fires_drain_immediately`, `implementations/test_drain::test_drain_schedules_backup_when_lock_contended` |
 | Lock → Consumer | Lock acquired, proceed | `implementations/test_concurrent_access::test_distributed_lock_serializes_drains` |
-| Consumer → LuaScripts | EVALSHA consume.lua | `contracts/test_rate_limiter::test_consume_returns_expected_structure`, `implementations/test_rate_limiter::test_consume_lua_script_recovery_on_noscript_error` |
+| Consumer → LuaScripts | EVALSHA consume.lua | `contracts/test_rate_limiter::test_consume_returns_expected_structure`, `implementations/test_internal_helpers::test_eval_script_recovers_from_transient_noscript` |
 | LuaScripts → WindowCounters | GET/INCR rate check | `integration/test_rate_limiting::test_basic_rate_limit_enforcement` |
 | LuaScripts → ConcurrencySet | ZADD lease slot | `integration/test_rate_limiting::test_concurrency_limit_enforcement` |
 | LuaScripts → DLQ | RPUSH expired task | `integration/test_rate_limiting::test_expired_task_moved_to_dlq` |

@@ -56,7 +56,7 @@ class DistributedLockImplementationTests:
     async def test_lock_stores_uuid_token(
         async_redis_client, lock_key, create_lock, caplog
     ):
-        """Implementation detail: the lock should use a UUID as the token format."""
+        """Verify that the lock uses a UUID as the token format."""
         # Arrange
         lock = create_lock(lock_key, timeout_ms=1000)
 
@@ -87,7 +87,7 @@ class DistributedLockImplementationTests:
     async def test_lock_uses_redis_set_nx(
         async_redis_client, lock_key, create_lock, caplog
     ):
-        """Implementation detail: the lock should use the Redis SET command with the NX option."""
+        """Verify that the lock uses the Redis SET command with the NX option."""
         # Arrange
         lock = create_lock(lock_key, timeout_ms=1000)
 
@@ -183,7 +183,7 @@ class ContentionAwareCooldownTests:
     async def test_cooldown_not_set_without_contention(
         async_redis_client, lock_key, create_lock
     ):
-        """Implementation detail: no cooldown key should be created when there is no contention."""
+        """Verify that no cooldown key is created when there is no contention."""
         # Arrange
         worker_id = "worker-A"
         contention_key = f"{lock_key}:contention"
@@ -211,7 +211,7 @@ class ContentionAwareCooldownTests:
     async def test_cooldown_set_when_contention_detected(
         async_redis_client, lock_key, create_lock
     ):
-        """Implementation detail: a cooldown key must be created when contention is detected during the hold period."""
+        """Verify that a cooldown key is created when contention is detected during the hold period."""
         # Arrange
         worker_id = "worker-A"
         contention_key = f"{lock_key}:contention"
@@ -256,7 +256,7 @@ class ContentionAwareCooldownTests:
     async def test_cooldown_does_not_affect_other_workers(
         async_redis_client, lock_key, create_lock
     ):
-        """Implementation detail: a cooldown on one worker must not prevent other workers from acquiring."""
+        """Verify that a cooldown on one worker does not prevent other workers from acquiring."""
         # Arrange
         contention_key = f"{lock_key}:contention"
         cooldown_ms = 500
@@ -305,7 +305,7 @@ class ContentionAwareCooldownTests:
     async def test_cooldown_key_has_correct_ttl(
         async_redis_client, lock_key, create_lock
     ):
-        """Implementation detail: the cooldown key TTL must match the configured cooldown_ms."""
+        """Verify that the cooldown key TTL matches the configured cooldown_ms."""
         # Arrange
         worker_id = "worker-A"
         contention_key = f"{lock_key}:contention"
@@ -344,7 +344,7 @@ class ContentionAwareCooldownTests:
     async def test_cooldown_expires_allowing_reacquisition(
         async_redis_client, lock_key, create_lock
     ):
-        """Implementation detail: the worker must be able to re-acquire after the cooldown TTL expires."""
+        """Verify that the worker can re-acquire after the cooldown TTL expires."""
         # Arrange
         worker_id = "worker-A"
         contention_key = f"{lock_key}:contention"
@@ -395,7 +395,7 @@ class ContentionAwareCooldownTests:
     async def test_contention_counter_reset_on_release(
         async_redis_client, lock_key, create_lock
     ):
-        """Implementation detail: the contention counter must be deleted when cooldown is set on release."""
+        """Verify that the contention counter is deleted when cooldown is set on release."""
         # Arrange
         contention_key = f"{lock_key}:contention"
         cooldown_ms = 200
@@ -435,7 +435,7 @@ class ContentionAwareCooldownTests:
     async def test_contention_counter_auto_expires(
         async_redis_client, lock_key, create_lock
     ):
-        """Implementation detail: the contention counter must have a TTL to prevent stale state."""
+        """Verify that the contention counter has a TTL to prevent stale state."""
         # Arrange
         contention_key = f"{lock_key}:contention"
         timeout_ms = 100

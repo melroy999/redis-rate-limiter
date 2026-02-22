@@ -12,6 +12,11 @@ import pytest
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 
 
+# ---------------------------------------------------------------------------
+# Unified implementation tests
+# ---------------------------------------------------------------------------
+
+
 class GetStatusTests:
     """Unified test suite for ``get_status()`` behavior on both sync and async limiters.
 

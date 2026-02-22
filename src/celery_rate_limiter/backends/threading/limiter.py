@@ -25,9 +25,9 @@ class ThreadPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimit
 
     _executor: ClassVar[Optional[ThreadPoolExecutor]] = None
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Managed backend hooks
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     # No backend-specific ``configure`` override is required; the base class implementation suffices.
 
@@ -63,9 +63,9 @@ class ThreadPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimit
         """Return the ``configure`` usage hint to be included in runtime error messages."""
         return "ThreadPoolRateLimiter.configure(redis_client, executor=executor)"
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Instance construction
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def __init__(
         self,
@@ -89,9 +89,9 @@ class ThreadPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimit
         self._local_dispatched: int = 0
         self._local_dispatch_lock = threading.Lock()
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Local capacity guard
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def _has_local_capacity(self) -> bool:
         """Check whether the local thread pool can accept another task.
@@ -104,9 +104,9 @@ class ThreadPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimit
         with self._local_dispatch_lock:
             return self._local_dispatched < self.executor._max_workers
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Backend dispatch
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
         target_func = import_string(func_path)

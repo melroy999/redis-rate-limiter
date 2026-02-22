@@ -64,9 +64,9 @@ class ManagedRateLimiterMixin:
         """Cooperative ``__init__`` that forwards all arguments through the MRO."""
         super().__init__(*args, **kwargs)
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Abstract backend hooks
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     @classmethod
     def _configure_backend(cls, **backend_context: Any) -> None:
@@ -93,9 +93,9 @@ class ManagedRateLimiterMixin:
         """Return a human-readable ``configure()`` usage hint suitable for error messages."""
         raise NotImplementedError("Subclasses must implement _configure_hint")
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Construction guard and lifecycle helpers
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     @classmethod
     def _require_internal_construction(cls, sentinel: Any) -> None:
@@ -121,9 +121,9 @@ class ManagedRateLimiterMixin:
         cls._redis_client = None
         cls._reset_backend_context()
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Static parsing helpers
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     @staticmethod
     def _parse_raw_config(raw_config: Any) -> dict[str, Any]:
@@ -184,9 +184,9 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
 
     _redis_client: ClassVar[Optional[Redis]] = None
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Managed class API
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     @classmethod
     def configure(cls, redis_client: Redis, **backend_context: Any) -> None:
@@ -342,9 +342,9 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
         )
         return instance
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Config persistence
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     @classmethod
     def _persist_config(cls, instance: "SyncManagedRateLimiter") -> None:
@@ -417,9 +417,9 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
 
     _redis_client: ClassVar[Optional[AsyncRedis]] = None
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Managed class API
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     @classmethod
     def configure(cls, redis_client: AsyncRedis, **backend_context: Any) -> None:
@@ -585,9 +585,9 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         )
         return instance
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Config persistence
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     @classmethod
     async def _persist_config(cls, instance: "AsyncManagedRateLimiter") -> None:

@@ -1,6 +1,6 @@
 [project]
 name = "celery-rate-limiter"
-version = "0.1.0"
+version = "0.2.0"
 description = ""
 authors = [
     {name = "melroy999",email = "9898970+melroy999@users.noreply.github.com"}

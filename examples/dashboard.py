@@ -29,9 +29,9 @@ class Dashboard:
         self._window_history: list[int] = []
         self._last_val_current: int | None = None
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def render(self, status: dict) -> None:
         """Clear the terminal and render the current status snapshot.
@@ -50,9 +50,9 @@ class Dashboard:
         os.system("clear" if os.name == "posix" else "cls")
         self._print(status, elapsed, val_current)
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Internals
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def _print(self, status: dict, elapsed: float, val_current: int) -> None:
         bar_width = 20

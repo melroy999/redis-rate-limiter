@@ -29,9 +29,9 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
 
     _max_tasks: ClassVar[Optional[int]] = None
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Managed backend hooks
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     @classmethod
     def _configure_backend(cls, **backend_context: Any) -> None:
@@ -65,9 +65,9 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
         """Return the ``configure`` usage hint for runtime error messages."""
         return "AsyncIOTaskLimiter.configure(redis_client, max_tasks=N)"
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Instance construction
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def __init__(
         self,
@@ -92,9 +92,9 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
         self._active_tasks: set[asyncio.Task[None]] = set()
         self._active_count: int = 0
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Local capacity guard
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def _has_local_capacity(self) -> bool:
         """Check whether the local event loop can accept another task.
@@ -104,9 +104,9 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
         """
         return self._active_count < self.max_tasks
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Backend dispatch
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     async def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
         """Dispatch a task as an ``asyncio.Task`` within the current event loop."""
@@ -146,9 +146,9 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
             self._active_count,
         )
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Lifecycle
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     async def shutdown(self) -> None:
         """Stop the drain loop, signal subscriber, and cancel all active tasks."""

@@ -24,9 +24,9 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
 
     _celery_app: ClassVar[Optional[Celery]] = None
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Managed backend hooks
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     @classmethod
     def configure(cls, redis_client: Redis, **backend_context: Any) -> None:
@@ -69,9 +69,9 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
         """Return the ``configure`` usage hint to be included in runtime error messages."""
         return "CeleryRateLimiter.configure(redis_client, celery_app)"
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Instance construction
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def __init__(
         self,
@@ -93,9 +93,9 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
         super().__init__(redis_client, *args, _sentinel=_sentinel, **kwargs)
         self.app = celery_app
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Backend dispatch
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     @staticmethod
     def _get_enhanced_payload(payload: dict, use_executor: bool) -> dict:

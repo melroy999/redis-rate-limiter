@@ -30,6 +30,11 @@ from tests.implementations.conftest import (
 )
 
 
+# ---------------------------------------------------------------------------
+# Unified implementation tests
+# ---------------------------------------------------------------------------
+
+
 class DrainBehaviorTests:
     """Abstract test suite for branch coverage in ``drain()``.
 

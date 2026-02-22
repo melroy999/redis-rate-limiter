@@ -1,0 +1,35 @@
+name: Mutation Testing
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Configure Kernel for Redis
+        run: sudo sysctl vm.overcommit_memory=1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run Mutation Tests
+        run: >
+          docker compose --profile mutate up
+          --build
+          --abort-on-container-exit
+          --exit-code-from mutate
+
+      - name: Upload Results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: mutmut-results
+          path: mutmut-results/

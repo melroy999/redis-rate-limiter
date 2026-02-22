@@ -16,6 +16,11 @@ from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 from tests.implementations.conftest import MinimalAsyncRateLimiter, MinimalRateLimiter
 
 
+# ---------------------------------------------------------------------------
+# Unified implementation tests
+# ---------------------------------------------------------------------------
+
+
 class SmartJitterTests:
     """Unified test suite for the adaptive jitter implementation.
 

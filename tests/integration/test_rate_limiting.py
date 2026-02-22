@@ -823,7 +823,7 @@ class TestSlidingWindowBehavior:
         # upper bound).
         assert max_burst_in_window > limit, (
             f"expected burst to exceed limit ({limit}), got {max_burst_in_window}. "
-            f"this may indicate the test didn't trigger the burst scenario."
+            f"this may indicate the test did not trigger the burst scenario."
         )
         assert max_burst_in_window <= 2 * limit, (
             f"burst exceeded 2x limit: {max_burst_in_window} > {2 * limit}. "

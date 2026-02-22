@@ -35,9 +35,9 @@ class ASGIRateLimiter(AsyncManagedRateLimiter, AbstractAsyncRateLimiter):
 
     _refresh_interval: ClassVar[float] = 5.0
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Managed backend hooks
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     @classmethod
     def _configure_backend(cls, **backend_context: Any) -> None:
@@ -68,9 +68,9 @@ class ASGIRateLimiter(AsyncManagedRateLimiter, AbstractAsyncRateLimiter):
         """Return the ``configure`` usage hint for runtime error messages."""
         return "ASGIRateLimiter.configure(redis_client)"
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Instance construction
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def __init__(
         self,
@@ -107,9 +107,9 @@ class ASGIRateLimiter(AsyncManagedRateLimiter, AbstractAsyncRateLimiter):
             self.window,
         )
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Core API
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     async def acquire(self, key: str) -> AcquireResult:
         """Attempt to acquire a rate limit token for the given identity.

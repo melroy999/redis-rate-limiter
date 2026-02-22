@@ -24,7 +24,7 @@ class TestAsyncDrainLoop:
     @staticmethod
     async def test_wake_default_delay_is_zero():
         """Verify that the ``delay`` parameter of ``wake()`` defaults to ``0.0``."""
-        # Arrange
+        # Arrange & Act
         sig = inspect.signature(AsyncDrainLoop.wake)
 
         # Assert

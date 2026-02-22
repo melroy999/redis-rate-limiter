@@ -116,7 +116,9 @@ async def run_async_demo(scheduler: AsyncIOTaskLimiter) -> None:
         ASYNCIO_MAX_TASKS,
     )
 
-    # --- Deduplication demonstration ------------------------------------------
+    # ---------------------------------------------------------------------------
+    # Deduplication demonstration
+    # ---------------------------------------------------------------------------
     logger.info("--- Deduplication demo ---")
     logger.info("Scheduling the same task %d times...", DEDUP_COUNT)
     accepted = 0
@@ -126,7 +128,9 @@ async def run_async_demo(scheduler: AsyncIOTaskLimiter) -> None:
             accepted += 1
     logger.info("Accepted: %d/%d (duplicates rejected)", accepted, DEDUP_COUNT)
 
-    # --- Build the task list with random priorities --------------------------
+    # ---------------------------------------------------------------------------
+    # Build the task list with random priorities
+    # ---------------------------------------------------------------------------
     tasks: list[tuple[str, dict, int]] = []
 
     burst_start = DEDUP_COUNT + 1
@@ -148,7 +152,9 @@ async def run_async_demo(scheduler: AsyncIOTaskLimiter) -> None:
 
     rng.shuffle(tasks)
 
-    # --- Schedule all tasks ---------------------------------------------------
+    # ---------------------------------------------------------------------------
+    # Schedule all tasks
+    # ---------------------------------------------------------------------------
     total = BURST_COUNT + ERROR_COUNT
     logger.info(
         "Scheduling %d tasks (seed=%d): %d normal + %d failing, interleaved by priority",
@@ -162,7 +168,9 @@ async def run_async_demo(scheduler: AsyncIOTaskLimiter) -> None:
         await scheduler.schedule_task(func_path, payload, priority=priority)
     logger.info("All %d tasks queued", total)
 
-    # --- Create consumer and begin draining -----------------------------------
+    # ---------------------------------------------------------------------------
+    # Create consumer and begin draining
+    # ---------------------------------------------------------------------------
     consumer = await AsyncIOTaskLimiter.create(
         limiter_id=LIMITER_ID,
         limit=LIMIT,
