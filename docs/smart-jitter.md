@@ -145,7 +145,9 @@ def _calculate_smart_jitter(remaining_tasks, remaining_tokens, active_concurrenc
     max_jitter = window * jitter_max_pct
 
     # Calculate load pressure (0.0 = low, 1.0 = high).
-    if remaining_tasks < 10:
+    if remaining_tasks <= 0:
+        load_pressure = 0.0
+    elif remaining_tasks < 10:
         load_pressure = 0.2
     elif remaining_tasks < 50:
         load_pressure = 0.5
@@ -155,7 +157,8 @@ def _calculate_smart_jitter(remaining_tasks, remaining_tokens, active_concurrenc
         load_pressure = 1.0
 
     # Calculate concurrency pressure (0.0 = many free slots, 1.0 = at capacity).
-    concurrency_pressure = active_concurrency / max_concurrency
+    # The max(1, ...) guard prevents division by zero when max_concurrency is 0.
+    concurrency_pressure = active_concurrency / max(1, max_concurrency)
 
     # Combine pressures (weight queue load 70%, concurrency 30%).
     combined_pressure = (load_pressure * 0.7) + (concurrency_pressure * 0.3)
@@ -302,8 +305,14 @@ CeleryRateLimiter.update("my_limiter", jitter_min_pct=0.05, jitter_max_pct=0.12)
 - **Concurrency Tracking**: limits the number of simultaneously executing tasks.
 - **Task Lifecycle**: manages the lease-based concurrency slots.
 
+## Async Support
+
+The smart jitter calculation is defined in `DistributedRateLimiterMixin._calculate_smart_jitter()` within `limiters.py`, which is shared by both the sync and async rate limiter hierarchies via mixin inheritance. As such, both `AbstractDistributedRateLimiter` (sync) and `AbstractAsyncDistributedRateLimiter` (async) apply smart jitter identically when scheduling retry delays. No additional configuration is required for async backends; the same `jitter_enabled`, `jitter_min_pct`, and `jitter_max_pct` parameters apply.
+
 ## References
 
-- Implementation: `src/celery_rate_limiter/core/limiters.py` (`_calculate_smart_jitter`)
+- Implementation: `src/celery_rate_limiter/core/limiters.py` (`DistributedRateLimiterMixin._calculate_smart_jitter`)
+- Sync caller: `src/celery_rate_limiter/core/limiters.py` (`_drain_inner`)
+- Async caller: `src/celery_rate_limiter/core/async_limiters.py` (`_drain_inner`)
 - Tests: `tests/implementations/test_smart_jitter.py`
 - Integration: `tests/integration/test_rate_limiting.py` (timing tests)

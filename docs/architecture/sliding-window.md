@@ -140,7 +140,7 @@ sequenceDiagram
     participant C as Client
     participant RL as Rate Limiter
 
-    Note over C,RL: Configuration: limit = 10, window = 1s
+    Note over C,RL: Configuration: limit = 10, window = 10s
 
     rect rgb(245, 245, 245)
         Note over RL: Window 0, count = 0 (empty)

@@ -76,7 +76,7 @@ graph LR
 
 ## Key Namespacing
 
-All per-limiter keys are prefixed with the limiter's unique identifier (`{id}:`), as constructed in the `AbstractDistributedRateLimiter.__init__()` method within [`limiters.py`](../../src/celery_rate_limiter/core/limiters.py). The key assignments are as follows:
+All per-limiter keys are prefixed with the limiter's unique identifier (`{id}:`), as constructed in the `DistributedRateLimiterMixin.__init__()` method within [`limiters.py`](../../src/celery_rate_limiter/core/limiters.py). The key assignments are as follows:
 
 ```python
 self.buffer_key = f"{self.id}:buffer"

@@ -16,7 +16,7 @@ Concrete backends compose these layers via multiple inheritance:
 - **`AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLimiter)`**: dispatches tasks via `asyncio.create_task()`.
 - **`ASGIRateLimiter(AsyncManagedRateLimiter, AbstractAsyncRateLimiter)`**: provides a lightweight `acquire(key)` method for request-oriented rate limiting without task scheduling, buffer, or concurrency management.
 
-Backends are required to implement `_dispatch_task()` (for task-oriented backends) and the four backend context methods (`_configure_backend`, `_has_backend_context`, `_get_instance_context`, `_reset_backend_context`). Task-oriented backends may optionally override `_has_local_capacity()` to prevent the consumer from acquiring Redis concurrency slots for tasks that would only be queued locally.
+Backends are required to implement `_dispatch_task()` (for task-oriented backends) and the five backend context methods (`_configure_backend`, `_has_backend_context`, `_get_instance_context`, `_reset_backend_context`, `_configure_hint`). Task-oriented backends may optionally override `_has_local_capacity()` to prevent the consumer from acquiring Redis concurrency slots for tasks that would only be queued locally.
 
 The supporting classes come in sync and async pairs. For the sync path: `DrainLoop` (Thread + Lock + Condition), `DrainSignalSubscriber` (Thread + sync pubsub), `DistributedLock` (sync context manager), and `TaskLifecycle` (Thread + Event). For the async path: `AsyncDrainLoop` (asyncio.Task + asyncio.Condition), `AsyncDrainSignalSubscriber` (asyncio.Task + redis.asyncio pubsub), `AsyncDistributedLock` (async context manager), and `AsyncTaskLifecycle` (asyncio.Task + asyncio.Event). All helpers are *composed* rather than inherited; the drain helpers are owned by the limiter and created during construction (unless `drain_enabled=False`), while the lock and lifecycle instances are created on demand through factory methods.
 
@@ -71,6 +71,7 @@ classDiagram
         +trigger_consume()
         +extend_lease(task_id, duration)
         +get_status() dict
+        +get_buffer_count() int
         +task_lifecycle(task_id) TaskLifecycle
         +execution_lock(timeout_ms) DistributedLock
         +shutdown()
@@ -87,6 +88,7 @@ classDiagram
         +async trigger_consume()
         +async extend_lease()
         +async get_status() dict
+        +async get_buffer_count() int
         +task_lifecycle(task_id) AsyncTaskLifecycle
         +execution_lock(timeout_ms) AsyncDistributedLock
         +async shutdown()
@@ -97,11 +99,13 @@ classDiagram
     class ManagedRateLimiterMixin {
         <<mixin>>
         +_require_configured()$ void
+        +_require_internal_construction(sentinel)$ void
         +_reset()$ void
         #_configure_backend(**context)* void
         #_has_backend_context()* bool
         #_get_instance_context()* dict
         #_reset_backend_context()* void
+        #_configure_hint()* str
     }
 
     class SyncManagedRateLimiter {

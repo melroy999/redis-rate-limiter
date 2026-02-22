@@ -30,8 +30,8 @@ class RateLimitMiddleware:
     When ``key_func`` returns ``None`` for a request, the request also passes
     through without rate limiting.
 
-    Rate limit response headers (``X-RateLimit-Limit``, ``X-RateLimit-Remaining``,
-    ``X-RateLimit-Reset``) are injected into all HTTP responses when a key is
+    Rate limit response headers (``x-ratelimit-limit``, ``x-ratelimit-remaining``,
+    ``x-ratelimit-reset``) are injected into all HTTP responses when a key is
     resolved.
     """
 

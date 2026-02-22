@@ -32,14 +32,21 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
     def configure(cls, redis_client: Redis, **backend_context: Any) -> None:
         """Configure the shared Redis client and Celery application context for the class-level API.
 
-        The ``celery_app`` keyword argument is required
-        (e.g., ``CeleryRateLimiter.configure(redis, celery_app=app)``).
+        Args:
+            redis_client: The Redis client instance used for rate limiting state.
+            **backend_context: Backend-specific keyword arguments. The ``celery_app``
+                keyword argument is required
+                (e.g., ``CeleryRateLimiter.configure(redis, celery_app=app)``).
         """
         super().configure(redis_client, **backend_context)
 
     @classmethod
     def _configure_backend(cls, **backend_context: Any) -> None:
-        """Store the backend-specific context required by Celery-backed limiter instances."""
+        """Store the backend-specific context required by Celery-backed limiter instances.
+
+        Raises:
+            RuntimeError: If the ``celery_app`` keyword argument is not provided.
+        """
         celery_app = backend_context.get("celery_app")
         if celery_app is None:
             raise RuntimeError(

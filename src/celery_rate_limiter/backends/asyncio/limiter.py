@@ -35,7 +35,11 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
 
     @classmethod
     def _configure_backend(cls, **backend_context: Any) -> None:
-        """Store the backend-specific context required by async task limiter instances."""
+        """Store the backend-specific context required by async task limiter instances.
+
+        Raises:
+            RuntimeError: If the ``max_tasks`` keyword argument is not provided.
+        """
         max_tasks = backend_context.get("max_tasks")
         if max_tasks is None:
             raise RuntimeError(

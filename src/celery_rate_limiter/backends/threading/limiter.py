@@ -33,7 +33,11 @@ class ThreadPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimit
 
     @classmethod
     def _configure_backend(cls, **backend_context: Any) -> None:
-        """Store the backend-specific context required by thread pool limiter instances."""
+        """Store the backend-specific context required by thread pool limiter instances.
+
+        Raises:
+            RuntimeError: If the ``executor`` keyword argument is not provided.
+        """
         executor = backend_context.get("executor")
         if executor is None:
             raise RuntimeError(

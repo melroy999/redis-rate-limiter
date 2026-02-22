@@ -1,6 +1,6 @@
 # Drain Loop Flow
 
-The drain loop is a three-layer control loop that orchestrates the consumption and dispatch of buffered tasks. The outermost layer (`DrainLoop._run()`) is a background thread that manages wake signals and watchdog timing. The middle layer (`drain()`) handles configuration refresh, window-change pauses, error recovery, and exponential backoff. The innermost layer (`_drain_inner()`) performs the actual lock acquisition, task consumption, dispatch, and rescheduling. This document presents the control loop as four diagrams: an overview that shows how the layers connect, followed by one detailed flowchart per layer. Each detail diagram is accompanied by a test coverage table that maps every decision branch to the test(s) that exercise it.
+The drain loop is a three-layer control loop that orchestrates the consumption and dispatch of buffered tasks. Both sync and async implementations follow the same structure. For the sync path, the outermost layer (`DrainLoop._run()`) is a background thread that manages wake signals and watchdog timing; for the async path, `AsyncDrainLoop._run()` is an `asyncio.Task` that fulfils the same role using `asyncio.Condition` and `asyncio.sleep()`. The middle layer (`drain()`) handles configuration refresh, window-change pauses, error recovery, and exponential backoff. The innermost layer (`_drain_inner()`) performs the actual lock acquisition, task consumption, dispatch, and rescheduling. This document presents the control loop as four diagrams: an overview that shows how the layers connect, followed by one detailed flowchart per layer. Each detail diagram is accompanied by a test coverage table that maps every decision branch to the test(s) that exercise it.
 
 ## Overview
 
@@ -51,7 +51,7 @@ flowchart TD
 **Legend:**
 
 - *Green subgraph* (Feedback Entry Points): the six triggers that drive the drain loop; see [Feedback Entry Points](#feedback-entry-points) for detailed descriptions.
-- *Blue subgraph* (Layer 1): the `DrainLoop._run()` background thread.
+- *Blue subgraph* (Layer 1): `DrainLoop._run()` (background thread, sync) or `AsyncDrainLoop._run()` (`asyncio.Task`, async).
 - *Orange subgraph* (Layer 2): the `drain()` method.
 - *Purple subgraph* (Layer 3): the `_drain_inner()` method.
 - *Solid arrows* indicate synchronous call chains (Layer 1 → Layer 2 → Layer 3).
@@ -59,7 +59,7 @@ flowchart TD
 
 ## Layer 1: DrainLoop._run()
 
-The `DrainLoop._run()` background thread manages wake signals and watchdog timing. It sleeps on a condition variable until either an explicit `wake()` call sets `_next_wake` or the watchdog timeout elapses, then calls `drain()` and loops back to the shutdown check.
+The `DrainLoop._run()` background thread (sync) or `AsyncDrainLoop._run()` asyncio task (async) manages wake signals and watchdog timing. It sleeps on a condition variable (`threading.Condition` or `asyncio.Condition`) until either an explicit `wake()` call sets `_next_wake` or the watchdog timeout elapses, then calls `drain()` and loops back to the shutdown check. The flowchart below uses the sync naming; the async variant mirrors it identically with `asyncio` primitives.
 
 ```mermaid
 %%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
@@ -327,7 +327,8 @@ When the token recovery calculation cannot determine an exact delay via previous
 
 ## References
 
-- [limiters.py](../../src/celery_rate_limiter/core/limiters.py): core implementation (DrainLoop, DrainSignalSubscriber, drain, _drain_inner, delay calculations).
+- [limiters.py](../../src/celery_rate_limiter/core/limiters.py): sync core implementation (DrainLoop, DrainSignalSubscriber, drain, _drain_inner, delay calculations).
+- [async_limiters.py](../../src/celery_rate_limiter/core/async_limiters.py): async core implementation (AsyncDrainLoop, AsyncDrainSignalSubscriber, and async counterparts of drain and delay calculations).
 - [Smart Jitter](../smart-jitter.md): adaptive thundering herd prevention strategy for retry delays.
 - [Task State Diagram](task-states.md): all possible task states and their transitions.
 - [Component Diagram](components.md): high-level component overview showing the DrainLoop's position in the architecture.
