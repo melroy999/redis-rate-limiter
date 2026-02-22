@@ -232,6 +232,7 @@ async def main() -> None:
     try:
         await run_async_demo(scheduler)
     finally:
+        await scheduler.shutdown()
         await redis_client.aclose()
 
     logger.info("Done.")

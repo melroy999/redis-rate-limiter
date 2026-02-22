@@ -63,6 +63,9 @@ success, task_id = limiter.schedule_task(
 
 # Check limiter status at any time.
 status = limiter.get_status()
+
+# Stop background threads when done.
+limiter.shutdown()
 ```
 
 ### Quick Start (Thread Pool)
@@ -88,6 +91,9 @@ success, task_id = limiter.schedule_task(
     "myapp.services.call_external_api",
     {"user_id": 42},
 )
+
+# Stop background threads when done.
+limiter.shutdown()
 ```
 
 ### Quick Start (AsyncIO)
@@ -111,6 +117,9 @@ success, task_id = await limiter.schedule_task(
     "myapp.services.call_external_api",
     {"user_id": 42},
 )
+
+# Stop background tasks when done.
+await limiter.shutdown()
 ```
 
 ### Quick Start (ASGI Middleware)

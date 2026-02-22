@@ -540,6 +540,7 @@ class TestRateLimitingIntegration:
         ), "status lock state should match redis lock key presence"
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(
     sys.platform == "win32",
     reason=(

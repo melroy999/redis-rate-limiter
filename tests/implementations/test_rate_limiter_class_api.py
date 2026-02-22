@@ -82,6 +82,7 @@ def create_test_limiter(
         "window": 60,
         "max_concurrency": 5,
         "override": True,
+        "drain_enabled": False,
     }
     params.update(overrides)
     return ManagedTestRateLimiter.create(limiter_id=limiter_id, **params)
@@ -204,6 +205,7 @@ class TestCreate:
             window=30,
             max_concurrency=3,
             override=True,
+            drain_enabled=False,
         )
 
         # Assert
@@ -247,6 +249,7 @@ class TestCreate:
             window=60,
             max_concurrency=5,
             override=True,
+            drain_enabled=False,
         )
 
         # Assert

@@ -140,6 +140,7 @@ def main() -> None:
         )
 
     def cleanup():
+        scheduler.shutdown()
         logger.info("Shutting down worker...")
         worker_proc.terminate()
         worker_proc.wait(timeout=5)

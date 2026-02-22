@@ -63,6 +63,7 @@ def main() -> None:
         )
 
     def cleanup():
+        scheduler.shutdown()
         executor.shutdown(wait=True)
 
     run_demo(

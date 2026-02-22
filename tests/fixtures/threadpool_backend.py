@@ -49,7 +49,8 @@ def limiter(redis_client, limiter_id, _reset_limiter_class_state):
 
     yield test_limiter
 
-    # Teardown: clear all Redis keys associated with this limiter.
+    # Teardown: stop background threads, then clear all Redis keys.
+    test_limiter.shutdown()
     keys = redis_client.keys(f"{limiter_id}:*")
     if keys:
         redis_client.delete(*keys)

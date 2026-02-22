@@ -16,6 +16,7 @@ import os
 import signal
 import time
 import uuid
+import warnings
 from typing import (
     Any,
     Awaitable,
@@ -918,11 +919,34 @@ class AbstractAsyncDistributedRateLimiter(
     # ---------------------------------------------------------------------------
 
     async def shutdown(self) -> None:
-        """Stop the drain loop and signal subscriber."""
+        """Stop the drain loop and signal subscriber.
+
+        This method must be called when a limiter instance is no longer needed.
+        Each limiter created with ``drain_enabled=True`` (the default) runs
+        background asyncio tasks for the drain loop and the Redis Pub/Sub signal
+        subscriber. Failing to call ``shutdown()`` will leak these tasks.
+        """
+        self._shutdown_called = True
         if self._drain_loop is not None:
             await self._drain_loop.shutdown()
         if self._drain_signal_subscriber is not None:
             await self._drain_signal_subscriber.shutdown()
+
+    def __del__(self) -> None:
+        """Emit a warning if shutdown() was not called.
+
+        Async cleanup cannot be performed in ``__del__``; this method only
+        emits a ``ResourceWarning`` to aid debugging.
+        """
+        if getattr(self, "_drain_loop", None) is not None and not getattr(
+            self, "_shutdown_called", False
+        ):
+            warnings.warn(
+                f"Async limiter {self.id!r} was not shut down; "
+                "call await shutdown() to stop background tasks",
+                ResourceWarning,
+                stacklevel=1,
+            )
 
     def execution_lock(self, timeout_ms: int = 5000) -> AsyncDistributedLock:
         """Create an async distributed lock for drain serialization.

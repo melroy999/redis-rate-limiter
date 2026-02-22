@@ -184,9 +184,11 @@ class DistributedLockContractTest:
     ):
         """Contract: after contention is detected and cooldown is set, the same worker cannot re-acquire until expiry."""
         # Arrange
+        # A long cooldown ensures the key cannot expire between the release
+        # and the re-acquire attempt, even under heavy load (e.g., mutmut).
         worker_id = "worker-A"
         contention_key = f"{lock_key}:contention"
-        cooldown_ms = 200
+        cooldown_ms = 5000
 
         lock_1 = create_lock(
             async_redis_client,
@@ -231,6 +233,45 @@ class DistributedLockContractTest:
                 "worker must not re-acquire while in cooldown"
             )
 
+    @staticmethod
+    async def test_lock_cooldown_expires_and_allows_reacquisition(
+        async_redis_client, lock_key, create_lock
+    ):
+        """Contract: after the cooldown period expires, the worker can re-acquire the lock."""
+        # Arrange
+        # A short cooldown keeps the sleep duration minimal.
+        worker_id = "worker-A"
+        contention_key = f"{lock_key}:contention"
+        cooldown_ms = SHORT_TIMEOUT_MS
+
+        lock_1 = create_lock(
+            async_redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id=worker_id,
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
+        )
+        lock_contender = create_lock(
+            async_redis_client,
+            lock_key,
+            timeout_ms=5000,
+            worker_id="worker-B",
+            cooldown_ms=cooldown_ms,
+            contention_key=contention_key,
+        )
+
+        # Act
+        # Create contention, then release.
+        async with lock_1 as acquired_1:
+            assert acquired_1 is True, "first lock should acquire successfully"
+
+            async with lock_contender as acquired_contender:
+                assert acquired_contender is False, (
+                    "contender must fail while first lock is held"
+                )
+
+        # Assert
         # After cooldown expires, worker-A can re-acquire.
         time.sleep(cooldown_ms / 1000 + 0.05)
         lock_after = create_lock(
