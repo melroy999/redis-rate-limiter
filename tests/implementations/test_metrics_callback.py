@@ -75,8 +75,8 @@ class MetricsCallbackTests:
         assert any(
             record.levelname == "DEBUG"
             and f"limiter={limiter.id}" in record.message
-            and "success=" in record.message
-            and "remaining_tokens=" in record.message
+            and "success=False" in record.message
+            and "remaining_tokens=10" in record.message
             for record in caplog.records
         ), (
             "should emit a debug log for the consume result with limiter id, success, and remaining tokens"

@@ -131,8 +131,8 @@ class TestTaskLifecycleImplementation:
             record.levelname == "DEBUG"
             and f"limiter={mock_limiter.id}" in record.message
             and f"task_id={task_id}" in record.message
-            and "removed_concurrency=" in record.message
-            and "removed_inflight=" in record.message
+            and "removed_concurrency=True" in record.message
+            and "removed_inflight=True" in record.message
             for record in caplog.records
         ), (
             "should emit a debug log for concurrency slot release with limiter id, task id, and removal counts"
@@ -164,7 +164,7 @@ class TestTaskLifecycleImplementation:
 
     @staticmethod
     def test_empty_task_id_skips_inflight_cleanup(redis_client, caplog):
-        """Verify that an empty ``task_id`` skips inflight key deletion and logs ``removed_inflight=0``."""
+        """Verify that an empty ``task_id`` skips inflight key deletion and logs ``removed_inflight=False``."""
         # Arrange
         limiter = MagicMock()
         limiter.redis = redis_client
@@ -181,9 +181,9 @@ class TestTaskLifecycleImplementation:
 
         # Assert
         assert any(
-            record.levelname == "DEBUG" and "removed_inflight=0" in record.message
+            record.levelname == "DEBUG" and "removed_inflight=False" in record.message
             for record in caplog.records
-        ), "empty task_id should log removed_inflight=0"
+        ), "empty task_id should log removed_inflight=False"
 
     @pytest.mark.parametrize(
         "original, override",
@@ -257,7 +257,7 @@ class TestHeartbeatLoop:
             record.levelname == "DEBUG"
             and f"limiter={mock_limiter.id}" in record.message
             and f"task_id={task_id}" in record.message
-            and "heartbeat_interval_s=" in record.message
+            and "heartbeat_interval_s=0.1" in record.message
             for record in caplog.records
         ), (
             "should emit a debug log for lifecycle entry with limiter id, task id, and heartbeat interval"

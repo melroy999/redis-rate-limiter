@@ -134,8 +134,8 @@ class TestAsyncTaskLifecycleImplementation:
             record.levelname == "DEBUG"
             and f"limiter={mock_limiter.id}" in record.message
             and f"task_id={task_id}" in record.message
-            and "removed_concurrency=" in record.message
-            and "removed_inflight=" in record.message
+            and "removed_concurrency=True" in record.message
+            and "removed_inflight=True" in record.message
             for record in caplog.records
         ), (
             "should emit a debug log for concurrency slot release with limiter id, task id, and removal counts"
@@ -165,7 +165,7 @@ class TestAsyncTaskLifecycleImplementation:
 
     @staticmethod
     async def test_empty_task_id_skips_inflight_cleanup(async_redis_client, caplog):
-        """Verify that an empty ``task_id`` skips inflight key deletion and logs ``removed_inflight=0``."""
+        """Verify that an empty ``task_id`` skips inflight key deletion and logs ``removed_inflight=False``."""
         # Arrange
         limiter = MagicMock()
         limiter.redis = async_redis_client
@@ -184,9 +184,9 @@ class TestAsyncTaskLifecycleImplementation:
 
         # Assert
         assert any(
-            record.levelname == "DEBUG" and "removed_inflight=0" in record.message
+            record.levelname == "DEBUG" and "removed_inflight=False" in record.message
             for record in caplog.records
-        ), "empty task_id should log removed_inflight=0"
+        ), "empty task_id should log removed_inflight=False"
 
     @pytest.mark.parametrize(
         "original, override",
@@ -301,7 +301,7 @@ class TestAsyncHeartbeatLoop:
             record.levelname == "DEBUG"
             and f"limiter={mock_limiter.id}" in record.message
             and f"task_id={task_id}" in record.message
-            and "heartbeat_interval_s=" in record.message
+            and "heartbeat_interval_s=0.1" in record.message
             for record in caplog.records
         ), (
             "should emit a debug log for lifecycle entry with limiter id, task id, and heartbeat interval"
@@ -452,6 +452,32 @@ class TestAsyncHeartbeatLoop:
         # The task should have stopped.
         assert lifecycle._stop_event.is_set(), "stop event must be set on exit"
         assert lifecycle._task.done(), "task must be done after exiting lifecycle"
+
+    @staticmethod
+    async def test_aexit_without_aenter_skips_task_join(
+        async_redis_client, mock_limiter, task_id
+    ):
+        """Verify that ``__aexit__`` completes cleanly when ``_task`` is ``None``.
+
+        Calling ``__aexit__`` without a preceding ``__aenter__`` leaves
+        ``_task`` as ``None``. The guard ``if self._task is not None and
+        not self._task.done()`` must short-circuit on the first operand.
+        An ``and``-to-``or`` mutation would evaluate ``None.done()`` and
+        raise ``AttributeError``.
+        """
+        # Arrange
+        lifecycle = AsyncTaskLifecycle(mock_limiter, task_id)
+        assert lifecycle._task is None, "task must be None before __aenter__"
+
+        # Act
+        # __aexit__ must not raise when _task is None.
+        await lifecycle.__aexit__(None, None, None)
+
+        # Assert
+        assert lifecycle._stop_event.is_set(), (
+            "stop event must be set even without a prior __aenter__"
+        )
+        mock_limiter.trigger_consume.assert_called_once()
 
     @staticmethod
     async def test_heartbeat_loop_calls_extend_lease_with_correct_parameters(

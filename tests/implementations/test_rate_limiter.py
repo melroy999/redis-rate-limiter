@@ -118,7 +118,7 @@ class RateLimiterImplementationTests:
             and f"limiter={limiter.id}" in record.message
             and f"task_id={task_id}" in record.message
             and f"func_path={func_path}" in record.message
-            and "priority=" in record.message
+            and "priority=100" in record.message
             for record in caplog.records
         ), (
             "should emit a debug log for the scheduling attempt with limiter id, task id, func path, and priority"
@@ -207,7 +207,9 @@ class RateLimiterImplementationTests:
         )
         assert len(members) == 1, "buffer should contain exactly one task"
         _, score = members[0]
-        assert score == 100.0, f"default priority should be 100, got {score}"
+        assert score == pytest.approx(100.0), (
+            f"default priority should be 100, got {score}"
+        )
 
     @staticmethod
     async def test_schedule_task_uses_max_age_to_set_inflight_ttl(

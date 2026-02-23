@@ -407,9 +407,7 @@ class TestDrainSignalSubscriber:
         # Act
         safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
         safety_timer.start()
-        with caplog.at_level(
-            logging.ERROR, logger="celery_rate_limiter.core.limiters"
-        ):
+        with caplog.at_level(logging.ERROR, logger="celery_rate_limiter.core.limiters"):
             subscriber._run()
         safety_timer.cancel()
 
@@ -417,8 +415,7 @@ class TestDrainSignalSubscriber:
         mock_pubsub.get_message.assert_called()
         limiter._schedule_drain.assert_called_once()
         assert not any(
-            record.levelname in ("ERROR", "CRITICAL")
-            for record in caplog.records
+            record.levelname in ("ERROR", "CRITICAL") for record in caplog.records
         ), "no exceptions should be logged during normal message processing"
 
     @staticmethod

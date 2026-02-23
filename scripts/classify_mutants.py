@@ -1,7 +1,7 @@
 """Classify mutmut survivors by relevancy to prioritize remediation effort.
 
 Parses ``mutmut-results/results.txt`` and ``mutmut-results/diffs.txt``, then
-assigns each surviving mutation a relevancy score (0 to 3) based on the type
+assigns each surviving mutation a relevancy score (0 to 4) based on the type
 of change. Mutations are grouped by score with the most actionable items
 printed first. Sync/async mirror pairs are collapsed into a single entry.
 
@@ -15,6 +15,12 @@ Relevancy scores:
 - **3 (logic)**: everything else, including operator swaps, numeric increments,
   index changes, value-to-None replacements, boolean swaps, keyword swaps,
   unary operator removal, and string mutations on dict keys or identifiers.
+- **4 (fork-immune)**: mutations on default parameter values in ``def``
+  signatures. These are false survivors: Python stores defaults in the
+  function object's ``__defaults__`` tuple at import time, but mutmut's
+  AST mutations only modify the code object inside forked children. The
+  parent's ``__defaults__`` is inherited unchanged, so the test suite
+  always sees the original default regardless of the mutation.
 
 Usage::
 
@@ -180,9 +186,14 @@ def _detect_string_mutation(old_lines: list[str], new_lines: list[str]) -> str |
     if new_str == f"XX{old_str}XX":
         return "xx_wrap"
 
-    # Lowercase first char.
-    if len(old_str) > 0 and new_str == old_str[0].lower() + old_str[1:]:
-        if old_str[0] != old_str[0].lower():
+    # Lowercase: either first character or full string lowercased.
+    if len(old_str) > 0 and old_str != new_str:
+        if (
+            new_str == old_str[0].lower() + old_str[1:]
+            and old_str[0] != old_str[0].lower()
+        ):
+            return "lowercase"
+        if new_str == old_str.lower():
             return "lowercase"
 
     # Uppercase.
@@ -190,6 +201,30 @@ def _detect_string_mutation(old_lines: list[str], new_lines: list[str]) -> str |
         return "uppercase"
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Default parameter mutation detection
+# ---------------------------------------------------------------------------
+
+_DEF_SIGNATURE_PATTERN = re.compile(r"^\s*def\s+\w+\(")
+
+
+def _is_default_param_mutation(old_lines: list[str], new_lines: list[str]) -> bool:
+    """Detect whether a mutation changes a default parameter value in a ``def`` signature."""
+    if len(old_lines) != 1 or len(new_lines) != 1:
+        return False
+    old = old_lines[0]
+    new = new_lines[0]
+    if not _DEF_SIGNATURE_PATTERN.search(old):
+        return False
+    # The only difference should be inside the parameter list (between parens).
+    # Quick check: the function name and everything before '(' must be identical.
+    old_paren = old.find("(")
+    new_paren = new.find("(")
+    if old_paren == -1 or new_paren == -1:
+        return False
+    return old[:old_paren] == new[:new_paren] and old != new
 
 
 # ---------------------------------------------------------------------------
@@ -504,6 +539,12 @@ def _classify(diff: MutationDiff) -> tuple[int, str, str]:
     new = diff.new_lines
     ctx = diff.context_lines
 
+    # 0. Default parameter mutation on a def signature (fork-immune).
+    if _is_default_param_mutation(old, new):
+        old_summary = old[0].strip() if old else "(empty)"
+        new_summary = new[0].strip() if new else "(empty)"
+        return 4, "default_param", f"{old_summary}  ->  {new_summary}"
+
     # 1. String mutations (XX wrap, lowercase, uppercase).
     string_type = _detect_string_mutation(old, new)
     if string_type is not None:
@@ -688,6 +729,7 @@ _SCORE_LABELS = {
     1: "cosmetic",
     2: "argument",
     3: "logic",
+    4: "fork-immune",
 }
 
 _SCORE_HEADERS = {
@@ -695,6 +737,14 @@ _SCORE_HEADERS = {
     1: "SCORE 1: COSMETIC",
     2: "SCORE 2: ARGUMENT",
     3: "SCORE 3: LOGIC (needs tests)",
+    4: (
+        "FORK-IMMUNE: default parameter mutations.\n"
+        "  mutmut cannot exercise these: Python stores default parameter\n"
+        "  values in __defaults__ at import time, but mutmut's AST mutations\n"
+        "  only modify the code object inside forked children. The parent's\n"
+        "  __defaults__ tuple is inherited unchanged, so the test suite always\n"
+        "  sees the original default regardless of the mutation."
+    ),
 }
 
 
@@ -726,14 +776,14 @@ def _format_report(
     lines.append(f"Total: {', '.join(parts)}")
     lines.append("")
 
-    for score in (3, 2, 1, 0):
+    for score in (4, 3, 2, 1, 0):
         count = len(by_score.get(score, []))
         label = _SCORE_LABELS[score]
         lines.append(f"  Score {score} ({label}): {count:>4}")
     lines.append("")
 
     # Print each score group (highest first).
-    for score in (3, 2, 1, 0):
+    for score in (4, 3, 2, 1, 0):
         mutations = by_score.get(score, [])
         if not mutations:
             continue

@@ -265,8 +265,8 @@ class AsyncTaskLifecycle:
                 "Concurrency slot released and inflight key cleared (async): limiter=%s, task_id=%s, removed_concurrency=%s, removed_inflight=%s.",
                 self.limiter.id,
                 self.task_id,
-                removed_concurrency,
-                inflight_removed,
+                removed_concurrency == 1,
+                inflight_removed == 1,
             )
         finally:
             logger.debug(

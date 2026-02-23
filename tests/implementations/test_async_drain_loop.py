@@ -25,13 +25,17 @@ class TestAsyncDrainLoop:
 
     @staticmethod
     async def test_shutdown_sets_flag():
-        """Verify that ``shutdown()`` sets the ``_shutdown`` flag to ``True`` without a running task."""
+        """Verify that ``shutdown()`` sets the ``_shutdown`` flag to ``True`` on a started loop."""
         # Arrange
         limiter = MagicMock()
         limiter.drain = AsyncMock()
         loop = AsyncDrainLoop(limiter, watchdog_interval=60.0)
 
         # Act
+        # Yield to the event loop so _wake_async can acquire the condition
+        # and call _ensure_started(), creating the background task.
+        loop.wake()
+        await asyncio.sleep(0)
         await loop.shutdown()
 
         # Assert
@@ -39,9 +43,8 @@ class TestAsyncDrainLoop:
         assert loop._shutdown is True, (
             "shutdown flag must be exactly True after shutdown"
         )
-        assert loop._task is None, (
-            "task should not have been created without a wake call"
-        )
+        assert loop._task is not None, "task should have been created by the wake call"
+        assert loop._task.done(), "task should be done after shutdown"
 
     @staticmethod
     async def test_wake_default_delay_fires_immediately():
@@ -344,9 +347,7 @@ class TestAsyncDrainSignalSubscriber:
 
         call_count = 0
 
-        async def get_message_effect(
-            ignore_subscribe_messages=True, timeout=None
-        ):
+        async def get_message_effect(ignore_subscribe_messages=True, timeout=None):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -411,9 +412,7 @@ class TestAsyncDrainSignalSubscriber:
 
         call_count = 0
 
-        async def get_message_effect(
-            ignore_subscribe_messages=True, timeout=None
-        ):
+        async def get_message_effect(ignore_subscribe_messages=True, timeout=None):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -443,8 +442,7 @@ class TestAsyncDrainSignalSubscriber:
         mock_pubsub.get_message.assert_called()
         limiter._schedule_drain.assert_called_once()
         assert not any(
-            record.levelname in ("ERROR", "CRITICAL")
-            for record in caplog.records
+            record.levelname in ("ERROR", "CRITICAL") for record in caplog.records
         ), "no exceptions should be logged during normal message processing"
 
     @staticmethod
@@ -457,9 +455,7 @@ class TestAsyncDrainSignalSubscriber:
 
         call_count = 0
 
-        async def get_message_effect(
-            ignore_subscribe_messages=True, timeout=None
-        ):
+        async def get_message_effect(ignore_subscribe_messages=True, timeout=None):
             nonlocal call_count
             call_count += 1
             if call_count == 1:

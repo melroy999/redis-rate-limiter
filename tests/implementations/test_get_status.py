@@ -212,7 +212,7 @@ class TestSyncGetStatus(GetStatusTests):
         assert status["rate_limit"]["val_current"] == "5", (
             "val_current should map to result[1] (current_count), not result[2] (estimated_count)"
         )
-        assert float(status["rate_limit"]["tokens_used"]) == 7.5, (
+        assert float(status["rate_limit"]["tokens_used"]) == pytest.approx(7.5), (
             "tokens_used should map to result[2] (estimated_count), not result[1] (current_count)"
         )
         assert status["rate_limit"]["val_previous"] == "10", (
@@ -252,7 +252,7 @@ class TestAsyncGetStatus(GetStatusTests):
         assert status["rate_limit"]["val_current"] == "5", (
             "val_current should map to result[1] (current_count), not result[2] (estimated_count)"
         )
-        assert float(status["rate_limit"]["tokens_used"]) == 7.5, (
+        assert float(status["rate_limit"]["tokens_used"]) == pytest.approx(7.5), (
             "tokens_used should map to result[2] (estimated_count), not result[1] (current_count)"
         )
         assert status["rate_limit"]["val_previous"] == "10", (

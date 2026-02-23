@@ -108,13 +108,13 @@ class DrainBehaviorTests:
             "drain should schedule a backup drain when lock is contended"
         )
         expected_delay = limiter.window / limiter.limit
-        assert limiter.scheduled_drains[0] == expected_delay, (
+        assert limiter.scheduled_drains[0] == pytest.approx(expected_delay), (
             "backup drain delay should be one token interval"
         )
         assert any(
             record.levelname == "DEBUG"
             and f"limiter={limiter.id}" in record.message
-            and "delay_s=" in record.message
+            and "delay_s=12.000" in record.message
             for record in caplog.records
         ), "should emit a debug log for the backup drain with limiter id and delay"
 
@@ -429,8 +429,8 @@ class DrainBehaviorTests:
         assert any(
             record.levelname == "INFO"
             and f"limiter={limiter.id}" in record.message
-            and "delay_s=" in record.message
-            and "remaining_tasks=" in record.message
+            and "delay_s=0.251" in record.message
+            and "remaining_tasks=4" in record.message
             for record in caplog.records
         ), (
             "should emit an info log for the rate-limited retry with delay and remaining tasks"
@@ -644,7 +644,7 @@ class DrainBehaviorTests:
             "drain should schedule a retry when local capacity is full"
         )
         expected_delay = limiter.window / limiter.limit
-        assert limiter.scheduled_drains[0] == expected_delay, (
+        assert limiter.scheduled_drains[0] == pytest.approx(expected_delay), (
             "local-capacity-full retry delay should equal one token interval"
         )
 
