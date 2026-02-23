@@ -203,29 +203,25 @@ class TestCeleryRateLimiter:
         )
 
     @staticmethod
-    def test_schedule_task_forwards_max_age_override(
-        limiter, redis_client, func_path, payload
-    ):
+    def test_schedule_task_forwards_max_age_override(limiter, func_path, payload):
         """Verify that ``schedule_task`` passes the ``max_age`` override through to the parent scheduler."""
         # Arrange
-        # The fixture limiter has max_age=3600. A much smaller override should
-        # produce a noticeably lower TTL on the inflight deduplication key.
         max_age_override = 60
 
         # Act
-        success, task_id = limiter.schedule_task(
-            func_path, payload, max_age=max_age_override
-        )
+        # Spy on _get_inflight_ttl to verify the max_age argument is forwarded
+        # to the parent scheduler. This avoids a race with the drain loop, which
+        # can consume the task and delete the inflight key before a TTL check.
+        with patch.object(
+            limiter, "_get_inflight_ttl", wraps=limiter._get_inflight_ttl
+        ) as mock_ttl:
+            success, _ = limiter.schedule_task(
+                func_path, payload, max_age=max_age_override
+            )
 
         # Assert
         assert success is True, "scheduling should succeed"
-        inflight_key = limiter.get_inflight_key(task_id)
-        ttl = redis_client.ttl(inflight_key)
-        # With max_age=60, lease_duration=30, window=60: TTL = ceil(60+30+60) = 150.
-        # If the override were ignored (None -> default 3600): TTL = ceil(3600+30+60) = 3690.
-        assert ttl <= 200, (
-            f"inflight key TTL should reflect the max_age override of {max_age_override}, got ttl={ttl}"
-        )
+        mock_ttl.assert_called_once_with(max_age_override=max_age_override)
 
     @staticmethod
     def test_dispatch_task_custom_path_sends_data_as_list_arg(

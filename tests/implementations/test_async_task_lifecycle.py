@@ -164,6 +164,32 @@ class TestAsyncTaskLifecycleImplementation:
         mock_limiter.trigger_consume.assert_called_once()
 
     @staticmethod
+    async def test_aexit_cancels_stuck_heartbeat_task(mock_limiter, task_id):
+        """Verify that ``__aexit__`` cancels the heartbeat task when it does not finish within the timeout."""
+        # Arrange
+        lifecycle = AsyncTaskLifecycle(mock_limiter, task_id)
+
+        async def _hang_forever():
+            await asyncio.Event().wait()
+
+        stuck_task = asyncio.create_task(_hang_forever())
+        lifecycle._task = stuck_task
+
+        # Act
+        # The original timeout=1.0 causes __aexit__ to cancel the stuck task
+        # after 1 second. Mutating timeout to None would hang indefinitely,
+        # causing the 3.0s safety net to trip.
+        await asyncio.wait_for(
+            lifecycle.__aexit__(None, None, None),
+            timeout=3.0,
+        )
+
+        # Assert
+        assert stuck_task.cancelled(), (
+            "stuck heartbeat task should be cancelled by the __aexit__ timeout"
+        )
+
+    @staticmethod
     async def test_empty_task_id_skips_inflight_cleanup(async_redis_client, caplog):
         """Verify that an empty ``task_id`` skips inflight key deletion and logs ``removed_inflight=False``."""
         # Arrange

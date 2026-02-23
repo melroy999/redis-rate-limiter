@@ -77,7 +77,7 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
         self,
         redis_client: redis.asyncio.Redis,
         max_tasks: int,
-        *args: Any,
+        *,
         _sentinel: Any = None,
         **kwargs: Any,
     ):
@@ -91,7 +91,7 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
         All remaining parameters are inherited from
         ``AbstractAsyncDistributedRateLimiter``.
         """
-        super().__init__(redis_client, *args, _sentinel=_sentinel, **kwargs)
+        super().__init__(redis_client, _sentinel=_sentinel, **kwargs)
         self.max_tasks = max_tasks
         self._active_tasks: set[asyncio.Task[None]] = set()
         self._active_count: int = 0

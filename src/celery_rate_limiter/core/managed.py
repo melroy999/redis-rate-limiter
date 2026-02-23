@@ -198,13 +198,13 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
     def __init__(
         self,
         redis_client: Redis,
-        *args: Any,
+        *,
         _sentinel: Any = None,
         **kwargs: Any,
     ) -> None:
         """Construct a managed limiter instance via internal class API flows."""
         self.__class__._require_internal_construction(_sentinel)
-        super().__init__(redis_client, *args, **kwargs)
+        super().__init__(redis_client, **kwargs)
 
     @classmethod
     def create(
@@ -431,13 +431,13 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
     def __init__(
         self,
         redis_client: AsyncRedis,
-        *args: Any,
+        *,
         _sentinel: Any = None,
         **kwargs: Any,
     ) -> None:
         """Construct a managed limiter instance via internal class API flows."""
         self.__class__._require_internal_construction(_sentinel)
-        super().__init__(redis_client, *args, **kwargs)
+        super().__init__(redis_client, **kwargs)
 
     @classmethod
     async def create(

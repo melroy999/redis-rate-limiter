@@ -84,7 +84,7 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
         self,
         redis_client: Redis,
         celery_app: Celery,
-        *args: Any,
+        *,
         _sentinel: Any = None,
         **kwargs: Any,
     ):
@@ -97,7 +97,7 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
 
         All remaining parameters are inherited from ``AbstractDistributedRateLimiter``.
         """
-        super().__init__(redis_client, *args, _sentinel=_sentinel, **kwargs)
+        super().__init__(redis_client, _sentinel=_sentinel, **kwargs)
         self.app = celery_app
 
     # ---------------------------------------------------------------------------

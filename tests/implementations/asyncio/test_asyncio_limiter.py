@@ -142,6 +142,33 @@ class TestAsyncIOTaskLimiter:
         ), "should emit a debug log containing the limiter id, task id, and func path"
 
     @staticmethod
+    async def test_dispatch_task_executes_target_function(limiter, caplog):
+        """Verify that ``_dispatch_task`` resolves and executes the target function without error."""
+        # Arrange
+        assert limiter._active_count == 0, "active count should start at zero"
+
+        # Act
+        with caplog.at_level(
+            logging.ERROR, logger="celery_rate_limiter.backends.asyncio.limiter"
+        ):
+            await limiter._dispatch_task(
+                "tests.helpers.tasks.async_noop_task", {}, "exec-task-id"
+            )
+            # Allow the created task to fully complete.
+            await asyncio.gather(*list(limiter._active_tasks), return_exceptions=True)
+
+        # Assert
+        # If import_string(func_path) is replaced with None,
+        # iscoroutinefunction(None) returns False, raising TypeError.
+        # The exception handler logs at ERROR level, failing this assertion.
+        assert limiter._active_count == 0, (
+            "active count should return to zero after task completion"
+        )
+        assert not any(record.levelname == "ERROR" for record in caplog.records), (
+            "target function should execute without error"
+        )
+
+    @staticmethod
     async def test_dispatch_sync_function_raises_type_error(limiter):
         """Verify that dispatching a synchronous function raises ``TypeError`` internally."""
         # Arrange

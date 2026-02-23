@@ -75,7 +75,7 @@ class ASGIRateLimiter(AsyncManagedRateLimiter, AbstractAsyncRateLimiter):
     def __init__(
         self,
         redis_client: redis.asyncio.Redis,
-        *args: Any,
+        *,
         _sentinel: Any = None,
         **kwargs: Any,
     ):
@@ -88,7 +88,7 @@ class ASGIRateLimiter(AsyncManagedRateLimiter, AbstractAsyncRateLimiter):
         All remaining parameters are inherited from ``AbstractAsyncRateLimiter``
         and ``AbstractRateLimiter`` (i.e., ``limiter_id``, ``limit``, ``window``).
         """
-        super().__init__(redis_client, *args, _sentinel=_sentinel, **kwargs)
+        super().__init__(redis_client, _sentinel=_sentinel, **kwargs)
         self._acquire_script_sha: Optional[str] = None
         self._last_refresh: float = 0.0
 

@@ -1,7 +1,7 @@
 """Tests for the ASGI rate limiter backend."""
 
 import logging
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -87,6 +87,50 @@ class TestASGIRateLimiter:
         )
         assert result["val_current"] >= 1, (
             "val_current should be at least 1 after acquire"
+        )
+
+    @staticmethod
+    async def test_acquire_skips_refresh_within_interval(limiter):
+        """Verify that ``acquire`` does not trigger ``refresh_config`` when the interval has not elapsed."""
+        # Arrange
+        fixed_now = 100.0
+        limiter._last_refresh = fixed_now - 1.0
+
+        # Act
+        with patch(
+            "celery_rate_limiter.backends.asgi.limiter.time.monotonic",
+            return_value=fixed_now,
+        ):
+            with patch.object(
+                limiter, "refresh_config", new=AsyncMock(return_value=False)
+            ) as mock_refresh:
+                await limiter.acquire("no_refresh_user")
+
+        # Assert
+        assert mock_refresh.call_count == 0, (
+            "refresh_config should not be called when less than the refresh interval has elapsed"
+        )
+
+    @staticmethod
+    async def test_acquire_refreshes_config_at_interval_boundary(limiter):
+        """Verify that ``acquire`` triggers ``refresh_config`` when elapsed time equals the refresh interval."""
+        # Arrange
+        fixed_now = 100.0
+        limiter._last_refresh = fixed_now - limiter._refresh_interval
+
+        # Act
+        with patch(
+            "celery_rate_limiter.backends.asgi.limiter.time.monotonic",
+            return_value=fixed_now,
+        ):
+            with patch.object(
+                limiter, "refresh_config", new=AsyncMock(return_value=False)
+            ) as mock_refresh:
+                await limiter.acquire("boundary_user")
+
+        # Assert
+        assert mock_refresh.call_count == 1, (
+            "refresh_config should be called when elapsed time equals the refresh interval"
         )
 
     @staticmethod

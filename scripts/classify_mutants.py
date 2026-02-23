@@ -22,6 +22,11 @@ Relevancy scores:
   parent's ``__defaults__`` is inherited unchanged, so the test suite
   always sees the original default regardless of the mutation.
 
+Additionally, a **known benign** allowlist (``_KNOWN_BENIGN``) holds mutations
+that have been manually verified as producing identical behavior. Each entry
+specifies a method pattern, the expected diff description, and a reason. These
+are separated from scored mutations and printed in their own report section.
+
 Usage::
 
     python scripts/classify_mutants.py
@@ -598,6 +603,13 @@ def _classify(diff: MutationDiff) -> tuple[int, str, str]:
     # 9. Value to None.
     none_desc = _detect_value_to_none(old, new)
     if none_desc is not None:
+        logger_level = _get_logger_level(ctx, old)
+        if logger_level is not None:
+            return (
+                0,
+                "value_to_none",
+                f"format string  ->  None on logger.{logger_level}",
+            )
         return 3, "value_to_none", none_desc
 
     # 10. Numeric increment.
@@ -737,9 +749,12 @@ _SCORE_HEADERS = {
     1: "SCORE 1: COSMETIC",
     2: "SCORE 2: ARGUMENT",
     3: "SCORE 3: LOGIC (needs tests)",
+    4: "FORK-IMMUNE",
+}
+
+_SCORE_NOTES = {
     4: (
-        "FORK-IMMUNE: default parameter mutations.\n"
-        "  mutmut cannot exercise these: Python stores default parameter\n"
+        "mutmut cannot exercise these: Python stores default parameter\n"
         "  values in __defaults__ at import time, but mutmut's AST mutations\n"
         "  only modify the code object inside forked children. The parent's\n"
         "  __defaults__ tuple is inherited unchanged, so the test suite always\n"
@@ -752,9 +767,11 @@ def _format_report(
     classified: list[ClassifiedMutation],
     timeouts: list[str],
     no_tests: list[str],
+    benign: list[tuple[ClassifiedMutation, str]] | None = None,
 ) -> str:
     """Format the classification report."""
     lines: list[str] = []
+    benign = benign or []
 
     # Find mirrors.
     mirrors, mirrored_names = _find_mirrors(classified)
@@ -769,6 +786,8 @@ def _format_report(
     lines.append("Mutant Classification Report")
     lines.append("=" * 40)
     parts = [f"{total_survived} survived"]
+    if benign:
+        parts.append(f"{len(benign)} benign")
     if timeouts:
         parts.append(f"{len(timeouts)} timeout")
     if no_tests:
@@ -789,6 +808,7 @@ def _format_report(
             continue
 
         header = _SCORE_HEADERS[score]
+        note = _SCORE_NOTES.get(score)
 
         # Collect mirror groups at this score level.
         score_mirrors = [g for g in mirrors if g.members[0].score == score]
@@ -797,6 +817,8 @@ def _format_report(
 
         count = len(non_mirrored) + sum(len(g.members) for g in score_mirrors)
         lines.append(f"--- {header} ({count}) ---")
+        if note:
+            lines.append(f"  {note}")
 
         # Print mirror groups first.
         for group in score_mirrors:
@@ -829,7 +851,61 @@ def _format_report(
             lines.append(f"  {_shorten_name(name)}")
         lines.append("")
 
+    # Known benign.
+    if benign:
+        lines.append(f"--- KNOWN BENIGN ({len(benign)}) ---")
+        for cm, reason in benign:
+            lines.append(f"  {cm.short_name}")
+            lines.append(f"    {cm.description}")
+            lines.append(f"    reason: {reason}")
+            lines.append("")
+
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Known benign mutations
+# ---------------------------------------------------------------------------
+
+# Mutations that have been manually verified as producing identical behavior.
+# Each entry is (method_pattern, description, reason). A mutation matches when
+# method_pattern is a substring of the short name and description matches exactly.
+# If the source code changes such that the mutation no longer exists or shifts,
+# the entry harmlessly stops matching.
+_KNOWN_BENIGN: list[tuple[str, str, str]] = [
+    (
+        "DrainLoop.wake",
+        "<  ->  <=",
+        "when target equals _next_wake, the assignment writes the same value back;"
+        " the wake time does not change",
+    ),
+    (
+        "AsyncDrainLoop._wake_async",
+        "<  ->  <=",
+        "when target equals _next_wake, the assignment writes the same value back;"
+        " the wake time does not change",
+    ),
+    (
+        "DrainLoop._run",
+        ">  ->  >=",
+        "when remaining equals zero, wait(timeout=0) returns immediately and the"
+        " next iteration falls through to drain unchanged",
+    ),
+    (
+        "AsyncDrainLoop._run",
+        ">  ->  >=",
+        "when remaining equals zero, wait(timeout=0) returns immediately and the"
+        " next iteration falls through to drain unchanged",
+    ),
+]
+
+
+def _match_known_benign(short_name: str, description: str) -> str | None:
+    """Return the reason if the mutation matches a known benign entry, else None."""
+    for method_pattern, desc_pattern, reason in _KNOWN_BENIGN:
+        if method_pattern in short_name and desc_pattern == description:
+            return reason
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -839,10 +915,16 @@ def _format_report(
 
 def classify(
     diffs_path: Path, results_path: Path | None = None
-) -> tuple[list[ClassifiedMutation], list[str], list[str]]:
+) -> tuple[
+    list[ClassifiedMutation],
+    list[str],
+    list[str],
+    list[tuple[ClassifiedMutation, str]],
+]:
     """Classify all mutations.
 
-    Returns (classified_mutations, timeout_names, no_test_names).
+    Returns (classified_mutations, timeout_names, no_test_names, benign_mutations).
+    Each benign entry is a (mutation, reason) pair.
     """
     if results_path is None:
         results_path = diffs_path.parent / "results.txt"
@@ -867,6 +949,7 @@ def classify(
 
     # Classify each diff that is a survivor.
     classified: list[ClassifiedMutation] = []
+    benign: list[tuple[ClassifiedMutation, str]] = []
     for diff in diffs:
         # Skip timeouts and no-tests (already captured from results.txt).
         if diff.name in {n for n in timeout_names + no_test_names}:
@@ -874,20 +957,24 @@ def classify(
 
         score, mutation_type, description = _classify(diff)
         short_name = _shorten_name(diff.name)
-        classified.append(
-            ClassifiedMutation(
-                diff=diff,
-                score=score,
-                mutation_type=mutation_type,
-                description=description,
-                short_name=short_name,
-            )
+        cm = ClassifiedMutation(
+            diff=diff,
+            score=score,
+            mutation_type=mutation_type,
+            description=description,
+            short_name=short_name,
         )
+
+        reason = _match_known_benign(short_name, description)
+        if reason is not None:
+            benign.append((cm, reason))
+        else:
+            classified.append(cm)
 
     # Sort by score descending, then by short name.
     classified.sort(key=lambda m: (-m.score, m.short_name))
 
-    return classified, timeout_names, no_test_names
+    return classified, timeout_names, no_test_names, benign
 
 
 def main() -> None:
@@ -900,8 +987,8 @@ def main() -> None:
         print(f"Error: {diffs_path} not found.", file=sys.stderr)
         sys.exit(1)
 
-    classified, timeouts, no_tests = classify(diffs_path)
-    report = _format_report(classified, timeouts, no_tests)
+    classified, timeouts, no_tests, benign = classify(diffs_path)
+    report = _format_report(classified, timeouts, no_tests, benign)
     print(report)
 
 

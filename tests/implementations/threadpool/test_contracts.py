@@ -17,4 +17,6 @@ class TestThreadPoolContracts(RateLimiterContractTest):
     @pytest.fixture
     def limiter(self, limiter):
         """Wrap the sync ThreadPool limiter in an async adapter for the unified contracts."""
+        # Drain loop is not required for contract tests and may cause race conditions.
+        limiter._drain_loop = None
         return SyncToAsyncLimiterAdapter(limiter)

@@ -242,6 +242,43 @@ class TestDrainLoop:
         ), "should emit an error log containing the limiter id when drain raises"
 
     @staticmethod
+    def test_ensure_started_thread_is_daemon():
+        """Verify that the drain thread is started as a daemon thread so it does not block process exit."""
+        # Arrange
+        limiter = MagicMock()
+        loop = DrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        loop.wake(10.0)
+
+        # Assert
+        assert loop._thread is not None, "thread should exist after wake"
+        assert loop._thread.daemon is True, (
+            "drain thread must be a daemon thread to avoid blocking process exit"
+        )
+        loop.shutdown()
+
+    @staticmethod
+    def test_ensure_started_reuses_alive_thread():
+        """Verify that ``wake()`` reuses the existing thread when it is still alive."""
+        # Arrange
+        limiter = MagicMock()
+        loop = DrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        loop.wake(10.0)
+        first_thread = loop._thread
+        loop.wake(10.0)
+        second_thread = loop._thread
+        loop.shutdown()
+
+        # Assert
+        assert first_thread is not None, "first wake should create a thread"
+        assert second_thread is first_thread, (
+            "wake on an alive thread should reuse the existing thread, not replace it"
+        )
+
+    @staticmethod
     def test_ensure_started_restarts_dead_thread():
         """Verify that ``_ensure_started()`` detects and replaces a dead thread."""
         # Arrange
