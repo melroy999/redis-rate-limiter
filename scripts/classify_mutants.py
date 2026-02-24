@@ -897,6 +897,73 @@ _KNOWN_BENIGN: list[tuple[str, str, str]] = [
         "when remaining equals zero, wait(timeout=0) returns immediately and the"
         " next iteration falls through to drain unchanged",
     ),
+    (
+        "DrainLoop.wake",
+        "def wake(self, delay: float = 0.0) -> None:"
+        "  ->  def wake(self, delay: float = 1.0) -> None:",
+        "fork-immune: default parameter value is tested by"
+        " test_wake_default_delay_is_zero (signature inspection)"
+        " and test_wake_default_delay_fires_immediately (behavioral)",
+    ),
+    (
+        "TaskLifecycle.__init__",
+        'on_heartbeat_failure: Literal["warn", "kill"] = "warn",'
+        '  ->  on_heartbeat_failure: Literal["warn", "kill"] = "XXwarnXX",',
+        "fork-immune: default parameter value is tested by"
+        " test_default_on_heartbeat_failure_is_warn (signature inspection)",
+    ),
+    (
+        "TaskLifecycle.__init__",
+        "self._thread: Optional[Thread] = None"
+        '  ->  self._thread: Optional[Thread] = ""',
+        "both None and empty string are falsy; the only check is"
+        " `if self._thread and self._thread.is_alive()` which"
+        " short-circuits identically for both",
+    ),
+    (
+        "RateLimitMiddleware.__init__",
+        'on_error: Literal["fail_open", "fail_closed"] = "fail_open",'
+        '  ->  on_error: Literal["fail_open", "fail_closed"] = "XXfail_openXX",',
+        "fork-immune: default parameter value is tested by"
+        " test_default_on_error_is_fail_open (signature inspection)",
+    ),
+    (
+        "RateLimitMiddleware.__init__",
+        'on_error: Literal["fail_open", "fail_closed"] = "fail_open",'
+        '  ->  on_error: Literal["fail_open", "fail_closed"] = "FAIL_OPEN",',
+        "fork-immune: default parameter value is tested by"
+        " test_default_on_error_is_fail_open (signature inspection);"
+        " .lower() normalization makes uppercase equivalent at runtime",
+    ),
+    (
+        "_schedule_drain",
+        "def _schedule_drain(self, delay: float = 0.0) -> None:"
+        "  ->  def _schedule_drain(self, delay: float = 1.0) -> None:",
+        "fork-immune: default parameter value is tested by"
+        " test_async_schedule_drain_default_delay_is_zero and"
+        " test_sync_schedule_drain_default_delay_is_zero (signature inspection)",
+    ),
+    (
+        "AsyncDistributedLock.__init__",
+        'contention_key: str = "",  ->  contention_key: str = "XXXX",',
+        "fork-immune: default parameter value is tested by"
+        " test_async_distributed_lock_contention_key_defaults_to_empty"
+        " (signature inspection)",
+    ),
+    (
+        "TaskLifecycle.__init__",
+        'on_heartbeat_failure: Literal["warn", "kill"] = "warn",'
+        '  ->  on_heartbeat_failure: Literal["warn", "kill"] = "WARN",',
+        "fork-immune: default parameter value is tested by"
+        " test_default_on_heartbeat_failure_is_warn (signature inspection);"
+        " .lower() normalization makes uppercase equivalent at runtime",
+    ),
+    (
+        "CeleryRateLimiter.schedule_task",
+        "True  ->  False",
+        "fork-immune: default parameter value (use_executor=True) is tested by"
+        " test_schedule_task_use_executor_default_is_true (signature inspection)",
+    ),
 ]
 
 

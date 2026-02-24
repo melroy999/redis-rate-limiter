@@ -85,7 +85,7 @@ class AsyncDistributedLock:
         """Attempt to acquire the dispatch lock."""
         if self._fairness_enabled:
             self.acquired = bool(
-                await cast(
+                await cast(  # pragma: no mutate
                     Awaitable,
                     self.redis.eval(
                         LOCK_ACQUIRE_SCRIPT,
@@ -123,7 +123,7 @@ class AsyncDistributedLock:
         """Release the dispatch lock, provided it is still owned by this instance."""
         if self.acquired:
             if self._fairness_enabled:
-                result = await cast(
+                result = await cast(  # pragma: no mutate
                     Awaitable,
                     self.redis.eval(
                         LOCK_RELEASE_SCRIPT,
@@ -136,7 +136,7 @@ class AsyncDistributedLock:
                     ),
                 )
             else:
-                result = await cast(
+                result = await cast(  # pragma: no mutate
                     Awaitable,
                     self.redis.eval(
                         LOCK_SIMPLE_RELEASE_SCRIPT, 1, self.lock_key, self.token
@@ -184,7 +184,7 @@ class AsyncTaskLifecycle:
         self._stop_event: asyncio.Event = asyncio.Event()
         self._task: Optional[asyncio.Task[None]] = None
 
-        self.on_failure_action = on_heartbeat_failure
+        self.on_failure_action = on_heartbeat_failure.lower()
         self.is_healthy = True
 
     async def _heartbeat_loop(self) -> None:

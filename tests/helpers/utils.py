@@ -3,7 +3,38 @@
 This module provides utility functions that are used across multiple test files.
 """
 
+import asyncio
 import math
+import time
+
+import pytest
+
+
+async def wait_for_key_expiry(
+    redis_client, key: str, deadline_seconds: float = 5.0
+) -> None:
+    """Poll until a Redis key expires, using wall-clock time for the deadline.
+
+    Relies on ``time.monotonic()`` rather than an iteration count to ensure
+    the budget is honoured even when ``asyncio.sleep`` returns early or late
+    (as observed under mutmut's trampoline overhead).
+
+    Args:
+        redis_client: An async Redis client.
+        key: The Redis key to monitor.
+        deadline_seconds: Maximum wall-clock seconds to wait before failing.
+
+    Raises:
+        pytest.fail: If the key has not expired within the deadline. The
+            failure message includes the key's current PTTL for diagnosis.
+    """
+    end = time.monotonic() + deadline_seconds
+    while time.monotonic() < end:
+        if await redis_client.exists(key) == 0:
+            return
+        await asyncio.sleep(0.05)
+    ttl = await redis_client.pttl(key)
+    pytest.fail(f"key {key!r} did not expire within {deadline_seconds}s (pttl={ttl}ms)")
 
 
 def dict_equals_approx(left, right, relative_tolerance=1e-9, absolute_tolerance=1e-9):

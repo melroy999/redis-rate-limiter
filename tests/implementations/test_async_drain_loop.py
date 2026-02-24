@@ -36,7 +36,7 @@ class TestAsyncDrainLoop:
         # and call _ensure_started(), creating the background task.
         loop.wake()
         await asyncio.sleep(0)
-        await loop.shutdown()
+        await asyncio.wait_for(loop.shutdown(), timeout=1.0)
 
         # Assert
         # Identity check catches mutations to None and False.
@@ -64,7 +64,7 @@ class TestAsyncDrainLoop:
         except asyncio.TimeoutError:
             fired = False
         elapsed = time.monotonic() - start
-        await loop.shutdown()
+        await asyncio.wait_for(loop.shutdown(), timeout=1.0)
 
         # Assert
         assert fired, "drain should be called after wake() with default delay"
@@ -100,7 +100,7 @@ class TestAsyncDrainLoop:
             fired = True
         except asyncio.TimeoutError:
             fired = False
-        await loop.shutdown()
+        await asyncio.wait_for(loop.shutdown(), timeout=1.0)
 
         # Assert
         assert fired, "drain should be called after wake(0)"
@@ -124,7 +124,7 @@ class TestAsyncDrainLoop:
         except asyncio.TimeoutError:
             fired = False
         elapsed = time.monotonic() - start
-        await loop.shutdown()
+        await asyncio.wait_for(loop.shutdown(), timeout=1.0)
 
         # Assert
         assert fired, "drain should be called after delayed wake"
@@ -149,7 +149,7 @@ class TestAsyncDrainLoop:
             fired = True
         except asyncio.TimeoutError:
             fired = False
-        await loop.shutdown()
+        await asyncio.wait_for(loop.shutdown(), timeout=1.0)
 
         # Assert
         assert fired, "immediate wake should override far-future wake"
@@ -172,7 +172,7 @@ class TestAsyncDrainLoop:
             fired = True
         except asyncio.TimeoutError:
             fired = False
-        await loop.shutdown()
+        await asyncio.wait_for(loop.shutdown(), timeout=1.0)
 
         # Assert
         assert fired, "immediate wake should not be overridden by later wake"
@@ -201,7 +201,7 @@ class TestAsyncDrainLoop:
             fired = True
         except asyncio.TimeoutError:
             fired = False
-        await loop.shutdown()
+        await asyncio.wait_for(loop.shutdown(), timeout=1.0)
 
         # Assert
         assert fired, "watchdog should fire drain even without explicit wake"
@@ -219,12 +219,52 @@ class TestAsyncDrainLoop:
         # Start the task.
         loop.wake(10.0)
         await asyncio.sleep(0)
-        await loop.shutdown()
+        await asyncio.wait_for(loop.shutdown(), timeout=1.0)
 
         # Assert
         assert loop._shutdown is True, "shutdown flag should be True after shutdown"
         assert loop._task is not None, "task should have been created"
         assert loop._task.done(), "task should be done after shutdown"
+
+    @staticmethod
+    async def test_shutdown_completes_promptly():
+        """Verify that ``shutdown()`` completes well within its internal 5.0s timeout.
+
+        Mutations that remove ``self._condition.notify()`` or change
+        ``self._shutdown = True`` to ``False`` cause the drain task to remain
+        blocked on ``_condition.wait()``. The internal ``wait_for(..., timeout=5.0)``
+        then expires, making ``shutdown()`` take ~5 seconds. This test enforces a
+        1.0s deadline to detect such mutations as failures rather than timeouts.
+        """
+        # Arrange
+        limiter = MagicMock()
+        drain_called = asyncio.Event()
+        limiter.drain = AsyncMock(side_effect=lambda: drain_called.set())
+        loop = AsyncDrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        # Start the task and let it complete one drain cycle so it is
+        # blocked on _condition.wait() when shutdown is called.
+        loop.wake(0)
+        await asyncio.wait_for(drain_called.wait(), timeout=2.0)
+
+        start = time.monotonic()
+        try:
+            await asyncio.wait_for(loop.shutdown(), timeout=1.0)
+            completed = True
+        except asyncio.TimeoutError:
+            completed = False
+        elapsed = time.monotonic() - start
+
+        # Assert
+        assert completed, (
+            "shutdown() should complete within 1.0s; "
+            "a timeout indicates notify() or _shutdown assignment was mutated"
+        )
+        assert elapsed < 1.0, (
+            f"shutdown() took {elapsed:.2f}s; should complete promptly "
+            "when the condition is notified correctly"
+        )
 
     @staticmethod
     async def test_lazy_start():
@@ -246,7 +286,7 @@ class TestAsyncDrainLoop:
 
         # Assert
         assert loop._task is not None, "task should exist after first wake"
-        await loop.shutdown()
+        await asyncio.wait_for(loop.shutdown(), timeout=1.0)
 
     @staticmethod
     async def test_drain_loop_survives_drain_exception(caplog):
@@ -280,7 +320,7 @@ class TestAsyncDrainLoop:
                 fired = True
             except asyncio.TimeoutError:
                 fired = False
-            await loop.shutdown()
+            await asyncio.wait_for(loop.shutdown(), timeout=1.0)
 
         # Assert
         assert fired, (
@@ -325,7 +365,7 @@ class TestAsyncDrainLoop:
             fired = True
         except asyncio.TimeoutError:
             fired = False
-        await loop.shutdown()
+        await asyncio.wait_for(loop.shutdown(), timeout=1.0)
 
         # Assert
         assert fired, "drain should be called again after task recovery"

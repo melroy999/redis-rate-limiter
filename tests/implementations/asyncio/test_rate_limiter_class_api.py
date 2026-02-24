@@ -9,6 +9,7 @@ test-only async backend.
 """
 
 import json
+import logging
 import time
 from typing import Any, ClassVar, Optional
 
@@ -546,7 +547,9 @@ class TestRefreshConfig:
         )
 
     @staticmethod
-    async def test_refresh_config_applies_remote_change(async_redis_client, limiter_id):
+    async def test_refresh_config_applies_remote_change(
+        async_redis_client, limiter_id, caplog
+    ):
         """Verify that ``refresh_config()`` applies a newer configuration written by another worker."""
         # Arrange
         limiter = await create_test_limiter(limiter_id)
@@ -567,7 +570,8 @@ class TestRefreshConfig:
         )
 
         # Act
-        changed = await limiter.refresh_config()
+        with caplog.at_level(logging.INFO, logger="celery_rate_limiter"):
+            changed = await limiter.refresh_config()
 
         # Assert
         assert changed is True, "refresh should report config change"
@@ -575,6 +579,12 @@ class TestRefreshConfig:
         assert limiter.max_concurrency == 10, (
             "refresh should apply updated max_concurrency"
         )
+        assert any(
+            record.levelname == "INFO"
+            and f"limiter={limiter_id}" in record.message
+            and "version=2" in record.message
+            for record in caplog.records
+        ), "should emit an info log with limiter id and version=2"
 
     @staticmethod
     async def test_refresh_config_window_change_sets_pause_until(
@@ -627,7 +637,7 @@ class TestRefreshConfig:
 
     @staticmethod
     async def test_refresh_config_handles_corrupted_redis_data(
-        async_redis_client, limiter_id
+        async_redis_client, limiter_id, caplog
     ):
         """Verify that ``refresh_config()`` handles malformed persisted JSON gracefully."""
         # Arrange
@@ -649,7 +659,8 @@ class TestRefreshConfig:
         )
 
         # Act
-        changed = await limiter.refresh_config()
+        with caplog.at_level(logging.WARNING, logger="celery_rate_limiter"):
+            changed = await limiter.refresh_config()
 
         # Assert
         assert changed is False, "malformed config should not be applied"
@@ -660,6 +671,12 @@ class TestRefreshConfig:
             limiter.max_age,
             limiter.lease_duration,
         ) == original_state, "limiter config should remain unchanged on malformed data"
+        assert any(
+            record.levelname == "WARNING"
+            and f"limiter={limiter_id}" in record.message
+            and "error=" in record.message
+            for record in caplog.records
+        ), "should emit a warning log with limiter id and error details"
 
     @staticmethod
     async def test_refresh_config_returns_false_when_registry_config_missing(

@@ -65,7 +65,7 @@ class RateLimitMiddleware:
         self.limiter = limiter
         self.key_func = key_func
         self.on_blocked = on_blocked
-        self.on_error = on_error
+        self.on_error = on_error.lower()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Process an ASGI request through the rate limiting pipeline."""

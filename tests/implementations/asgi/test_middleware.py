@@ -1,5 +1,6 @@
 """Tests for the ASGI rate limiting middleware."""
 
+import inspect
 from unittest.mock import AsyncMock
 
 from celery_rate_limiter.backends.asgi import RateLimitMiddleware, by_client_ip
@@ -167,35 +168,55 @@ class TestRateLimitMiddleware:
         """Verify that non-HTTP scopes pass through without rate limiting."""
         # Arrange
         app_invoked = False
+        forwarded_scope = None
+        forwarded_receive = None
+        forwarded_send = None
 
         async def inner_app(scope, receive, send):
-            nonlocal app_invoked
+            nonlocal app_invoked, forwarded_scope, forwarded_receive, forwarded_send
             app_invoked = True
+            forwarded_scope = scope
+            forwarded_receive = receive
+            forwarded_send = send
 
         middleware = RateLimitMiddleware(
             inner_app, limiter=limiter, key_func=by_client_ip
         )
 
         scope = self._make_scope(scope_type="websocket")
-        messages = []
 
         async def receive():
             return {}
 
         async def send(message):
-            messages.append(message)
+            pass
 
         # Act
         await middleware(scope, receive, send)
 
         # Assert
         assert app_invoked is True, "non-HTTP scope should pass through to inner app"
+        assert forwarded_scope is scope, (
+            "non-HTTP scope should forward the original scope to inner app"
+        )
+        assert forwarded_receive is receive, (
+            "non-HTTP scope should forward the original receive callable to inner app"
+        )
+        assert forwarded_send is send, (
+            "non-HTTP scope should forward the original send callable to inner app"
+        )
 
     async def test_key_func_none_bypasses_rate_limiting(self, limiter):
         """Verify that returning ``None`` from ``key_func`` bypasses rate limiting."""
 
         # Arrange
+        forwarded_scope = None
+        forwarded_receive = None
+
         async def inner_app(scope, receive, send):
+            nonlocal forwarded_scope, forwarded_receive
+            forwarded_scope = scope
+            forwarded_receive = receive
             await send({"type": "http.response.start", "status": 200, "headers": []})
             await send({"type": "http.response.body", "body": b"OK"})
 
@@ -206,25 +227,41 @@ class TestRateLimitMiddleware:
             inner_app, limiter=limiter, key_func=null_key_func
         )
 
+        original_scope = self._make_scope()
+        messages = []
+
+        async def receive():
+            return {"type": "http.request", "body": b""}
+
+        async def send(message):
+            messages.append(message)
+
         # Act
-        messages = await self._capture_response(middleware, self._make_scope())
+        await middleware(original_scope, receive, send)
 
         # Assert
         assert messages[0]["status"] == 200, "None key should bypass rate limiting"
-        # No rate limit headers should be present since rate limiting was bypassed.
         header_names = [h[0] for h in messages[0].get("headers", [])]
         assert b"x-ratelimit-limit" not in header_names, (
             "bypassed request should not include rate limit headers"
+        )
+        assert forwarded_scope is original_scope, (
+            "bypassed request should forward the original scope to inner app"
+        )
+        assert forwarded_receive is receive, (
+            "bypassed request should forward the original receive callable to inner app"
         )
 
     async def test_fail_open_allows_on_error(self, limiter):
         """Verify that ``fail_open`` mode allows the request when ``acquire`` raises."""
         # Arrange
         app_invoked = False
+        forwarded_receive = None
 
         async def inner_app(scope, receive, send):
-            nonlocal app_invoked
+            nonlocal app_invoked, forwarded_receive
             app_invoked = True
+            forwarded_receive = receive
             await send({"type": "http.response.start", "status": 200, "headers": []})
             await send({"type": "http.response.body", "body": b"OK"})
 
@@ -237,11 +274,22 @@ class TestRateLimitMiddleware:
 
         limiter.acquire = AsyncMock(side_effect=ConnectionError("redis down"))
 
+        scope = self._make_scope()
+
+        async def receive():
+            return {"type": "http.request", "body": b""}
+
+        async def send(message):
+            pass
+
         # Act
-        await self._capture_response(middleware, self._make_scope())
+        await middleware(scope, receive, send)
 
         # Assert
         assert app_invoked is True, "fail_open should pass request through on error"
+        assert forwarded_receive is receive, (
+            "fail_open should forward the original receive callable to inner app"
+        )
 
     async def test_fail_closed_returns_503_on_error(self, limiter):
         """Verify that ``fail_closed`` mode returns 503 when ``acquire`` raises."""
@@ -371,4 +419,15 @@ class TestRateLimitMiddleware:
         # Assert
         assert b"x-ratelimit-limit" in header_names, (
             "rate limit headers should be injected even when inner app omits headers key"
+        )
+
+    @staticmethod
+    def test_default_on_error_is_fail_open():
+        """Verify that the default ``on_error`` parameter is lowercase ``'fail_open'``."""
+        # Arrange & Act
+        sig = inspect.signature(RateLimitMiddleware.__init__)
+
+        # Assert
+        assert sig.parameters["on_error"].default == "fail_open", (
+            "default on_error must be lowercase 'fail_open'"
         )

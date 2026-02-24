@@ -266,7 +266,7 @@ class TaskLifecycle:
         self._thread: Optional[Thread] = None
 
         # Health monitoring controls.
-        self.on_failure_action = on_heartbeat_failure
+        self.on_failure_action = on_heartbeat_failure.lower()
         self.is_healthy = True
 
     def _heartbeat_loop(self) -> None:

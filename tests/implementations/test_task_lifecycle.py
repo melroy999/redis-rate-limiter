@@ -5,6 +5,7 @@ slots and task cleanup. It inherits the contract tests and adds generic
 implementation-specific tests that operate with any rate limiter implementation.
 """
 
+import inspect
 import logging
 import os
 import signal
@@ -222,6 +223,17 @@ class TestTaskLifecycleImplementation:
         # The override should take precedence.
         assert lifecycle_with_override.on_failure_action == override, (
             f"override {override} should take precedence over default {original}"
+        )
+
+    @staticmethod
+    def test_default_on_heartbeat_failure_is_warn():
+        """Verify that the default on_heartbeat_failure parameter is lowercase 'warn'."""
+        # Arrange & Act
+        sig = inspect.signature(TaskLifecycle.__init__)
+
+        # Assert
+        assert sig.parameters["on_heartbeat_failure"].default == "warn", (
+            "default on_heartbeat_failure must be lowercase 'warn'"
         )
 
 

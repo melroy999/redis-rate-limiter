@@ -11,6 +11,7 @@ the async variant runs natively.
 """
 
 import asyncio
+import inspect
 import logging
 import time
 from contextlib import asynccontextmanager, contextmanager
@@ -22,6 +23,7 @@ import redis.asyncio
 from celery_rate_limiter.core.async_limiters import (
     AbstractAsyncDistributedRateLimiter,
 )
+from celery_rate_limiter.core.limiters import AbstractDistributedRateLimiter
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 from tests.implementations.conftest import (
     AsyncTrackingRateLimiter,
@@ -867,6 +869,28 @@ class TestAsyncScheduleDrainDelegation:
         # Must not raise AttributeError.
         with patch.object(async_generic_limiter, "_drain_loop", None):
             AbstractAsyncDistributedRateLimiter._schedule_drain(async_generic_limiter)
+
+    @staticmethod
+    def test_async_schedule_drain_default_delay_is_zero():
+        """Verify that the async ``_schedule_drain`` default delay is ``0.0``."""
+        # Arrange & Act
+        sig = inspect.signature(AbstractAsyncDistributedRateLimiter._schedule_drain)
+
+        # Assert
+        assert sig.parameters["delay"].default == 0.0, (
+            "_schedule_drain() default delay should be 0.0 for immediate scheduling"
+        )
+
+    @staticmethod
+    def test_sync_schedule_drain_default_delay_is_zero():
+        """Verify that the sync ``_schedule_drain`` default delay is ``0.0``."""
+        # Arrange & Act
+        sig = inspect.signature(AbstractDistributedRateLimiter._schedule_drain)
+
+        # Assert
+        assert sig.parameters["delay"].default == 0.0, (
+            "_schedule_drain() default delay should be 0.0 for immediate scheduling"
+        )
 
 
 class TestCrossProcessDrainSignal:

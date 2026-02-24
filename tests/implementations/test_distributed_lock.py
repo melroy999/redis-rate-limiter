@@ -7,7 +7,7 @@ sync ``DistributedLock`` participates via the ``SyncToAsyncLockAdapter``,
 while the ``AsyncDistributedLock`` runs natively.
 """
 
-import asyncio
+import inspect
 import logging
 
 import pytest
@@ -16,6 +16,7 @@ from celery_rate_limiter import DistributedLock
 from celery_rate_limiter.core import AsyncDistributedLock
 from tests.contracts.test_distributed_lock import DistributedLockContractTest
 from tests.helpers.adapters import SyncToAsyncLockAdapter
+from tests.helpers.utils import wait_for_key_expiry
 
 
 class TestDistributedLock(DistributedLockContractTest):
@@ -146,15 +147,15 @@ class DistributedLockImplementationTests:
     ):
         """Verify that an expired-before-release event emits a debug log."""
         # Arrange
-        # Use a very short timeout so the lock expires before explicit release.
-        lock = create_lock(lock_key, timeout_ms=50)
+        # Use a short timeout so the lock expires before explicit release.
+        lock = create_lock(lock_key, timeout_ms=500)
 
         # Act
         with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
             async with lock as acquired:
                 assert acquired is True, "lock should be acquired successfully"
-                # Wait for the lock to expire.
-                await asyncio.sleep(0.1)
+                # Wait for the lock key to expire in Redis.
+                await wait_for_key_expiry(async_redis_client, lock_key)
 
         # Assert
         assert any(
@@ -210,7 +211,7 @@ class ContentionAwareCooldownTests:
         worker_id = "worker-A"
         contention_key = f"{lock_key}:contention"
         cooldown_key = f"{lock_key}:cd:{worker_id}"
-        cooldown_ms = 200
+        cooldown_ms = 500
 
         lock_holder = create_lock(
             lock_key,
@@ -304,7 +305,7 @@ class ContentionAwareCooldownTests:
         worker_id = "worker-A"
         contention_key = f"{lock_key}:contention"
         cooldown_key = f"{lock_key}:cd:{worker_id}"
-        cooldown_ms = 500
+        cooldown_ms = 2000
 
         lock_holder = create_lock(
             lock_key,
@@ -342,7 +343,7 @@ class ContentionAwareCooldownTests:
         # Arrange
         worker_id = "worker-A"
         contention_key = f"{lock_key}:contention"
-        cooldown_ms = 50
+        cooldown_ms = 500
 
         lock_holder = create_lock(
             lock_key,
@@ -371,8 +372,9 @@ class ContentionAwareCooldownTests:
         )
 
         # Act
-        # Wait for the cooldown to expire and attempt re-acquisition.
-        await asyncio.sleep(cooldown_ms / 1000 + 0.05)
+        # Wait for the cooldown key to expire in Redis.
+        await wait_for_key_expiry(async_redis_client, cooldown_key)
+
         lock_retry = create_lock(
             lock_key,
             timeout_ms=5000,
@@ -381,6 +383,7 @@ class ContentionAwareCooldownTests:
             contention_key=contention_key,
         )
         async with lock_retry as acquired:
+            # Assert
             assert acquired is True, (
                 "worker must be able to re-acquire after cooldown expires"
             )
@@ -392,7 +395,7 @@ class ContentionAwareCooldownTests:
         """Verify that the contention counter is deleted when cooldown is set on release."""
         # Arrange
         contention_key = f"{lock_key}:contention"
-        cooldown_ms = 200
+        cooldown_ms = 500
 
         lock_holder = create_lock(
             lock_key,
@@ -432,8 +435,8 @@ class ContentionAwareCooldownTests:
         """Verify that the contention counter has a TTL to prevent stale state."""
         # Arrange
         contention_key = f"{lock_key}:contention"
-        timeout_ms = 100
-        cooldown_ms = 200
+        timeout_ms = 2000
+        cooldown_ms = 2000
 
         lock_holder = create_lock(
             lock_key,
@@ -530,3 +533,29 @@ class TestAsyncContentionAwareCooldown(ContentionAwareCooldownTests):
             return AsyncDistributedLock(async_redis_client, lock_key, **kwargs)
 
         return _factory
+
+
+class TestDistributedLockSignatures:
+    """Signature tests for distributed lock default parameter values."""
+
+    @staticmethod
+    def test_async_distributed_lock_contention_key_defaults_to_empty():
+        """Verify that the ``contention_key`` parameter defaults to an empty string."""
+        # Arrange & Act
+        sig = inspect.signature(AsyncDistributedLock.__init__)
+
+        # Assert
+        assert sig.parameters["contention_key"].default == "", (
+            "contention_key default must be an empty string"
+        )
+
+    @staticmethod
+    def test_sync_distributed_lock_contention_key_defaults_to_empty():
+        """Verify that the ``contention_key`` parameter defaults to an empty string."""
+        # Arrange & Act
+        sig = inspect.signature(DistributedLock.__init__)
+
+        # Assert
+        assert sig.parameters["contention_key"].default == "", (
+            "contention_key default must be an empty string"
+        )

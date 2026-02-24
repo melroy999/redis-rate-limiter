@@ -8,9 +8,11 @@ Sync implementations can use the ``SyncToAsyncLockAdapter`` from
 ``tests.helpers.adapters`` to satisfy the async test interface.
 """
 
-import time
+import pytest
 
-SHORT_TIMEOUT_MS = 10
+from tests.helpers.utils import wait_for_key_expiry
+
+SHORT_TIMEOUT_MS = 500
 
 
 class DistributedLockContractTest:
@@ -85,11 +87,8 @@ class DistributedLockContractTest:
         async with lock_1 as acquired_1:
             assert acquired_1 is True, "first lock should acquire"
 
-            # Wait for expiration (doubling the timeout duration should be sufficient).
-            time.sleep(2 * SHORT_TIMEOUT_MS / 1000)
-            assert await async_redis_client.exists(lock_key) == 0, (
-                "lock must expire after timeout"
-            )
+            # Wait for the lock key to expire in Redis.
+            await wait_for_key_expiry(async_redis_client, lock_key)
 
             # The second lock should now succeed.
             async with lock_2 as acquired_2:
@@ -137,8 +136,8 @@ class DistributedLockContractTest:
         async with lock_1 as acquired_1:
             assert acquired_1 is True, "first lock should acquire successfully"
 
-            # Wait for the first lock to expire.
-            time.sleep(2 * SHORT_TIMEOUT_MS / 1000)
+            # Wait for the first lock to expire in Redis.
+            await wait_for_key_expiry(async_redis_client, lock_key)
 
             # The second lock acquires the now-expired lock.
             async with lock_2 as acquired_2:
@@ -272,8 +271,10 @@ class DistributedLockContractTest:
                 )
 
         # Assert
-        # After cooldown expires, worker-A can re-acquire.
-        time.sleep(cooldown_ms / 1000 + 0.05)
+        # Wait for the cooldown key to expire in Redis.
+        cooldown_key = f"{lock_key}:cd:{worker_id}"
+        await wait_for_key_expiry(async_redis_client, cooldown_key)
+
         lock_after = create_lock(
             async_redis_client,
             lock_key,

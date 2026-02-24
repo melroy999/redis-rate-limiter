@@ -15,7 +15,7 @@ from celery_rate_limiter.core.base import (
     AbstractAsyncRateLimiter,
     AbstractSyncRateLimiter,
 )
-from celery_rate_limiter.core.scripts import DEFAULT_RESOURCE_PACKAGES
+from celery_rate_limiter.core.scripts import DEFAULT_RESOURCE_PACKAGES, load_lua_script
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 
 
@@ -79,6 +79,30 @@ class TestLuaScriptFallback:
     """Tests for the Lua script loader fallback mechanism."""
 
     @staticmethod
+    def test_load_lua_script_logs_resource_package_on_success(caplog):
+        """Verify that the debug log includes the resolved resource package name."""
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.scripts"):
+            load_lua_script("schedule.lua")
+
+        # Assert
+        # The log message must include both the script name and the package that
+        # resolved it. Removing the resource_package argument from the logger.debug
+        # call would cause the package name to be absent from the formatted message.
+        debug_records = [
+            r
+            for r in caplog.records
+            if r.levelname == "DEBUG" and "schedule.lua" in r.getMessage()
+        ]
+        assert len(debug_records) == 1, (
+            "exactly one debug log should be emitted for a successful script load"
+        )
+        message = debug_records[0].getMessage()
+        assert any(pkg in message for pkg in DEFAULT_RESOURCE_PACKAGES), (
+            f"debug log must include the resolved resource package name, got: {message}"
+        )
+
+    @staticmethod
     def test_load_lua_script_falls_back_to_second_package(generic_limiter):
         """Verify that the script loader succeeds via the second package when the first raises ModuleNotFoundError."""
         # Arrange
@@ -109,6 +133,28 @@ class TestLuaScriptFallback:
         )
         assert call_count["n"] == 2, (
             "resource loader should be called twice (first fails, second succeeds)"
+        )
+
+    @staticmethod
+    def test_load_lua_script_error_lists_all_packages_comma_separated():
+        """Verify that the ImportError message joins per-package errors with a comma separator."""
+        # Arrange
+        packages = ("fake.package.alpha", "fake.package.beta")
+
+        # Act
+        with pytest.raises(ImportError) as exc_info:
+            load_lua_script("nonexistent.lua", resource_packages=packages)
+
+        # Assert
+        message = str(exc_info.value)
+        assert "fake.package.alpha" in message, (
+            "error message should mention the first package attempted"
+        )
+        assert "fake.package.beta" in message, (
+            "error message should mention the second package attempted"
+        )
+        assert ", fake.package.beta" in message, (
+            "per-package errors should be joined by a comma-space separator"
         )
 
 

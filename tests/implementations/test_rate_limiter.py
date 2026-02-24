@@ -6,9 +6,10 @@ async form; the sync implementation participates via the
 ``SyncToAsyncLimiterAdapter``, while the async implementation runs natively.
 """
 
+import inspect
 import json
 import logging
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import redis
@@ -445,6 +446,37 @@ class RateLimiterImplementationTests:
         )
 
     @staticmethod
+    async def test_contention_key_follows_redis_key_convention(limiter):
+        """Verify that ``contention_key`` is derived from the limiter id with the expected suffix."""
+        # Assert
+        assert limiter.contention_key == f"{limiter.id}:dispatch_lock:contention", (
+            "contention_key must follow the {id}:dispatch_lock:contention format"
+        )
+
+    @staticmethod
+    async def test_execution_lock_cooldown_below_cap_reflects_multiplier(limiter):
+        """Verify that cooldown_ms reflects the ``* 1000`` multiplier when below the cap.
+
+        With ``window=2, limit=3`` the uncapped cooldown is ``int((2/3) * 1000) = 666``,
+        well below the 1000ms cap. A mutation that changes ``* 1000`` to ``* 1001``
+        would produce 667 instead of 666, which this assertion catches.
+        """
+        # Arrange
+        original_window, original_limit = limiter.window, limiter.limit
+        limiter.window, limiter.limit = 2, 3
+
+        try:
+            # Act
+            lock = limiter.execution_lock()
+
+            # Assert
+            assert lock.cooldown_ms == 666, (
+                f"cooldown_ms should be int((2/3)*1000)=666, got {lock.cooldown_ms}"
+            )
+        finally:
+            limiter.window, limiter.limit = original_window, original_limit
+
+    @staticmethod
     async def test_execution_lock_cooldown_is_zero_when_limit_is_zero(limiter):
         """Verify that ``execution_lock()`` sets ``cooldown_ms`` to zero when ``limit`` is zero."""
         # Arrange
@@ -461,6 +493,98 @@ class RateLimiterImplementationTests:
             )
         finally:
             limiter.limit = original_limit
+
+    @staticmethod
+    async def test_consume_lease_expiry_reflects_configured_duration(
+        limiter, async_redis_client, func_path, payload
+    ):
+        """Verify that ``consume()`` passes ``lease_duration`` through to the Lua script."""
+        # Arrange
+        original_lease_duration = limiter.lease_duration
+        limiter.lease_duration = 45
+
+        try:
+            # Act
+            _, task_id = await limiter.schedule_task(func_path, payload)
+            result = await limiter.consume()
+
+            # Assert
+            assert result["success"] is True, (
+                "consume should succeed when a task is available"
+            )
+
+            lease_expiry = await async_redis_client.zscore(
+                limiter.concurrency_key, task_id
+            )
+            redis_time = await async_redis_client.time()
+            redis_timestamp = redis_time[0]
+
+            assert lease_expiry is not None, (
+                "consumed task must appear in the concurrency sorted set"
+            )
+
+            # The key distinction is 45 (configured) vs 30 (Lua default).
+            lease_remaining = lease_expiry - redis_timestamp
+            assert 40 <= lease_remaining <= 50, (
+                f"lease remaining should be ~45s (configured), got {lease_remaining}s; "
+                "if ~30s, the Lua default is being used instead of the configured value"
+            )
+        finally:
+            limiter.lease_duration = original_lease_duration
+
+    @staticmethod
+    async def test_consume_result_index_mapping_is_correct(limiter):
+        """Verify that ``consume()`` maps each Lua return index to the correct result field.
+
+        Patching ``_eval_script`` with unique sentinel values per index ensures
+        that any index-swap mutation (e.g., ``result[5]`` to ``result[6]``) is
+        immediately caught.
+        """
+        # Arrange
+        task_json = json.dumps(
+            {
+                "id": "sentinel-task",
+                "func_path": "tests.helpers.tasks.noop_task",
+                "payload": {"sentinel": True},
+                "inflight_key": "test:inflight:sentinel-task",
+            }
+        )
+        sentinel_result = [
+            "1",  # [0] success flag
+            task_json,  # [1] task data
+            "100",  # [2] remaining_tokens
+            "200",  # [3] active_concurrency
+            "300",  # [4] reset_in_ms
+            "400",  # [5] remaining_tasks
+            "500",  # [6] val_previous
+            "600",  # [7] val_current
+        ]
+
+        actual_limiter = getattr(limiter, "_inner", limiter)
+        mock_cls = (
+            AsyncMock
+            if inspect.iscoroutinefunction(actual_limiter._eval_script)
+            else MagicMock
+        )
+
+        # Act
+        with patch.object(
+            actual_limiter, "_eval_script", mock_cls(return_value=sentinel_result)
+        ):
+            result = await limiter.consume()
+
+        # Assert
+        assert result["success"] is True, "success should be True when result[0] is '1'"
+        assert result["remaining_tokens"] == 100, (
+            "remaining_tokens must map to result[2]"
+        )
+        assert result["active_concurrency"] == 200, (
+            "active_concurrency must map to result[3]"
+        )
+        assert result["reset_in_ms"] == 300, "reset_in_ms must map to result[4]"
+        assert result["remaining_tasks"] == 400, "remaining_tasks must map to result[5]"
+        assert result["val_previous"] == 500, "val_previous must map to result[6]"
+        assert result["val_current"] == 600, "val_current must map to result[7]"
 
 
 # ---------------------------------------------------------------------------

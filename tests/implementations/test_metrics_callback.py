@@ -71,6 +71,14 @@ class MetricsCallbackTests:
             f"consume event should contain keys {expected_keys}, got {set(event_data.keys())}"
         )
 
+        # Verify that the initial consume attempt debug log includes the limiter id.
+        assert any(
+            record.levelname == "DEBUG"
+            and "Consume attempt started" in record.message
+            and f"limiter={limiter.id}" in record.message
+            for record in caplog.records
+        ), "should emit a debug log for the consume attempt with the limiter id"
+
         # Verify that the consume result debug log was emitted.
         assert any(
             record.levelname == "DEBUG"

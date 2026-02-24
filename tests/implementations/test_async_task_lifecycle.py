@@ -7,6 +7,7 @@ in ``test_task_lifecycle.py``.
 """
 
 import asyncio
+import inspect
 import logging
 import os
 import signal
@@ -291,6 +292,17 @@ class TestAsyncTaskLifecycleImplementation:
             )
         finally:
             await limiter.shutdown()
+
+    @staticmethod
+    def test_default_on_heartbeat_failure_is_warn():
+        """Verify that the default on_heartbeat_failure parameter is lowercase 'warn'."""
+        # Arrange & Act
+        sig = inspect.signature(AsyncTaskLifecycle.__init__)
+
+        # Assert
+        assert sig.parameters["on_heartbeat_failure"].default == "warn", (
+            "default on_heartbeat_failure must be lowercase 'warn'"
+        )
 
 
 class TestAsyncHeartbeatLoop:

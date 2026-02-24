@@ -184,6 +184,39 @@ class TestDrainLoop:
         assert not loop._thread.is_alive(), "thread should be stopped after shutdown"
 
     @staticmethod
+    def test_shutdown_completes_promptly():
+        """Verify that ``shutdown()`` completes well within its internal 5.0s join timeout.
+
+        Mutations that remove ``self._condition.notify()`` or change
+        ``self._shutdown = True`` to ``False`` cause the drain thread to remain
+        blocked on ``_condition.wait()``. The ``thread.join(timeout=5.0)`` then
+        expires, making ``shutdown()`` take ~5 seconds. This test enforces a
+        1.0s deadline to detect such mutations as failures rather than timeouts.
+        """
+        # Arrange
+        limiter = MagicMock()
+        drain_called = Event()
+        limiter.drain.side_effect = lambda: drain_called.set()
+        loop = DrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        # Start the thread and let it complete one drain cycle so it is
+        # blocked on _condition.wait() when shutdown is called.
+        loop.wake(0)
+        drain_called.wait(timeout=2.0)
+
+        start = time.monotonic()
+        loop.shutdown()
+        elapsed = time.monotonic() - start
+
+        # Assert
+        assert elapsed < 1.0, (
+            f"shutdown() took {elapsed:.2f}s; should complete promptly "
+            "when the condition is notified correctly"
+        )
+        assert not loop._thread.is_alive(), "thread should be stopped after shutdown"
+
+    @staticmethod
     def test_lazy_start():
         """Verify that the drain thread is not started until the first ``wake()`` call."""
         # Arrange
