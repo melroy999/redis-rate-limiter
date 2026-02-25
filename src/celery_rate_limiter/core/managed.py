@@ -46,19 +46,21 @@ class ManagedRateLimiterMixin:
     _redis_client: ClassVar[Optional[Any]] = None
     _instances: ClassVar[Dict[str, Any]] = {}
 
+    @classmethod
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Ensure that each subclass receives isolated class-level state.
 
-        All lines carry ``pragma: no mutate`` because mutmut's trampoline
-        rewrites methods with ``self`` as the first parameter, but
-        ``__init_subclass__`` receives ``cls`` (the subclass being created).
-        Any mutation inside this method causes an ``AttributeError`` during
-        class construction, poisoning the entire test collection.
+        The explicit ``@classmethod`` decorator is redundant at runtime
+        (Python implicitly wraps ``__init_subclass__``), but it prevents
+        mutmut's trampoline from rewriting the first parameter as ``self``
+        instead of ``cls``, which would cause an ``AttributeError`` during
+        class construction and poison the entire test collection.
+        See: https://github.com/boxed/mutmut/issues/366
         """
-        super().__init_subclass__(**kwargs)  # pragma: no mutate
-        cls._SENTINEL = object()  # pragma: no mutate
-        cls._redis_client = None  # pragma: no mutate
-        cls._instances = {}  # pragma: no mutate
+        super().__init_subclass__(**kwargs)
+        cls._SENTINEL = object()
+        cls._redis_client = None
+        cls._instances = {}
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Cooperative ``__init__`` that forwards all arguments through the MRO."""

@@ -384,7 +384,7 @@ Not all survivors are actionable. Logger format string mutations, type cast chan
 
 mutmut v3 rewrites each function with a trampoline dispatcher that uses `object.__getattribute__(self, ...)` to resolve the original and mutant variants. This approach has three known limitations:
 
-1. **`__init_subclass__`**: the trampoline generates `self` as the first parameter, but `__init_subclass__` receives `cls`. This causes a `NameError` that poisons test collection. The workaround is to annotate every mutable line in the method body with `# pragma: no mutate`, which prevents mutmut from generating a trampoline for that function. See `ManagedRateLimiterMixin.__init_subclass__` in `core/managed.py`.
+1. **`__init_subclass__`**: the trampoline generates `self` as the first parameter, but `__init_subclass__` receives `cls`. This causes a `NameError` that poisons test collection. The fix is to add an explicit `@classmethod` decorator, which is redundant at runtime (Python implicitly wraps `__init_subclass__`) but tells mutmut to use `cls` in the trampoline. See `ManagedRateLimiterMixin.__init_subclass__` in `core/managed.py` and [mutmut#366](https://github.com/boxed/mutmut/issues/366).
 2. **`async def` methods**: in released versions (up to 3.4.0), the trampoline dispatcher is a synchronous function wrapping `async def` methods, causing `TypeError: object dict can't be used in 'await' expression`. This was fixed on the mutmut main branch in commit `810d761` ("Preserve original signature, including async keyword"), which is why the dependency points at the git main branch rather than a PyPI release.
 3. **Default parameter values**: Python stores default parameter values in the function object's `__defaults__` tuple when the `def` statement executes at import time. mutmut's AST mutations only modify the code object inside forked children, but the `__defaults__` tuple inherited from the parent process is unchanged. This means any mutation to a default value (e.g., `delay: float = 0.0` to `delay: float = 1.0`) is invisible to the test suite, regardless of what tests exist. Use `inspect.signature` tests to verify default values independently: these catch real regressions in normal development, even though they cannot catch mutmut mutations. The classifier reports these as "fork-immune" false survivors.
 
@@ -639,8 +639,8 @@ Each backend conftest provides its limiter under the name `limiter`. Contract te
 #### Root fixtures (`tests/conftest.py`)
 
 - `_redis_connection` (session): a single Redis connection for the entire test suite (configurable via `REDIS_HOST`/`REDIS_PORT`).
-- `redis_client` (function): wraps `_redis_connection` with `flushall()` before and after each test.
-- `async_redis_client` (function): a per-test async Redis client with `flushall()` before and after each test.
+- `redis_client` (function): wraps `_redis_connection` with `flushdb()` before and after each test.
+- `async_redis_client` (function): a per-test async Redis client with `flushdb()` before and after each test.
 - `limiter_id` (function): a unique limiter ID per test (UUID-backed).
 - `module_limiter_id` (module): a unique limiter ID per module.
 - `lock_key` (function): a unique lock key per test.

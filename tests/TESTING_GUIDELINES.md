@@ -241,8 +241,8 @@ Do not confuse data-flow verification with call-count verification. Asserting th
 
 | Fixture | Scope | Provider | Purpose |
 |---|---|---|---|
-| `redis_client` | function | `tests/conftest.py` | Sync Redis client with per-test `flushall` |
-| `async_redis_client` | function | `tests/conftest.py` | Async Redis client with per-test `flushall` |
+| `redis_client` | function | `tests/conftest.py` | Sync Redis client with per-test `flushdb` |
+| `async_redis_client` | function | `tests/conftest.py` | Async Redis client with per-test `flushdb` |
 | `limiter_id` | function | `tests/conftest.py` | Unique `limiter_{test}_{uuid}` identifier |
 | `module_limiter_id` | module | `tests/conftest.py` | Shared identifier within a module |
 | `func_path` | session | `tests/conftest.py` | Static function path string |
@@ -454,7 +454,7 @@ Tests that need this annotation include, but are not limited to:
 **Acceptable**:
 - **Equivalent mutants** where the mutation produces identical runtime behavior: `cast()` is a no-op at runtime, so any mutation to the cast call produces equivalent code.
 - **Encoding equivalence**: `"latin-1"` vs single-character encoding mutations on data that is within the ASCII subset; the behavior is identical.
-- **Mutmut trampoline bugs** where mutmut itself cannot generate a valid mutant: the `__init_subclass__` body in `managed.py` triggers a known mutmut bug.
+- **Mutmut trampoline bugs** where mutmut itself cannot generate a valid mutant (note: the `__init_subclass__` trampoline bug in `managed.py` was resolved by adding an explicit `@classmethod` decorator; see [mutmut#366](https://github.com/boxed/mutmut/issues/366)).
 
 **Prohibited**:
 - Behavioral code where writing a test is merely difficult or tedious.
@@ -470,7 +470,7 @@ The following categories of equivalent mutants have been identified in the codeb
 |---|---|---|---|
 | `cast()` calls | `cast()` is a no-op at runtime; any mutation produces equivalent behavior | `limiters.py`, `async_limiters.py`, `base.py`, `decorators.py`, `importing.py`, `celery/limiter.py` | The mutation does not change observable behavior |
 | `"latin-1"` encoding | Encoding mutations on ASCII data produce identical bytes | `backends/asgi/keys.py` | ASCII subset is identical across common encodings |
-| `__init_subclass__` body | Mutmut trampoline generation bug prevents valid mutant creation | `managed.py` | Mutmut limitation, not a code issue |
+| `__init_subclass__` body | Previously required `# pragma: no mutate` due to a mutmut trampoline bug; resolved by adding an explicit `@classmethod` decorator ([mutmut#366](https://github.com/boxed/mutmut/issues/366)). Mutmut may still skip mutating this method entirely. | `managed.py` | No longer pragmaed; kept for reference |
 
 ## 7. Pitfalls and Checklist
 
@@ -501,7 +501,7 @@ When adding a new backend, create the following:
 
 ### 7.5 Redis Cleanup Guarantees
 
-The `redis_client` and `async_redis_client` fixtures call `flushall()` both before and after the test. However, if a test raises an exception before the fixture's `yield`, the post-test `flushall()` may not execute. The pre-test `flushall()` in the next test mitigates this, but tests should not rely on a clean database at startup without the fixture's guarantee. Always use the fixture rather than manual Redis setup.
+The `redis_client` and `async_redis_client` fixtures call `flushdb()` both before and after the test. However, if a test raises an exception before the fixture's `yield`, the post-test `flushdb()` may not execute. The pre-test `flushdb()` in the next test mitigates this, but tests should not rely on a clean database at startup without the fixture's guarantee. Always use the fixture rather than manual Redis setup.
 
 ### 7.6 Warning Suppression
 

@@ -32,14 +32,28 @@ def _redis_connection():
     """
     client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
-    # Verify that the connection is operational before starting the suite.
-    try:
-        client.ping()
-    except redis.exceptions.ConnectionError:
-        pytest.fail(
-            f"Could not connect to Redis at {REDIS_HOST}:{REDIS_PORT}. Is it running?\n"
-            f"Tip: Use docker-compose up redis or set REDIS_HOST/REDIS_PORT environment variables."
-        )
+    # Wait for Redis to become fully operational before starting the suite.
+    # A single PING can succeed before Redis has finished its startup sequence
+    # (e.g., loading an RDB/AOF snapshot, allocating internal data structures).
+    # Issuing a write+read+flush cycle ensures the server is ready to serve
+    # real commands, which eliminates transient failures in the first few tests.
+    import time
+
+    for attempt in range(10):
+        try:
+            client.ping()
+            client.set("__warmup__", "1")
+            client.get("__warmup__")
+            client.delete("__warmup__")
+            client.flushdb()
+            break
+        except redis.exceptions.ConnectionError:
+            if attempt == 9:
+                pytest.fail(
+                    f"Could not connect to Redis at {REDIS_HOST}:{REDIS_PORT}. Is it running?\n"
+                    f"Tip: Use docker-compose up redis or set REDIS_HOST/REDIS_PORT environment variables."
+                )
+            time.sleep(0.5)
 
     yield client
     client.close()
@@ -55,10 +69,10 @@ def redis_client(_redis_connection):
     Yields:
         A Redis client suitable for use within an individual test.
     """
-    # Flush the database before and after the test.
-    _redis_connection.flushall()
+    # Flush the current database before and after the test.
+    _redis_connection.flushdb()
     yield _redis_connection
-    _redis_connection.flushall()
+    _redis_connection.flushdb()
 
 
 @pytest.fixture(scope="session")
@@ -118,7 +132,7 @@ async def async_redis_client():
         await client.ping()
     except redis.exceptions.ConnectionError:
         pytest.fail(f"Could not connect to Redis (async) at {REDIS_HOST}:{REDIS_PORT}.")
-    await client.flushall()
+    await client.flushdb()
     yield client
-    await client.flushall()
+    await client.flushdb()
     await client.aclose()
