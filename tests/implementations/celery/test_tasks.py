@@ -50,7 +50,7 @@ class TestGenericWorkerTask:
         target_func.assert_called_once_with(**payload)
         assert any(
             record.levelname == "DEBUG"
-            and "limiter_id=worker_limiter" in record.message
+            and "limiter=worker_limiter" in record.message
             and "func_path=json.dumps" in record.message
             for record in caplog.records
         ), (

@@ -255,7 +255,7 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
             cls._persist_config(instance)
 
         logger.info(
-            "%s created: limiter_id=%s, config=%s, persist=%s.",
+            "%s created: limiter=%s, config=%s, persist=%s.",
             cls.__name__,
             limiter_id,
             config,
@@ -279,7 +279,7 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
         """
         if limiter_id in cls._instances:
             logger.debug(
-                "%s resolved from local cache: limiter_id=%s.",
+                "%s resolved from local cache: limiter=%s.",
                 cls.__name__,
                 limiter_id,
             )
@@ -310,7 +310,7 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
 
         cls._instances[limiter_id] = instance
         logger.debug(
-            "%s hydrated from Redis: limiter_id=%s.",
+            "%s hydrated from Redis: limiter=%s.",
             cls.__name__,
             limiter_id,
         )
@@ -337,7 +337,7 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
         cls._persist_config(instance)
 
         logger.info(
-            "%s updated: limiter_id=%s, overrides=%s.",
+            "%s updated: limiter=%s, overrides=%s.",
             cls.__name__,
             limiter_id,
             overrides,
@@ -491,7 +491,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
             await cls._persist_config(instance)
 
         logger.info(
-            "%s created: limiter_id=%s, config=%s, persist=%s.",
+            "%s created: limiter=%s, config=%s, persist=%s.",
             cls.__name__,
             limiter_id,
             config,
@@ -518,7 +518,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         """
         if limiter_id in cls._instances:
             logger.debug(
-                "%s resolved from local cache: limiter_id=%s.",
+                "%s resolved from local cache: limiter=%s.",
                 cls.__name__,
                 limiter_id,
             )
@@ -554,7 +554,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
 
         cls._instances[limiter_id] = instance
         logger.debug(
-            "%s hydrated from Redis: limiter_id=%s.",
+            "%s hydrated from Redis: limiter=%s.",
             cls.__name__,
             limiter_id,
         )
@@ -580,7 +580,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         await cls._persist_config(instance)
 
         logger.info(
-            "%s updated: limiter_id=%s, overrides=%s.",
+            "%s updated: limiter=%s, overrides=%s.",
             cls.__name__,
             limiter_id,
             overrides,

@@ -1,3 +1,20 @@
+"""Root conftest providing foundational fixtures for the entire test suite.
+
+Fixtures provided:
+
+- ``redis_client`` (function): sync Redis client with per-test ``flushdb`` isolation.
+- ``async_redis_client`` (function): async Redis client with per-test ``flushdb`` isolation.
+  Each test receives a fresh connection to avoid event loop conflicts with ``asyncio_mode = "auto"``.
+- ``limiter_id`` (function): unique ``limiter_{test}_{uuid}`` identifier per test.
+- ``module_limiter_id`` (module): shared limiter identifier within a single test module.
+- ``lock_key`` (function): unique ``lock_{test}_{uuid}`` key per test.
+- ``func_path`` (session): static function path string for task scheduling.
+- ``payload`` (session): static payload dictionary for task scheduling.
+
+Redis connection details are derived from the ``REDIS_HOST`` and ``REDIS_PORT``
+environment variables (defaulting to ``localhost:6379``).
+"""
+
 import os
 from uuid import uuid4
 

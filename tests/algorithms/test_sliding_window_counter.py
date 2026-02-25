@@ -134,7 +134,7 @@ class TestWeightCalculation:
 
     @staticmethod
     @pytest.mark.parametrize(
-        "elapsed_ms,expected_weight",
+        ("elapsed_ms", "expected_weight"),
         [
             (0, 1.0),
             (100, 0.9),
@@ -147,6 +147,19 @@ class TestWeightCalculation:
             (800, 0.2),
             (900, 0.1),
             (1000, 0.0),
+        ],
+        ids=[
+            "t=0ms_w=1.0",
+            "t=100ms_w=0.9",
+            "t=200ms_w=0.8",
+            "t=300ms_w=0.7",
+            "t=400ms_w=0.6",
+            "t=500ms_w=0.5",
+            "t=600ms_w=0.4",
+            "t=700ms_w=0.3",
+            "t=800ms_w=0.2",
+            "t=900ms_w=0.1",
+            "t=1000ms_w=0.0",
         ],
     )
     def test_weight_decreases_linearly(elapsed_ms, expected_weight):
@@ -210,7 +223,7 @@ class TestEstimateFormula:
 
     @staticmethod
     @pytest.mark.parametrize(
-        "prev,curr,window,elapsed,expected",
+        ("prev", "curr", "window", "elapsed", "expected"),
         [
             # different window sizes
             (10, 5, 60000, 30000, 10.0),
@@ -220,6 +233,14 @@ class TestEstimateFormula:
             (100, 0, 1000, 100, 90.0),
             (0, 100, 1000, 100, 100.0),
             (50, 50, 1000, 500, 75.0),
+        ],
+        ids=[
+            "60s_window_midpoint",
+            "500ms_window_midpoint",
+            "2s_window_midpoint",
+            "prev_dominant_early",
+            "curr_only_early",
+            "balanced_midpoint",
         ],
     )
     def test_formula_across_configurations(prev, curr, window, elapsed, expected):
@@ -442,7 +463,7 @@ class TestBurstBoundProperty:
 
     @staticmethod
     @pytest.mark.parametrize(
-        "limit,window_ms",
+        ("limit", "window_ms"),
         [
             (1, 100),
             (1, 1000),
@@ -451,6 +472,15 @@ class TestBurstBoundProperty:
             (10, 2000),
             (100, 60000),
             (1000, 1000),
+        ],
+        ids=[
+            "limit=1_window=100ms",
+            "limit=1_window=1s",
+            "limit=5_window=500ms",
+            "limit=10_window=1s",
+            "limit=10_window=2s",
+            "limit=100_window=60s",
+            "limit=1000_window=1s",
         ],
     )
     def test_2x_bound_holds_across_configurations(limit, window_ms):

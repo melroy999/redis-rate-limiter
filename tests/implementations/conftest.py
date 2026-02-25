@@ -4,6 +4,11 @@ This module provides fixtures for testing implementations that do not require
 Celery-specific functionality. Both sync and async test helpers are provided;
 sync helpers extend ``AbstractDistributedRateLimiter``, while async helpers
 extend ``AbstractAsyncDistributedRateLimiter``.
+
+Fixture dependencies from the root ``tests/conftest.py``:
+    - ``redis_client``: sync Redis client with per-test ``flushdb`` isolation.
+    - ``async_redis_client``: async Redis client with per-test ``flushdb`` isolation.
+    - ``limiter_id``: unique per-test limiter identifier.
 """
 
 from uuid import uuid4
@@ -136,11 +141,8 @@ def generic_limiter(redis_client, limiter_id):
 
     yield test_limiter
 
-    # Teardown: stop the subscriber thread, then clear all Redis keys.
+    # Teardown: stop the subscriber thread.
     test_limiter.shutdown()
-    keys = redis_client.keys(f"{limiter_id}:*")
-    if keys:
-        redis_client.delete(*keys)
 
 
 @pytest.fixture
@@ -160,11 +162,8 @@ def tracking_limiter(redis_client, limiter_id):
 
     yield test_limiter
 
-    # Teardown: stop the subscriber thread, then clear all Redis keys.
+    # Teardown: stop the subscriber thread.
     test_limiter.shutdown()
-    keys = redis_client.keys(f"{limiter_id}:*")
-    if keys:
-        redis_client.delete(*keys)
 
 
 @pytest.fixture
@@ -202,13 +201,9 @@ def make_limiter_pool(redis_client, limiter_id):
 
     yield _factory
 
-    # Teardown: stop subscriber threads, then clear all Redis keys.
+    # Teardown: stop subscriber threads.
     for lim in created_limiters:
         lim.shutdown()
-    if pool_limiter_id:
-        keys = redis_client.keys(f"{pool_limiter_id}:*")
-        if keys:
-            redis_client.delete(*keys)
 
 
 # ---------------------------------------------------------------------------
@@ -247,11 +242,8 @@ async def async_generic_limiter(async_redis_client, limiter_id):
 
     yield test_limiter
 
-    # Teardown: stop the subscriber task, then clear all Redis keys.
+    # Teardown: stop the subscriber task.
     await test_limiter.shutdown()
-    keys = await async_redis_client.keys(f"{limiter_id}:*")
-    if keys:
-        await async_redis_client.delete(*keys)
 
 
 @pytest.fixture
@@ -272,11 +264,8 @@ async def async_tracking_limiter(async_redis_client, limiter_id):
 
     yield test_limiter
 
-    # Teardown: stop the subscriber task, then clear all Redis keys.
+    # Teardown: stop the subscriber task.
     await test_limiter.shutdown()
-    keys = await async_redis_client.keys(f"{limiter_id}:*")
-    if keys:
-        await async_redis_client.delete(*keys)
 
 
 @pytest.fixture
@@ -317,10 +306,6 @@ async def make_async_limiter_pool(async_redis_client, limiter_id):
 
     yield _factory
 
-    # Teardown: stop subscriber tasks, then clear all Redis keys.
+    # Teardown: stop subscriber tasks.
     for lim in created_limiters:
         await lim.shutdown()
-    if pool_limiter_id:
-        keys = await async_redis_client.keys(f"{pool_limiter_id}:*")
-        if keys:
-            await async_redis_client.delete(*keys)

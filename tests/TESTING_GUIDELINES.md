@@ -62,6 +62,31 @@ Examples of separate-file tests: `test_drain_loop.py` / `test_async_drain_loop.p
 
 **Rule for the boundary**: if a test uses `threading.*`, `time.sleep()`, or `asyncio.Task`/`asyncio.Event` as part of its Arrange or Act sections (not just Assert), it belongs in a separate file rather than a mixin.
 
+### 1.6 Section Separators
+
+Use a three-line block to separate major sections within a test file:
+
+```python
+# ---------------------------------------------------------------------------
+# Section title
+# ---------------------------------------------------------------------------
+```
+
+The separator line is exactly 75 dashes. Do not use separators between individual test methods within a single class.
+
+**When to use separators**: a separator is required at each boundary between groups of classes or functions that serve structurally different roles. The following transitions warrant a separator:
+
+| Transition | Example title |
+|---|---|
+| Module-level helpers before test classes | `Helpers` |
+| Mixin base classes before concrete subclasses | `Unified implementation tests` / `Concrete test cases` |
+| Behavioral mixin before observability mixin | `Unified observability tests` |
+| Behavioral concrete class before observability concrete class (non-mixin files) | `Observability tests` |
+| Distinct categories of test classes in the same file | `Drain-disabled tests`, `Cross-process drain signal tests` |
+| Sync-specific tests before async-specific tests (when in one file) | `Sync-specific tests` / `Async-specific tests` |
+
+A file with only one class and no helpers does not need any separators.
+
 ## 2. Documentation
 
 ### 2.1 Module Docstrings
@@ -253,7 +278,7 @@ Do not confuse data-flow verification with call-count verification. Asserting th
 | `tracking_limiter` | function | `tests/implementations/conftest.py` | Sync limiter that records dispatch and schedule calls |
 
 **Fixture rules**:
-- **Teardown**: all limiter fixtures must call `shutdown()` in teardown and clean Redis keys via `keys(f"{limiter_id}:*")`.
+- **Teardown**: all limiter fixtures must call `shutdown()` in teardown to stop subscriber threads and tasks. For **function-scoped** fixtures that depend on `redis_client` or `async_redis_client`, explicit key cleanup is not required because those root fixtures call `flushdb()` before and after every test (see Section 7.5). **Module-scoped or session-scoped** fixtures (e.g., property test fixtures) must handle their own key cleanup, because the per-test `flushdb()` cycle does not apply at broader scopes.
 - **Factory fixtures** (e.g., `make_limiter_pool`): must track all created objects in a list and clean up every object in teardown.
 - **Async fixtures**: must call `await limiter.start()` during setup to initialize the drain signal subscriber.
 - **Isolation**: never hardcode limiter IDs; always derive them from the `limiter_id` fixture with a disambiguation suffix (e.g., `f"{limiter_id}_generic"`).
@@ -294,24 +319,20 @@ assert any(
 
 **Structure**: the level check comes first, followed by all fragment checks joined with `and`. Each fragment verifies a specific structured parameter.
 
-**Recommended future helper** *(not yet implemented; specified here as a target pattern)*:
+**Standard helper** (implemented in ``tests/helpers/utils.py``):
 
 ```python
-def assert_log_emitted(
-    caplog_records: list,
-    level: str,
-    required_fragments: list[str],
-    message: str,
-) -> None:
-    """Assert that at least one log record matches the given level and contains all required fragments."""
-    assert any(
-        record.levelname == level
-        and all(fragment in record.message for fragment in required_fragments)
-        for record in caplog_records
-    ), message
+from tests.helpers.utils import assert_log_emitted
+
+assert_log_emitted(
+    caplog.records,
+    level="INFO",
+    required_fragments=[f"limiter={limiter.id}", f"task_id={task_id}"],
+    message="should emit an info log for the dispatched task",
+)
 ```
 
-Once this helper exists, new observability tests should use it instead of the ad-hoc pattern. Existing tests may be migrated opportunistically.
+All new observability tests must use this helper. Existing tests may be migrated opportunistically.
 
 **Logger-specific capture**: when testing logs from the rate limiter, use `caplog.at_level(logging.LEVEL, logger="celery_rate_limiter")` to filter out noise from third-party libraries. Always specify the logger name to ensure the test captures only relevant records.
 
@@ -429,12 +450,21 @@ Do not create helpers preemptively. Inline the code until the third use, then ex
 
 Tests that exist primarily to kill specific mutants must include a `Mutation target:` annotation in their docstring. This annotation explains what mutation class the test guards against.
 
+**Format**: the annotation begins with `Mutation target:` on a new paragraph after the first-line summary. It identifies the mutated code element and its location concisely, without repeating the test logic. Use back-ticked code references for operators, constants, method names, and index expressions.
+
 ```python
 def test_execution_lock_cooldown_below_cap_reflects_multiplier(limiter):
     """Verify that cooldown_ms reflects the ``* 1000`` multiplier when below the cap.
 
-    Mutation target: kills mutants that change the ``* 1000`` multiplier in
-    the cooldown calculation (e.g., ``* 1001`` produces 667 instead of 666).
+    Mutation target: ``* 1000`` multiplier in ``execution_lock()`` cooldown calculation.
+    """
+```
+
+```python
+def test_consume_result_index_mapping_is_correct(limiter):
+    """Verify that ``consume()`` maps each Lua return index to the correct result field.
+
+    Mutation target: index-swap mutations in ``consume()`` result parsing (e.g., ``result[5]`` to ``result[6]``).
     """
 ```
 
@@ -446,6 +476,8 @@ Tests that need this annotation include, but are not limited to:
 - Tests asserting on result index mapping with sentinel values (e.g., `test_consume_result_index_mapping_is_correct`).
 - Tests asserting that shutdown completes within a timing deadline (e.g., `test_shutdown_completes_promptly`).
 - Tests asserting on Prometheus metric names, descriptions, or label names.
+
+**Known limitation for default-parameter tests**: Python stores default parameter values in the function's `__defaults__` tuple when the `def` statement executes during import. Mutmut's fork model imports the module in the parent process (setting `__defaults__`), then forks children for mutation testing. The mutation modifies the code object in the child, but `__defaults__` is an attribute of the function object and remains unchanged. As a result, `inspect.signature` tests for default values are undetectable under mutmut. These tests are still valuable for documenting the expected contract; the annotation should reference the default parameter without repeating this limitation note.
 
 ### 6.2 `# pragma: no mutate` Rules
 

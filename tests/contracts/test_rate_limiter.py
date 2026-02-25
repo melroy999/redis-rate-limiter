@@ -99,7 +99,8 @@ class RateLimiterContractTest:
     @staticmethod
     def test_limiter_has_required_attributes(limiter):
         """Contract: the limiter must expose all required configuration attributes."""
-        # Assert that the required attributes exist and have the correct types.
+        # Assert
+        # Verify that the required attributes exist.
         assert hasattr(limiter, "id"), "limiter must have an 'id' attribute"
         assert hasattr(limiter, "redis"), "limiter must have a 'redis' attribute"
         assert hasattr(limiter, "buffer_key"), "limiter must have a 'buffer_key'"
@@ -112,14 +113,14 @@ class RateLimiterContractTest:
             "limiter must have a 'max_concurrency'"
         )
 
-        # Assert that the attributes have valid types.
+        # Verify that the attributes have valid types.
         assert isinstance(limiter.limit, int), "limit must be an int"
         assert isinstance(limiter.window, (int, float)), "window must be numeric"
         assert isinstance(limiter.max_concurrency, int), (
             "max_concurrency must be an int"
         )
 
-        # Assert that the attributes have valid values.
+        # Verify that the attributes have valid values.
         assert limiter.limit > 0, "limit must be positive"
         assert limiter.window > 0, "window must be positive"
         assert limiter.max_concurrency > 0, "max_concurrency must be positive"

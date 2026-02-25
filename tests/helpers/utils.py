@@ -95,6 +95,27 @@ def dict_equals_approx(left, right, relative_tolerance=1e-9, absolute_tolerance=
     return left == right
 
 
+def assert_log_emitted(
+    caplog_records: list,
+    level: str,
+    required_fragments: list[str],
+    message: str,
+) -> None:
+    """Assert that at least one log record matches the given level and contains all required fragments.
+
+    Args:
+        caplog_records: The list of captured log records (typically ``caplog.records``).
+        level: The expected log level name (e.g., ``"DEBUG"``, ``"INFO"``, ``"WARNING"``).
+        required_fragments: Substrings that must all appear in the matching record's message.
+        message: The assertion failure message.
+    """
+    assert any(
+        record.levelname == level
+        and all(fragment in record.message for fragment in required_fragments)
+        for record in caplog_records
+    ), message
+
+
 def is_subset(target: dict, superset: dict):
     """Determine whether the given target dictionary is a recursive subset of the given superset.
 

@@ -8,6 +8,10 @@ implementations.
 
 The sync variant participates via the ``SyncToAsyncLimiterAdapter``;
 the async variant runs natively.
+
+Fixture dependencies:
+    - ``tracking_limiter``, ``async_tracking_limiter``: from ``tests/implementations/conftest.py``.
+    - ``redis_client``, ``async_redis_client``, ``limiter_id``: from ``tests/conftest.py``.
 """
 
 import asyncio
@@ -25,6 +29,7 @@ from celery_rate_limiter.core.async_limiters import (
 )
 from celery_rate_limiter.core.limiters import AbstractDistributedRateLimiter
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
+from tests.helpers.utils import assert_log_emitted
 from tests.implementations.conftest import (
     AsyncTrackingRateLimiter,
     MinimalAsyncRateLimiter,
@@ -54,16 +59,15 @@ class DrainBehaviorTests:
         """Override in subclass to return a sync or async context manager."""
         raise NotImplementedError
 
-    async def test_drain_defers_when_paused(self, limiter, mock_target, caplog):
+    async def test_drain_defers_when_paused(self, limiter, mock_target):
         """Verify that ``drain()`` defers execution and schedules a follow-up when the limiter is paused."""
         # Arrange
         mock_target._paused_until = time.time() + 0.2
         consume_mock = MagicMock()
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
-            with patch.object(mock_target, "consume", consume_mock):
-                await limiter.drain()
+        with patch.object(mock_target, "consume", consume_mock):
+            await limiter.drain()
 
         # Assert
         assert consume_mock.call_count == 0, "drain should not consume while paused"
@@ -73,31 +77,24 @@ class DrainBehaviorTests:
         assert limiter.scheduled_drains[0] > 0.0, (
             "paused follow-up delay should be positive"
         )
-        assert any(
-            record.levelname == "DEBUG"
-            and f"limiter={limiter.id}" in record.message
-            and "paused" in record.message
-            for record in caplog.records
-        ), "should emit a debug log indicating the drain is deferred due to pause"
 
     async def test_drain_schedules_backup_when_lock_contended(
-        self, limiter, mock_target, caplog
+        self, limiter, mock_target
     ):
         """Verify that ``drain()`` schedules a backup drain when the dispatch lock is not acquired."""
         # Arrange
         consume_mock = MagicMock()
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
-            with (
-                patch.object(
-                    mock_target,
-                    "execution_lock",
-                    return_value=self.lock_result(False),
-                ),
-                patch.object(mock_target, "consume", consume_mock),
-            ):
-                await limiter.drain()
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(False),
+            ),
+            patch.object(mock_target, "consume", consume_mock),
+        ):
+            await limiter.drain()
 
         # Assert
         assert consume_mock.call_count == 0, (
@@ -113,15 +110,9 @@ class DrainBehaviorTests:
         assert limiter.scheduled_drains[0] == pytest.approx(expected_delay), (
             "backup drain delay should be one token interval"
         )
-        assert any(
-            record.levelname == "DEBUG"
-            and f"limiter={limiter.id}" in record.message
-            and "delay_s=12.000" in record.message
-            for record in caplog.records
-        ), "should emit a debug log for the backup drain with limiter id and delay"
 
     async def test_drain_dispatches_task_and_schedules_follow_up(
-        self, limiter, mock_target, caplog
+        self, limiter, mock_target
     ):
         """Verify that a successful consume dispatches the task and schedules the next drain."""
         # Arrange
@@ -140,16 +131,15 @@ class DrainBehaviorTests:
         }
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
-            with (
-                patch.object(
-                    mock_target,
-                    "execution_lock",
-                    return_value=self.lock_result(True),
-                ),
-                patch.object(mock_target, "consume", return_value=consume_result),
-            ):
-                await limiter.drain()
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+        ):
+            await limiter.drain()
 
         # Assert
         assert len(limiter.dispatched_tasks) == 1, (
@@ -167,39 +157,23 @@ class DrainBehaviorTests:
         assert limiter.scheduled_drains == [0.0], (
             "drain should schedule an immediate follow-up when tasks remain"
         )
-        assert any(
-            record.levelname == "INFO"
-            and f"limiter={limiter.id}" in record.message
-            and "task_id=task-1" in record.message
-            and "func_path=myapp.tasks.work" in record.message
-            for record in caplog.records
-        ), (
-            "should emit an info log for the dispatched task with limiter id, task id, and func path"
-        )
-        assert any(
-            record.levelname == "DEBUG"
-            and f"limiter={limiter.id}" in record.message
-            and "follow-up" in record.message
-            for record in caplog.records
-        ), "should emit a debug log for follow-up drain scheduling"
 
-    async def test_drain_handles_consume_exception(self, limiter, mock_target, caplog):
+    async def test_drain_handles_consume_exception(self, limiter, mock_target):
         """Verify that consume exceptions are caught and a recovery drain is scheduled."""
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
-            with (
-                patch.object(
-                    mock_target,
-                    "execution_lock",
-                    return_value=self.lock_result(True),
-                ),
-                patch.object(
-                    mock_target,
-                    "consume",
-                    side_effect=RuntimeError("consume failed"),
-                ),
-            ):
-                await limiter.drain()
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(
+                mock_target,
+                "consume",
+                side_effect=RuntimeError("consume failed"),
+            ),
+        ):
+            await limiter.drain()
 
         # Assert
         assert limiter.dispatched_tasks == [], (
@@ -213,14 +187,6 @@ class DrainBehaviorTests:
         )
         assert limiter._consecutive_drain_failures == 1, (
             "failure counter should be incremented to 1"
-        )
-        assert any(
-            record.levelname == "ERROR"
-            and f"limiter={limiter.id}" in record.message
-            and "attempt #1" in record.message
-            for record in caplog.records
-        ), (
-            "should emit an error log containing the limiter id and failure attempt number"
         )
 
     async def test_drain_handles_dispatch_exception(self, limiter, mock_target):
@@ -300,7 +266,7 @@ class DrainBehaviorTests:
         )
 
     async def test_drain_handles_expired_task_without_dispatch(
-        self, limiter, mock_target, caplog
+        self, limiter, mock_target
     ):
         """Verify that an expired consume result is neither dispatched nor rescheduled."""
         # Arrange
@@ -315,16 +281,15 @@ class DrainBehaviorTests:
         }
 
         # Act
-        with caplog.at_level(logging.WARNING, logger="celery_rate_limiter"):
-            with (
-                patch.object(
-                    mock_target,
-                    "execution_lock",
-                    return_value=self.lock_result(True),
-                ),
-                patch.object(mock_target, "consume", return_value=consume_result),
-            ):
-                await limiter.drain()
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+        ):
+            await limiter.drain()
 
         # Assert
         assert limiter.dispatched_tasks == [], (
@@ -333,15 +298,9 @@ class DrainBehaviorTests:
         assert limiter.scheduled_drains == [], (
             "drain should not schedule follow-up when expired result has no remaining tasks"
         )
-        assert any(
-            record.levelname == "WARNING"
-            and f"limiter={limiter.id}" in record.message
-            and "DLQ" in record.message
-            for record in caplog.records
-        ), "should emit a warning log indicating the expired task was moved to the DLQ"
 
     async def test_drain_stops_when_concurrency_at_capacity(
-        self, limiter, mock_target, caplog
+        self, limiter, mock_target
     ):
         """Verify that ``drain()`` stops without scheduling a follow-up when concurrency is saturated."""
         # Arrange
@@ -356,16 +315,15 @@ class DrainBehaviorTests:
         }
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
-            with (
-                patch.object(
-                    mock_target,
-                    "execution_lock",
-                    return_value=self.lock_result(True),
-                ),
-                patch.object(mock_target, "consume", return_value=consume_result),
-            ):
-                await limiter.drain()
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+        ):
+            await limiter.drain()
 
         # Assert
         assert limiter.dispatched_tasks == [], (
@@ -374,18 +332,9 @@ class DrainBehaviorTests:
         assert limiter.scheduled_drains == [], (
             "drain should not schedule retry when concurrency is at capacity"
         )
-        assert any(
-            record.levelname == "DEBUG"
-            and f"limiter={limiter.id}" in record.message
-            and f"active={limiter.max_concurrency}" in record.message
-            and f"max={limiter.max_concurrency}" in record.message
-            for record in caplog.records
-        ), (
-            "should emit a debug log indicating concurrency is at capacity with active and max counts"
-        )
 
     async def test_drain_schedules_delayed_retry_when_rate_limited(
-        self, limiter, mock_target, caplog
+        self, limiter, mock_target
     ):
         """Verify that ``drain()`` schedules a delayed retry when the remaining tokens are exhausted."""
         # Arrange
@@ -402,21 +351,20 @@ class DrainBehaviorTests:
         }
 
         # Act
-        with caplog.at_level(logging.INFO, logger="celery_rate_limiter"):
-            with (
-                patch.object(
-                    mock_target,
-                    "execution_lock",
-                    return_value=self.lock_result(True),
-                ),
-                patch.object(mock_target, "consume", return_value=consume_result),
-                patch.object(
-                    mock_target,
-                    "_calculate_smart_jitter",
-                    return_value=0.0,
-                ) as mock_jitter,
-            ):
-                await limiter.drain()
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+            patch.object(
+                mock_target,
+                "_calculate_smart_jitter",
+                return_value=0.0,
+            ) as mock_jitter,
+        ):
+            await limiter.drain()
 
         # Assert
         assert mock_jitter.call_count == 1, (
@@ -427,15 +375,6 @@ class DrainBehaviorTests:
         )
         assert limiter.scheduled_drains[0] == pytest.approx(0.251), (
             "rate-limited retry delay should be reset_in_ms/1000 + 0.001 = 0.251 on fallback path"
-        )
-        assert any(
-            record.levelname == "INFO"
-            and f"limiter={limiter.id}" in record.message
-            and "delay_s=0.251" in record.message
-            and "remaining_tasks=4" in record.message
-            for record in caplog.records
-        ), (
-            "should emit an info log for the rate-limited retry with delay and remaining tasks"
         )
 
     async def test_drain_calls_refresh_config_if_available(self, limiter, mock_target):
@@ -499,7 +438,10 @@ class DrainBehaviorTests:
     async def test_drain_backoff_increases_with_consecutive_failures(
         self, limiter, mock_target
     ):
-        """Verify that the recovery delay doubles with each consecutive failure."""
+        """Verify that the recovery delay doubles with each consecutive failure.
+
+        Mutation target: ``0.1 * (2 ** (attempt - 1))`` exponential backoff formula in ``drain()``.
+        """
         # Act
         with (
             patch.object(
@@ -529,6 +471,114 @@ class DrainBehaviorTests:
         assert first_delay == pytest.approx(0.1), "first recovery delay should be 100ms"
         assert second_delay == pytest.approx(0.2), (
             "second recovery delay should be 200ms"
+        )
+
+    async def test_drain_backoff_caps_at_window(self, limiter, mock_target):
+        """Verify that the recovery delay is capped at ``self.window`` regardless of failure count."""
+        # Arrange
+        # Use a small window so the cap is reached quickly.
+        mock_target.window = 1.0
+
+        # Act
+        # Trigger enough failures to exceed the window cap.
+        # delay = min(1.0, 0.1 * 2^(n-1)): at n=4 -> min(1.0, 0.8) = 0.8; at n=5 -> min(1.0, 1.6) = 1.0
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                side_effect=lambda: self.lock_result(True),
+            ),
+            patch.object(
+                mock_target,
+                "consume",
+                side_effect=RuntimeError("fail"),
+            ),
+        ):
+            for _ in range(6):
+                await limiter.drain()
+
+        # Assert
+        # The 5th and 6th failures should both be capped at 1.0.
+        assert limiter.scheduled_drains[4] == pytest.approx(1.0), (
+            "5th recovery delay should be capped at window (1.0s), not 1.6s"
+        )
+        assert limiter.scheduled_drains[5] == pytest.approx(1.0), (
+            "6th recovery delay should remain capped at window (1.0s)"
+        )
+
+    async def test_drain_dispatches_last_task_without_follow_up(
+        self, limiter, mock_target
+    ):
+        """Verify that drain does not schedule a follow-up after dispatching the last task."""
+        # Arrange
+        consume_result = {
+            "success": True,
+            "expired": False,
+            "task": {
+                "id": "last-task",
+                "func_path": "myapp.tasks.work",
+                "payload": {"x": 1},
+            },
+            "remaining_tokens": 4,
+            "active_concurrency": 1,
+            "reset_in_ms": 100,
+            "remaining_tasks": 0,
+        }
+
+        # Act
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+        ):
+            await limiter.drain()
+
+        # Assert
+        assert len(limiter.dispatched_tasks) == 1, (
+            "drain should dispatch the task even when it is the last one"
+        )
+        assert limiter.dispatched_tasks[0]["task_id"] == "last-task", (
+            "dispatched task id should match the consumed task"
+        )
+        assert limiter.scheduled_drains == [], (
+            "drain should not schedule a follow-up when no tasks remain after dispatch"
+        )
+
+    async def test_drain_stops_after_expired_task_with_remaining_tasks(
+        self, limiter, mock_target
+    ):
+        """Verify that drain stops without follow-up when an expired task leaves remaining tasks."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": True,
+            "task": None,
+            "remaining_tokens": 5,
+            "active_concurrency": 0,
+            "reset_in_ms": 100,
+            "remaining_tasks": 3,
+        }
+
+        # Act
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+        ):
+            await limiter.drain()
+
+        # Assert
+        assert limiter.dispatched_tasks == [], (
+            "drain should not dispatch when consume reports an expired task"
+        )
+        assert limiter.scheduled_drains == [], (
+            "drain should not schedule a follow-up in the expired-with-remaining fall-through path"
         )
 
     async def test_drain_handles_double_failure_when_schedule_drain_also_fails(
@@ -652,7 +702,10 @@ class DrainBehaviorTests:
 
     @staticmethod
     async def test_drain_loop_watchdog_interval(limiter):
-        """Verify that the watchdog interval is ``max(5.0, window * 2)``."""
+        """Verify that the watchdog interval is ``max(5.0, window * 2)``.
+
+        Mutation target: ``max(5.0, window * 2)`` formula in drain loop initialization.
+        """
         expected = max(5.0, limiter.window * 2)
         actual = limiter._drain_loop._watchdog_interval
         assert actual == expected, (
@@ -670,8 +723,268 @@ class DrainBehaviorTests:
             "trigger_consume should schedule exactly one drain"
         )
 
+
+
+# ---------------------------------------------------------------------------
+# Unified observability tests
+# ---------------------------------------------------------------------------
+
+
+class DrainObservabilityTests:
+    """Observability tests for ``drain()`` log emissions.
+
+    These tests mirror the behavioral scenarios in ``DrainBehaviorTests`` but
+    assert exclusively on log output per Section 4.1 of the testing guidelines.
+
+    Subclasses must provide the same customization points as ``DrainBehaviorTests``:
+        - ``limiter``: a fixture returning the limiter under test.
+        - ``mock_target``: a fixture returning the object to patch.
+        - ``lock_result(acquired)``: a class method returning a sync or async context manager.
+    """
+
+    async def test_drain_paused_emits_debug_log(self, limiter, mock_target, caplog):
+        """Verify that ``drain()`` emits a debug log when deferred due to pause."""
+        # Arrange
+        mock_target._paused_until = time.time() + 0.2
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+            with patch.object(mock_target, "consume", MagicMock()):
+                await limiter.drain()
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            required_fragments=[f"limiter={limiter.id}", "paused"],
+            message="should emit a debug log indicating the drain is deferred due to pause",
+        )
+
+    async def test_drain_lock_contended_emits_debug_log(
+        self, limiter, mock_target, caplog
+    ):
+        """Verify that ``drain()`` emits a debug log when the dispatch lock is contended."""
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+            with (
+                patch.object(
+                    mock_target,
+                    "execution_lock",
+                    return_value=self.lock_result(False),
+                ),
+                patch.object(mock_target, "consume", MagicMock()),
+            ):
+                await limiter.drain()
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            required_fragments=[f"limiter={limiter.id}", "delay_s=12.000"],
+            message="should emit a debug log for the backup drain with limiter id and delay",
+        )
+
+    async def test_drain_dispatch_emits_expected_logs(
+        self, limiter, mock_target, caplog
+    ):
+        """Verify that a successful dispatch emits an info log and a follow-up debug log."""
+        # Arrange
+        consume_result = {
+            "success": True,
+            "expired": False,
+            "task": {
+                "id": "task-1",
+                "func_path": "myapp.tasks.work",
+                "payload": {"x": 1},
+            },
+            "remaining_tokens": 4,
+            "active_concurrency": 1,
+            "reset_in_ms": 100,
+            "remaining_tasks": 2,
+        }
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+            with (
+                patch.object(
+                    mock_target,
+                    "execution_lock",
+                    return_value=self.lock_result(True),
+                ),
+                patch.object(mock_target, "consume", return_value=consume_result),
+            ):
+                await limiter.drain()
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="INFO",
+            required_fragments=[
+                f"limiter={limiter.id}",
+                "task_id=task-1",
+                "func_path=myapp.tasks.work",
+            ],
+            message="should emit an info log for the dispatched task with limiter id, task id, and func path",
+        )
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            required_fragments=[f"limiter={limiter.id}", "follow-up"],
+            message="should emit a debug log for follow-up drain scheduling",
+        )
+
+    async def test_drain_consume_exception_emits_error_log(
+        self, limiter, mock_target, caplog
+    ):
+        """Verify that a consume exception emits an error log with the attempt number."""
+        # Act
+        with caplog.at_level(logging.ERROR, logger="celery_rate_limiter"):
+            with (
+                patch.object(
+                    mock_target,
+                    "execution_lock",
+                    return_value=self.lock_result(True),
+                ),
+                patch.object(
+                    mock_target,
+                    "consume",
+                    side_effect=RuntimeError("consume failed"),
+                ),
+            ):
+                await limiter.drain()
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="ERROR",
+            required_fragments=[f"limiter={limiter.id}", "attempt #1"],
+            message="should emit an error log containing the limiter id and failure attempt number",
+        )
+
+    async def test_drain_expired_task_emits_warning_log(
+        self, limiter, mock_target, caplog
+    ):
+        """Verify that an expired consume result emits a warning log mentioning the DLQ."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": True,
+            "task": None,
+            "remaining_tokens": 5,
+            "active_concurrency": 0,
+            "reset_in_ms": 100,
+            "remaining_tasks": 0,
+        }
+
+        # Act
+        with caplog.at_level(logging.WARNING, logger="celery_rate_limiter"):
+            with (
+                patch.object(
+                    mock_target,
+                    "execution_lock",
+                    return_value=self.lock_result(True),
+                ),
+                patch.object(mock_target, "consume", return_value=consume_result),
+            ):
+                await limiter.drain()
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="WARNING",
+            required_fragments=[f"limiter={limiter.id}", "DLQ"],
+            message="should emit a warning log indicating the expired task was moved to the DLQ",
+        )
+
+    async def test_drain_concurrency_at_capacity_emits_debug_log(
+        self, limiter, mock_target, caplog
+    ):
+        """Verify that ``drain()`` emits a debug log when concurrency is at capacity."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "task": None,
+            "remaining_tokens": 5,
+            "active_concurrency": limiter.max_concurrency,
+            "reset_in_ms": 100,
+            "remaining_tasks": 3,
+        }
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+            with (
+                patch.object(
+                    mock_target,
+                    "execution_lock",
+                    return_value=self.lock_result(True),
+                ),
+                patch.object(mock_target, "consume", return_value=consume_result),
+            ):
+                await limiter.drain()
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            required_fragments=[
+                f"limiter={limiter.id}",
+                f"active={limiter.max_concurrency}",
+                f"max={limiter.max_concurrency}",
+            ],
+            message="should emit a debug log indicating concurrency is at capacity with active and max counts",
+        )
+
+    async def test_drain_rate_limited_emits_info_log(
+        self, limiter, mock_target, caplog
+    ):
+        """Verify that ``drain()`` emits an info log when scheduling a rate-limited retry."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "task": None,
+            "remaining_tokens": 0,
+            "active_concurrency": 1,
+            "reset_in_ms": 250,
+            "remaining_tasks": 4,
+            "val_previous": 0,
+            "val_current": 5,
+        }
+
+        # Act
+        with caplog.at_level(logging.INFO, logger="celery_rate_limiter"):
+            with (
+                patch.object(
+                    mock_target,
+                    "execution_lock",
+                    return_value=self.lock_result(True),
+                ),
+                patch.object(mock_target, "consume", return_value=consume_result),
+                patch.object(
+                    mock_target,
+                    "_calculate_smart_jitter",
+                    return_value=0.0,
+                ),
+            ):
+                await limiter.drain()
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="INFO",
+            required_fragments=[
+                f"limiter={limiter.id}",
+                "delay_s=0.251",
+                "remaining_tasks=4",
+            ],
+            message="should emit an info log for the rate-limited retry with delay and remaining tasks",
+        )
+
     @staticmethod
-    async def test_publish_drain_signal_logs_on_failure(limiter, mock_target, caplog):
+    async def test_publish_drain_signal_emits_debug_log_on_failure(
+        limiter, mock_target, caplog
+    ):
         """Verify that ``_publish_drain_signal()`` emits a debug log when Redis publish fails."""
         # Arrange
         with patch.object(
@@ -682,12 +995,12 @@ class DrainBehaviorTests:
                 await limiter.trigger_consume()
 
         # Assert
-        assert any(
-            record.levelname == "DEBUG"
-            and f"limiter={limiter.id}" in record.message
-            and "Failed to publish drain signal" in record.message
-            for record in caplog.records
-        ), "should emit a debug log when redis publish raises an exception"
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            required_fragments=[f"limiter={limiter.id}", "Failed to publish drain signal"],
+            message="should emit a debug log when redis publish raises an exception",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -695,7 +1008,7 @@ class DrainBehaviorTests:
 # ---------------------------------------------------------------------------
 
 
-class TestSyncDrain(DrainBehaviorTests):
+class TestSyncDrain(DrainBehaviorTests, DrainObservabilityTests):
     """Sync drain behavior exercised through the async adapter."""
 
     _mock_cls = MagicMock
@@ -717,7 +1030,7 @@ class TestSyncDrain(DrainBehaviorTests):
         return tracking_limiter
 
 
-class TestAsyncDrain(DrainBehaviorTests):
+class TestAsyncDrain(DrainBehaviorTests, DrainObservabilityTests):
     """Async drain behavior exercised natively."""
 
     _mock_cls = AsyncMock
@@ -870,22 +1183,19 @@ class TestAsyncScheduleDrainDelegation:
         with patch.object(async_generic_limiter, "_drain_loop", None):
             AbstractAsyncDistributedRateLimiter._schedule_drain(async_generic_limiter)
 
+    @pytest.mark.parametrize(
+        "cls",
+        [AbstractAsyncDistributedRateLimiter, AbstractDistributedRateLimiter],
+        ids=["async", "sync"],
+    )
     @staticmethod
-    def test_async_schedule_drain_default_delay_is_zero():
-        """Verify that the async ``_schedule_drain`` default delay is ``0.0``."""
-        # Arrange & Act
-        sig = inspect.signature(AbstractAsyncDistributedRateLimiter._schedule_drain)
+    def test_schedule_drain_default_delay_is_zero(cls):
+        """Verify that ``_schedule_drain`` default delay is ``0.0``.
 
-        # Assert
-        assert sig.parameters["delay"].default == 0.0, (
-            "_schedule_drain() default delay should be 0.0 for immediate scheduling"
-        )
-
-    @staticmethod
-    def test_sync_schedule_drain_default_delay_is_zero():
-        """Verify that the sync ``_schedule_drain`` default delay is ``0.0``."""
-        # Arrange & Act
-        sig = inspect.signature(AbstractDistributedRateLimiter._schedule_drain)
+        Mutation target: ``delay=0.0`` default parameter on ``_schedule_drain()``.
+        """
+        # Act
+        sig = inspect.signature(cls._schedule_drain)
 
         # Assert
         assert sig.parameters["delay"].default == 0.0, (

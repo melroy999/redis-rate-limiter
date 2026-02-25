@@ -2,10 +2,14 @@
 
 Tests are written once in async form. The sync implementation participates
 via the ``SyncToAsyncLimiterAdapter``; the async implementation runs natively.
+
+Fixture dependencies:
+    - ``generic_limiter``, ``async_generic_limiter``: from ``tests/implementations/conftest.py``.
+    - ``func_path``: from ``tests/conftest.py``.
 """
 
 import inspect
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -175,6 +179,92 @@ class GetStatusTests:
             "tokens_used should remain 0 when only concurrency slots are seeded without consuming"
         )
 
+    @staticmethod
+    async def test_get_status_available_clamps_to_zero_when_over_capacity(limiter):
+        """Verify that ``available`` is clamped to 0 when concurrency exceeds ``max_concurrency``.
+
+        Mutation target: ``max(0, ...)`` guard in the ``available`` calculation.
+        """
+        # Arrange
+        # Seed one more task than max_concurrency so the raw subtraction is negative.
+        for i in range(limiter.max_concurrency + 1):
+            result = limiter.redis.zadd(
+                limiter.concurrency_key, {f"overflow_task_{i}": 9999999999.0}
+            )
+            if inspect.isawaitable(result):
+                await result
+
+        # Act
+        status = await limiter.get_status()
+
+        # Assert
+        assert int(status["concurrency"]["current"]) == limiter.max_concurrency + 1, (
+            "concurrency current should exceed max_concurrency when over-seeded"
+        )
+        assert status["concurrency"]["available"] == 0, (
+            "concurrency available should be clamped to 0, not negative"
+        )
+
+    @staticmethod
+    async def test_get_status_reports_locked_dispatcher(limiter):
+        """Verify that ``is_locked`` is 1 when the dispatch lock key exists in Redis."""
+        # Arrange
+        lock_key = f"{limiter.id}:dispatch_lock"
+        result = limiter.redis.set(lock_key, "1", ex=10)
+        if inspect.isawaitable(result):
+            await result
+
+        # Act
+        status = await limiter.get_status()
+
+        # Assert
+        assert status["dispatcher"]["is_locked"] == 1, (
+            "dispatcher is_locked should be 1 when the dispatch lock key exists"
+        )
+
+    @staticmethod
+    async def test_get_status_val_current_uses_correct_result_index(limiter):
+        """Verify that ``get_status()`` maps each health.lua return index to the correct result field.
+
+        Mutation target: index-swap mutations in ``get_status()`` result parsing (e.g., ``result[1]`` vs ``result[2]``).
+        """
+        # Arrange
+        # health.lua returns: [prev_count, curr_count, estimated_count, active_now, reset_in_ms, buffer_count]
+        # Each value is deliberately distinct to detect index swaps.
+        controlled_response = ["10", "5", "7.5", "2", "500", "3"]
+        actual_limiter = getattr(limiter, "_inner", limiter)
+        mock_cls = (
+            AsyncMock
+            if inspect.iscoroutinefunction(actual_limiter._eval_script)
+            else MagicMock
+        )
+
+        # Act
+        with patch.object(
+            actual_limiter, "_eval_script", mock_cls(return_value=controlled_response)
+        ):
+            status = await limiter.get_status()
+
+        # Assert
+        assert status["rate_limit"]["val_previous"] == "10", (
+            "val_previous should map to result[0] (previous_count)"
+        )
+        assert status["rate_limit"]["val_current"] == "5", (
+            "val_current should map to result[1] (current_count), not result[2] (estimated_count)"
+        )
+        assert float(status["rate_limit"]["tokens_used"]) == pytest.approx(7.5), (
+            "tokens_used should map to result[2] (estimated_count), not result[1] (current_count)"
+        )
+        assert int(status["concurrency"]["current"]) == 2, (
+            "concurrency current should map to result[3] (active_now)"
+        )
+        assert int(status["rate_limit"]["reset_in_ms"]) == 500, (
+            "reset_in_ms should map to result[4]"
+        )
+        assert int(status["buffer"]["count"]) == 3, (
+            "buffer count should map to result[5]"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Concrete test cases
@@ -189,36 +279,6 @@ class TestSyncGetStatus(GetStatusTests):
         """Wrap the sync generic limiter in an async adapter."""
         return SyncToAsyncLimiterAdapter(generic_limiter)
 
-    @staticmethod
-    async def test_get_status_val_current_uses_correct_result_index(
-        generic_limiter,
-    ):
-        """Verify that val_current maps to result[1], not result[2] (estimated_count).
-
-        This mirrors the async-specific test to ensure the sync ``get_status()``
-        implementation in ``limiters.py`` uses the correct result indices.
-        """
-        # Arrange
-        # health.lua returns: [prev_count, curr_count, estimated_count, active_now, reset_in_ms, buffer_count]
-        controlled_response = ["10", "5", "7.5", "2", "500", "3"]
-
-        # Act
-        with patch.object(
-            generic_limiter, "_eval_script", return_value=controlled_response
-        ):
-            status = generic_limiter.get_status()
-
-        # Assert
-        assert status["rate_limit"]["val_current"] == "5", (
-            "val_current should map to result[1] (current_count), not result[2] (estimated_count)"
-        )
-        assert float(status["rate_limit"]["tokens_used"]) == pytest.approx(7.5), (
-            "tokens_used should map to result[2] (estimated_count), not result[1] (current_count)"
-        )
-        assert status["rate_limit"]["val_previous"] == "10", (
-            "val_previous should map to result[0] (previous_count)"
-        )
-
 
 class TestAsyncGetStatus(GetStatusTests):
     """Async rate limiter ``get_status()`` exercised natively."""
@@ -227,34 +287,3 @@ class TestAsyncGetStatus(GetStatusTests):
     def limiter(self, async_generic_limiter):
         """Provide the async generic limiter directly."""
         return async_generic_limiter
-
-    @staticmethod
-    async def test_get_status_val_current_uses_correct_result_index(
-        async_generic_limiter,
-    ):
-        """Verify that val_current maps to result[1], not result[2] (estimated_count).
-
-        In the first window, val_current == tokens_used because estimated_count equals
-        current_count when previous_count is 0. This test uses a controlled health.lua
-        response where result[1] != result[2] to verify the index mapping.
-        """
-        # Arrange
-        # health.lua returns: [prev_count, curr_count, estimated_count, active_now, reset_in_ms, buffer_count]
-        controlled_response = ["10", "5", "7.5", "2", "500", "3"]
-
-        # Act
-        with patch.object(
-            async_generic_limiter, "_eval_script", return_value=controlled_response
-        ):
-            status = await async_generic_limiter.get_status()
-
-        # Assert
-        assert status["rate_limit"]["val_current"] == "5", (
-            "val_current should map to result[1] (current_count), not result[2] (estimated_count)"
-        )
-        assert float(status["rate_limit"]["tokens_used"]) == pytest.approx(7.5), (
-            "tokens_used should map to result[2] (estimated_count), not result[1] (current_count)"
-        )
-        assert status["rate_limit"]["val_previous"] == "10", (
-            "val_previous should map to result[0] (previous_count)"
-        )

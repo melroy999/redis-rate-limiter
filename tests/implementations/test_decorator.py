@@ -1,5 +1,11 @@
-"""Tests for the ``rate_limited`` decorator behavior."""
+"""Tests for the ``rate_limited`` decorator behavior.
 
+Fixture dependencies:
+    - ``task_id``: from ``tests/implementations/conftest.py``.
+    - ``limiter_id``: from ``tests/conftest.py``.
+"""
+
+import inspect
 import logging
 from unittest.mock import MagicMock, patch
 
@@ -7,6 +13,7 @@ import pytest
 
 from celery_rate_limiter import rate_limited
 from celery_rate_limiter.core.decorators import _get_default_limiter
+from tests.helpers.utils import assert_log_emitted
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -35,7 +42,7 @@ class TestRateLimitedDecorator:
 
     @staticmethod
     def test_decorator_wraps_function_in_task_lifecycle(
-        limiter_mock, limiter_id, task_id, caplog
+        limiter_mock, limiter_id, task_id
     ):
         """Verify that the decorated function execution is wrapped in ``task_lifecycle()``."""
         # Arrange
@@ -46,31 +53,17 @@ class TestRateLimitedDecorator:
             return value * 2
 
         # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.core.decorators"
+        with patch(
+            "celery_rate_limiter.core.decorators._get_default_limiter",
+            return_value=limiter,
         ):
-            with patch(
-                "celery_rate_limiter.core.decorators._get_default_limiter",
-                return_value=limiter,
-            ):
-                result = wrapped_function(4, _rate_limit_task_id=task_id)
+            result = wrapped_function(4, _rate_limit_task_id=task_id)
 
         # Assert
         assert result == 8, "decorated function should return wrapped result"
         limiter.task_lifecycle.assert_called_once_with(task_id)
         lifecycle_context.__enter__.assert_called_once()
         lifecycle_context.__exit__.assert_called_once()
-
-        debug_records = [
-            r
-            for r in caplog.records
-            if r.levelname == "DEBUG"
-            and limiter_id in r.message
-            and task_id in r.message
-        ]
-        assert len(debug_records) == 2, (
-            "should emit two debug logs (entry and completion) containing the limiter id and task id"
-        )
 
     @staticmethod
     def test_decorator_pops_rate_limit_task_id_from_kwargs(
@@ -99,6 +92,41 @@ class TestRateLimitedDecorator:
             "_rate_limit_task_id should not be forwarded to wrapped function"
         )
         assert captured_kwargs["alpha"] == 1, "non-reserved kwargs should be preserved"
+
+    @staticmethod
+    def test_decorator_forwards_limiter_id_kwarg_to_wrapped_function(
+        limiter_mock, limiter_id, task_id
+    ):
+        """Verify that ``limiter_id`` in kwargs is read (not popped) and forwarded to the wrapped function.
+
+        Mutation target: ``kwargs.get("limiter_id")`` vs ``kwargs.pop("limiter_id")``.
+        """
+        # Arrange
+        limiter, _ = limiter_mock
+        captured_kwargs = {}
+
+        @rate_limited()
+        def wrapped_function(**kwargs):
+            captured_kwargs.update(kwargs)
+            return "ok"
+
+        # Act
+        with patch(
+            "celery_rate_limiter.core.decorators._get_default_limiter",
+            return_value=limiter,
+        ):
+            wrapped_function(
+                limiter_id=limiter_id,
+                _rate_limit_task_id=task_id,
+            )
+
+        # Assert
+        assert "limiter_id" in captured_kwargs, (
+            "limiter_id should be forwarded to the wrapped function (get, not pop)"
+        )
+        assert captured_kwargs["limiter_id"] == limiter_id, (
+            "forwarded limiter_id value should match the original"
+        )
 
     @staticmethod
     def test_decorator_resolves_limiter_id_from_argument(
@@ -280,6 +308,34 @@ class TestRateLimitedDecorator:
                 wrapped_function(_rate_limit_task_id=task_id)
 
     @staticmethod
+    def test_rate_limited_limiter_id_defaults_to_none():
+        """Verify that the ``limiter_id`` parameter defaults to ``None``.
+
+        Mutation target: ``limiter_id=None`` default parameter on ``rate_limited()``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(rate_limited)
+
+        # Assert
+        assert sig.parameters["limiter_id"].default is None, (
+            "limiter_id should default to None"
+        )
+
+    @staticmethod
+    def test_rate_limited_get_limiter_defaults_to_none():
+        """Verify that the ``get_limiter`` parameter defaults to ``None``.
+
+        Mutation target: ``get_limiter=None`` default parameter on ``rate_limited()``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(rate_limited)
+
+        # Assert
+        assert sig.parameters["get_limiter"].default is None, (
+            "get_limiter should default to None"
+        )
+
+    @staticmethod
     def test_decorator_uses_default_limiter_resolver(limiter_mock, limiter_id, task_id):
         """Verify that ``_get_default_limiter`` is exercised when no custom resolver is provided."""
         # Arrange
@@ -301,6 +357,51 @@ class TestRateLimitedDecorator:
             "decorated function should return wrapped result via default resolver"
         )
         mock_get.assert_called_once_with(limiter_id)
+
+
+# ---------------------------------------------------------------------------
+# Observability tests
+# ---------------------------------------------------------------------------
+
+
+class TestRateLimitedDecoratorObservability:
+    """Observability tests for the ``rate_limited`` decorator."""
+
+    @staticmethod
+    def test_decorator_emits_entry_and_completion_debug_logs(
+        limiter_mock, limiter_id, task_id, caplog
+    ):
+        """Verify that the decorated function emits debug logs for entry and completion."""
+        # Arrange
+        limiter, _ = limiter_mock
+
+        @rate_limited(limiter_id)
+        def wrapped_function(value: int) -> int:
+            return value * 2
+
+        # Act
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.core.decorators"
+        ):
+            with patch(
+                "celery_rate_limiter.core.decorators._get_default_limiter",
+                return_value=limiter,
+            ):
+                wrapped_function(4, _rate_limit_task_id=task_id)
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            "DEBUG",
+            ["decorator entered", f"limiter={limiter_id}", f"task_id={task_id}", "func=", "wrapped_function"],
+            "should emit a debug log for the decorator entry with limiter id, task id, and func qualname",
+        )
+        assert_log_emitted(
+            caplog.records,
+            "DEBUG",
+            ["execution completed", f"limiter={limiter_id}", f"task_id={task_id}", "func=", "wrapped_function"],
+            "should emit a debug log for the task completion with limiter id, task id, and func qualname",
+        )
 
 
 class TestGetDefaultLimiter:

@@ -6,32 +6,21 @@ import logging
 import pytest
 
 from celery_rate_limiter import import_string
+from tests.helpers.utils import assert_log_emitted
 
 
 class TestImportString:
     """Test suite for ``import_string()`` behavior."""
 
     @staticmethod
-    def test_import_string_resolves_valid_function(caplog):
+    def test_import_string_resolves_valid_function():
         """Verify that ``import_string()`` resolves a valid callable import path."""
         # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.core.importing"
-        ):
-            resolved = import_string("json.dumps")
+        resolved = import_string("json.dumps")
 
         # Assert
         assert resolved is json.dumps, (
             "import_string should resolve json.dumps callable"
-        )
-        assert any(
-            record.levelname == "DEBUG"
-            and "import_path=json.dumps" in record.message
-            and "module=json" in record.message
-            and "callable=dumps" in record.message
-            for record in caplog.records
-        ), (
-            "should emit a debug log for the resolved import with import path, module, and callable"
         )
 
     @staticmethod
@@ -73,3 +62,29 @@ class TestImportString:
         # Act & Assert
         with pytest.raises(expected_exception):
             import_string(invalid_path)
+
+
+# ---------------------------------------------------------------------------
+# Observability tests
+# ---------------------------------------------------------------------------
+
+
+class TestImportStringObservability:
+    """Observability tests for ``import_string()``."""
+
+    @staticmethod
+    def test_import_string_emits_debug_log_for_resolved_import(caplog):
+        """Verify that ``import_string()`` emits a debug log with the import path, module, and callable."""
+        # Act
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.core.importing"
+        ):
+            import_string("json.dumps")
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            "DEBUG",
+            ["import_path=json.dumps", "module=json", "callable=dumps"],
+            "should emit a debug log for the resolved import with import path, module, and callable",
+        )

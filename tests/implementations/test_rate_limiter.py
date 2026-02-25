@@ -4,6 +4,10 @@ This module validates backend-agnostic behavior by exercising both sync
 and async concrete limiter implementations. Tests are written once in
 async form; the sync implementation participates via the
 ``SyncToAsyncLimiterAdapter``, while the async implementation runs natively.
+
+Fixture dependencies:
+    - ``generic_limiter``, ``async_generic_limiter``: from ``tests/implementations/conftest.py``.
+    - ``async_redis_client``, ``func_path``, ``payload``: from ``tests/conftest.py``.
 """
 
 import inspect
@@ -16,7 +20,7 @@ import redis
 
 from tests.contracts.test_rate_limiter import RateLimiterContractTest
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
-from tests.helpers.utils import is_subset
+from tests.helpers.utils import assert_log_emitted, is_subset
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -98,12 +102,11 @@ class RateLimiterImplementationTests:
 
     @staticmethod
     async def test_schedule_single_task_stores_correctly(
-        limiter, async_redis_client, func_path, payload, caplog
+        limiter, async_redis_client, func_path, payload
     ):
         """Verify that a single task is stored with all required metadata."""
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
-            _, task_id = await limiter.schedule_task(func_path, payload)
+        _, task_id = await limiter.schedule_task(func_path, payload)
 
         # Assert
         await assert_task_existence(
@@ -113,36 +116,14 @@ class RateLimiterImplementationTests:
             "buffer should contain exactly one task"
         )
 
-        # Verify that the scheduling attempt debug log was emitted.
-        assert any(
-            record.levelname == "DEBUG"
-            and f"limiter={limiter.id}" in record.message
-            and f"task_id={task_id}" in record.message
-            and f"func_path={func_path}" in record.message
-            and "priority=100" in record.message
-            for record in caplog.records
-        ), (
-            "should emit a debug log for the scheduling attempt with limiter id, task id, func path, and priority"
-        )
-
-        # Verify that the task scheduled info log was emitted.
-        assert any(
-            record.levelname == "INFO"
-            and f"limiter={limiter.id}" in record.message
-            and f"task_id={task_id}" in record.message
-            and f"func_path={func_path}" in record.message
-            for record in caplog.records
-        ), "should emit an info log for the successfully scheduled task"
-
     @staticmethod
     async def test_schedule_duplicate_task_skips_second(
-        limiter, async_redis_client, func_path, payload, caplog
+        limiter, async_redis_client, func_path, payload
     ):
         """Verify that duplicate tasks are not scheduled twice."""
         # Act
         success_1, task_id_1 = await limiter.schedule_task(func_path, payload)
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
-            success_2, task_id_2 = await limiter.schedule_task(func_path, payload)
+        success_2, task_id_2 = await limiter.schedule_task(func_path, payload)
 
         # Assert
         assert success_1 is True, "first task should be scheduled successfully"
@@ -150,17 +131,6 @@ class RateLimiterImplementationTests:
         assert task_id_1 == task_id_2, "duplicate task should have same ID"
         await assert_task_existence(
             limiter, async_redis_client, func_path, payload, task_id_1
-        )
-
-        # Verify that the duplicate-skip debug log was emitted.
-        assert any(
-            record.levelname == "DEBUG"
-            and f"limiter={limiter.id}" in record.message
-            and f"task_id={task_id_1}" in record.message
-            and "already in-flight" in record.message
-            for record in caplog.records
-        ), (
-            "should emit a debug log for the skipped duplicate with limiter id and task id"
         )
 
     @staticmethod
@@ -380,13 +350,10 @@ class RateLimiterImplementationTests:
             # Act
             with pytest.raises(
                 redis.exceptions.ConnectionError, match="redis down"
-            ) as exc_info:
+            ):
                 await limiter.schedule_task(func_path, payload)
 
         # Assert
-        assert "redis down" in str(exc_info.value), (
-            "schedule should re-raise the original redis connection error"
-        )
         inflight_keys = await async_redis_client.keys(limiter.get_inflight_key("*"))
         assert inflight_keys == [], (
             "inflight marker must be cleared on non-NoScript schedule failure"
@@ -457,9 +424,7 @@ class RateLimiterImplementationTests:
     async def test_execution_lock_cooldown_below_cap_reflects_multiplier(limiter):
         """Verify that cooldown_ms reflects the ``* 1000`` multiplier when below the cap.
 
-        With ``window=2, limit=3`` the uncapped cooldown is ``int((2/3) * 1000) = 666``,
-        well below the 1000ms cap. A mutation that changes ``* 1000`` to ``* 1001``
-        would produce 667 instead of 666, which this assertion catches.
+        Mutation target: ``* 1000`` multiplier in ``execution_lock()`` cooldown calculation.
         """
         # Arrange
         original_window, original_limit = limiter.window, limiter.limit
@@ -536,9 +501,7 @@ class RateLimiterImplementationTests:
     async def test_consume_result_index_mapping_is_correct(limiter):
         """Verify that ``consume()`` maps each Lua return index to the correct result field.
 
-        Patching ``_eval_script`` with unique sentinel values per index ensures
-        that any index-swap mutation (e.g., ``result[5]`` to ``result[6]``) is
-        immediately caught.
+        Mutation target: index-swap mutations in ``consume()`` result parsing (e.g., ``result[5]`` to ``result[6]``).
         """
         # Arrange
         task_json = json.dumps(
@@ -586,13 +549,185 @@ class RateLimiterImplementationTests:
         assert result["val_previous"] == 500, "val_previous must map to result[6]"
         assert result["val_current"] == 600, "val_current must map to result[7]"
 
+    @staticmethod
+    async def test_consume_expired_result_sets_correct_flags(limiter):
+        """Verify that ``consume()`` correctly parses the expired indicator (``result[0]="-1"``)."""
+        # Arrange
+        task_json = json.dumps(
+            {
+                "id": "expired-task",
+                "func_path": "tests.helpers.tasks.noop_task",
+                "payload": {"expired": True},
+                "inflight_key": "test:inflight:expired-task",
+            }
+        )
+        sentinel_result = [
+            "-1",       # [0] expired flag
+            task_json,  # [1] task data (Lua returns task data even for expired tasks)
+            "10",       # [2] remaining_tokens
+            "0",        # [3] active_concurrency
+            "500",      # [4] reset_in_ms
+            "3",        # [5] remaining_tasks
+            "5",        # [6] val_previous
+            "2",        # [7] val_current
+        ]
+
+        actual_limiter = getattr(limiter, "_inner", limiter)
+        mock_cls = (
+            AsyncMock
+            if inspect.iscoroutinefunction(actual_limiter._eval_script)
+            else MagicMock
+        )
+
+        # Act
+        with patch.object(
+            actual_limiter, "_eval_script", mock_cls(return_value=sentinel_result)
+        ):
+            result = await limiter.consume()
+
+        # Assert
+        assert result["expired"] is True, "expired should be True when result[0] is '-1'"
+        assert result["success"] is False, (
+            "success should be False when result[0] is '-1'"
+        )
+
+    @staticmethod
+    async def test_consume_denied_result_sets_correct_flags(limiter):
+        """Verify that ``consume()`` correctly parses the denied indicator (``result[0]="0"``)."""
+        # Arrange
+        sentinel_result = [
+            "0",    # [0] denied flag
+            "",     # [1] no task data
+            "0",    # [2] remaining_tokens
+            "2",    # [3] active_concurrency
+            "100",  # [4] reset_in_ms
+            "5",    # [5] remaining_tasks
+            "10",   # [6] val_previous
+            "5",    # [7] val_current
+        ]
+
+        actual_limiter = getattr(limiter, "_inner", limiter)
+        mock_cls = (
+            AsyncMock
+            if inspect.iscoroutinefunction(actual_limiter._eval_script)
+            else MagicMock
+        )
+
+        # Act
+        with patch.object(
+            actual_limiter, "_eval_script", mock_cls(return_value=sentinel_result)
+        ):
+            result = await limiter.consume()
+
+        # Assert
+        assert result["success"] is False, "success should be False when result[0] is '0'"
+        assert result["expired"] is False, (
+            "expired should be False when result[0] is '0'"
+        )
+        assert result["task"] is None, (
+            "task should be None when result[1] is an empty string"
+        )
+
+    @staticmethod
+    async def test_execution_lock_cooldown_caps_at_1000ms(limiter):
+        """Verify that the execution lock cooldown is capped at 1000ms for large window/limit ratios."""
+        # Arrange
+        actual_limiter = getattr(limiter, "_inner", limiter)
+        original_window = actual_limiter.window
+        original_limit = actual_limiter.limit
+        actual_limiter.window = 60
+        actual_limiter.limit = 1
+
+        try:
+            # Act
+            lock = actual_limiter.execution_lock()
+
+            # Assert
+            # Without cap: int((60/1) * 1000) = 60000
+            # With cap: min(60000, 1000) = 1000
+            assert lock.cooldown_ms == 1000, (
+                "cooldown should be capped at 1000ms, not the raw value of 60000ms"
+            )
+        finally:
+            actual_limiter.window = original_window
+            actual_limiter.limit = original_limit
+
+    @staticmethod
+    async def test_execution_lock_forwards_custom_timeout(limiter):
+        """Verify that a custom ``timeout_ms`` is forwarded to the lock."""
+        # Act
+        actual_limiter = getattr(limiter, "_inner", limiter)
+        lock = actual_limiter.execution_lock(timeout_ms=3000)
+
+        # Assert
+        assert lock.timeout_ms == 3000, (
+            "lock timeout should match the custom value, not the default 5000"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Unified observability tests
+# ---------------------------------------------------------------------------
+
+
+class RateLimiterObservabilityTests:
+    """Observability tests for rate limiter scheduling operations.
+
+    These tests verify logging behavior and are separated from the behavioral
+    tests in ``RateLimiterImplementationTests`` per the separation of concerns
+    guideline (Section 4.1).
+    """
+
+    @staticmethod
+    async def test_schedule_single_task_emits_expected_logs(
+        limiter, func_path, payload, caplog
+    ):
+        """Verify that scheduling a single task emits the expected debug and info logs."""
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+            _, task_id = await limiter.schedule_task(func_path, payload)
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            "DEBUG",
+            [f"limiter={limiter.id}", f"task_id={task_id}", f"func_path={func_path}", "priority=100"],
+            "should emit a debug log for the scheduling attempt with limiter id, task id, func path, and priority",
+        )
+        assert_log_emitted(
+            caplog.records,
+            "INFO",
+            [f"limiter={limiter.id}", f"task_id={task_id}", f"func_path={func_path}"],
+            "should emit an info log for the successfully scheduled task",
+        )
+
+    @staticmethod
+    async def test_schedule_duplicate_task_emits_debug_log(
+        limiter, func_path, payload, caplog
+    ):
+        """Verify that scheduling a duplicate task emits a debug log indicating the skip."""
+        # Arrange
+        await limiter.schedule_task(func_path, payload)
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+            _, task_id = await limiter.schedule_task(func_path, payload)
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            "DEBUG",
+            [f"limiter={limiter.id}", f"task_id={task_id}", "already in-flight"],
+            "should emit a debug log for the skipped duplicate with limiter id and task id",
+        )
+
 
 # ---------------------------------------------------------------------------
 # Concrete test cases
 # ---------------------------------------------------------------------------
 
 
-class TestSyncRateLimiterImplementation(RateLimiterImplementationTests):
+class TestSyncRateLimiterImplementation(RateLimiterImplementationTests, RateLimiterObservabilityTests):
     """Sync rate limiter implementation exercised through the async adapter."""
 
     @pytest.fixture
@@ -601,7 +736,7 @@ class TestSyncRateLimiterImplementation(RateLimiterImplementationTests):
         return SyncToAsyncLimiterAdapter(generic_limiter)
 
 
-class TestAsyncRateLimiterImplementation(RateLimiterImplementationTests):
+class TestAsyncRateLimiterImplementation(RateLimiterImplementationTests, RateLimiterObservabilityTests):
     """Async rate limiter implementation exercised natively."""
 
     @pytest.fixture
