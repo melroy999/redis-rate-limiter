@@ -34,22 +34,26 @@ class TestImportString:
     def test_import_string_raises_on_invalid_module():
         """Verify that ``import_string()`` raises a ModuleNotFoundError for a missing module."""
         # Act & Assert
-        with pytest.raises(ModuleNotFoundError):
+        with pytest.raises(
+            ModuleNotFoundError, match="No module named 'missing_module_for_tests'"
+        ):
             import_string("missing_module_for_tests.function_name")
 
     @staticmethod
     def test_import_string_raises_on_missing_attribute():
         """Verify that ``import_string()`` raises an AttributeError for a missing attribute."""
         # Act & Assert
-        with pytest.raises(AttributeError):
+        with pytest.raises(
+            AttributeError, match="module 'json' has no attribute 'this_attribute_does_not_exist'"
+        ):
             import_string("json.this_attribute_does_not_exist")
 
     @pytest.mark.parametrize(
-        ("invalid_path", "expected_exception"),
+        ("invalid_path", "expected_exception", "expected_match"),
         [
-            ("", ValueError),
-            ("no_dot_path", ValueError),
-            ("  json.dumps  ", ModuleNotFoundError),
+            ("", ValueError, "not enough values to unpack"),
+            ("no_dot_path", ValueError, "not enough values to unpack"),
+            ("  json.dumps  ", ModuleNotFoundError, "No module named"),
         ],
         ids=["empty_string", "no_dot", "whitespace_padded"],
     )
@@ -57,10 +61,11 @@ class TestImportString:
     def test_import_string_raises_on_malformed_path(
         invalid_path: str,
         expected_exception: type[Exception],
+        expected_match: str,
     ):
         """Verify that ``import_string()`` raises an exception on structurally invalid import paths."""
         # Act & Assert
-        with pytest.raises(expected_exception):
+        with pytest.raises(expected_exception, match=expected_match):
             import_string(invalid_path)
 
 

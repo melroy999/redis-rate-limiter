@@ -1,4 +1,8 @@
-"""Fixtures for AsyncIO task limiter tests."""
+"""Fixtures for AsyncIO task limiter tests.
+
+Fixture dependencies:
+    - ``async_redis_client``, ``limiter_id``: from ``tests/conftest.py``.
+"""
 
 import pytest
 

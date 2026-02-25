@@ -582,41 +582,34 @@ class DrainBehaviorTests:
         )
 
     async def test_drain_handles_double_failure_when_schedule_drain_also_fails(
-        self, limiter, mock_target, caplog
+        self, limiter, mock_target
     ):
         """Verify that ``drain()`` does not propagate when both the inner drain and recovery scheduling fail."""
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
-            with (
-                patch.object(
-                    mock_target,
-                    "execution_lock",
-                    return_value=self.lock_result(True),
-                ),
-                patch.object(
-                    mock_target,
-                    "consume",
-                    side_effect=RuntimeError("consume failed"),
-                ),
-                patch.object(
-                    mock_target,
-                    "_schedule_drain",
-                    side_effect=RuntimeError("schedule also failed"),
-                ),
-            ):
-                # This invocation must not raise.
-                await limiter.drain()
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(
+                mock_target,
+                "consume",
+                side_effect=RuntimeError("consume failed"),
+            ),
+            patch.object(
+                mock_target,
+                "_schedule_drain",
+                side_effect=RuntimeError("schedule also failed"),
+            ),
+        ):
+            # This invocation must not raise.
+            await limiter.drain()
 
         # Assert
         assert limiter._consecutive_drain_failures == 1, (
             "failure counter should be incremented despite double failure"
         )
-        assert any(
-            record.levelname == "CRITICAL"
-            and f"limiter={limiter.id}" in record.message
-            and "Recovery scheduling also failed" in record.message
-            for record in caplog.records
-        ), "should emit a critical log when both drain and recovery scheduling fail"
 
     async def test_drain_skips_jitter_on_token_recovery_path(
         self, limiter, mock_target
@@ -859,6 +852,42 @@ class DrainObservabilityTests:
             level="ERROR",
             required_fragments=[f"limiter={limiter.id}", "attempt #1"],
             message="should emit an error log containing the limiter id and failure attempt number",
+        )
+
+    async def test_drain_double_failure_emits_critical_log(
+        self, limiter, mock_target, caplog
+    ):
+        """Verify that ``drain()`` emits a CRITICAL log when both consume and recovery scheduling fail."""
+        # Act
+        with caplog.at_level(logging.CRITICAL, logger="celery_rate_limiter"):
+            with (
+                patch.object(
+                    mock_target,
+                    "execution_lock",
+                    return_value=self.lock_result(True),
+                ),
+                patch.object(
+                    mock_target,
+                    "consume",
+                    side_effect=RuntimeError("consume failed"),
+                ),
+                patch.object(
+                    mock_target,
+                    "_schedule_drain",
+                    side_effect=RuntimeError("schedule also failed"),
+                ),
+            ):
+                await limiter.drain()
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="CRITICAL",
+            required_fragments=[
+                f"limiter={limiter.id}",
+                "Recovery scheduling also failed",
+            ],
+            message="should emit a critical log when both drain and recovery scheduling fail",
         )
 
     async def test_drain_expired_task_emits_warning_log(

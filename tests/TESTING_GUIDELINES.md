@@ -106,11 +106,13 @@ Every test class must have a docstring. Mixin bases must document the fixtures a
 Every test method must have a docstring. The docstring is a single sentence that begins with a verb and describes what the test verifies, not how it works.
 
 - **Contract tests** use the prefix `Contract:` to distinguish interface guarantees from implementation tests.
+- **Algorithm property tests** use the prefix `Property:` to distinguish mathematical invariants verified by the test from behavioral assertions.
 - **Mutation-targeted tests** include a `Mutation target:` annotation (see Section 6.1).
 
 Examples:
 - `"""Verify that ``shutdown()`` sets the ``_shutdown`` flag to exactly ``True``."""`
 - `"""Contract: ``schedule_task()`` must return a ``(bool, str)`` tuple."""`
+- `"""Property: the 2x burst bound holds for various limit and window configurations."""`
 - `"""Verify the exact delay value computed via the primary decay formula.\n\nMutation target: kills mutants that alter arithmetic operators in ``_calculate_token_recovery_delay``."""`
 
 ### 2.4 AAA Section Comments
@@ -317,7 +319,7 @@ assert any(
 ), "should emit a <level> log containing field_a and field_b"
 ```
 
-**Structure**: the level check comes first, followed by all fragment checks joined with `and`. Each fragment verifies a specific structured parameter.
+**Structure**: the level check comes first, followed by all fragment checks joined with `and`. Each fragment verifies a specific structured parameter. Fragments must use the `key=value` format (e.g., `f"limiter={limiter.id}"`, `f"task_id={task_id}"`) rather than bare values (e.g., `limiter.id`). Bare values may match spuriously in unrelated parts of the log message; the key-value format ensures that the correct structured field is present.
 
 **Standard helper** (implemented in ``tests/helpers/utils.py``):
 

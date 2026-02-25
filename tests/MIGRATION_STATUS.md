@@ -44,35 +44,38 @@ Tracks compliance of each file against `TESTING_GUIDELINES.md`. Files are checke
 
 ## Batch 6: implementations/ lifecycle, lock, internal, concurrent
 
-- [ ] `tests/implementations/test_task_lifecycle.py`
-- [ ] `tests/implementations/test_async_task_lifecycle.py`
-- [ ] `tests/implementations/test_distributed_lock.py`
-- [ ] `tests/implementations/test_async_distributed_lock.py`
-- [ ] `tests/implementations/test_internal_helpers.py`
-- [ ] `tests/implementations/test_rate_limiter_class_api.py`
-- [ ] `tests/implementations/test_concurrent_access.py`
+- [x] `tests/implementations/test_task_lifecycle.py`
+- [x] `tests/implementations/test_async_task_lifecycle.py`
+- [x] `tests/implementations/test_distributed_lock.py`
+- [x] `tests/implementations/test_async_distributed_lock.py`
+- [x] `tests/implementations/test_lua_script_infrastructure.py` (split from `test_internal_helpers.py`)
+- [x] `tests/implementations/test_task_data_helpers.py` (split from `test_internal_helpers.py`)
+- [x] `tests/implementations/test_token_recovery_delay.py` (split from `test_internal_helpers.py`)
+- [x] `tests/implementations/test_limiter_config.py` (split from `test_internal_helpers.py`)
+- [x] `tests/implementations/test_rate_limiter_class_api.py`
+- [x] `tests/implementations/test_concurrent_access.py`
 
 ## Batch 7: implementations/ drain loops + backend subdirectories
 
-- [ ] `tests/implementations/test_drain_loop.py`
-- [ ] `tests/implementations/test_async_drain_loop.py`
-- [ ] `tests/implementations/celery/conftest.py`
-- [ ] `tests/implementations/celery/test_contracts.py`
-- [ ] `tests/implementations/celery/test_celery_limiter.py`
-- [ ] `tests/implementations/celery/test_rate_limiter_class_api.py`
-- [ ] `tests/implementations/celery/test_tasks.py`
-- [ ] `tests/implementations/threadpool/conftest.py`
-- [ ] `tests/implementations/threadpool/test_contracts.py`
-- [ ] `tests/implementations/threadpool/test_threadpool_limiter.py`
-- [ ] `tests/implementations/threadpool/test_rate_limiter_class_api.py`
-- [ ] `tests/implementations/asyncio/conftest.py`
-- [ ] `tests/implementations/asyncio/test_contracts.py`
-- [ ] `tests/implementations/asyncio/test_asyncio_limiter.py`
-- [ ] `tests/implementations/asyncio/test_rate_limiter_class_api.py`
-- [ ] `tests/implementations/asgi/conftest.py`
-- [ ] `tests/implementations/asgi/test_asgi_limiter.py`
-- [ ] `tests/implementations/asgi/test_keys.py`
-- [ ] `tests/implementations/asgi/test_middleware.py`
+- [x] `tests/implementations/test_drain_loop.py`
+- [x] `tests/implementations/test_async_drain_loop.py`
+- [x] `tests/implementations/celery/conftest.py`
+- [x] `tests/implementations/celery/test_contracts.py` (no changes needed)
+- [x] `tests/implementations/celery/test_celery_limiter.py`
+- [x] `tests/implementations/celery/test_rate_limiter_class_api.py`
+- [x] `tests/implementations/celery/test_tasks.py`
+- [x] `tests/implementations/threadpool/conftest.py`
+- [x] `tests/implementations/threadpool/test_contracts.py`
+- [x] `tests/implementations/threadpool/test_threadpool_limiter.py`
+- [x] `tests/implementations/threadpool/test_rate_limiter_class_api.py`
+- [x] `tests/implementations/asyncio/conftest.py`
+- [x] `tests/implementations/asyncio/test_contracts.py`
+- [x] `tests/implementations/asyncio/test_asyncio_limiter.py`
+- [x] `tests/implementations/asyncio/test_rate_limiter_class_api.py`
+- [x] `tests/implementations/asgi/conftest.py`
+- [x] `tests/implementations/asgi/test_asgi_limiter.py`
+- [x] `tests/implementations/asgi/test_keys.py` (no changes needed)
+- [x] `tests/implementations/asgi/test_middleware.py`
 
 ## Batch 8: properties/
 
@@ -136,9 +139,26 @@ Decisions made during migration review where a coverage gap was identified but d
 
 ### Deferred to concurrency tests
 
+*All items in this section have been resolved.*
+
+| Gap | Resolution |
+|---|---|
+| ~~Concurrent `schedule_task` for the same payload under race conditions~~ | Pre-existing coverage identified during batch 6 review: `TestConcurrentScheduling.test_concurrent_duplicate_scheduling_produces_single_entry` in `tests/implementations/test_concurrent_access.py`. The original deferral was added without cross-referencing pending test files. |
+
+### Deferred to Lua script tests (batch 6 additions)
+
 | Gap | Rationale | Future location |
 |---|---|---|
-| Concurrent `schedule_task` for the same payload under race conditions | Deduplication relies on Redis `SET NX` atomicity. No test verifies that concurrent scheduling from multiple workers results in exactly one buffered task. Best tested with real concurrency primitives rather than mocked Redis. | `tests/implementations/test_concurrent_access.py` |
+| `acquire.lua` edge cases: atomic token comparison on release, lock key exists with different token, renewal semantics | `test_distributed_lock.py` verifies the Python wrapper (UUID token generation, SET NX). Lua-level atomicity and token comparison are not exercised by Python tests. | `tests/lua/test_acquire.py` |
+
+### Deferred to async class API parity (batch 7 verification)
+
+*All items in this section have been resolved.*
+
+| Gap | Resolution |
+|---|---|
+| ~~`AsyncManagedRateLimiter` class API observability parity~~ | Resolved during batch 7 review: added `TestConfigureObservability`, `TestCreateObservability`, `TestGetObservability`, and `TestUpdateObservability` to `tests/implementations/asyncio/test_rate_limiter_class_api.py`, covering all 7 async managed log emissions. |
+| ~~`AsyncManagedRateLimiter.create` default value signature tests~~ | Resolved during batch 7 review: added `TestCreateDefaults` with `test_create_persist_defaults_to_true` and `test_create_override_defaults_to_false` to `tests/implementations/asyncio/test_rate_limiter_class_api.py`. |
 
 ### Deferred to idempotency tests (Section 11.2)
 

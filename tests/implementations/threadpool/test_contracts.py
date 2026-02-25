@@ -3,6 +3,10 @@
 This module inherits the shared contract suite and binds it to the
 ``ThreadPoolRateLimiter`` implementation via the ``limiter`` fixture
 defined in the accompanying conftest module.
+
+Fixture dependencies:
+    - ``redis_client``, ``limiter_id``: from ``tests/conftest.py``.
+    - ``limiter``, ``_reset_limiter_class_state``: from ``tests/implementations/threadpool/conftest.py``.
 """
 
 import pytest

@@ -1,7 +1,14 @@
-"""Tests for the AsyncIO task limiter backend."""
+"""Tests for the AsyncIO task limiter backend.
+
+Fixture dependencies:
+    - ``limiter``, ``_reset_asyncio_limiter_class_state``: from ``tests/implementations/asyncio/conftest.py``.
+"""
 
 import asyncio
 import logging
+from unittest.mock import AsyncMock, patch
+
+from tests.helpers.utils import assert_log_emitted
 
 
 class TestAsyncIOTaskLimiter:
@@ -117,29 +124,19 @@ class TestAsyncIOTaskLimiter:
         )
 
     @staticmethod
-    async def test_dispatch_task_creates_asyncio_task(limiter, caplog):
+    async def test_dispatch_task_creates_asyncio_task(limiter):
         """Verify that ``_dispatch_task`` creates an asyncio task and tracks it."""
         # Arrange
         assert limiter._active_count == 0, "active count should start at zero"
 
         # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.backends.asyncio.limiter"
-        ):
-            await limiter._dispatch_task(
-                "tests.helpers.tasks.async_noop_task", {}, "test-task-id"
-            )
+        await limiter._dispatch_task(
+            "tests.helpers.tasks.async_noop_task", {}, "test-task-id"
+        )
 
         # Assert
         assert limiter._active_count == 1, "active count should be incremented"
         assert len(limiter._active_tasks) == 1, "active tasks set should have one entry"
-        assert any(
-            record.levelname == "DEBUG"
-            and limiter.id in record.message
-            and "test-task-id" in record.message
-            and "tests.helpers.tasks.async_noop_task" in record.message
-            for record in caplog.records
-        ), "should emit a debug log containing the limiter id, task id, and func path"
 
     @staticmethod
     async def test_dispatch_task_executes_target_function(limiter, caplog):
@@ -214,3 +211,89 @@ class TestAsyncIOTaskLimiter:
             "all tasks should be cleared after shutdown"
         )
         assert limiter._active_count == 0, "active count should be zero after shutdown"
+
+
+# ---------------------------------------------------------------------------
+# Observability tests
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncIODispatchObservability:
+    """Observability tests for the ``_dispatch_task`` log emissions."""
+
+    @staticmethod
+    async def test_dispatch_task_emits_debug_log(limiter, caplog):
+        """Verify that ``_dispatch_task`` emits a DEBUG log with limiter id, task id, func path, and active count."""
+        # Act
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.backends.asyncio.limiter"
+        ):
+            await limiter._dispatch_task(
+                "tests.helpers.tasks.async_noop_task", {}, "test-task-id"
+            )
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            required_fragments=[
+                f"limiter={limiter.id}",
+                "task_id=test-task-id",
+                "func_path=tests.helpers.tasks.async_noop_task",
+                "active_count=1",
+            ],
+            message="should emit a debug log containing the limiter id, task id, func path, and active count",
+        )
+
+    @staticmethod
+    async def test_task_exception_emits_error_log(limiter, caplog):
+        """Verify that ``_dispatch_task`` emits an ERROR log when the dispatched task raises an exception."""
+        # Act
+        with caplog.at_level(
+            logging.ERROR, logger="celery_rate_limiter.backends.asyncio.limiter"
+        ):
+            await limiter._dispatch_task(
+                "tests.helpers.tasks.noop_task", {}, "sync-err-task"
+            )
+            # Allow the created task to fully complete (TypeError from sync function).
+            await asyncio.gather(*list(limiter._active_tasks), return_exceptions=True)
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="ERROR",
+            required_fragments=[
+                f"limiter={limiter.id}",
+                "task_id=sync-err-task",
+                "func_path=tests.helpers.tasks.noop_task",
+            ],
+            message="should emit an error log containing the limiter id, task id, and func path on task exception",
+        )
+
+    @staticmethod
+    async def test_shutdown_cancellation_emits_info_log(limiter, caplog):
+        """Verify that ``shutdown()`` emits an INFO log when cancelling active tasks."""
+        # Arrange
+        await limiter._dispatch_task(
+            "tests.helpers.tasks.slow_task", {}, "cancel-task-id"
+        )
+        assert len(limiter._active_tasks) >= 1, (
+            "at least one task should be active before shutdown"
+        )
+
+        # Act
+        with caplog.at_level(
+            logging.INFO, logger="celery_rate_limiter.backends.asyncio.limiter"
+        ):
+            await limiter.shutdown()
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="INFO",
+            required_fragments=[
+                f"limiter={limiter.id}",
+                "Cancelling",
+            ],
+            message="should emit an info log with the limiter id when cancelling active tasks",
+        )

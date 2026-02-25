@@ -1,4 +1,10 @@
-"""Celery-specific behavioural tests for the ``CeleryRateLimiter`` implementation."""
+"""Celery-specific behavioural tests for the ``CeleryRateLimiter`` implementation.
+
+Fixture dependencies:
+    - ``redis_client``, ``func_path``, ``payload``: from ``tests/conftest.py``.
+    - ``limiter``, ``task_id``: from ``tests/implementations/celery/conftest.py``
+      and ``tests/implementations/conftest.py``.
+"""
 
 import inspect
 import json
@@ -8,6 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from celery_rate_limiter import CeleryRateLimiter
+from tests.helpers.utils import assert_log_emitted
 
 
 class TestCeleryRateLimiter:
@@ -15,7 +22,10 @@ class TestCeleryRateLimiter:
 
     @staticmethod
     def test_schedule_task_use_executor_default_is_true():
-        """Verify that the ``use_executor`` parameter defaults to ``True`` via signature inspection."""
+        """Verify that the ``use_executor`` parameter defaults to ``True`` via signature inspection.
+
+        Mutation target: default value of ``use_executor`` in ``CeleryRateLimiter.schedule_task()``.
+        """
         # Arrange
         sig = inspect.signature(CeleryRateLimiter.schedule_task)
 
@@ -66,18 +76,15 @@ class TestCeleryRateLimiter:
 
     @staticmethod
     def test_dispatch_task_use_executor_true_sends_generic_worker(
-        limiter, payload, task_id, caplog
+        limiter, payload, task_id
     ):
         """Verify that ``_dispatch_task`` sends the generic worker task when ``use_executor`` is true."""
         # Arrange
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=True)
 
         # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.backends.celery.limiter"
-        ):
-            with patch.object(limiter.app, "send_task") as mock_send_task:
-                limiter._dispatch_task("myapp.tasks.process", enhanced_payload, task_id)
+        with patch.object(limiter.app, "send_task") as mock_send_task:
+            limiter._dispatch_task("myapp.tasks.process", enhanced_payload, task_id)
 
         # Assert
         mock_send_task.assert_called_once_with(
@@ -89,17 +96,10 @@ class TestCeleryRateLimiter:
                 "_rate_limit_task_id": task_id,
             },
         )
-        assert any(
-            record.levelname == "DEBUG"
-            and limiter.id in record.message
-            and task_id in record.message
-            and "myapp.tasks.process" in record.message
-            for record in caplog.records
-        ), "should emit a debug log containing the limiter id, task id, and func path"
 
     @staticmethod
     def test_dispatch_task_use_executor_false_sends_custom_task(
-        limiter, payload, task_id, caplog
+        limiter, payload, task_id
     ):
         """Verify that ``_dispatch_task`` sends a custom task directly when ``use_executor`` is false."""
         # Arrange
@@ -107,11 +107,8 @@ class TestCeleryRateLimiter:
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=False)
 
         # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.backends.celery.limiter"
-        ):
-            with patch.object(limiter.app, "send_task") as mock_send_task:
-                limiter._dispatch_task(func_path, enhanced_payload, task_id)
+        with patch.object(limiter.app, "send_task") as mock_send_task:
+            limiter._dispatch_task(func_path, enhanced_payload, task_id)
 
         # Assert
         mock_send_task.assert_called_once_with(
@@ -119,13 +116,6 @@ class TestCeleryRateLimiter:
             args=[payload],
             kwargs={"_rate_limit_task_id": task_id},
         )
-        assert any(
-            record.levelname == "DEBUG"
-            and limiter.id in record.message
-            and task_id in record.message
-            and func_path in record.message
-            for record in caplog.records
-        ), "should emit a debug log containing the limiter id, task id, and func path"
 
     @staticmethod
     def test_schedule_drain_wakes_drain_loop(limiter):
@@ -248,4 +238,64 @@ class TestCeleryRateLimiter:
         )
         assert call_kwargs["args"][0] == payload, (
             "args should contain the original payload data"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Observability tests
+# ---------------------------------------------------------------------------
+
+
+class TestCeleryDispatchObservability:
+    """Observability tests for the ``_dispatch_task`` log emissions."""
+
+    @staticmethod
+    def test_dispatch_generic_worker_emits_debug_log(limiter, payload, task_id, caplog):
+        """Verify that dispatching via the generic worker emits a DEBUG log with limiter id, task id, and func path."""
+        # Arrange
+        enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=True)
+
+        # Act
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.backends.celery.limiter"
+        ):
+            with patch.object(limiter.app, "send_task"):
+                limiter._dispatch_task("myapp.tasks.process", enhanced_payload, task_id)
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            required_fragments=[
+                f"limiter={limiter.id}",
+                f"task_id={task_id}",
+                "func_path=myapp.tasks.process",
+            ],
+            message="should emit a debug log containing the limiter id, task id, and func path",
+        )
+
+    @staticmethod
+    def test_dispatch_custom_task_emits_debug_log(limiter, payload, task_id, caplog):
+        """Verify that dispatching via a custom task path emits a DEBUG log with limiter id, task id, and func path."""
+        # Arrange
+        func_path = "myapp.tasks.custom"
+        enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=False)
+
+        # Act
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.backends.celery.limiter"
+        ):
+            with patch.object(limiter.app, "send_task"):
+                limiter._dispatch_task(func_path, enhanced_payload, task_id)
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            required_fragments=[
+                f"limiter={limiter.id}",
+                f"task_id={task_id}",
+                f"func_path={func_path}",
+            ],
+            message="should emit a debug log containing the limiter id, task id, and func path",
         )

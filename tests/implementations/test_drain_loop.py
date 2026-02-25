@@ -1,4 +1,12 @@
-"""Tests for the ``DrainLoop`` and ``DrainSignalSubscriber`` scheduling components."""
+"""Tests for the ``DrainLoop`` and ``DrainSignalSubscriber`` scheduling components.
+
+These tests use threading primitives (``Event``, ``Timer``, ``time.sleep``)
+and therefore cannot be deduplicated with the async variant via the mixin
+pattern.
+
+Fixture dependencies:
+    - ``generic_limiter``: from ``tests/implementations/conftest.py``.
+"""
 
 import inspect
 import logging
@@ -56,7 +64,10 @@ class TestDrainLoop:
 
     @staticmethod
     def test_wake_default_delay_is_zero():
-        """Verify that the ``delay`` parameter of ``wake()`` defaults to ``0.0``."""
+        """Verify that the ``delay`` parameter of ``wake()`` defaults to ``0.0``.
+
+        Mutation target: default value of ``delay`` in ``DrainLoop.wake()``.
+        """
         # Arrange & Act
         sig = inspect.signature(DrainLoop.wake)
 
@@ -187,11 +198,7 @@ class TestDrainLoop:
     def test_shutdown_completes_promptly():
         """Verify that ``shutdown()`` completes well within its internal 5.0s join timeout.
 
-        Mutations that remove ``self._condition.notify()`` or change
-        ``self._shutdown = True`` to ``False`` cause the drain thread to remain
-        blocked on ``_condition.wait()``. The ``thread.join(timeout=5.0)`` then
-        expires, making ``shutdown()`` take ~5 seconds. This test enforces a
-        1.0s deadline to detect such mutations as failures rather than timeouts.
+        Mutation target: ``self._condition.notify()`` and ``self._shutdown = True`` in ``DrainLoop.shutdown()``.
         """
         # Arrange
         limiter = MagicMock()

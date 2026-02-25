@@ -1,10 +1,12 @@
-"""Tests for the DistributedLock implementation.
+"""Tests for the ``DistributedLock`` and ``AsyncDistributedLock`` implementations.
 
-This module tests the Redis-based distributed lock implementation used by
-the rate limiter. It inherits the contract tests and adds
-implementation-specific tests. Tests are written once in async form; the
-sync ``DistributedLock`` participates via the ``SyncToAsyncLockAdapter``,
-while the ``AsyncDistributedLock`` runs natively.
+This module tests the Redis-based distributed lock used by the rate limiter
+for serializing drain operations. Tests are written once in async form using
+the mixin pattern; the sync ``DistributedLock`` participates via
+``SyncToAsyncLockAdapter``, while the ``AsyncDistributedLock`` runs natively.
+
+Fixture dependencies:
+    - ``redis_client``, ``async_redis_client``, ``lock_key``: from ``tests/conftest.py``.
 """
 
 import inspect
@@ -16,7 +18,7 @@ from celery_rate_limiter import DistributedLock
 from celery_rate_limiter.core import AsyncDistributedLock
 from tests.contracts.test_distributed_lock import DistributedLockContractTest
 from tests.helpers.adapters import SyncToAsyncLockAdapter
-from tests.helpers.utils import wait_for_key_expiry
+from tests.helpers.utils import assert_log_emitted, wait_for_key_expiry
 
 
 class TestDistributedLock(DistributedLockContractTest):
@@ -54,64 +56,93 @@ class DistributedLockImplementationTests:
     """
 
     @staticmethod
-    async def test_lock_stores_uuid_token(
-        async_redis_client, lock_key, create_lock, caplog
-    ):
+    async def test_lock_stores_uuid_token(async_redis_client, lock_key, create_lock):
         """Verify that the lock uses a UUID as the token format."""
         # Arrange
         lock = create_lock(lock_key, timeout_ms=1000)
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
-            async with lock as acquired:
-                assert acquired is True, "lock should be acquired successfully"
-                token = await async_redis_client.get(lock_key)
+        async with lock as acquired:
+            assert acquired is True, "lock should be acquired successfully"
+            token = await async_redis_client.get(lock_key)
 
-                # Assert
-                # The token should conform to UUID format (i.e., it contains dashes and has the expected length).
-                assert "-" in token, "token should be UUID format (contains dashes)"
-                assert len(token) == 36, "UUID should be 36 characters long"
-
-        # Verify that the lock acquisition log was emitted.
-        assert any(
-            record.levelname == "DEBUG"
-            and f"key={lock_key}" in record.message
-            and "token=" in record.message
-            and "timeout_ms=1000" in record.message
-            and "acquired" in record.message
-            for record in caplog.records
-        ), (
-            "should emit a debug log for lock acquisition with key, token, and timeout_ms"
-        )
+            # Assert
+            # The token should conform to UUID format (i.e., it contains dashes and has the expected length).
+            assert "-" in token, "token should be UUID format (contains dashes)"
+            assert len(token) == 36, "UUID should be 36 characters long"
 
     @staticmethod
-    async def test_lock_uses_redis_set_nx(
-        async_redis_client, lock_key, create_lock, caplog
-    ):
+    async def test_lock_uses_redis_set_nx(async_redis_client, lock_key, create_lock):
         """Verify that the lock uses the Redis SET command with the NX option."""
         # Arrange
         lock = create_lock(lock_key, timeout_ms=1000)
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
-            async with lock as acquired:
-                # Assert
-                # The key should exist and have a TTL assigned.
-                assert acquired is True, "lock should be acquired successfully"
-                assert await async_redis_client.exists(lock_key) == 1, (
-                    "lock key must exist in Redis while held"
-                )
-                ttl = await async_redis_client.pttl(lock_key)
-                assert 0 < ttl <= 1000, f"TTL should be set and <= 1000ms, got {ttl}ms"
+        async with lock as acquired:
+            # Assert
+            # The key should exist and have a TTL assigned.
+            assert acquired is True, "lock should be acquired successfully"
+            assert await async_redis_client.exists(lock_key) == 1, (
+                "lock key must exist in Redis while held"
+            )
+            ttl = await async_redis_client.pttl(lock_key)
+            assert 0 < ttl <= 1000, f"TTL should be set and <= 1000ms, got {ttl}ms"
 
-        # Verify that the lock release log was emitted.
-        assert any(
-            record.levelname == "DEBUG"
-            and f"key={lock_key}" in record.message
-            and "token=" in record.message
-            and "released" in record.message
-            for record in caplog.records
-        ), "should emit a debug log for lock release with key and token"
+
+# ---------------------------------------------------------------------------
+# Unified observability tests
+# ---------------------------------------------------------------------------
+
+
+class DistributedLockObservabilityTests:
+    """Observability tests for distributed lock log emissions.
+
+    Subclasses must provide:
+        - ``create_lock``: a factory ``(lock_key, **kwargs) -> lock`` that
+          returns an async-compatible lock (either adapter-wrapped or native).
+    """
+
+    @staticmethod
+    async def test_lock_acquisition_emits_debug_log(
+        async_redis_client, lock_key, create_lock, caplog
+    ):
+        """Verify that a successful lock acquisition emits a debug log."""
+        # Arrange
+        lock = create_lock(lock_key, timeout_ms=1000)
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+            async with lock:
+                pass
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            required_fragments=[f"key={lock_key}", "token=", "timeout_ms=1000", "acquired"],
+            message="should emit a debug log for lock acquisition with key, token, and timeout_ms",
+        )
+
+    @staticmethod
+    async def test_lock_release_emits_debug_log(
+        async_redis_client, lock_key, create_lock, caplog
+    ):
+        """Verify that a successful lock release emits a debug log."""
+        # Arrange
+        lock = create_lock(lock_key, timeout_ms=1000)
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+            async with lock:
+                pass
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            required_fragments=[f"key={lock_key}", "token=", "released"],
+            message="should emit a debug log for lock release with key and token",
+        )
 
     @staticmethod
     async def test_lock_contention_emits_debug_log(
@@ -128,18 +159,17 @@ class DistributedLockImplementationTests:
                 assert acquired_holder is True, "holder should acquire successfully"
 
                 async with lock_contender as acquired_contender:
-                    # Assert
                     assert acquired_contender is False, (
                         "contender must fail while holder has the lock"
                     )
 
-        # Verify that the contention log was emitted.
-        assert any(
-            record.levelname == "DEBUG"
-            and f"key={lock_key}" in record.message
-            and "contended" in record.message
-            for record in caplog.records
-        ), "should emit a debug log for lock contention with key"
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            required_fragments=[f"key={lock_key}", "contended"],
+            message="should emit a debug log for lock contention with key",
+        )
 
     @staticmethod
     async def test_lock_expired_before_release_emits_debug_log(
@@ -158,12 +188,12 @@ class DistributedLockImplementationTests:
                 await wait_for_key_expiry(async_redis_client, lock_key)
 
         # Assert
-        assert any(
-            record.levelname == "DEBUG"
-            and f"key={lock_key}" in record.message
-            and "expired before release" in record.message
-            for record in caplog.records
-        ), "should emit a debug log for lock expired before release with key"
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            required_fragments=[f"key={lock_key}", "expired before release"],
+            message="should emit a debug log for lock expired before release with key",
+        )
 
 
 class ContentionAwareCooldownTests:
@@ -489,6 +519,21 @@ class TestSyncDistributedLockImplementation(DistributedLockImplementationTests):
         return _factory
 
 
+class TestSyncDistributedLockObservability(DistributedLockObservabilityTests):
+    """Sync DistributedLock observability exercised through the async adapter."""
+
+    @pytest.fixture
+    def create_lock(self, redis_client):
+        """Factory that creates sync locks wrapped in the async adapter."""
+
+        def _factory(lock_key, **kwargs):
+            return SyncToAsyncLockAdapter(
+                DistributedLock(redis_client, lock_key, **kwargs)
+            )
+
+        return _factory
+
+
 class TestSyncContentionAwareCooldown(ContentionAwareCooldownTests):
     """Sync contention-aware cooldown exercised through the async adapter."""
 
@@ -522,6 +567,19 @@ class TestAsyncDistributedLockImplementation(DistributedLockImplementationTests)
         return _factory
 
 
+class TestAsyncDistributedLockObservability(DistributedLockObservabilityTests):
+    """Async DistributedLock observability exercised natively."""
+
+    @pytest.fixture
+    def create_lock(self, async_redis_client):
+        """Factory that creates native async locks."""
+
+        def _factory(lock_key, **kwargs):
+            return AsyncDistributedLock(async_redis_client, lock_key, **kwargs)
+
+        return _factory
+
+
 class TestAsyncContentionAwareCooldown(ContentionAwareCooldownTests):
     """Async contention-aware cooldown exercised natively."""
 
@@ -535,14 +593,50 @@ class TestAsyncContentionAwareCooldown(ContentionAwareCooldownTests):
         return _factory
 
 
+# ---------------------------------------------------------------------------
+# Signature tests
+# ---------------------------------------------------------------------------
+
+
 class TestDistributedLockSignatures:
     """Signature tests for distributed lock default parameter values."""
 
     @staticmethod
-    def test_async_distributed_lock_contention_key_defaults_to_empty():
-        """Verify that the ``contention_key`` parameter defaults to an empty string."""
+    def test_sync_worker_id_defaults_to_empty():
+        """Verify that the ``worker_id`` parameter defaults to an empty string.
+
+        Mutation target: ``worker_id`` default value in ``DistributedLock.__init__``.
+        """
         # Arrange & Act
-        sig = inspect.signature(AsyncDistributedLock.__init__)
+        sig = inspect.signature(DistributedLock.__init__)
+
+        # Assert
+        assert sig.parameters["worker_id"].default == "", (
+            "worker_id default must be an empty string"
+        )
+
+    @staticmethod
+    def test_sync_cooldown_ms_defaults_to_zero():
+        """Verify that the ``cooldown_ms`` parameter defaults to zero.
+
+        Mutation target: ``cooldown_ms`` default value in ``DistributedLock.__init__``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(DistributedLock.__init__)
+
+        # Assert
+        assert sig.parameters["cooldown_ms"].default == 0, (
+            "cooldown_ms default must be 0"
+        )
+
+    @staticmethod
+    def test_sync_contention_key_defaults_to_empty():
+        """Verify that the ``contention_key`` parameter defaults to an empty string.
+
+        Mutation target: ``contention_key`` default value in ``DistributedLock.__init__``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(DistributedLock.__init__)
 
         # Assert
         assert sig.parameters["contention_key"].default == "", (
@@ -550,10 +644,41 @@ class TestDistributedLockSignatures:
         )
 
     @staticmethod
-    def test_sync_distributed_lock_contention_key_defaults_to_empty():
-        """Verify that the ``contention_key`` parameter defaults to an empty string."""
+    def test_async_worker_id_defaults_to_empty():
+        """Verify that the ``worker_id`` parameter defaults to an empty string.
+
+        Mutation target: ``worker_id`` default value in ``AsyncDistributedLock.__init__``.
+        """
         # Arrange & Act
-        sig = inspect.signature(DistributedLock.__init__)
+        sig = inspect.signature(AsyncDistributedLock.__init__)
+
+        # Assert
+        assert sig.parameters["worker_id"].default == "", (
+            "worker_id default must be an empty string"
+        )
+
+    @staticmethod
+    def test_async_cooldown_ms_defaults_to_zero():
+        """Verify that the ``cooldown_ms`` parameter defaults to zero.
+
+        Mutation target: ``cooldown_ms`` default value in ``AsyncDistributedLock.__init__``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(AsyncDistributedLock.__init__)
+
+        # Assert
+        assert sig.parameters["cooldown_ms"].default == 0, (
+            "cooldown_ms default must be 0"
+        )
+
+    @staticmethod
+    def test_async_contention_key_defaults_to_empty():
+        """Verify that the ``contention_key`` parameter defaults to an empty string.
+
+        Mutation target: ``contention_key`` default value in ``AsyncDistributedLock.__init__``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(AsyncDistributedLock.__init__)
 
         # Assert
         assert sig.parameters["contention_key"].default == "", (

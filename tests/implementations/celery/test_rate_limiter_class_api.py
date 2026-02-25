@@ -2,6 +2,10 @@
 
 Core class-API behaviour is covered by ``tests/implementations/test_rate_limiter_class_api.py``.
 This module contains only those tests that are specific to the Celery backend context.
+
+Fixture dependencies:
+    - ``redis_client``: from ``tests/conftest.py``.
+    - ``_reset_limiter_class_state``: from ``tests/implementations/celery/conftest.py``.
 """
 
 import pytest

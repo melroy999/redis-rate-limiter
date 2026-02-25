@@ -1,7 +1,12 @@
-"""Tests for the ``AsyncDistributedLock`` implementation.
+"""Tests for the ``AsyncDistributedLock`` contract compliance.
 
-This module tests the async Redis-based distributed lock implementation.
-It inherits the async contract tests and adds implementation-specific tests.
+This module provides the async concrete subclass of ``DistributedLockContractTest``.
+Implementation-specific tests (behavioral and observability) are in
+``test_distributed_lock.py``, which covers both sync and async variants via the
+mixin pattern.
+
+Fixture dependencies:
+    - ``async_redis_client``, ``lock_key``: from ``tests/conftest.py``.
 """
 
 import pytest
@@ -17,10 +22,6 @@ def create_lock():
 
 
 class TestAsyncDistributedLock(DistributedLockContractTest):
-    """Tests for the async Redis-based ``AsyncDistributedLock`` implementation.
-
-    This class inherits all contract tests from ``DistributedLockContractTest``
-    and adds implementation-specific tests for the async Redis-based lock.
-    """
+    """Contract compliance for the async Redis-based ``AsyncDistributedLock`` implementation."""
 
     pass

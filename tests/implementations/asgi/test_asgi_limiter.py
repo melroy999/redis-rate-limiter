@@ -1,9 +1,15 @@
-"""Tests for the ASGI rate limiter backend."""
+"""Tests for the ASGI rate limiter backend.
+
+Fixture dependencies:
+    - ``limiter``, ``_reset_asgi_limiter_class_state``: from ``tests/implementations/asgi/conftest.py``.
+"""
 
 import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
+from tests.helpers.utils import assert_log_emitted
 
 
 class TestASGIRateLimiter:
@@ -134,9 +140,63 @@ class TestASGIRateLimiter:
         )
 
     @staticmethod
-    async def test_acquire_logs_exception_on_script_failure(limiter, caplog):
-        """Verify that ``acquire`` logs an exception when the Lua script fails."""
+    async def test_acquire_raises_on_script_failure(limiter):
+        """Verify that ``acquire`` raises when the Lua script fails."""
         # Act & Assert
+        with patch.object(
+            limiter, "_eval_script", side_effect=RuntimeError("script failed")
+        ):
+            with pytest.raises(RuntimeError, match="script failed"):
+                await limiter.acquire("user_error")
+
+
+# ---------------------------------------------------------------------------
+# Observability tests
+# ---------------------------------------------------------------------------
+
+
+class TestASGIStartObservability:
+    """Observability tests for the ``start()`` log emission."""
+
+    @staticmethod
+    async def test_start_emits_info_log(limiter_id, caplog):
+        """Verify that ``start()`` emits an INFO log with the limiter id, limit, and window."""
+        # Arrange
+        # The autouse fixture already calls _reset() and configure().
+        from celery_rate_limiter.backends.asgi import ASGIRateLimiter
+
+        # Act
+        with caplog.at_level(
+            logging.INFO, logger="celery_rate_limiter.backends.asgi.limiter"
+        ):
+            instance = await ASGIRateLimiter.create(
+                limiter_id=f"{limiter_id}_start_log",
+                limit=10,
+                window=60,
+                override=True,
+            )
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="INFO",
+            required_fragments=[
+                f"id={instance.id}",
+                "limit=10",
+                "window_s=60",
+            ],
+            message="should emit an info log with the limiter id, limit, and window on initialization",
+        )
+
+
+
+class TestASGIAcquireObservability:
+    """Observability tests for the ``acquire`` log emissions."""
+
+    @staticmethod
+    async def test_acquire_failure_emits_error_log(limiter, caplog):
+        """Verify that ``acquire`` emits an ERROR log with limiter id and key on script failure."""
+        # Act
         with caplog.at_level(
             logging.ERROR, logger="celery_rate_limiter.backends.asgi.limiter"
         ):
@@ -147,9 +207,12 @@ class TestASGIRateLimiter:
                     await limiter.acquire("user_error")
 
         # Assert
-        assert any(
-            record.levelname == "ERROR"
-            and limiter.id in record.message
-            and "user_error" in record.message
-            for record in caplog.records
-        ), "should emit an error log containing the limiter id and the key"
+        assert_log_emitted(
+            caplog.records,
+            level="ERROR",
+            required_fragments=[
+                f"limiter={limiter.id}",
+                "key=user_error",
+            ],
+            message="should emit an error log containing the limiter id and the key",
+        )

@@ -87,7 +87,7 @@ services:
       - ./mutmut-results:/app/mutation-output
     command: >-
       bash -c "
-        mutmut run ||
+        python scripts/run_mutmut.py run ||
           { echo '*** BASELINE FAILURE: mutmut run exited with code '$$?' ***';
             echo 'Re-running test suite to capture the failing test:';
             python -m pytest -x --tb=short -q

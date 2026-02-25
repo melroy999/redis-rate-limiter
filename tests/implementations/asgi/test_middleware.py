@@ -1,43 +1,54 @@
-"""Tests for the ASGI rate limiting middleware."""
+"""Tests for the ASGI rate limiting middleware.
+
+Fixture dependencies:
+    - ``limiter``, ``_reset_asgi_limiter_class_state``: from ``tests/implementations/asgi/conftest.py``.
+"""
 
 import inspect
+import logging
 from unittest.mock import AsyncMock
 
 from celery_rate_limiter.backends.asgi import RateLimitMiddleware, by_client_ip
+from tests.helpers.utils import assert_log_emitted
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_scope(
+    client_ip: str = "127.0.0.1",
+    scope_type: str = "http",
+) -> dict:
+    """Create a minimal ASGI HTTP scope."""
+    return {
+        "type": scope_type,
+        "method": "GET",
+        "path": "/",
+        "headers": [],
+        "client": (client_ip, 12345),
+    }
+
+
+async def _capture_response(middleware, scope):
+    """Run the middleware and capture the response start and body messages."""
+    messages = []
+
+    async def receive():
+        return {"type": "http.request", "body": b""}
+
+    async def send(message):
+        messages.append(message)
+
+    await middleware(scope, receive, send)
+    return messages
 
 
 class TestRateLimitMiddleware:
     """Tests for the ``RateLimitMiddleware`` ASGI wrapper."""
 
     @staticmethod
-    def _make_scope(
-        client_ip: str = "127.0.0.1",
-        scope_type: str = "http",
-    ) -> dict:
-        """Create a minimal ASGI HTTP scope."""
-        return {
-            "type": scope_type,
-            "method": "GET",
-            "path": "/",
-            "headers": [],
-            "client": (client_ip, 12345),
-        }
-
-    @staticmethod
-    async def _capture_response(middleware, scope):
-        """Run the middleware and capture the response start and body messages."""
-        messages = []
-
-        async def receive():
-            return {"type": "http.request", "body": b""}
-
-        async def send(message):
-            messages.append(message)
-
-        await middleware(scope, receive, send)
-        return messages
-
-    async def test_allowed_request_passes_through(self, limiter):
+    async def test_allowed_request_passes_through(limiter):
         """Verify that an allowed request receives 200 from the inner app."""
 
         # Arrange
@@ -50,12 +61,13 @@ class TestRateLimitMiddleware:
         )
 
         # Act
-        messages = await self._capture_response(middleware, self._make_scope())
+        messages = await _capture_response(middleware, _make_scope())
 
         # Assert
         assert messages[0]["status"] == 200, "allowed request should receive 200"
 
-    async def test_allowed_response_includes_rate_limit_headers(self, limiter):
+    @staticmethod
+    async def test_allowed_response_includes_rate_limit_headers(limiter):
         """Verify that rate limit headers are injected into allowed responses."""
 
         # Arrange
@@ -68,7 +80,7 @@ class TestRateLimitMiddleware:
         )
 
         # Act
-        messages = await self._capture_response(middleware, self._make_scope())
+        messages = await _capture_response(middleware, _make_scope())
         header_names = [h[0] for h in messages[0]["headers"]]
 
         # Assert
@@ -82,7 +94,8 @@ class TestRateLimitMiddleware:
             "response should include x-ratelimit-reset header"
         )
 
-    async def test_blocked_request_returns_429(self, limiter):
+    @staticmethod
+    async def test_blocked_request_returns_429(limiter):
         """Verify that a blocked request receives a 429 response."""
 
         # Arrange
@@ -95,18 +108,19 @@ class TestRateLimitMiddleware:
         )
 
         # Exhaust the rate limit (limit=10).
-        scope = self._make_scope(client_ip="10.0.0.1")
+        scope = _make_scope(client_ip="10.0.0.1")
         for _ in range(10):
-            await self._capture_response(middleware, scope)
+            await _capture_response(middleware, scope)
 
         # Act
         # The next request should be blocked.
-        messages = await self._capture_response(middleware, scope)
+        messages = await _capture_response(middleware, scope)
 
         # Assert
         assert messages[0]["status"] == 429, "blocked request should receive 429"
 
-    async def test_blocked_response_includes_retry_after(self, limiter):
+    @staticmethod
+    async def test_blocked_response_includes_retry_after(limiter):
         """Verify that the 429 response includes a ``Retry-After`` header."""
 
         # Arrange
@@ -118,12 +132,12 @@ class TestRateLimitMiddleware:
             inner_app, limiter=limiter, key_func=by_client_ip
         )
 
-        scope = self._make_scope(client_ip="10.0.0.2")
+        scope = _make_scope(client_ip="10.0.0.2")
         for _ in range(10):
-            await self._capture_response(middleware, scope)
+            await _capture_response(middleware, scope)
 
         # Act
-        messages = await self._capture_response(middleware, scope)
+        messages = await _capture_response(middleware, scope)
         header_names = [h[0] for h in messages[0]["headers"]]
 
         # Assert
@@ -131,7 +145,8 @@ class TestRateLimitMiddleware:
             "429 response should include Retry-After header"
         )
 
-    async def test_custom_on_blocked_callback(self, limiter):
+    @staticmethod
+    async def test_custom_on_blocked_callback(limiter):
         """Verify that ``on_blocked`` callback is invoked instead of the default 429."""
         # Arrange
         callback_invoked = False
@@ -153,18 +168,19 @@ class TestRateLimitMiddleware:
             on_blocked=custom_blocked,
         )
 
-        scope = self._make_scope(client_ip="10.0.0.3")
+        scope = _make_scope(client_ip="10.0.0.3")
         for _ in range(10):
-            await self._capture_response(middleware, scope)
+            await _capture_response(middleware, scope)
 
         # Act
-        messages = await self._capture_response(middleware, scope)
+        messages = await _capture_response(middleware, scope)
 
         # Assert
         assert callback_invoked is True, "custom on_blocked callback should be invoked"
         assert messages[0]["status"] == 503, "custom callback should set status 503"
 
-    async def test_non_http_scope_passes_through(self, limiter):
+    @staticmethod
+    async def test_non_http_scope_passes_through(limiter):
         """Verify that non-HTTP scopes pass through without rate limiting."""
         # Arrange
         app_invoked = False
@@ -183,7 +199,7 @@ class TestRateLimitMiddleware:
             inner_app, limiter=limiter, key_func=by_client_ip
         )
 
-        scope = self._make_scope(scope_type="websocket")
+        scope = _make_scope(scope_type="websocket")
 
         async def receive():
             return {}
@@ -206,7 +222,8 @@ class TestRateLimitMiddleware:
             "non-HTTP scope should forward the original send callable to inner app"
         )
 
-    async def test_key_func_none_bypasses_rate_limiting(self, limiter):
+    @staticmethod
+    async def test_key_func_none_bypasses_rate_limiting(limiter):
         """Verify that returning ``None`` from ``key_func`` bypasses rate limiting."""
 
         # Arrange
@@ -227,7 +244,7 @@ class TestRateLimitMiddleware:
             inner_app, limiter=limiter, key_func=null_key_func
         )
 
-        original_scope = self._make_scope()
+        original_scope = _make_scope()
         messages = []
 
         async def receive():
@@ -252,7 +269,8 @@ class TestRateLimitMiddleware:
             "bypassed request should forward the original receive callable to inner app"
         )
 
-    async def test_fail_open_allows_on_error(self, limiter):
+    @staticmethod
+    async def test_fail_open_allows_on_error(limiter):
         """Verify that ``fail_open`` mode allows the request when ``acquire`` raises."""
         # Arrange
         app_invoked = False
@@ -274,7 +292,7 @@ class TestRateLimitMiddleware:
 
         limiter.acquire = AsyncMock(side_effect=ConnectionError("redis down"))
 
-        scope = self._make_scope()
+        scope = _make_scope()
 
         async def receive():
             return {"type": "http.request", "body": b""}
@@ -291,7 +309,8 @@ class TestRateLimitMiddleware:
             "fail_open should forward the original receive callable to inner app"
         )
 
-    async def test_fail_closed_returns_503_on_error(self, limiter):
+    @staticmethod
+    async def test_fail_closed_returns_503_on_error(limiter):
         """Verify that ``fail_closed`` mode returns 503 when ``acquire`` raises."""
 
         # Arrange
@@ -309,12 +328,13 @@ class TestRateLimitMiddleware:
         limiter.acquire = AsyncMock(side_effect=ConnectionError("redis down"))
 
         # Act
-        messages = await self._capture_response(middleware, self._make_scope())
+        messages = await _capture_response(middleware, _make_scope())
 
         # Assert
         assert messages[0]["status"] == 503, "fail_closed should return 503 on error"
 
-    async def test_wrap_send_preserves_existing_headers(self, limiter):
+    @staticmethod
+    async def test_wrap_send_preserves_existing_headers(limiter):
         """Verify that ``_wrap_send`` preserves original response headers from the inner app."""
 
         # Arrange
@@ -333,7 +353,7 @@ class TestRateLimitMiddleware:
         )
 
         # Act
-        messages = await self._capture_response(middleware, self._make_scope())
+        messages = await _capture_response(middleware, _make_scope())
 
         # Assert
         header_dict = dict(messages[0]["headers"])
@@ -341,7 +361,8 @@ class TestRateLimitMiddleware:
             "original headers from the inner app should be preserved"
         )
 
-    async def test_wrap_send_header_values_reflect_acquire_result(self, limiter):
+    @staticmethod
+    async def test_wrap_send_header_values_reflect_acquire_result(limiter):
         """Verify that rate limit header values match the ``acquire()`` result."""
 
         # Arrange
@@ -354,7 +375,7 @@ class TestRateLimitMiddleware:
         )
 
         # Act
-        messages = await self._capture_response(middleware, self._make_scope())
+        messages = await _capture_response(middleware, _make_scope())
 
         # Assert
         header_dict = dict(messages[0]["headers"])
@@ -376,7 +397,8 @@ class TestRateLimitMiddleware:
         )
         assert int(reset) > 0, "x-ratelimit-reset should be a positive integer"
 
-    async def test_inner_app_receives_working_receive_callable(self, limiter):
+    @staticmethod
+    async def test_inner_app_receives_working_receive_callable(limiter):
         """Verify that the inner app receives the original ``receive`` callable, not ``None``."""
         # Arrange
         received_body = None
@@ -393,14 +415,15 @@ class TestRateLimitMiddleware:
         )
 
         # Act
-        await self._capture_response(middleware, self._make_scope())
+        await _capture_response(middleware, _make_scope())
 
         # Assert
         assert received_body == b"", (
             "inner app should receive the original receive callable that returns request data"
         )
 
-    async def test_wrap_send_handles_missing_headers_key(self, limiter):
+    @staticmethod
+    async def test_wrap_send_handles_missing_headers_key(limiter):
         """Verify that ``_wrap_send`` injects headers even when the response lacks a ``headers`` key."""
 
         # Arrange
@@ -413,7 +436,7 @@ class TestRateLimitMiddleware:
         )
 
         # Act
-        messages = await self._capture_response(middleware, self._make_scope())
+        messages = await _capture_response(middleware, _make_scope())
         header_names = [h[0] for h in messages[0]["headers"]]
 
         # Assert
@@ -423,11 +446,71 @@ class TestRateLimitMiddleware:
 
     @staticmethod
     def test_default_on_error_is_fail_open():
-        """Verify that the default ``on_error`` parameter is lowercase ``'fail_open'``."""
+        """Verify that the default ``on_error`` parameter is lowercase ``'fail_open'``.
+
+        Mutation target: default value of ``on_error`` in ``RateLimitMiddleware.__init__``.
+        """
         # Arrange & Act
         sig = inspect.signature(RateLimitMiddleware.__init__)
 
         # Assert
         assert sig.parameters["on_error"].default == "fail_open", (
             "default on_error must be lowercase 'fail_open'"
+        )
+
+    @staticmethod
+    def test_default_on_blocked_is_none():
+        """Verify that the default ``on_blocked`` parameter is ``None``.
+
+        Mutation target: default value of ``on_blocked`` in ``RateLimitMiddleware.__init__``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(RateLimitMiddleware.__init__)
+
+        # Assert
+        assert sig.parameters["on_blocked"].default is None, (
+            "default on_blocked must be None so the built-in 429 handler is used"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Observability tests
+# ---------------------------------------------------------------------------
+
+
+class TestMiddlewareObservability:
+    """Observability tests for the ``RateLimitMiddleware`` log emissions."""
+
+    @staticmethod
+    async def test_acquire_error_emits_exception_log(limiter, caplog):
+        """Verify that the middleware emits an ERROR log with limiter id and key when ``acquire`` raises."""
+        # Arrange
+        async def inner_app(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"OK"})
+
+        middleware = RateLimitMiddleware(
+            inner_app,
+            limiter=limiter,
+            key_func=by_client_ip,
+            on_error="fail_open",
+        )
+
+        limiter.acquire = AsyncMock(side_effect=ConnectionError("redis down"))
+
+        # Act
+        with caplog.at_level(
+            logging.ERROR, logger="celery_rate_limiter.backends.asgi.middleware"
+        ):
+            await _capture_response(middleware, _make_scope())
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="ERROR",
+            required_fragments=[
+                f"limiter={limiter.id}",
+                "key=127.0.0.1",
+            ],
+            message="should emit an error log containing the limiter id and key on acquire failure",
         )

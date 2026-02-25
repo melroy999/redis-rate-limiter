@@ -149,7 +149,7 @@ class TaskLifecycleContractTest:
         await async_redis_client.set(inflight_key, "1")
 
         # Act
-        with pytest.raises(RuntimeError):
+        with pytest.raises(RuntimeError, match="Simulated crash"):
             async with create_lifecycle(mock_limiter, task_id):
                 raise RuntimeError("Simulated crash")
 

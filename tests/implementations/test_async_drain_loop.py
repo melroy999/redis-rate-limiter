@@ -2,7 +2,11 @@
 
 Mirrors the sync ``DrainLoop`` tests in ``test_drain_loop.py`` using
 ``asyncio.Event``, ``asyncio.Task``, and ``asyncio.wait_for`` instead of
-threading primitives.
+threading primitives. These tests cannot be deduplicated with the sync
+variant via the mixin pattern.
+
+Fixture dependencies:
+    - ``async_generic_limiter``: from ``tests/implementations/conftest.py``.
 """
 
 import asyncio
@@ -75,7 +79,10 @@ class TestAsyncDrainLoop:
 
     @staticmethod
     async def test_wake_default_delay_is_zero():
-        """Verify that the ``delay`` parameter of ``wake()`` defaults to ``0.0``."""
+        """Verify that the ``delay`` parameter of ``wake()`` defaults to ``0.0``.
+
+        Mutation target: default value of ``delay`` in ``AsyncDrainLoop.wake()``.
+        """
         # Arrange & Act
         sig = inspect.signature(AsyncDrainLoop.wake)
 
@@ -230,11 +237,7 @@ class TestAsyncDrainLoop:
     async def test_shutdown_completes_promptly():
         """Verify that ``shutdown()`` completes well within its internal 5.0s timeout.
 
-        Mutations that remove ``self._condition.notify()`` or change
-        ``self._shutdown = True`` to ``False`` cause the drain task to remain
-        blocked on ``_condition.wait()``. The internal ``wait_for(..., timeout=5.0)``
-        then expires, making ``shutdown()`` take ~5 seconds. This test enforces a
-        1.0s deadline to detect such mutations as failures rather than timeouts.
+        Mutation target: ``self._condition.notify()`` and ``self._shutdown = True`` in ``AsyncDrainLoop.shutdown()``.
         """
         # Arrange
         limiter = MagicMock()

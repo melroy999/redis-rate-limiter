@@ -1,4 +1,9 @@
-"""Threading-specific behavioural tests for the ``ThreadPoolRateLimiter`` implementation."""
+"""Threading-specific behavioural tests for the ``ThreadPoolRateLimiter`` implementation.
+
+Fixture dependencies:
+    - ``redis_client``, ``func_path``, ``payload``, ``task_id``: from ``tests/conftest.py``.
+    - ``limiter``: from ``tests/implementations/threadpool/conftest.py``.
+"""
 
 import logging
 import threading
@@ -7,39 +12,29 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.helpers.utils import assert_log_emitted
+
 
 class TestThreadPoolRateLimiter:
     """Tests that are specific to the threading backend dispatch and lifecycle logic."""
 
     @staticmethod
-    def test_dispatch_task_submits_to_executor(
-        limiter, payload, func_path, task_id, caplog
-    ):
+    def test_dispatch_task_submits_to_executor(limiter, payload, func_path, task_id):
         """Verify that ``_dispatch_task`` submits a callable to the thread pool executor."""
         # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.backends.threading.limiter"
+        with (
+            patch(
+                "celery_rate_limiter.backends.threading.limiter.import_string",
+                return_value=MagicMock(),
+            ),
+            patch.object(limiter.executor, "submit") as mock_submit,
         ):
-            with (
-                patch(
-                    "celery_rate_limiter.backends.threading.limiter.import_string",
-                    return_value=MagicMock(),
-                ),
-                patch.object(limiter.executor, "submit") as mock_submit,
-            ):
-                limiter._dispatch_task(func_path, payload, task_id)
+            limiter._dispatch_task(func_path, payload, task_id)
 
         # Assert
         mock_submit.assert_called_once()
         submitted_fn = mock_submit.call_args[0][0]
         assert callable(submitted_fn), "submitted argument should be callable"
-        assert any(
-            record.levelname == "DEBUG"
-            and limiter.id in record.message
-            and task_id in record.message
-            and func_path in record.message
-            for record in caplog.records
-        ), "should emit a debug log containing the limiter id, task id, and func path"
 
     @staticmethod
     def test_dispatch_task_resolves_function_path(limiter, payload, func_path, task_id):
@@ -274,4 +269,42 @@ class TestLocalCapacityGuard:
         # Counter should return to 0 after both complete.
         assert limiter._local_dispatched == 0, (
             "dispatch count should return to 0 after both tasks complete"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Observability tests
+# ---------------------------------------------------------------------------
+
+
+class TestThreadPoolDispatchObservability:
+    """Observability tests for the ``_dispatch_task`` log emissions."""
+
+    @staticmethod
+    def test_dispatch_task_emits_debug_log(limiter, payload, func_path, task_id, caplog):
+        """Verify that ``_dispatch_task`` emits a DEBUG log with limiter id, task id, func path, and local dispatch count."""
+        # Act
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.backends.threading.limiter"
+        ):
+            with (
+                patch(
+                    "celery_rate_limiter.backends.threading.limiter.import_string",
+                    return_value=MagicMock(),
+                ),
+                patch.object(limiter.executor, "submit"),
+            ):
+                limiter._dispatch_task(func_path, payload, task_id)
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            required_fragments=[
+                f"limiter={limiter.id}",
+                f"task_id={task_id}",
+                f"func_path={func_path}",
+                "local_dispatched=1",
+            ],
+            message="should emit a debug log containing the limiter id, task id, func path, and local dispatch count",
         )

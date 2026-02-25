@@ -250,11 +250,6 @@ class TestMetricRegistration:
     """Verify that Prometheus metrics are registered with the correct identity."""
 
     @staticmethod
-    def _collect_metrics(registry):
-        """Collect all metric families from the registry into a name-keyed dictionary."""
-        return {m.name: m for m in registry.collect()}
-
-    @staticmethod
     def test_all_expected_metric_names_are_registered(registry, exporter):
         """Verify that all five expected metric names are present in the registry."""
         # Act
@@ -272,10 +267,11 @@ class TestMetricRegistration:
             f"missing metrics from registry: {expected - metric_names}"
         )
 
-    def test_metric_descriptions_match_expected_text(self, registry, exporter):
+    @staticmethod
+    def test_metric_descriptions_match_expected_text(registry, exporter):
         """Verify that each metric has the correct documentation string."""
         # Act
-        metrics = self._collect_metrics(registry)
+        metrics = {m.name: m for m in registry.collect()}
 
         # Assert
         assert metrics["celery_rate_limiter_consume"].documentation == (

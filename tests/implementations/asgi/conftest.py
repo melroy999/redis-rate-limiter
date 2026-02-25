@@ -1,4 +1,8 @@
-"""Fixtures for ASGI rate limiter and middleware tests."""
+"""Fixtures for ASGI rate limiter and middleware tests.
+
+Fixture dependencies:
+    - ``async_redis_client``, ``limiter_id``: from ``tests/conftest.py``.
+"""
 
 import pytest
 

@@ -6,8 +6,13 @@ including ``configure()``, ``create()``, ``get()``, ``update()``,
 
 The current implementation under test is ``AsyncManagedTestRateLimiter``, a
 test-only async backend.
+
+Fixture dependencies:
+    - ``async_redis_client``, ``limiter_id``: from ``tests/conftest.py``.
+    - ``_reset_asyncio_limiter_class_state``: from ``tests/implementations/asyncio/conftest.py``.
 """
 
+import inspect
 import json
 import logging
 import time
@@ -19,6 +24,7 @@ from celery_rate_limiter.core import (
     AbstractAsyncDistributedRateLimiter,
     AsyncManagedRateLimiter,
 )
+from tests.helpers.utils import assert_log_emitted
 
 
 class AsyncManagedTestRateLimiter(
@@ -291,6 +297,38 @@ class TestCreate:
         ), "persist=False should skip config registry write"
 
 
+class TestCreateDefaults:
+    """Default value signature tests for the ``create()`` class method."""
+
+    @staticmethod
+    def test_create_persist_defaults_to_true():
+        """Verify that the ``persist`` parameter defaults to ``True``.
+
+        Mutation target: default value of ``persist`` in ``AsyncManagedRateLimiter.create``.
+        """
+        # Arrange
+        sig = inspect.signature(AsyncManagedRateLimiter.create)
+
+        # Assert
+        assert sig.parameters["persist"].default is True, (
+            "persist default should be True so that limiter config is stored in Redis"
+        )
+
+    @staticmethod
+    def test_create_override_defaults_to_false():
+        """Verify that the ``override`` parameter defaults to ``False``.
+
+        Mutation target: default value of ``override`` in ``AsyncManagedRateLimiter.create``.
+        """
+        # Arrange
+        sig = inspect.signature(AsyncManagedRateLimiter.create)
+
+        # Assert
+        assert sig.parameters["override"].default is False, (
+            "override default should be False to prevent accidental limiter replacement"
+        )
+
+
 class TestGet:
     """Test suite for the ``get()`` class method."""
 
@@ -548,7 +586,7 @@ class TestRefreshConfig:
 
     @staticmethod
     async def test_refresh_config_applies_remote_change(
-        async_redis_client, limiter_id, caplog
+        async_redis_client, limiter_id
     ):
         """Verify that ``refresh_config()`` applies a newer configuration written by another worker."""
         # Arrange
@@ -570,8 +608,7 @@ class TestRefreshConfig:
         )
 
         # Act
-        with caplog.at_level(logging.INFO, logger="celery_rate_limiter"):
-            changed = await limiter.refresh_config()
+        changed = await limiter.refresh_config()
 
         # Assert
         assert changed is True, "refresh should report config change"
@@ -579,12 +616,6 @@ class TestRefreshConfig:
         assert limiter.max_concurrency == 10, (
             "refresh should apply updated max_concurrency"
         )
-        assert any(
-            record.levelname == "INFO"
-            and f"limiter={limiter_id}" in record.message
-            and "version=2" in record.message
-            for record in caplog.records
-        ), "should emit an info log with limiter id and version=2"
 
     @staticmethod
     async def test_refresh_config_window_change_sets_pause_until(
@@ -637,7 +668,7 @@ class TestRefreshConfig:
 
     @staticmethod
     async def test_refresh_config_handles_corrupted_redis_data(
-        async_redis_client, limiter_id, caplog
+        async_redis_client, limiter_id
     ):
         """Verify that ``refresh_config()`` handles malformed persisted JSON gracefully."""
         # Arrange
@@ -659,8 +690,7 @@ class TestRefreshConfig:
         )
 
         # Act
-        with caplog.at_level(logging.WARNING, logger="celery_rate_limiter"):
-            changed = await limiter.refresh_config()
+        changed = await limiter.refresh_config()
 
         # Assert
         assert changed is False, "malformed config should not be applied"
@@ -671,12 +701,6 @@ class TestRefreshConfig:
             limiter.max_age,
             limiter.lease_duration,
         ) == original_state, "limiter config should remain unchanged on malformed data"
-        assert any(
-            record.levelname == "WARNING"
-            and f"limiter={limiter_id}" in record.message
-            and "error=" in record.message
-            for record in caplog.records
-        ), "should emit a warning log with limiter id and error details"
 
     @staticmethod
     async def test_refresh_config_returns_false_when_registry_config_missing(
@@ -719,6 +743,205 @@ class TestRefreshConfig:
             limiter.lease_duration,
         ) == original_state, (
             "config fields should remain unchanged when payload is missing"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Observability tests
+# ---------------------------------------------------------------------------
+
+
+class TestConfigureObservability:
+    """Observability tests for the ``configure()`` class method log emission."""
+
+    @staticmethod
+    async def test_configure_emits_info_log(async_redis_client, caplog):
+        """Verify that ``configure()`` emits an INFO log with the class name."""
+        # Arrange
+        AsyncManagedTestRateLimiter._reset()
+
+        # Act
+        with caplog.at_level(logging.INFO, logger="celery_rate_limiter.core.managed"):
+            AsyncManagedTestRateLimiter.configure(
+                async_redis_client, backend_label="test"
+            )
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="INFO",
+            required_fragments=["AsyncManagedTestRateLimiter", "configured"],
+            message="should emit an info log confirming configuration",
+        )
+
+
+class TestCreateObservability:
+    """Observability tests for the ``create()`` class method log emission."""
+
+    @staticmethod
+    async def test_create_emits_info_log(limiter_id, caplog):
+        """Verify that ``create()`` emits an INFO log with the limiter id and persist flag."""
+        # Act
+        with caplog.at_level(logging.INFO, logger="celery_rate_limiter.core.managed"):
+            await create_test_limiter(limiter_id)
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="INFO",
+            required_fragments=[
+                "AsyncManagedTestRateLimiter",
+                "created",
+                f"limiter={limiter_id}",
+                "persist=True",
+            ],
+            message="should emit an info log with class name, limiter id, and persist flag",
+        )
+
+
+class TestGetObservability:
+    """Observability tests for the ``get()`` class method log emission."""
+
+    @staticmethod
+    async def test_get_cache_hit_emits_debug_log(limiter_id, caplog):
+        """Verify that ``get()`` emits a DEBUG log when the instance is resolved from the local cache."""
+        # Arrange
+        await create_test_limiter(limiter_id)
+
+        # Act
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.core.managed"
+        ):
+            await AsyncManagedTestRateLimiter.get(limiter_id)
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            required_fragments=[
+                "AsyncManagedTestRateLimiter",
+                "resolved from local cache",
+                f"limiter={limiter_id}",
+            ],
+            message="should emit a debug log for local cache resolution",
+        )
+
+    @staticmethod
+    async def test_get_hydration_emits_debug_log(limiter_id, caplog):
+        """Verify that ``get()`` emits a DEBUG log when the instance is hydrated from Redis."""
+        # Arrange
+        await create_test_limiter(limiter_id)
+        AsyncManagedTestRateLimiter._instances.clear()
+
+        # Act
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.core.managed"
+        ):
+            await AsyncManagedTestRateLimiter.get(limiter_id)
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            required_fragments=[
+                "AsyncManagedTestRateLimiter",
+                "hydrated from Redis",
+                f"limiter={limiter_id}",
+            ],
+            message="should emit a debug log for Redis hydration",
+        )
+
+
+class TestUpdateObservability:
+    """Observability tests for the ``update()`` class method log emission."""
+
+    @staticmethod
+    async def test_update_emits_info_log(limiter_id, caplog):
+        """Verify that ``update()`` emits an INFO log with the limiter id and overrides."""
+        # Arrange
+        await create_test_limiter(limiter_id)
+
+        # Act
+        with caplog.at_level(logging.INFO, logger="celery_rate_limiter.core.managed"):
+            await AsyncManagedTestRateLimiter.update(limiter_id, limit=50)
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="INFO",
+            required_fragments=[
+                "AsyncManagedTestRateLimiter",
+                "updated",
+                f"limiter={limiter_id}",
+            ],
+            message="should emit an info log with class name and limiter id on update",
+        )
+
+
+class TestRefreshConfigObservability:
+    """Observability tests for the ``refresh_config()`` instance method log emission."""
+
+    @staticmethod
+    async def test_refresh_config_success_emits_info_log(
+        async_redis_client, limiter_id, caplog
+    ):
+        """Verify that a successful ``refresh_config()`` emits an INFO log with the limiter id and version."""
+        # Arrange
+        limiter = await create_test_limiter(limiter_id)
+        new_config = {
+            "limit": 50,
+            "window": 60,
+            "max_concurrency": 10,
+            "max_age": 3600,
+            "lease_duration": 30,
+        }
+        await async_redis_client.hset(
+            AsyncManagedTestRateLimiter._REGISTRY_KEY,
+            limiter_id,
+            json.dumps(new_config),
+        )
+        await async_redis_client.hincrby(
+            AsyncManagedTestRateLimiter._VERSION_KEY, limiter_id, 1
+        )
+
+        # Act
+        with caplog.at_level(logging.INFO, logger="celery_rate_limiter.core.managed"):
+            await limiter.refresh_config()
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="INFO",
+            required_fragments=[f"limiter={limiter_id}", "version=2"],
+            message="should emit an info log with limiter id and version on successful refresh",
+        )
+
+    @staticmethod
+    async def test_refresh_config_corrupted_data_emits_warning_log(
+        async_redis_client, limiter_id, caplog
+    ):
+        """Verify that ``refresh_config()`` emits a WARNING log when the persisted configuration is malformed."""
+        # Arrange
+        limiter = await create_test_limiter(limiter_id)
+        await async_redis_client.hset(
+            AsyncManagedTestRateLimiter._REGISTRY_KEY, limiter_id, "{invalid_json"
+        )
+        await async_redis_client.hincrby(
+            AsyncManagedTestRateLimiter._VERSION_KEY, limiter_id, 1
+        )
+
+        # Act
+        with caplog.at_level(
+            logging.WARNING, logger="celery_rate_limiter.core.managed"
+        ):
+            await limiter.refresh_config()
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="WARNING",
+            required_fragments=[f"limiter={limiter_id}", "error="],
+            message="should emit a warning log with limiter id and error details on malformed config",
         )
 
 

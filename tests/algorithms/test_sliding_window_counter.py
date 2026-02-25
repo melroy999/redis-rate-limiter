@@ -52,7 +52,7 @@ class TestWeightCalculation:
 
     @staticmethod
     def test_weight_is_one_at_window_start():
-        """At the start of a window, the previous window is assigned full weight (1.0)."""
+        """Verify that the previous window is assigned full weight (1.0) at the window start."""
         # Arrange
         window_ms = 1000
         elapsed_ms = 0
@@ -73,7 +73,7 @@ class TestWeightCalculation:
 
     @staticmethod
     def test_weight_is_half_at_window_midpoint():
-        """At the midpoint of a window, the previous window is assigned half weight (0.5)."""
+        """Verify that the previous window is assigned half weight (0.5) at the window midpoint."""
         # Arrange
         window_ms = 1000
         elapsed_ms = 500
@@ -94,7 +94,7 @@ class TestWeightCalculation:
 
     @staticmethod
     def test_weight_is_zero_at_window_end():
-        """At the end of a window, the previous window is assigned zero weight (0.0)."""
+        """Verify that the previous window is assigned zero weight (0.0) at the window end."""
         # Arrange
         window_ms = 1000
         elapsed_ms = 1000
@@ -187,7 +187,7 @@ class TestEstimateFormula:
 
     @staticmethod
     def test_combined_counts_at_midpoint():
-        """Both the previous and current counts contribute to the estimate."""
+        """Verify that both the previous and current counts contribute to the estimate."""
         # Arrange
         previous_count = 10
         current_count = 5
@@ -244,7 +244,7 @@ class TestEstimateFormula:
         ],
     )
     def test_formula_across_configurations(prev, curr, window, elapsed, expected):
-        """The formula produces correct results across various configurations."""
+        """Verify that the formula produces correct results across various configurations."""
         # Act
         estimated = sliding_window_estimate(prev, curr, window, elapsed)
 
@@ -260,7 +260,7 @@ class TestRateLimitDecision:
 
     @staticmethod
     def test_allowed_when_under_limit():
-        """Requests are permitted when the estimate is below the limit."""
+        """Verify that requests are permitted when the estimate is below the limit."""
         # Arrange
         limit = 10
 
@@ -280,7 +280,7 @@ class TestRateLimitDecision:
 
     @staticmethod
     def test_denied_when_at_limit():
-        """Requests are denied when the estimate equals the limit."""
+        """Verify that requests are denied when the estimate equals the limit."""
         # Arrange
         limit = 10
 
@@ -300,7 +300,7 @@ class TestRateLimitDecision:
 
     @staticmethod
     def test_denied_when_over_limit():
-        """Requests are denied when the estimate exceeds the limit."""
+        """Verify that requests are denied when the estimate exceeds the limit."""
         # Arrange
         limit = 10
 
@@ -321,7 +321,7 @@ class TestRateLimitDecision:
 
     @staticmethod
     def test_previous_window_ages_out():
-        """Requests become permitted as the previous window ages out."""
+        """Verify that requests become permitted as the previous window ages out."""
         # Arrange
         limit = 10
 
@@ -367,7 +367,7 @@ class TestBurstBoundProperty:
 
     @staticmethod
     def test_max_burst_at_boundary_with_empty_history():
-        """Demonstration of the 2x burst scenario: an empty previous window permits the full limit at the window end."""
+        """Verify that an empty previous window permits the full limit at the window end (2x burst scenario)."""
         # Arrange
         limit = 10
         window_ms = 1000
@@ -387,7 +387,7 @@ class TestBurstBoundProperty:
 
     @staticmethod
     def test_second_window_allows_more_after_first_window_burst():
-        """After a burst at the window end, additional requests are permitted as the weight decays."""
+        """Verify that additional requests are permitted as the weight decays after a burst at the window end."""
         # Arrange
         limit = 10
         window_ms = 1000
@@ -555,7 +555,7 @@ class TestSmoothingBehavior:
 
     @staticmethod
     def test_steady_state_maintains_limit():
-        """In the steady state, the algorithm maintains approximately the limit per window."""
+        """Verify that the algorithm maintains approximately the limit per window in the steady state."""
         # Arrange
         limit = 10
         window_ms = 1000

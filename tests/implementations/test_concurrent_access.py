@@ -7,6 +7,10 @@ multiple clients contend for the same limiter simultaneously.
 Multiple threads sharing a Redis connection accurately simulate distributed
 workers (e.g., Celery, thread pool) hitting the same Redis instance: the GIL
 is released during network I/O, hence Redis operations genuinely interleave.
+
+Fixture dependencies:
+    - ``redis_client``: from ``tests/conftest.py``.
+    - ``make_limiter_pool``: from ``tests/implementations/conftest.py``.
 """
 
 import threading
