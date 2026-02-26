@@ -96,11 +96,11 @@ services:
               --deselect=tests/integration/test_distributed_rate_limiting.py::TestDistributedRateLimiting;
             exit 1; };
         echo '--- MUTATION RESULTS ---';
-        mutmut results | tee /app/mutation-output/results.txt;
+        python scripts/run_mutmut.py results | tee /app/mutation-output/results.txt;
         echo '--- SURVIVED, UNTESTED, SUSPICIOUS, AND TIMEOUT MUTATION DIFFS ---' > /app/mutation-output/diffs.txt;
-        mutmut results | grep -E ': (survived|no tests|suspicious|timeout)' | sed 's/^[[:space:]]*//' | cut -d: -f1 | while read -r name; do
+        python scripts/run_mutmut.py results | grep -E ': (survived|no tests|suspicious|timeout)' | sed 's/^[[:space:]]*//' | cut -d: -f1 | while read -r name; do
           echo \"=== $$name ===\" >> /app/mutation-output/diffs.txt;
-          mutmut show \"$$name\" >> /app/mutation-output/diffs.txt 2>&1;
+          python scripts/run_mutmut.py show \"$$name\" >> /app/mutation-output/diffs.txt 2>&1;
           echo '' >> /app/mutation-output/diffs.txt;
         done;
         echo '';
