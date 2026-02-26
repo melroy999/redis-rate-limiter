@@ -370,11 +370,11 @@ The output ends with a progress line and a list of unresolved mutants:
 mutmut processes one mutant at a time. For each mutant, it applies the mutation, runs the mapped tests, classifies the outcome, and advances the progress counter. The progress line reads as `processed/total` followed by six cumulative outcome counts (i.e., the running totals across all mutants processed so far, summing to `processed`):
 
 - 🎉 **Killed** (1906): a mapped test failed, confirming the mutation was detected.
-- 🫥 **Suspicious** (0): the test suite exited with an unexpected status (e.g., a segfault or internal error rather than a clean pass or fail); warrants manual investigation.
+- 🫥 **No tests** (0): mutmut could not map the mutant to any test via coverage data.
 - ⏰ **Timeout** (5): the mapped tests timed out, typically because the mutation caused an infinite loop (e.g., mutating a shutdown flag); effectively killed.
-- 🤔 **Skipped** (0): the mutant was not tested, typically due to mutmut configuration or filters.
+- 🤔 **Suspicious** (0): the test suite exited with an unexpected status (e.g., a segfault or internal error rather than a clean pass or fail); warrants manual investigation.
 - 🙁 **Survived** (1): all mapped tests passed despite the mutation; investigate whether a stronger assertion is needed.
-- 🔇 **No tests** (0): mutmut could not map the mutant to any test via coverage data.
+- 🔇 **Skipped** (0): the mutant was not tested, typically due to mutmut configuration or filters.
 
 mutmut uses coverage data to select only the tests that exercise the mutated code path, rather than running the full suite for each mutant.
 
