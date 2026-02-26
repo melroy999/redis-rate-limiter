@@ -218,19 +218,6 @@ class TestTaskLifecycleImplementation:
             f"override {override} should take precedence over default {original}"
         )
 
-    @staticmethod
-    def test_default_on_heartbeat_failure_is_warn():
-        """Verify that the default ``on_heartbeat_failure`` parameter is lowercase ``'warn'``.
-
-        Mutation target: ``on_heartbeat_failure`` default value in ``TaskLifecycle.__init__``.
-        """
-        # Arrange & Act
-        sig = inspect.signature(TaskLifecycle.__init__)
-
-        # Assert
-        assert sig.parameters["on_heartbeat_failure"].default == "warn", (
-            "default on_heartbeat_failure must be lowercase 'warn'"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -357,9 +344,7 @@ class TestHeartbeatLoop:
 
             # Assert
             # The lifecycle should have recovered and be marked as healthy.
-            assert lifecycle.is_healthy, (
-                "lifecycle must restore health after recovery"
-            )
+            assert lifecycle.is_healthy, "lifecycle must restore health after recovery"
 
     @staticmethod
     def test_heartbeat_loop_flags_unhealthy_on_failure_warn_mode(
@@ -493,7 +478,11 @@ class TestHeartbeatLoopObservability:
         assert_log_emitted(
             caplog.records,
             level="INFO",
-            required_fragments=[f"task {task_id}", f"limiter {mock_limiter.id}", "restored"],
+            required_fragments=[
+                f"task {task_id}",
+                f"limiter {mock_limiter.id}",
+                "restored",
+            ],
             message="should emit an info log for heartbeat connection restoration with task id and limiter id",
         )
 
@@ -509,16 +498,18 @@ class TestHeartbeatLoopObservability:
         with caplog.at_level(
             logging.CRITICAL, logger="celery_rate_limiter.core.limiters"
         ):
-            with TaskLifecycle(
-                mock_limiter, task_id, on_heartbeat_failure="warn"
-            ):
+            with TaskLifecycle(mock_limiter, task_id, on_heartbeat_failure="warn"):
                 time.sleep(0.75 * mock_limiter.lease_duration)
 
         # Assert
         assert_log_emitted(
             caplog.records,
             level="CRITICAL",
-            required_fragments=[f"task {task_id}", "flagged as unhealthy", "Simulated Redis failure"],
+            required_fragments=[
+                f"task {task_id}",
+                "flagged as unhealthy",
+                "Simulated Redis failure",
+            ],
             message="should emit a critical log for heartbeat failure with task id and error message",
         )
 
@@ -535,9 +526,7 @@ class TestHeartbeatLoopObservability:
             logging.CRITICAL, logger="celery_rate_limiter.core.limiters"
         ):
             with patch("os.kill"):
-                with TaskLifecycle(
-                    mock_limiter, task_id, on_heartbeat_failure="kill"
-                ):
+                with TaskLifecycle(mock_limiter, task_id, on_heartbeat_failure="kill"):
                     time.sleep(0.75 * mock_limiter.lease_duration)
 
         # Assert
@@ -665,4 +654,27 @@ class TestExtendLeaseObservability:
                 "renewed=True",
             ],
             message="should emit a debug log containing the limiter id, task id, duration, and renewed=True",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Signature tests
+# ---------------------------------------------------------------------------
+
+
+class TestTaskLifecycleSignatures:
+    """Signature tests for ``TaskLifecycle`` default parameter values."""
+
+    @staticmethod
+    def test_default_on_heartbeat_failure_is_warn():
+        """Verify that the default ``on_heartbeat_failure`` parameter is lowercase ``'warn'``.
+
+        Mutation target: ``on_heartbeat_failure`` default value in ``TaskLifecycle.__init__``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(TaskLifecycle.__init__)
+
+        # Assert
+        assert sig.parameters["on_heartbeat_failure"].default == "warn", (
+            "default on_heartbeat_failure must be lowercase 'warn'"
         )

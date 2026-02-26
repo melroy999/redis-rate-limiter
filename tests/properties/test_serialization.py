@@ -2,6 +2,11 @@
 
 These tests employ Hypothesis to verify that any JSON-serializable payload
 survives the round-trip through Redis storage, regardless of its structure.
+
+Fixture dependencies:
+    - ``property_redis_client``, ``module_limiter_id``: from ``tests/conftest.py``
+      (via ``tests/properties/conftest.py``).
+    - ``func_path``: from ``tests/conftest.py``.
 """
 
 import json
@@ -44,12 +49,13 @@ def property_limiter(
 class TestSerializationProperties:
     """Property-based tests verifying payload serialization invariants through Redis."""
 
+    @staticmethod
     @given(payload=nested_dict)
     @settings(
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
     def test_json_payload_survives_redis_round_trip(
-        self, property_limiter, property_redis_client, payload, func_path
+        property_limiter, property_redis_client, payload, func_path
     ):
         """Property: any JSON-serializable dict payload survives a Redis round-trip unchanged.
 
@@ -77,13 +83,14 @@ class TestSerializationProperties:
             )
 
             # Retrieve the task data from Redis
-            _, results = property_redis_client.zscan(
-                property_limiter.buffer_key, match=f'*"{task_id}"*'
+            all_members = property_redis_client.zrange(
+                property_limiter.buffer_key, 0, -1
             )
+            results = [m for m in all_members if f'"{task_id}"' in m]
 
             # Assert that the task was stored
             assert len(results) > 0, "task should be found in buffer"
-            task_data_str, score = results[0]
+            task_data_str = results[0]
             task_data = json.loads(task_data_str)
 
             # Extract the payload from the stored task data.
@@ -111,6 +118,7 @@ class TestSerializationProperties:
             # Cleanup.
             property_redis_client.flushdb()
 
+    @staticmethod
     @given(
         payload=st.dictionaries(
             st.text(min_size=1, max_size=50),
@@ -123,7 +131,7 @@ class TestSerializationProperties:
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
     def test_nonempty_dict_payloads_are_schedulable(
-        self, property_limiter, property_redis_client, payload, func_path
+        property_limiter, property_redis_client, payload, func_path
     ):
         """Property: any non-empty dictionary payload can be scheduled successfully.
 
@@ -145,11 +153,12 @@ class TestSerializationProperties:
         # Cleanup
         property_redis_client.flushdb()
 
+    @staticmethod
     @given(payload=nested_dict)
     @settings(
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
-    def test_task_signature_is_deterministic(self, payload):
+    def test_task_signature_is_deterministic(payload):
         """Property: repeated signature generation for the same payload is deterministic."""
         # Act
         signature_1 = MinimalRateLimiter._get_task_signature_str(

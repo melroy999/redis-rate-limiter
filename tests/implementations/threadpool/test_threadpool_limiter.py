@@ -281,7 +281,9 @@ class TestThreadPoolDispatchObservability:
     """Observability tests for the ``_dispatch_task`` log emissions."""
 
     @staticmethod
-    def test_dispatch_task_emits_debug_log(limiter, payload, func_path, task_id, caplog):
+    def test_dispatch_task_emits_debug_log(
+        limiter, payload, func_path, task_id, caplog
+    ):
         """Verify that ``_dispatch_task`` emits a DEBUG log with limiter id, task id, func path, and local dispatch count."""
         # Act
         with caplog.at_level(

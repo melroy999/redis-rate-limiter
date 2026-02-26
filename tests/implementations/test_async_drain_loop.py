@@ -78,20 +78,6 @@ class TestAsyncDrainLoop:
         limiter.drain.assert_called()
 
     @staticmethod
-    async def test_wake_default_delay_is_zero():
-        """Verify that the ``delay`` parameter of ``wake()`` defaults to ``0.0``.
-
-        Mutation target: default value of ``delay`` in ``AsyncDrainLoop.wake()``.
-        """
-        # Arrange & Act
-        sig = inspect.signature(AsyncDrainLoop.wake)
-
-        # Assert
-        assert sig.parameters["delay"].default == 0.0, (
-            "wake() default delay should be 0.0 for immediate scheduling"
-        )
-
-    @staticmethod
     async def test_wake_fires_drain_immediately():
         """Verify that ``wake(0)`` causes ``drain()`` to be called promptly."""
         # Arrange
@@ -548,4 +534,27 @@ class TestAsyncDrainSignalSubscriber:
         # Assert
         assert subscriber._shutdown is True, (
             "shutdown flag should be True after shutdown"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Signature tests
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncDrainLoopSignatures:
+    """Signature tests for ``AsyncDrainLoop`` default parameter values."""
+
+    @staticmethod
+    def test_wake_default_delay_is_zero():
+        """Verify that the ``delay`` parameter of ``wake()`` defaults to ``0.0``.
+
+        Mutation target: default value of ``delay`` in ``AsyncDrainLoop.wake()``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(AsyncDrainLoop.wake)
+
+        # Assert
+        assert sig.parameters["delay"].default == 0.0, (
+            "wake() default delay should be 0.0 for immediate scheduling"
         )

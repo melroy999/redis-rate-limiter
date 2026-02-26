@@ -297,38 +297,6 @@ class TestCreate:
         ), "persist=False should skip config registry write"
 
 
-class TestCreateDefaults:
-    """Default value signature tests for the ``create()`` class method."""
-
-    @staticmethod
-    def test_create_persist_defaults_to_true():
-        """Verify that the ``persist`` parameter defaults to ``True``.
-
-        Mutation target: default value of ``persist`` in ``AsyncManagedRateLimiter.create``.
-        """
-        # Arrange
-        sig = inspect.signature(AsyncManagedRateLimiter.create)
-
-        # Assert
-        assert sig.parameters["persist"].default is True, (
-            "persist default should be True so that limiter config is stored in Redis"
-        )
-
-    @staticmethod
-    def test_create_override_defaults_to_false():
-        """Verify that the ``override`` parameter defaults to ``False``.
-
-        Mutation target: default value of ``override`` in ``AsyncManagedRateLimiter.create``.
-        """
-        # Arrange
-        sig = inspect.signature(AsyncManagedRateLimiter.create)
-
-        # Assert
-        assert sig.parameters["override"].default is False, (
-            "override default should be False to prevent accidental limiter replacement"
-        )
-
-
 class TestGet:
     """Test suite for the ``get()`` class method."""
 
@@ -585,9 +553,7 @@ class TestRefreshConfig:
         )
 
     @staticmethod
-    async def test_refresh_config_applies_remote_change(
-        async_redis_client, limiter_id
-    ):
+    async def test_refresh_config_applies_remote_change(async_redis_client, limiter_id):
         """Verify that ``refresh_config()`` applies a newer configuration written by another worker."""
         # Arrange
         limiter = await create_test_limiter(limiter_id)
@@ -809,9 +775,7 @@ class TestGetObservability:
         await create_test_limiter(limiter_id)
 
         # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.core.managed"
-        ):
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.managed"):
             await AsyncManagedTestRateLimiter.get(limiter_id)
 
         # Assert
@@ -834,9 +798,7 @@ class TestGetObservability:
         AsyncManagedTestRateLimiter._instances.clear()
 
         # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.core.managed"
-        ):
+        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.managed"):
             await AsyncManagedTestRateLimiter.get(limiter_id)
 
         # Assert
@@ -1072,4 +1034,31 @@ class TestResetAndConstruction:
         )
         assert IsolatedLimiterB._redis_client is None, (
             "second subclass should start with no redis client"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Signature tests
+# ---------------------------------------------------------------------------
+
+
+class TestCreateSignatures:
+    """Signature tests for the ``create()`` class method default parameter values."""
+
+    @staticmethod
+    def test_create_default_parameters():
+        """Verify that ``persist`` and ``override`` have the expected defaults.
+
+        Mutation target: ``persist`` and ``override`` default values in
+        ``AsyncManagedRateLimiter.create``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(AsyncManagedRateLimiter.create)
+
+        # Assert
+        assert sig.parameters["persist"].default is True, (
+            "persist default should be True so that limiter config is stored in Redis"
+        )
+        assert sig.parameters["override"].default is False, (
+            "override default should be False to prevent accidental limiter replacement"
         )

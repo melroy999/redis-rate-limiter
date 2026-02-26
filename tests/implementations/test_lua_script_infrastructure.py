@@ -22,7 +22,6 @@ from celery_rate_limiter.core.base import (
 from celery_rate_limiter.core.scripts import DEFAULT_RESOURCE_PACKAGES, load_lua_script
 from tests.helpers.utils import assert_log_emitted
 
-
 # ---------------------------------------------------------------------------
 # Behavioral tests
 # ---------------------------------------------------------------------------
@@ -187,9 +186,7 @@ class TestSyncEvalScript:
 
         # Act
         with (
-            patch.object(
-                limiter.redis, "evalsha", side_effect=fail_once
-            ) as mock_eval,
+            patch.object(limiter.redis, "evalsha", side_effect=fail_once) as mock_eval,
             patch.object(
                 limiter.redis, "script_load", side_effect=real_script_load
             ) as mock_load,
@@ -285,9 +282,7 @@ class TestAsyncEvalScript:
 
         # Act
         with (
-            patch.object(
-                limiter.redis, "evalsha", side_effect=fail_once
-            ) as mock_eval,
+            patch.object(limiter.redis, "evalsha", side_effect=fail_once) as mock_eval,
             patch.object(
                 limiter.redis, "script_load", side_effect=real_script_load
             ) as mock_load,

@@ -159,14 +159,14 @@ class MetricsCallbackTests:
             }
         )
         sentinel_result = [
-            "-1",       # [0] expired flag
+            "-1",  # [0] expired flag
             task_json,  # [1] task data
-            "10",       # [2] remaining_tokens
-            "0",        # [3] active_concurrency
-            "500",      # [4] reset_in_ms
-            "3",        # [5] remaining_tasks
-            "5",        # [6] val_previous
-            "2",        # [7] val_current
+            "10",  # [2] remaining_tokens
+            "0",  # [3] active_concurrency
+            "500",  # [4] reset_in_ms
+            "3",  # [5] remaining_tasks
+            "5",  # [6] val_previous
+            "2",  # [7] val_current
         ]
 
         actual_limiter = getattr(limiter, "_inner", limiter)
@@ -305,7 +305,11 @@ class MetricsCallbackObservabilityTests:
         assert_log_emitted(
             caplog.records,
             "WARNING",
-            ["Metrics callback raised an exception", f"limiter={limiter.id}", "event=consume"],
+            [
+                "Metrics callback raised an exception",
+                f"limiter={limiter.id}",
+                "event=consume",
+            ],
             "should emit a warning log when the metrics callback raises during consume",
         )
 
@@ -325,7 +329,11 @@ class MetricsCallbackObservabilityTests:
         assert_log_emitted(
             caplog.records,
             "WARNING",
-            ["Metrics callback raised an exception", f"limiter={limiter.id}", "event=schedule"],
+            [
+                "Metrics callback raised an exception",
+                f"limiter={limiter.id}",
+                "event=schedule",
+            ],
             "should emit a warning log when the metrics callback raises during schedule",
         )
 

@@ -16,6 +16,7 @@ import pytest
 
 from celery_rate_limiter import DistributedLock
 from celery_rate_limiter.core import AsyncDistributedLock
+from celery_rate_limiter.core.limiters import AbstractDistributedRateLimiter
 from tests.contracts.test_distributed_lock import DistributedLockContractTest
 from tests.helpers.adapters import SyncToAsyncLockAdapter
 from tests.helpers.utils import assert_log_emitted, wait_for_key_expiry
@@ -119,7 +120,12 @@ class DistributedLockObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
-            required_fragments=[f"key={lock_key}", "token=", "timeout_ms=1000", "acquired"],
+            required_fragments=[
+                f"key={lock_key}",
+                "token=",
+                "timeout_ms=1000",
+                "acquired",
+            ],
             message="should emit a debug log for lock acquisition with key, token, and timeout_ms",
         )
 
@@ -500,7 +506,7 @@ class ContentionAwareCooldownTests:
 
 
 # ---------------------------------------------------------------------------
-# Concrete test cases: sync variant
+# Concrete test cases
 # ---------------------------------------------------------------------------
 
 
@@ -547,11 +553,6 @@ class TestSyncContentionAwareCooldown(ContentionAwareCooldownTests):
             )
 
         return _factory
-
-
-# ---------------------------------------------------------------------------
-# Concrete test cases: async variant
-# ---------------------------------------------------------------------------
 
 
 class TestAsyncDistributedLockImplementation(DistributedLockImplementationTests):
@@ -601,86 +602,42 @@ class TestAsyncContentionAwareCooldown(ContentionAwareCooldownTests):
 class TestDistributedLockSignatures:
     """Signature tests for distributed lock default parameter values."""
 
+    @pytest.mark.parametrize(
+        "cls",
+        [DistributedLock, AsyncDistributedLock],
+        ids=["sync", "async"],
+    )
     @staticmethod
-    def test_sync_worker_id_defaults_to_empty():
-        """Verify that the ``worker_id`` parameter defaults to an empty string.
+    def test_lock_init_default_parameters(cls):
+        """Verify that ``worker_id``, ``cooldown_ms``, and ``contention_key`` have the expected defaults.
 
-        Mutation target: ``worker_id`` default value in ``DistributedLock.__init__``.
+        Mutation target: ``worker_id``, ``cooldown_ms``, and ``contention_key`` default values
+        in ``DistributedLock.__init__`` and ``AsyncDistributedLock.__init__``.
         """
         # Arrange & Act
-        sig = inspect.signature(DistributedLock.__init__)
+        sig = inspect.signature(cls.__init__)
 
         # Assert
         assert sig.parameters["worker_id"].default == "", (
             "worker_id default must be an empty string"
         )
-
-    @staticmethod
-    def test_sync_cooldown_ms_defaults_to_zero():
-        """Verify that the ``cooldown_ms`` parameter defaults to zero.
-
-        Mutation target: ``cooldown_ms`` default value in ``DistributedLock.__init__``.
-        """
-        # Arrange & Act
-        sig = inspect.signature(DistributedLock.__init__)
-
-        # Assert
         assert sig.parameters["cooldown_ms"].default == 0, (
             "cooldown_ms default must be 0"
         )
-
-    @staticmethod
-    def test_sync_contention_key_defaults_to_empty():
-        """Verify that the ``contention_key`` parameter defaults to an empty string.
-
-        Mutation target: ``contention_key`` default value in ``DistributedLock.__init__``.
-        """
-        # Arrange & Act
-        sig = inspect.signature(DistributedLock.__init__)
-
-        # Assert
         assert sig.parameters["contention_key"].default == "", (
             "contention_key default must be an empty string"
         )
 
     @staticmethod
-    def test_async_worker_id_defaults_to_empty():
-        """Verify that the ``worker_id`` parameter defaults to an empty string.
+    def test_execution_lock_timeout_ms_defaults_to_5000():
+        """Verify that the ``timeout_ms`` parameter defaults to ``5000``.
 
-        Mutation target: ``worker_id`` default value in ``AsyncDistributedLock.__init__``.
+        Mutation target: ``timeout_ms`` default value in ``AbstractDistributedRateLimiter.execution_lock``.
         """
         # Arrange & Act
-        sig = inspect.signature(AsyncDistributedLock.__init__)
+        sig = inspect.signature(AbstractDistributedRateLimiter.execution_lock)
 
         # Assert
-        assert sig.parameters["worker_id"].default == "", (
-            "worker_id default must be an empty string"
-        )
-
-    @staticmethod
-    def test_async_cooldown_ms_defaults_to_zero():
-        """Verify that the ``cooldown_ms`` parameter defaults to zero.
-
-        Mutation target: ``cooldown_ms`` default value in ``AsyncDistributedLock.__init__``.
-        """
-        # Arrange & Act
-        sig = inspect.signature(AsyncDistributedLock.__init__)
-
-        # Assert
-        assert sig.parameters["cooldown_ms"].default == 0, (
-            "cooldown_ms default must be 0"
-        )
-
-    @staticmethod
-    def test_async_contention_key_defaults_to_empty():
-        """Verify that the ``contention_key`` parameter defaults to an empty string.
-
-        Mutation target: ``contention_key`` default value in ``AsyncDistributedLock.__init__``.
-        """
-        # Arrange & Act
-        sig = inspect.signature(AsyncDistributedLock.__init__)
-
-        # Assert
-        assert sig.parameters["contention_key"].default == "", (
-            "contention_key default must be an empty string"
+        assert sig.parameters["timeout_ms"].default == 5000, (
+            "timeout_ms default must be 5000"
         )

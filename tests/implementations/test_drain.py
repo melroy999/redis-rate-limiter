@@ -299,9 +299,7 @@ class DrainBehaviorTests:
             "drain should not schedule follow-up when expired result has no remaining tasks"
         )
 
-    async def test_drain_stops_when_concurrency_at_capacity(
-        self, limiter, mock_target
-    ):
+    async def test_drain_stops_when_concurrency_at_capacity(self, limiter, mock_target):
         """Verify that ``drain()`` stops without scheduling a follow-up when concurrency is saturated."""
         # Arrange
         consume_result = {
@@ -717,7 +715,6 @@ class DrainBehaviorTests:
         )
 
 
-
 # ---------------------------------------------------------------------------
 # Unified observability tests
 # ---------------------------------------------------------------------------
@@ -1027,7 +1024,10 @@ class DrainObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
-            required_fragments=[f"limiter={limiter.id}", "Failed to publish drain signal"],
+            required_fragments=[
+                f"limiter={limiter.id}",
+                "Failed to publish drain signal",
+            ],
             message="should emit a debug log when redis publish raises an exception",
         )
 
@@ -1212,24 +1212,6 @@ class TestAsyncScheduleDrainDelegation:
         with patch.object(async_generic_limiter, "_drain_loop", None):
             AbstractAsyncDistributedRateLimiter._schedule_drain(async_generic_limiter)
 
-    @pytest.mark.parametrize(
-        "cls",
-        [AbstractAsyncDistributedRateLimiter, AbstractDistributedRateLimiter],
-        ids=["async", "sync"],
-    )
-    @staticmethod
-    def test_schedule_drain_default_delay_is_zero(cls):
-        """Verify that ``_schedule_drain`` default delay is ``0.0``.
-
-        Mutation target: ``delay=0.0`` default parameter on ``_schedule_drain()``.
-        """
-        # Act
-        sig = inspect.signature(cls._schedule_drain)
-
-        # Assert
-        assert sig.parameters["delay"].default == 0.0, (
-            "_schedule_drain() default delay should be 0.0 for immediate scheduling"
-        )
 
 
 class TestCrossProcessDrainSignal:
@@ -1570,3 +1552,31 @@ class TestAsyncCrossProcessDrainSignal:
             await limiter.shutdown()
             await test_sub.unsubscribe()
             await test_sub.aclose()
+
+
+# ---------------------------------------------------------------------------
+# Signature tests
+# ---------------------------------------------------------------------------
+
+
+class TestScheduleDrainSignatures:
+    """Signature tests for ``_schedule_drain()`` default parameter values."""
+
+    @pytest.mark.parametrize(
+        "cls",
+        [AbstractAsyncDistributedRateLimiter, AbstractDistributedRateLimiter],
+        ids=["async", "sync"],
+    )
+    @staticmethod
+    def test_schedule_drain_default_delay_is_zero(cls):
+        """Verify that ``_schedule_drain`` default delay is ``0.0``.
+
+        Mutation target: ``delay=0.0`` default parameter on ``_schedule_drain()``.
+        """
+        # Act
+        sig = inspect.signature(cls._schedule_drain)
+
+        # Assert
+        assert sig.parameters["delay"].default == 0.0, (
+            "_schedule_drain() default delay should be 0.0 for immediate scheduling"
+        )

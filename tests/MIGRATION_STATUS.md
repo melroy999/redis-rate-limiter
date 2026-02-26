@@ -79,16 +79,16 @@ Tracks compliance of each file against `TESTING_GUIDELINES.md`. Files are checke
 
 ## Batch 8: properties/
 
-- [ ] `tests/properties/conftest.py`
-- [ ] `tests/properties/test_sliding_window_counter.py`
-- [ ] `tests/properties/test_token_recovery.py`
-- [ ] `tests/properties/test_smart_jitter.py`
-- [ ] `tests/properties/test_concurrency_invariants.py`
-- [ ] `tests/properties/test_serialization.py`
-- [ ] `tests/properties/test_inflight_ttl.py`
-- [ ] `tests/properties/test_config_round_trip.py`
-- [ ] `tests/properties/test_is_subset.py`
-- [ ] `tests/properties/asgi/test_keys.py`
+- [x] `tests/properties/conftest.py` (no changes needed)
+- [x] `tests/properties/test_sliding_window_counter.py`
+- [x] `tests/properties/test_token_recovery.py`
+- [x] `tests/properties/test_smart_jitter.py`
+- [x] `tests/properties/test_serialization.py`
+- [x] `tests/properties/test_concurrency_invariants.py`
+- [x] `tests/properties/test_inflight_ttl.py`
+- [x] `tests/properties/test_config_round_trip.py`
+- [x] `tests/properties/test_is_subset.py` (no changes needed)
+- [x] `tests/properties/asgi/test_keys.py` (no changes needed)
 
 ## Batch 9: integration/ and integrations/
 

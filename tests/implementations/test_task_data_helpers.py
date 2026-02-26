@@ -9,13 +9,14 @@ Fixture dependencies:
     - ``generic_limiter``, ``async_generic_limiter``: from ``tests/implementations/conftest.py``.
 """
 
+import inspect
 import logging
 from unittest.mock import patch
 
 import pytest
 
+from celery_rate_limiter.core.limiters import DistributedRateLimiterMixin
 from tests.helpers.utils import assert_log_emitted
-
 
 # ---------------------------------------------------------------------------
 # Behavioral tests
@@ -202,9 +203,7 @@ class TestAsyncCleanupInflightKey:
         )
 
         # Act
-        await async_generic_limiter._cleanup_inflight_key(
-            inflight_key, "cleanup-del"
-        )
+        await async_generic_limiter._cleanup_inflight_key(inflight_key, "cleanup-del")
 
         # Assert
         assert await async_redis_client.exists(inflight_key) == 0, (
@@ -290,4 +289,27 @@ class TestAsyncCleanupInflightKeyObservability:
                 "removed=1",
             ],
             message="should emit a debug log containing the limiter id, task id, inflight key, and removal result",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Signature tests
+# ---------------------------------------------------------------------------
+
+
+class TestTaskDataHelperSignatures:
+    """Signature tests for task data helper default parameter values."""
+
+    @staticmethod
+    def test_get_inflight_ttl_max_age_override_defaults_to_none():
+        """Verify that the ``max_age_override`` parameter defaults to ``None``.
+
+        Mutation target: ``max_age_override`` default value in ``DistributedRateLimiterMixin._get_inflight_ttl``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(DistributedRateLimiterMixin._get_inflight_ttl)
+
+        # Assert
+        assert sig.parameters["max_age_override"].default is None, (
+            "max_age_override default must be None"
         )

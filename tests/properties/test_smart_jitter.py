@@ -9,6 +9,10 @@ Rationale for maintaining both layers:
 
 Employing both approaches avoids flaky CI while still validating that the
 observed behavior is not an artifact of a single hand-picked random sequence.
+
+Fixture dependencies:
+    - ``property_redis_client``, ``module_limiter_id``: from ``tests/conftest.py``
+      (via ``tests/properties/conftest.py``).
 """
 
 from unittest.mock import patch
@@ -67,11 +71,12 @@ class TestSmartJitterProperties:
       hold beyond those curated seeds.
     """
 
+    @staticmethod
     @given(random_stream=random_stream_strategy)
     @settings(
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
-    def test_load_pressure_is_monotonic(self, property_limiter, random_stream):
+    def test_load_pressure_is_monotonic(property_limiter, random_stream):
         """Property: paired random streams preserve the load-based jitter ordering."""
         # Arrange
         samples = len(random_stream)
@@ -143,6 +148,7 @@ class TestSmartJitterProperties:
             f"avg_low={avg_low:.4f}, avg_medium={avg_medium:.4f}, avg_high={avg_high:.4f}"
         )
 
+    @staticmethod
     @given(
         random_stream=random_stream_strategy,
         low_active=st.integers(min_value=0, max_value=4),
@@ -152,7 +158,7 @@ class TestSmartJitterProperties:
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
     def test_concurrency_pressure_is_monotonic(
-        self, property_limiter, random_stream, low_active, high_active
+        property_limiter, random_stream, low_active, high_active
     ):
         """Property: paired random streams preserve the concurrency-based jitter ordering."""
         # Arrange

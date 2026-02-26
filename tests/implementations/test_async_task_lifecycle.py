@@ -120,9 +120,9 @@ class TestAsyncTaskLifecycleImplementation:
         # Act
         async with AsyncTaskLifecycle(mock_limiter, task_id):
             # During execution, all five tasks should be present.
-            assert (
-                await async_redis_client.zcard(mock_limiter.concurrency_key) == 5
-            ), "all five tasks should be present during execution"
+            assert await async_redis_client.zcard(mock_limiter.concurrency_key) == 5, (
+                "all five tasks should be present during execution"
+            )
 
         # Assert
         # After completion, only the target task should have been removed.
@@ -288,19 +288,6 @@ class TestAsyncTaskLifecycleImplementation:
         finally:
             await limiter.shutdown()
 
-    @staticmethod
-    def test_default_on_heartbeat_failure_is_warn():
-        """Verify that the default ``on_heartbeat_failure`` parameter is lowercase ``'warn'``.
-
-        Mutation target: ``on_heartbeat_failure`` default value in ``AsyncTaskLifecycle.__init__``.
-        """
-        # Arrange & Act
-        sig = inspect.signature(AsyncTaskLifecycle.__init__)
-
-        # Assert
-        assert sig.parameters["on_heartbeat_failure"].default == "warn", (
-            "default on_heartbeat_failure must be lowercase 'warn'"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -431,9 +418,7 @@ class TestAsyncHeartbeatLoop:
 
             # Assert
             # The lifecycle should have recovered and be marked as healthy.
-            assert lifecycle.is_healthy, (
-                "lifecycle must restore health after recovery"
-            )
+            assert lifecycle.is_healthy, "lifecycle must restore health after recovery"
 
     @staticmethod
     async def test_heartbeat_loop_flags_unhealthy_on_failure_warn_mode(
@@ -603,7 +588,11 @@ class TestAsyncHeartbeatLoopObservability:
         assert_log_emitted(
             caplog.records,
             level="INFO",
-            required_fragments=[f"task {task_id}", f"limiter {mock_limiter.id}", "restored"],
+            required_fragments=[
+                f"task {task_id}",
+                f"limiter {mock_limiter.id}",
+                "restored",
+            ],
             message="should emit an info log for heartbeat connection restoration with task id and limiter id",
         )
 
@@ -630,7 +619,11 @@ class TestAsyncHeartbeatLoopObservability:
         assert_log_emitted(
             caplog.records,
             level="CRITICAL",
-            required_fragments=[f"task {task_id}", "flagged as unhealthy", "Simulated Redis failure"],
+            required_fragments=[
+                f"task {task_id}",
+                "flagged as unhealthy",
+                "Simulated Redis failure",
+            ],
             message="should emit a critical log for heartbeat failure with task id and error message",
         )
 
@@ -797,4 +790,27 @@ class TestAsyncExtendLeaseObservability:
                 "renewed=True",
             ],
             message="should emit a debug log containing the limiter id, task id, duration, and renewed=True",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Signature tests
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncTaskLifecycleSignatures:
+    """Signature tests for ``AsyncTaskLifecycle`` default parameter values."""
+
+    @staticmethod
+    def test_default_on_heartbeat_failure_is_warn():
+        """Verify that the default ``on_heartbeat_failure`` parameter is lowercase ``'warn'``.
+
+        Mutation target: ``on_heartbeat_failure`` default value in ``AsyncTaskLifecycle.__init__``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(AsyncTaskLifecycle.__init__)
+
+        # Assert
+        assert sig.parameters["on_heartbeat_failure"].default == "warn", (
+            "default on_heartbeat_failure must be lowercase 'warn'"
         )

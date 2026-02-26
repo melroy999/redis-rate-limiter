@@ -444,33 +444,6 @@ class TestRateLimitMiddleware:
             "rate limit headers should be injected even when inner app omits headers key"
         )
 
-    @staticmethod
-    def test_default_on_error_is_fail_open():
-        """Verify that the default ``on_error`` parameter is lowercase ``'fail_open'``.
-
-        Mutation target: default value of ``on_error`` in ``RateLimitMiddleware.__init__``.
-        """
-        # Arrange & Act
-        sig = inspect.signature(RateLimitMiddleware.__init__)
-
-        # Assert
-        assert sig.parameters["on_error"].default == "fail_open", (
-            "default on_error must be lowercase 'fail_open'"
-        )
-
-    @staticmethod
-    def test_default_on_blocked_is_none():
-        """Verify that the default ``on_blocked`` parameter is ``None``.
-
-        Mutation target: default value of ``on_blocked`` in ``RateLimitMiddleware.__init__``.
-        """
-        # Arrange & Act
-        sig = inspect.signature(RateLimitMiddleware.__init__)
-
-        # Assert
-        assert sig.parameters["on_blocked"].default is None, (
-            "default on_blocked must be None so the built-in 429 handler is used"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -484,6 +457,7 @@ class TestMiddlewareObservability:
     @staticmethod
     async def test_acquire_error_emits_exception_log(limiter, caplog):
         """Verify that the middleware emits an ERROR log with limiter id and key when ``acquire`` raises."""
+
         # Arrange
         async def inner_app(scope, receive, send):
             await send({"type": "http.response.start", "status": 200, "headers": []})
@@ -513,4 +487,31 @@ class TestMiddlewareObservability:
                 "key=127.0.0.1",
             ],
             message="should emit an error log containing the limiter id and key on acquire failure",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Signature tests
+# ---------------------------------------------------------------------------
+
+
+class TestMiddlewareSignatures:
+    """Signature tests for ``RateLimitMiddleware`` default parameter values."""
+
+    @staticmethod
+    def test_middleware_init_default_parameters():
+        """Verify that ``on_error`` and ``on_blocked`` have the expected defaults.
+
+        Mutation target: ``on_error`` and ``on_blocked`` default values in
+        ``RateLimitMiddleware.__init__``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(RateLimitMiddleware.__init__)
+
+        # Assert
+        assert sig.parameters["on_error"].default == "fail_open", (
+            "default on_error must be lowercase 'fail_open'"
+        )
+        assert sig.parameters["on_blocked"].default is None, (
+            "default on_blocked must be None so the built-in 429 handler is used"
         )

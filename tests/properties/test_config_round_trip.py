@@ -13,6 +13,10 @@ The round-trip involves two layers of cooperative inheritance:
 - ``AbstractRateLimiter._apply_config_overrides()`` applies ``limit`` and ``window``.
 - ``DistributedRateLimiterMixin._apply_config_overrides()`` applies the three
   distributed-specific fields.
+
+Fixture dependencies:
+    - ``property_redis_client``, ``module_limiter_id``: from ``tests/conftest.py``
+      (via ``tests/properties/conftest.py``).
 """
 
 import json
@@ -56,6 +60,7 @@ class TestConfigRoundTripProperties:
     serialization/deserialization boundary used by the managed class API.
     """
 
+    @staticmethod
     @given(
         limit=st.integers(min_value=1, max_value=10000),
         window=st.floats(
@@ -70,7 +75,6 @@ class TestConfigRoundTripProperties:
     )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_persist_then_apply_preserves_all_fields(
-        self,
         property_limiter,
         limit,
         window,
@@ -122,6 +126,7 @@ class TestConfigRoundTripProperties:
             f"got {property_limiter.lease_duration}"
         )
 
+    @staticmethod
     @given(
         limit=st.integers(min_value=1, max_value=10000),
         window=st.floats(
@@ -138,7 +143,6 @@ class TestConfigRoundTripProperties:
     )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_extra_keys_in_overrides_are_silently_ignored(
-        self,
         property_limiter,
         limit,
         window,

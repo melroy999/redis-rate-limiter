@@ -12,13 +12,14 @@ Fixture dependencies:
     - ``generic_limiter``, ``async_generic_limiter``: from ``tests/implementations/conftest.py``.
 """
 
+import inspect
 import logging
 
 import pytest
 
+from celery_rate_limiter.core.limiters import DistributedRateLimiterMixin
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 from tests.helpers.utils import assert_log_emitted
-
 
 # ---------------------------------------------------------------------------
 # Unified implementation tests
@@ -213,3 +214,28 @@ class TestAsyncEmitMetricLogging(EmitMetricObservabilityTests):
         await limiter.start()
         yield limiter
         await limiter.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Signature tests
+# ---------------------------------------------------------------------------
+
+
+class TestMixinInitSignatures:
+    """Signature tests for ``DistributedRateLimiterMixin.__init__`` default parameter values."""
+
+    @staticmethod
+    def test_mixin_init_default_parameters():
+        """Verify that ``max_age`` and ``lease_duration`` have the expected defaults.
+
+        Mutation target: ``max_age`` and ``lease_duration`` default values in
+        ``DistributedRateLimiterMixin.__init__``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(DistributedRateLimiterMixin.__init__)
+
+        # Assert
+        assert sig.parameters["max_age"].default == 3600, "max_age default must be 3600"
+        assert sig.parameters["lease_duration"].default == 30, (
+            "lease_duration default must be 30"
+        )

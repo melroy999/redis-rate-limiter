@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import redis
 
+from celery_rate_limiter.core.limiters import AbstractDistributedRateLimiter
 from tests.contracts.test_rate_limiter import RateLimiterContractTest
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 from tests.helpers.utils import assert_log_emitted, is_subset
@@ -49,16 +50,15 @@ async def assert_task_existence(
     )
 
     # Assert that the task appears in the buffer exactly once.
-    _, results = await async_redis_client.zscan(
-        limiter.buffer_key, match=f'*"{task_id}"*'
-    )
+    all_members = await async_redis_client.zrange(limiter.buffer_key, 0, -1)
+    results = [m for m in all_members if f'"{task_id}"' in m]
     assert len(results) > 0, f"task with ID {task_id} not found in buffer"
     assert len(results) == 1, (
         f"task with ID {task_id} has been found more than once in the buffer"
     )
 
     # Assert that the persisted task data remains correct.
-    full_data_server_str, _score = results[0]
+    full_data_server_str = results[0]
     full_data_server = json.loads(full_data_server_str)
 
     assert is_subset(full_data, full_data_server), (
@@ -348,9 +348,7 @@ class RateLimiterImplementationTests:
             side_effect=redis.exceptions.ConnectionError("redis down"),
         ):
             # Act
-            with pytest.raises(
-                redis.exceptions.ConnectionError, match="redis down"
-            ):
+            with pytest.raises(redis.exceptions.ConnectionError, match="redis down"):
                 await limiter.schedule_task(func_path, payload)
 
         # Assert
@@ -562,14 +560,14 @@ class RateLimiterImplementationTests:
             }
         )
         sentinel_result = [
-            "-1",       # [0] expired flag
+            "-1",  # [0] expired flag
             task_json,  # [1] task data (Lua returns task data even for expired tasks)
-            "10",       # [2] remaining_tokens
-            "0",        # [3] active_concurrency
-            "500",      # [4] reset_in_ms
-            "3",        # [5] remaining_tasks
-            "5",        # [6] val_previous
-            "2",        # [7] val_current
+            "10",  # [2] remaining_tokens
+            "0",  # [3] active_concurrency
+            "500",  # [4] reset_in_ms
+            "3",  # [5] remaining_tasks
+            "5",  # [6] val_previous
+            "2",  # [7] val_current
         ]
 
         actual_limiter = getattr(limiter, "_inner", limiter)
@@ -586,7 +584,9 @@ class RateLimiterImplementationTests:
             result = await limiter.consume()
 
         # Assert
-        assert result["expired"] is True, "expired should be True when result[0] is '-1'"
+        assert result["expired"] is True, (
+            "expired should be True when result[0] is '-1'"
+        )
         assert result["success"] is False, (
             "success should be False when result[0] is '-1'"
         )
@@ -596,14 +596,14 @@ class RateLimiterImplementationTests:
         """Verify that ``consume()`` correctly parses the denied indicator (``result[0]="0"``)."""
         # Arrange
         sentinel_result = [
-            "0",    # [0] denied flag
-            "",     # [1] no task data
-            "0",    # [2] remaining_tokens
-            "2",    # [3] active_concurrency
+            "0",  # [0] denied flag
+            "",  # [1] no task data
+            "0",  # [2] remaining_tokens
+            "2",  # [3] active_concurrency
             "100",  # [4] reset_in_ms
-            "5",    # [5] remaining_tasks
-            "10",   # [6] val_previous
-            "5",    # [7] val_current
+            "5",  # [5] remaining_tasks
+            "10",  # [6] val_previous
+            "5",  # [7] val_current
         ]
 
         actual_limiter = getattr(limiter, "_inner", limiter)
@@ -620,7 +620,9 @@ class RateLimiterImplementationTests:
             result = await limiter.consume()
 
         # Assert
-        assert result["success"] is False, "success should be False when result[0] is '0'"
+        assert result["success"] is False, (
+            "success should be False when result[0] is '0'"
+        )
         assert result["expired"] is False, (
             "expired should be False when result[0] is '0'"
         )
@@ -691,7 +693,12 @@ class RateLimiterObservabilityTests:
         assert_log_emitted(
             caplog.records,
             "DEBUG",
-            [f"limiter={limiter.id}", f"task_id={task_id}", f"func_path={func_path}", "priority=100"],
+            [
+                f"limiter={limiter.id}",
+                f"task_id={task_id}",
+                f"func_path={func_path}",
+                "priority=100",
+            ],
             "should emit a debug log for the scheduling attempt with limiter id, task id, func path, and priority",
         )
         assert_log_emitted(
@@ -727,7 +734,9 @@ class RateLimiterObservabilityTests:
 # ---------------------------------------------------------------------------
 
 
-class TestSyncRateLimiterImplementation(RateLimiterImplementationTests, RateLimiterObservabilityTests):
+class TestSyncRateLimiterImplementation(
+    RateLimiterImplementationTests, RateLimiterObservabilityTests
+):
     """Sync rate limiter implementation exercised through the async adapter."""
 
     @pytest.fixture
@@ -736,10 +745,35 @@ class TestSyncRateLimiterImplementation(RateLimiterImplementationTests, RateLimi
         return SyncToAsyncLimiterAdapter(generic_limiter)
 
 
-class TestAsyncRateLimiterImplementation(RateLimiterImplementationTests, RateLimiterObservabilityTests):
+class TestAsyncRateLimiterImplementation(
+    RateLimiterImplementationTests, RateLimiterObservabilityTests
+):
     """Async rate limiter implementation exercised natively."""
 
     @pytest.fixture
     def limiter(self, async_generic_limiter):
         """Provide the async generic limiter directly."""
         return async_generic_limiter
+
+
+# ---------------------------------------------------------------------------
+# Signature tests
+# ---------------------------------------------------------------------------
+
+
+class TestScheduleTaskSignatures:
+    """Signature tests for ``schedule_task()`` default parameter values."""
+
+    @staticmethod
+    def test_schedule_task_default_parameters():
+        """Verify that ``priority`` and ``max_age`` have the expected defaults.
+
+        Mutation target: ``priority`` and ``max_age`` default values in
+        ``AbstractDistributedRateLimiter.schedule_task``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(AbstractDistributedRateLimiter.schedule_task)
+
+        # Assert
+        assert sig.parameters["priority"].default == 100, "priority default must be 100"
+        assert sig.parameters["max_age"].default is None, "max_age default must be None"

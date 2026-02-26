@@ -2,6 +2,10 @@
 
 These tests employ Hypothesis to verify that the concurrency bound is never
 exceeded under arbitrary sequences of schedule, consume, and complete operations.
+
+Fixture dependencies:
+    - ``property_redis_client``, ``module_limiter_id``: from ``tests/conftest.py``
+      (via ``tests/properties/conftest.py``).
 """
 
 import pytest
@@ -60,7 +64,7 @@ class TestConcurrencyInvariantProperties:
         next_payload_id = 0
         active_task_ids = set()
 
-        # Act
+        # Act & Assert
         for operation in operations:
             if operation == "schedule":
                 property_limiter.schedule_task(

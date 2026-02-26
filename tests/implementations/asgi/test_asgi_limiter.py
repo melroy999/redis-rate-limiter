@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from celery_rate_limiter.backends.asgi import ASGIRateLimiter
 from tests.helpers.utils import assert_log_emitted
 
 
@@ -161,11 +162,7 @@ class TestASGIStartObservability:
     @staticmethod
     async def test_start_emits_info_log(limiter_id, caplog):
         """Verify that ``start()`` emits an INFO log with the limiter id, limit, and window."""
-        # Arrange
-        # The autouse fixture already calls _reset() and configure().
-        from celery_rate_limiter.backends.asgi import ASGIRateLimiter
-
-        # Act
+        # Arrange & Act
         with caplog.at_level(
             logging.INFO, logger="celery_rate_limiter.backends.asgi.limiter"
         ):
@@ -187,7 +184,6 @@ class TestASGIStartObservability:
             ],
             message="should emit an info log with the limiter id, limit, and window on initialization",
         )
-
 
 
 class TestASGIAcquireObservability:
@@ -215,4 +211,24 @@ class TestASGIAcquireObservability:
                 "key=user_error",
             ],
             message="should emit an error log containing the limiter id and the key",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Class variable tests
+# ---------------------------------------------------------------------------
+
+
+class TestASGILimiterClassVariables:
+    """Verify class-level configuration defaults on ``ASGIRateLimiter``."""
+
+    @staticmethod
+    def test_refresh_interval_defaults_to_5():
+        """Verify that the ``_refresh_interval`` class variable defaults to ``5.0``.
+
+        Mutation target: ``_refresh_interval`` class variable in ``ASGIRateLimiter``.
+        """
+        # Assert
+        assert ASGIRateLimiter._refresh_interval == 5.0, (
+            "_refresh_interval class variable must default to 5.0"
         )

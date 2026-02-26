@@ -48,6 +48,8 @@ All test methods must be decorated with `@staticmethod` unless the method requir
 
 The primary exception is mixin bases that define class-level helpers; for instance, `DrainBehaviorTests` uses `self.lock_result(acquired)` to produce a sync or async context manager depending on the subclass. In such cases, omitting `@staticmethod` is correct.
 
+**Hypothesis `@given` tests**: the `@staticmethod` rule applies equally to `@given`-decorated tests. Hypothesis correctly handles `@staticmethod @given(...)` with both pure parameters (all supplied by `@given`) and mixed parameters (some from `@given`, some from pytest fixtures). The decorator order must be `@staticmethod` outermost, then `@given(...)`, then `@settings(...)` if present.
+
 ### 1.5 Sync/Async Deduplication: Mixins vs Separate Files
 
 The project maintains both sync and async implementations of core components. The following rules determine how tests for these implementations are organized.
@@ -84,6 +86,7 @@ The separator line is exactly 75 dashes. Do not use separators between individua
 | Behavioral concrete class before observability concrete class (non-mixin files) | `Observability tests` |
 | Distinct categories of test classes in the same file | `Drain-disabled tests`, `Cross-process drain signal tests` |
 | Sync-specific tests before async-specific tests (when in one file) | `Sync-specific tests` / `Async-specific tests` |
+| Signature or class-variable tests at end of file | `Signature tests` or `Class variable tests` |
 
 A file with only one class and no helpers does not need any separators.
 

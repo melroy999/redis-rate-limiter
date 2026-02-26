@@ -44,7 +44,8 @@ class TestImportString:
         """Verify that ``import_string()`` raises an AttributeError for a missing attribute."""
         # Act & Assert
         with pytest.raises(
-            AttributeError, match="module 'json' has no attribute 'this_attribute_does_not_exist'"
+            AttributeError,
+            match="module 'json' has no attribute 'this_attribute_does_not_exist'",
         ):
             import_string("json.this_attribute_does_not_exist")
 

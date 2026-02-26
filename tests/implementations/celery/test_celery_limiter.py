@@ -21,20 +21,6 @@ class TestCeleryRateLimiter:
     """Tests that are specific to the Celery backend dispatch and payload logic."""
 
     @staticmethod
-    def test_schedule_task_use_executor_default_is_true():
-        """Verify that the ``use_executor`` parameter defaults to ``True`` via signature inspection.
-
-        Mutation target: default value of ``use_executor`` in ``CeleryRateLimiter.schedule_task()``.
-        """
-        # Arrange
-        sig = inspect.signature(CeleryRateLimiter.schedule_task)
-
-        # Assert
-        assert sig.parameters["use_executor"].default is True, (
-            "use_executor default should be True for generic worker dispatch"
-        )
-
-    @staticmethod
     def test_schedule_task_defaults_use_executor_to_true(
         limiter, redis_client, func_path, payload
     ):
@@ -44,9 +30,10 @@ class TestCeleryRateLimiter:
 
         # Assert
         assert success is True, "scheduling should succeed"
-        _, results = redis_client.zscan(limiter.buffer_key, match=f'*"{task_id}"*')
+        all_members = redis_client.zrange(limiter.buffer_key, 0, -1)
+        results = [m for m in all_members if f'"{task_id}"' in m]
         assert len(results) == 1, "scheduled task should exist in buffer exactly once"
-        task_data = json.loads(results[0][0])
+        task_data = json.loads(results[0])
         assert task_data["payload"]["meta"]["use_executor"] is True, (
             "task metadata should default use_executor to true"
         )
@@ -64,9 +51,10 @@ class TestCeleryRateLimiter:
 
         # Assert
         assert success is True, "scheduling should succeed"
-        _, results = redis_client.zscan(limiter.buffer_key, match=f'*"{task_id}"*')
+        all_members = redis_client.zrange(limiter.buffer_key, 0, -1)
+        results = [m for m in all_members if f'"{task_id}"' in m]
         assert len(results) == 1, "scheduled task should exist in buffer exactly once"
-        task_data = json.loads(results[0][0])
+        task_data = json.loads(results[0])
         assert task_data["payload"]["meta"]["use_executor"] is False, (
             "task metadata should store use_executor as false"
         )
@@ -298,4 +286,27 @@ class TestCeleryDispatchObservability:
                 f"func_path={func_path}",
             ],
             message="should emit a debug log containing the limiter id, task id, and func path",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Signature tests
+# ---------------------------------------------------------------------------
+
+
+class TestCeleryScheduleTaskSignatures:
+    """Signature tests for ``CeleryRateLimiter.schedule_task()`` default parameter values."""
+
+    @staticmethod
+    def test_schedule_task_use_executor_defaults_to_true():
+        """Verify that the ``use_executor`` parameter defaults to ``True``.
+
+        Mutation target: default value of ``use_executor`` in ``CeleryRateLimiter.schedule_task()``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(CeleryRateLimiter.schedule_task)
+
+        # Assert
+        assert sig.parameters["use_executor"].default is True, (
+            "use_executor default should be True for generic worker dispatch"
         )

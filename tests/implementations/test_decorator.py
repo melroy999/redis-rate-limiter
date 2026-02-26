@@ -308,34 +308,6 @@ class TestRateLimitedDecorator:
                 wrapped_function(_rate_limit_task_id=task_id)
 
     @staticmethod
-    def test_rate_limited_limiter_id_defaults_to_none():
-        """Verify that the ``limiter_id`` parameter defaults to ``None``.
-
-        Mutation target: ``limiter_id=None`` default parameter on ``rate_limited()``.
-        """
-        # Arrange & Act
-        sig = inspect.signature(rate_limited)
-
-        # Assert
-        assert sig.parameters["limiter_id"].default is None, (
-            "limiter_id should default to None"
-        )
-
-    @staticmethod
-    def test_rate_limited_get_limiter_defaults_to_none():
-        """Verify that the ``get_limiter`` parameter defaults to ``None``.
-
-        Mutation target: ``get_limiter=None`` default parameter on ``rate_limited()``.
-        """
-        # Arrange & Act
-        sig = inspect.signature(rate_limited)
-
-        # Assert
-        assert sig.parameters["get_limiter"].default is None, (
-            "get_limiter should default to None"
-        )
-
-    @staticmethod
     def test_decorator_uses_default_limiter_resolver(limiter_mock, limiter_id, task_id):
         """Verify that ``_get_default_limiter`` is exercised when no custom resolver is provided."""
         # Arrange
@@ -393,13 +365,25 @@ class TestRateLimitedDecoratorObservability:
         assert_log_emitted(
             caplog.records,
             "DEBUG",
-            ["decorator entered", f"limiter={limiter_id}", f"task_id={task_id}", "func=", "wrapped_function"],
+            [
+                "decorator entered",
+                f"limiter={limiter_id}",
+                f"task_id={task_id}",
+                "func=",
+                "wrapped_function",
+            ],
             "should emit a debug log for the decorator entry with limiter id, task id, and func qualname",
         )
         assert_log_emitted(
             caplog.records,
             "DEBUG",
-            ["execution completed", f"limiter={limiter_id}", f"task_id={task_id}", "func=", "wrapped_function"],
+            [
+                "execution completed",
+                f"limiter={limiter_id}",
+                f"task_id={task_id}",
+                "func=",
+                "wrapped_function",
+            ],
             "should emit a debug log for the task completion with limiter id, task id, and func qualname",
         )
 
@@ -419,3 +403,29 @@ class TestGetDefaultLimiter:
 
         # Assert
         mock_get.assert_called_once_with(limiter_id)
+
+
+# ---------------------------------------------------------------------------
+# Signature tests
+# ---------------------------------------------------------------------------
+
+
+class TestRateLimitedSignatures:
+    """Signature tests for ``rate_limited()`` default parameter values."""
+
+    @staticmethod
+    def test_rate_limited_default_parameters():
+        """Verify that ``limiter_id`` and ``get_limiter`` have the expected defaults.
+
+        Mutation target: ``limiter_id`` and ``get_limiter`` default values in ``rate_limited()``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(rate_limited)
+
+        # Assert
+        assert sig.parameters["limiter_id"].default is None, (
+            "limiter_id should default to None"
+        )
+        assert sig.parameters["get_limiter"].default is None, (
+            "get_limiter should default to None"
+        )

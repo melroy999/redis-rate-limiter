@@ -13,7 +13,6 @@ import pytest
 
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 
-
 # ---------------------------------------------------------------------------
 # Unified implementation tests
 # ---------------------------------------------------------------------------
@@ -149,7 +148,10 @@ class TokenRecoveryDelayTests:
 
     @staticmethod
     async def test_token_recovery_primary_path_when_val_previous_is_one(limiter):
-        """Verify that ``val_previous=1`` takes the primary decay path, not the fallback."""
+        """Verify that ``val_previous=1`` takes the primary decay path, not the fallback.
+
+        Mutation target: ``val_previous == 0`` guard in ``_calculate_token_recovery_delay``.
+        """
         # Arrange
         limiter.window = 1.0
         limiter.limit = 5
@@ -170,7 +172,10 @@ class TokenRecoveryDelayTests:
 
     @staticmethod
     async def test_token_recovery_primary_path_fractional_wait_ms(limiter):
-        """Verify that a fractional wait_ms between 0 and 1 returns the exact value, not the floor."""
+        """Verify that a fractional wait_ms between 0 and 1 returns the exact value, not the floor.
+
+        Mutation target: ``wait_ms <= 0`` comparison in ``_calculate_token_recovery_delay``.
+        """
         # Arrange
         limiter.window = 1.0
         limiter.limit = 5

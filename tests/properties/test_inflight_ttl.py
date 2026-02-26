@@ -1,7 +1,7 @@
 """Property-based tests for the in-flight TTL calculation invariants.
 
 These tests complement the deterministic tests located in
-``tests/implementations/test_internal_helpers.py::TestInflightTtl``.
+``tests/implementations/test_task_data_helpers.py::TestInflightTtl``.
 
 The ``_get_inflight_ttl()`` method computes a conservative TTL for in-flight
 deduplication keys using the formula::
@@ -10,6 +10,10 @@ deduplication keys using the formula::
 
 The property tests verify that the formula satisfies its structural invariants
 (lower bound, monotonicity, integer type) across the full input space.
+
+Fixture dependencies:
+    - ``property_redis_client``, ``module_limiter_id``: from ``tests/conftest.py``
+      (via ``tests/properties/conftest.py``).
 """
 
 import pytest
@@ -50,6 +54,7 @@ class TestInflightTtlProperties:
     follow from this design.
     """
 
+    @staticmethod
     @given(
         window=st.floats(
             min_value=0.0,
@@ -65,7 +70,7 @@ class TestInflightTtlProperties:
     )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_ttl_lower_bound_is_three(
-        self, property_limiter, window, lease_duration, max_age, max_age_override
+        property_limiter, window, lease_duration, max_age, max_age_override
     ):
         """Property: the TTL is always at least 3, given the max(1.0, ...) floor on each component."""
         # Arrange
@@ -83,6 +88,7 @@ class TestInflightTtlProperties:
             f"max_age={max_age}, override={max_age_override}"
         )
 
+    @staticmethod
     @given(
         window=st.floats(
             min_value=0.0,
@@ -96,7 +102,7 @@ class TestInflightTtlProperties:
     )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_ttl_is_monotonic_in_max_age(
-        self, property_limiter, window, lease_duration, max_age_a, max_age_b
+        property_limiter, window, lease_duration, max_age_a, max_age_b
     ):
         """Property: increasing max_age yields a TTL that is greater than or equal to the original."""
         # Arrange
@@ -115,6 +121,7 @@ class TestInflightTtlProperties:
             f"TTL should be monotonic in max_age: ttl({max_age_a})={ttl_a} > ttl({max_age_b})={ttl_b}"
         )
 
+    @staticmethod
     @given(
         window=st.floats(
             min_value=0.0,
@@ -128,7 +135,7 @@ class TestInflightTtlProperties:
     )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_ttl_is_monotonic_in_lease_duration(
-        self, property_limiter, window, max_age, lease_a, lease_b
+        property_limiter, window, max_age, lease_a, lease_b
     ):
         """Property: increasing lease_duration yields a TTL that is greater than or equal to the original."""
         # Arrange
@@ -147,6 +154,7 @@ class TestInflightTtlProperties:
             f"TTL should be monotonic in lease_duration: ttl({lease_a})={ttl_a} > ttl({lease_b})={ttl_b}"
         )
 
+    @staticmethod
     @given(
         max_age=st.integers(min_value=0, max_value=10000),
         lease_duration=st.integers(min_value=0, max_value=10000),
@@ -165,7 +173,7 @@ class TestInflightTtlProperties:
     )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_ttl_is_monotonic_in_window(
-        self, property_limiter, max_age, lease_duration, window_a, window_b
+        property_limiter, max_age, lease_duration, window_a, window_b
     ):
         """Property: increasing window yields a TTL that is greater than or equal to the original."""
         # Arrange
@@ -184,6 +192,7 @@ class TestInflightTtlProperties:
             f"TTL should be monotonic in window: ttl({window_a})={ttl_a} > ttl({window_b})={ttl_b}"
         )
 
+    @staticmethod
     @given(
         window=st.floats(
             min_value=0.0,
@@ -196,7 +205,7 @@ class TestInflightTtlProperties:
     )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_ttl_is_always_an_integer(
-        self, property_limiter, window, lease_duration, max_age
+        property_limiter, window, lease_duration, max_age
     ):
         """Property: the TTL is always of type ``int``, as required by the Redis EX option."""
         # Arrange

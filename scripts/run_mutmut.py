@@ -60,12 +60,6 @@ _COMPATIBLE_DECORATORS: set[str] = {
     "functools.cached_property",
 }
 
-# Decorators that are genuinely incompatible with the trampoline mechanism.
-# These are rejected even if they appear alongside compatible decorators.
-# @property: breaks the trampoline signature assignment (the trampoline
-# expects a callable function, but @property creates a descriptor).
-_INCOMPATIBLE_DECORATORS: set[str] = {"property"}
-
 
 def _get_decorator_name(decorator: cst.Decorator) -> str:
     """Extract the string name of a decorator.
@@ -100,8 +94,6 @@ def _should_skip_decorated_function(function: cst.FunctionDef) -> bool:
     """
     for decorator in function.decorators:
         name = _get_decorator_name(decorator)
-        if name in _INCOMPATIBLE_DECORATORS:
-            return True
         if name not in _COMPATIBLE_DECORATORS:
             return True
     return False

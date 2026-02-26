@@ -1,13 +1,17 @@
 """Property-based tests for the token recovery delay calculation invariants.
 
 These tests complement the deterministic tests located in
-``tests/implementations/test_internal_helpers.py::TestTokenRecoveryDelay``.
+``tests/implementations/test_token_recovery_delay.py``.
 
 The ``_calculate_token_recovery_delay()`` method computes the earliest time
 at which the sliding window estimate drops below the configured limit via
 previous-window decay. The property tests verify that the result is always
 positive, bounded by the window size, and (on the primary path) that the
 estimate is indeed below the limit after waiting the computed delay.
+
+Fixture dependencies:
+    - ``property_redis_client``, ``module_limiter_id``: from ``tests/conftest.py``
+      (via ``tests/properties/conftest.py``).
 """
 
 import pytest
@@ -55,6 +59,7 @@ class TestTokenRecoveryDelayProperties:
     These tests verify structural invariants that hold across both paths.
     """
 
+    @staticmethod
     @given(
         limit=st.integers(min_value=1, max_value=1000),
         window=st.floats(
@@ -74,7 +79,6 @@ class TestTokenRecoveryDelayProperties:
     )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_delay_is_always_positive(
-        self,
         property_limiter,
         limit,
         window,
@@ -102,6 +106,7 @@ class TestTokenRecoveryDelayProperties:
             f"curr={val_current}, reset_in_ms={reset_in_ms})"
         )
 
+    @staticmethod
     @given(
         limit=st.integers(min_value=1, max_value=1000),
         window=st.floats(
@@ -121,7 +126,6 @@ class TestTokenRecoveryDelayProperties:
     )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_delay_is_bounded_by_window_plus_floor(
-        self,
         property_limiter,
         limit,
         window,
@@ -150,6 +154,7 @@ class TestTokenRecoveryDelayProperties:
             f"curr={val_current}, reset_in_ms={reset_in_ms})"
         )
 
+    @staticmethod
     @given(
         limit=st.integers(min_value=1, max_value=1000),
         window=st.floats(
@@ -169,7 +174,6 @@ class TestTokenRecoveryDelayProperties:
     )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_estimate_below_limit_after_waiting_delay(
-        self,
         property_limiter,
         limit,
         window,

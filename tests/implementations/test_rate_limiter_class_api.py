@@ -283,38 +283,6 @@ class TestCreate:
         ), "persist=False should skip config registry write"
 
 
-class TestCreateSignatures:
-    """Default value signature tests for the ``create()`` class method."""
-
-    @staticmethod
-    def test_create_persist_defaults_to_true():
-        """Verify that the ``persist`` parameter defaults to ``True``.
-
-        Mutation target: default value of ``persist`` in ``SyncManagedRateLimiter.create``.
-        """
-        # Arrange
-        sig = inspect.signature(SyncManagedRateLimiter.create)
-
-        # Assert
-        assert sig.parameters["persist"].default is True, (
-            "persist parameter should default to True"
-        )
-
-    @staticmethod
-    def test_create_override_defaults_to_false():
-        """Verify that the ``override`` parameter defaults to ``False``.
-
-        Mutation target: default value of ``override`` in ``SyncManagedRateLimiter.create``.
-        """
-        # Arrange
-        sig = inspect.signature(SyncManagedRateLimiter.create)
-
-        # Assert
-        assert sig.parameters["override"].default is False, (
-            "override parameter should default to False"
-        )
-
-
 class TestGet:
     """Test suite for the ``get()`` class method."""
 
@@ -1006,4 +974,31 @@ class TestRefreshConfigObservability:
             level="WARNING",
             required_fragments=[f"limiter={limiter_id}", "error="],
             message="should emit a warning log with limiter id and error details on malformed config",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Signature tests
+# ---------------------------------------------------------------------------
+
+
+class TestCreateSignatures:
+    """Signature tests for the ``create()`` class method default parameter values."""
+
+    @staticmethod
+    def test_create_default_parameters():
+        """Verify that ``persist`` and ``override`` have the expected defaults.
+
+        Mutation target: ``persist`` and ``override`` default values in
+        ``SyncManagedRateLimiter.create``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(SyncManagedRateLimiter.create)
+
+        # Assert
+        assert sig.parameters["persist"].default is True, (
+            "persist parameter should default to True"
+        )
+        assert sig.parameters["override"].default is False, (
+            "override parameter should default to False"
         )
