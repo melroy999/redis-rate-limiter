@@ -6,6 +6,10 @@ behavioural contracts.
 
 Sync implementations can use the ``SyncToAsyncLockAdapter`` from
 ``tests.helpers.adapters`` to satisfy the async test interface.
+
+Fixture dependencies:
+    - ``async_redis_client``: from ``tests/conftest.py``.
+    - ``lock_key``, ``create_lock``: provided by this module (or subclass conftest).
 """
 
 import pytest
@@ -83,7 +87,7 @@ class DistributedLockContractTest:
         lock_1 = create_lock(async_redis_client, lock_key, timeout_ms=SHORT_TIMEOUT_MS)
         lock_2 = create_lock(async_redis_client, lock_key, timeout_ms=5000)
 
-        # Act
+        # Act & Assert
         async with lock_1 as acquired_1:
             assert acquired_1 is True, "first lock should acquire"
 
@@ -108,15 +112,12 @@ class DistributedLockContractTest:
         lock = create_lock(async_redis_client, lock_key, timeout_ms=5000)
 
         # Act
-        try:
+        with pytest.raises(ValueError, match="Simulated failure"):
             async with lock:
                 assert await async_redis_client.exists(lock_key) == 1, (
                     "lock should be acquired"
                 )
                 raise ValueError("Simulated failure")
-        except ValueError:
-            # No action required; the exception is expected.
-            pass
 
         # Assert
         assert await async_redis_client.exists(lock_key) == 0, (
@@ -132,7 +133,7 @@ class DistributedLockContractTest:
         lock_1 = create_lock(async_redis_client, lock_key, timeout_ms=SHORT_TIMEOUT_MS)
         lock_2 = create_lock(async_redis_client, lock_key, timeout_ms=5000)
 
-        # Act
+        # Act & Assert
         async with lock_1 as acquired_1:
             assert acquired_1 is True, "first lock should acquire successfully"
 

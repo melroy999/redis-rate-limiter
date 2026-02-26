@@ -6,6 +6,10 @@ these behavioural contracts.
 
 Sync implementations can use the ``SyncToAsyncLifecycleAdapter`` from
 ``tests.helpers.adapters`` to satisfy the async test interface.
+
+Fixture dependencies:
+    - ``async_redis_client``: from ``tests/conftest.py``.
+    - ``mock_limiter``, ``task_id``, ``inflight_key``, ``create_lifecycle``: provided by this module (or subclass conftest).
 """
 
 import pytest

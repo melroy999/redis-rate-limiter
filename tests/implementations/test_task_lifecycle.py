@@ -144,11 +144,11 @@ class TestTaskLifecycleImplementation:
         with patch.object(
             mock_limiter.redis,
             "zrem",
-            side_effect=Exception("Redis connection lost"),
+            side_effect=ConnectionError("Redis connection lost"),
         ) as mock_zrem:
             # Act & Assert
             with patch("threading.Thread"):
-                with pytest.raises(Exception, match="Redis connection lost"):
+                with pytest.raises(ConnectionError, match="Redis connection lost"):
                     with TaskLifecycle(mock_limiter, task_id):
                         pass
 
@@ -179,12 +179,12 @@ class TestTaskLifecycleImplementation:
         # trigger_consume should still be called on exit.
         limiter.trigger_consume.assert_called_once()
 
+    @staticmethod
     @pytest.mark.parametrize(
         "original, override",
         HEARTBEAT_OVERRIDE_CASES,
         ids=["default_warn_override_kill", "default_kill_override_warn"],
     )
-    @staticmethod
     def test_heartbeat_failure_override_precedence(
         redis_client,
         task_id,

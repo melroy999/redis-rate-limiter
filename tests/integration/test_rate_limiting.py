@@ -381,6 +381,7 @@ class TestRateLimitingIntegration:
         )
 
     @staticmethod
+    @pytest.mark.slow
     def test_expired_task_moved_to_dlq(redis_client, func_path, limiter_id):
         """Verify that expired queued tasks are moved to the DLQ and reported as expired."""
         # Arrange
@@ -425,6 +426,7 @@ class TestRateLimitingIntegration:
         )
 
     @staticmethod
+    @pytest.mark.slow
     def test_per_task_max_age_override_expires_sooner(
         redis_client, func_path, limiter_id
     ):
@@ -490,6 +492,7 @@ class TestRateLimitingIntegration:
         )
 
     @staticmethod
+    @pytest.mark.slow
     def test_expired_lease_cleaned_up_on_consume(redis_client, func_path, limiter_id):
         """Verify that stale concurrency lease entries are cleaned during consumption."""
         # Arrange

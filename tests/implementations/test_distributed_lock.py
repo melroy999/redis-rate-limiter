@@ -602,12 +602,12 @@ class TestAsyncContentionAwareCooldown(ContentionAwareCooldownTests):
 class TestDistributedLockSignatures:
     """Signature tests for distributed lock default parameter values."""
 
+    @staticmethod
     @pytest.mark.parametrize(
         "cls",
         [DistributedLock, AsyncDistributedLock],
         ids=["sync", "async"],
     )
-    @staticmethod
     def test_lock_init_default_parameters(cls):
         """Verify that ``worker_id``, ``cooldown_ms``, and ``contention_key`` have the expected defaults.
 

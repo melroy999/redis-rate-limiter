@@ -1,7 +1,8 @@
 """Threading-specific behavioural tests for the ``ThreadPoolRateLimiter`` implementation.
 
 Fixture dependencies:
-    - ``redis_client``, ``func_path``, ``payload``, ``task_id``: from ``tests/conftest.py``.
+    - ``redis_client``, ``func_path``, ``payload``: from ``tests/conftest.py``.
+    - ``task_id``: from ``tests/implementations/conftest.py``.
     - ``limiter``: from ``tests/implementations/threadpool/conftest.py``.
 """
 
@@ -150,6 +151,7 @@ class TestLocalCapacityGuard:
     @staticmethod
     def test_has_local_capacity_returns_true_when_below_max_workers(limiter):
         """Verify that ``_has_local_capacity()`` returns ``True`` when the local dispatch count is below ``max_workers``."""
+        # Act & Assert
         assert limiter._has_local_capacity() is True, (
             "_has_local_capacity should return True when no tasks are dispatched"
         )
@@ -162,8 +164,11 @@ class TestLocalCapacityGuard:
         # Simulate max_workers tasks dispatched.
         limiter._local_dispatched = limiter.executor._max_workers
 
+        # Act
+        result = limiter._has_local_capacity()
+
         # Assert
-        assert limiter._has_local_capacity() is False, (
+        assert result is False, (
             "_has_local_capacity should return False at max_workers"
         )
 

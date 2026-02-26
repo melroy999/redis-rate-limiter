@@ -7,6 +7,10 @@ provide its own limiter fixture.
 
 Sync implementations can use the ``SyncToAsyncLimiterAdapter`` from
 ``tests.helpers.adapters`` to satisfy the async test interface.
+
+Fixture dependencies:
+    - ``limiter``: must be provided by subclass conftest.
+    - ``async_redis_client``, ``func_path``, ``payload``: from ``tests/conftest.py``.
 """
 
 

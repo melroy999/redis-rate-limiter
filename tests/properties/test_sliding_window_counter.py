@@ -2,6 +2,8 @@
 
 These tests employ Hypothesis to verify mathematical properties that hold
 for any valid input, without re-implementing the formula itself.
+
+No fixture dependencies (pure property-based tests).
 """
 
 import pytest

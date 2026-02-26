@@ -210,12 +210,12 @@ class TestAsyncTaskLifecycleImplementation:
         # trigger_consume should still be called on exit.
         limiter.trigger_consume.assert_called_once()
 
+    @staticmethod
     @pytest.mark.parametrize(
         "original, override",
         HEARTBEAT_OVERRIDE_CASES,
         ids=["default_warn_override_kill", "default_kill_override_warn"],
     )
-    @staticmethod
     async def test_heartbeat_failure_override_precedence(
         async_redis_client,
         task_id,

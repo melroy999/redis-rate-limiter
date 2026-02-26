@@ -8,6 +8,9 @@ the Lua scripts under concurrent access.
 Multiple threads sharing a Redis connection accurately simulate distributed
 workers: the GIL is released during network I/O, hence Redis operations
 genuinely interleave.
+
+Fixture dependencies:
+    - ``redis_client``, ``limiter_id``, ``func_path``: from ``tests/conftest.py``.
 """
 
 import math

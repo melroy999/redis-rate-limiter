@@ -22,6 +22,7 @@ from celery_rate_limiter.core.async_limiters import (
     AsyncDrainLoop,
     AsyncDrainSignalSubscriber,
 )
+from tests.helpers.utils import assert_log_emitted
 
 
 class TestAsyncDrainLoop:
@@ -278,7 +279,7 @@ class TestAsyncDrainLoop:
         await asyncio.wait_for(loop.shutdown(), timeout=1.0)
 
     @staticmethod
-    async def test_drain_loop_survives_drain_exception(caplog):
+    async def test_drain_loop_survives_drain_exception():
         """Verify that the drain loop task survives when ``drain()`` raises an exception."""
         # Arrange
         limiter = MagicMock()
@@ -298,28 +299,21 @@ class TestAsyncDrainLoop:
 
         # Act
         # First wake triggers the exception, second wake should still work.
-        with caplog.at_level(
-            logging.ERROR, logger="celery_rate_limiter.core.async_limiters"
-        ):
-            loop.wake(0)
-            await asyncio.sleep(0.1)
-            loop.wake(0)
-            try:
-                await asyncio.wait_for(second_call.wait(), timeout=2.0)
-                fired = True
-            except asyncio.TimeoutError:
-                fired = False
-            await asyncio.wait_for(loop.shutdown(), timeout=1.0)
+        loop.wake(0)
+        await asyncio.sleep(0.1)
+        loop.wake(0)
+        try:
+            await asyncio.wait_for(second_call.wait(), timeout=2.0)
+            fired = True
+        except asyncio.TimeoutError:
+            fired = False
+        await asyncio.wait_for(loop.shutdown(), timeout=1.0)
 
         # Assert
         assert fired, (
             "drain loop should survive an exception and process subsequent wakes"
         )
         assert call_count >= 2, "drain should have been called at least twice"
-        assert any(
-            record.levelname == "ERROR" and "limiter=test-resilience" in record.message
-            for record in caplog.records
-        ), "should emit an error log containing the limiter id when drain raises"
 
     @staticmethod
     @pytest.mark.filterwarnings("ignore::RuntimeWarning")
@@ -418,7 +412,7 @@ class TestAsyncDrainSignalSubscriber:
         )
 
     @staticmethod
-    async def test_run_processes_message_in_main_task(caplog):
+    async def test_run_processes_message_in_main_task():
         """Verify that ``_run`` processes a remote message and calls ``_schedule_drain`` when invoked directly.
 
         Calling ``_run()`` directly (rather than via ``start()``) ensures
@@ -461,18 +455,12 @@ class TestAsyncDrainSignalSubscriber:
         # Act
         safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
         safety_timer.start()
-        with caplog.at_level(
-            logging.ERROR, logger="celery_rate_limiter.core.async_limiters"
-        ):
-            await subscriber._run()
+        await subscriber._run()
         safety_timer.cancel()
 
         # Assert
         mock_pubsub.get_message.assert_called()
         limiter._schedule_drain.assert_called_once()
-        assert not any(
-            record.levelname in ("ERROR", "CRITICAL") for record in caplog.records
-        ), "no exceptions should be logged during normal message processing"
 
     @staticmethod
     async def test_subscriber_ignores_local_drain_signal():
@@ -535,6 +523,102 @@ class TestAsyncDrainSignalSubscriber:
         assert subscriber._shutdown is True, (
             "shutdown flag should be True after shutdown"
         )
+
+
+# ---------------------------------------------------------------------------
+# Observability tests
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncDrainLoopObservability:
+    """Observability tests for ``AsyncDrainLoop`` log emissions."""
+
+    @staticmethod
+    async def test_drain_exception_emits_error_log(caplog):
+        """Verify that the drain loop emits an ERROR log when ``drain()`` raises an exception."""
+        # Arrange
+        limiter = MagicMock()
+        limiter.id = "test-resilience"
+        call_count = 0
+        second_call = asyncio.Event()
+
+        def _failing_then_succeeding_drain():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("simulated drain failure")
+            second_call.set()
+
+        limiter.drain = AsyncMock(side_effect=_failing_then_succeeding_drain)
+        loop = AsyncDrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        with caplog.at_level(
+            logging.ERROR, logger="celery_rate_limiter.core.async_limiters"
+        ):
+            loop.wake(0)
+            await asyncio.sleep(0.1)
+            loop.wake(0)
+            try:
+                await asyncio.wait_for(second_call.wait(), timeout=2.0)
+            except asyncio.TimeoutError:
+                pass
+            await asyncio.wait_for(loop.shutdown(), timeout=1.0)
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="ERROR",
+            required_fragments=["limiter=test-resilience"],
+            message="should emit an error log containing the limiter id when drain raises",
+        )
+
+
+class TestAsyncDrainSignalSubscriberObservability:
+    """Observability tests for ``AsyncDrainSignalSubscriber`` log emissions."""
+
+    @staticmethod
+    async def test_run_normal_processing_does_not_emit_error_log(caplog):
+        """Verify that ``_run`` does not emit error or critical logs during normal message processing."""
+        # Arrange
+        limiter = MagicMock()
+        limiter._worker_id = "local-worker"
+        subscriber = AsyncDrainSignalSubscriber(limiter)
+        mock_pubsub = AsyncMock()
+        subscriber._pubsub = mock_pubsub
+
+        call_count = 0
+
+        async def get_message_effect(ignore_subscribe_messages=True, timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {
+                    "type": "message",
+                    "data": "remote-worker",
+                    "channel": b"test:drain_signal",
+                }
+            # Return None without setting _shutdown on the second call so that
+            # an and-to-or mutation triggers a logged exception before exiting.
+            if call_count >= 3:
+                subscriber._shutdown = True
+            return None
+
+        mock_pubsub.get_message = AsyncMock(side_effect=get_message_effect)
+
+        # Act
+        safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
+        safety_timer.start()
+        with caplog.at_level(
+            logging.ERROR, logger="celery_rate_limiter.core.async_limiters"
+        ):
+            await subscriber._run()
+        safety_timer.cancel()
+
+        # Assert
+        assert not any(
+            record.levelname in ("ERROR", "CRITICAL") for record in caplog.records
+        ), "no exceptions should be logged during normal message processing"
 
 
 # ---------------------------------------------------------------------------

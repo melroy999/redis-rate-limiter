@@ -2,6 +2,8 @@
 
 These tests employ Hypothesis to verify the invariants of ``by_client_ip`` and
 ``by_header`` with arbitrary inputs drawn from the valid ASGI domain.
+
+No fixture dependencies (pure property-based tests).
 """
 
 from hypothesis import given

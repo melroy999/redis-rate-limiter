@@ -283,6 +283,7 @@ class RateLimiterImplementationTests:
             f"all tasks should have priority {priority}, got {scores}"
         )
 
+    @staticmethod
     @pytest.mark.parametrize(
         "payload",
         [
@@ -293,7 +294,6 @@ class RateLimiterImplementationTests:
         ],
         ids=["simple_dict", "empty_dict", "nested_dict", "unicode_content"],
     )
-    @staticmethod
     async def test_payload_serialization_preserves_data(
         limiter, async_redis_client, payload, func_path
     ):

@@ -110,16 +110,18 @@ class TestAsyncIOTaskLimiter:
     @staticmethod
     async def test_has_local_capacity_respects_max_tasks(limiter):
         """Verify that ``_has_local_capacity`` returns ``False`` at ``max_tasks``."""
-        # Assert
+        # Arrange
+        # Verify precondition: capacity is available when no tasks are dispatched.
         assert limiter._has_local_capacity() is True, (
             "_has_local_capacity should return True when no tasks are dispatched"
         )
-
-        # Arrange
         limiter._active_count = limiter.max_tasks
 
+        # Act
+        result = limiter._has_local_capacity()
+
         # Assert
-        assert limiter._has_local_capacity() is False, (
+        assert result is False, (
             "_has_local_capacity should return False at max_tasks"
         )
 
@@ -139,30 +141,21 @@ class TestAsyncIOTaskLimiter:
         assert len(limiter._active_tasks) == 1, "active tasks set should have one entry"
 
     @staticmethod
-    async def test_dispatch_task_executes_target_function(limiter, caplog):
+    async def test_dispatch_task_executes_target_function(limiter):
         """Verify that ``_dispatch_task`` resolves and executes the target function without error."""
         # Arrange
         assert limiter._active_count == 0, "active count should start at zero"
 
         # Act
-        with caplog.at_level(
-            logging.ERROR, logger="celery_rate_limiter.backends.asyncio.limiter"
-        ):
-            await limiter._dispatch_task(
-                "tests.helpers.tasks.async_noop_task", {}, "exec-task-id"
-            )
-            # Allow the created task to fully complete.
-            await asyncio.gather(*list(limiter._active_tasks), return_exceptions=True)
+        await limiter._dispatch_task(
+            "tests.helpers.tasks.async_noop_task", {}, "exec-task-id"
+        )
+        # Allow the created task to fully complete.
+        await asyncio.gather(*list(limiter._active_tasks), return_exceptions=True)
 
         # Assert
-        # If import_string(func_path) is replaced with None,
-        # iscoroutinefunction(None) returns False, raising TypeError.
-        # The exception handler logs at ERROR level, failing this assertion.
         assert limiter._active_count == 0, (
             "active count should return to zero after task completion"
-        )
-        assert not any(record.levelname == "ERROR" for record in caplog.records), (
-            "target function should execute without error"
         )
 
     @staticmethod
@@ -296,4 +289,26 @@ class TestAsyncIODispatchObservability:
                 "Cancelling",
             ],
             message="should emit an info log with the limiter id when cancelling active tasks",
+        )
+
+    @staticmethod
+    async def test_dispatch_task_normal_execution_does_not_emit_error_log(limiter, caplog):
+        """Verify that ``_dispatch_task`` does not emit error logs when the target function executes successfully.
+
+        Mutation target: if ``import_string(func_path)`` is replaced with ``None``,
+        ``iscoroutinefunction(None)`` returns ``False``, raising ``TypeError``.
+        The exception handler logs at ERROR level, failing this assertion.
+        """
+        # Act
+        with caplog.at_level(
+            logging.ERROR, logger="celery_rate_limiter.backends.asyncio.limiter"
+        ):
+            await limiter._dispatch_task(
+                "tests.helpers.tasks.async_noop_task", {}, "exec-task-id"
+            )
+            await asyncio.gather(*list(limiter._active_tasks), return_exceptions=True)
+
+        # Assert
+        assert not any(record.levelname == "ERROR" for record in caplog.records), (
+            "target function should execute without error"
         )

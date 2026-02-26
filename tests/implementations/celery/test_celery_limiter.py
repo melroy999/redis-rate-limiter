@@ -126,9 +126,9 @@ class TestCeleryRateLimiter:
 
         # Act & Assert
         with patch.object(
-            limiter.app, "send_task", side_effect=Exception("broker down")
+            limiter.app, "send_task", side_effect=ConnectionError("broker down")
         ):
-            with pytest.raises(Exception, match="broker down"):
+            with pytest.raises(ConnectionError, match="broker down"):
                 limiter._dispatch_task("myapp.tasks.process", enhanced_payload, task_id)
 
     @staticmethod

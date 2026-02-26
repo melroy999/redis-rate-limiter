@@ -59,7 +59,8 @@ class DrainBehaviorTests:
         """Override in subclass to return a sync or async context manager."""
         raise NotImplementedError
 
-    async def test_drain_defers_when_paused(self, limiter, mock_target):
+    @staticmethod
+    async def test_drain_defers_when_paused(limiter, mock_target):
         """Verify that ``drain()`` defers execution and schedules a follow-up when the limiter is paused."""
         # Arrange
         mock_target._paused_until = time.time() + 0.2
@@ -732,7 +733,8 @@ class DrainObservabilityTests:
         - ``lock_result(acquired)``: a class method returning a sync or async context manager.
     """
 
-    async def test_drain_paused_emits_debug_log(self, limiter, mock_target, caplog):
+    @staticmethod
+    async def test_drain_paused_emits_debug_log(limiter, mock_target, caplog):
         """Verify that ``drain()`` emits a debug log when deferred due to pause."""
         # Arrange
         mock_target._paused_until = time.time() + 0.2
@@ -1195,12 +1197,7 @@ class TestAsyncScheduleDrainDelegation:
             )
 
         # Assert
-        (
-            mock_loop.wake.assert_called_once_with(1.5),
-            (
-                "_schedule_drain should delegate to _drain_loop.wake with the provided delay"
-            ),
-        )
+        mock_loop.wake.assert_called_once_with(1.5)
 
     @staticmethod
     async def test_schedule_drain_is_noop_when_drain_loop_is_none(
@@ -1562,12 +1559,12 @@ class TestAsyncCrossProcessDrainSignal:
 class TestScheduleDrainSignatures:
     """Signature tests for ``_schedule_drain()`` default parameter values."""
 
+    @staticmethod
     @pytest.mark.parametrize(
         "cls",
         [AbstractAsyncDistributedRateLimiter, AbstractDistributedRateLimiter],
         ids=["async", "sync"],
     )
-    @staticmethod
     def test_schedule_drain_default_delay_is_zero(cls):
         """Verify that ``_schedule_drain`` default delay is ``0.0``.
 

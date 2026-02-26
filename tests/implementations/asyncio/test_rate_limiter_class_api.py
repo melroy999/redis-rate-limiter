@@ -712,6 +712,136 @@ class TestRefreshConfig:
         )
 
 
+class TestResetAndConstruction:
+    """Test suite for ``_reset()`` and direct construction guards."""
+
+    @staticmethod
+    async def test_reset_clears_cached_instances_and_configuration(
+        limiter_id,
+    ):
+        """Verify that ``_reset()`` clears the class cache and the shared configuration."""
+        # Arrange
+        await create_test_limiter(limiter_id)
+
+        # Act
+        AsyncManagedTestRateLimiter._reset()
+
+        # Assert
+        assert len(AsyncManagedTestRateLimiter._instances) == 0, (
+            "reset should clear local limiter cache"
+        )
+        assert AsyncManagedTestRateLimiter._redis_client is None, (
+            "reset should clear shared redis client"
+        )
+        assert AsyncManagedTestRateLimiter._backend_label is None, (
+            "reset should clear shared backend context"
+        )
+
+    @staticmethod
+    async def test_direct_construction_raises_runtime_error(
+        async_redis_client,
+    ):
+        """Verify that direct ``__init__`` invocation, bypassing ``create()``/``get()``, raises a ``RuntimeError``."""
+        # Act & Assert
+        with pytest.raises(RuntimeError, match="Direct.*construction is not supported"):
+            AsyncManagedTestRateLimiter(
+                redis_client=async_redis_client,
+                limiter_id="direct_construction_test",
+                limit=5,
+                window=1.0,
+                max_concurrency=2,
+            )
+
+    @staticmethod
+    async def test_subclass_isolation_separate_instances(async_redis_client):
+        """Verify that ``__init_subclass__`` isolates ``_instances`` and ``_redis_client`` per subclass."""
+
+        class IsolatedLimiterA(
+            AsyncManagedRateLimiter, AbstractAsyncDistributedRateLimiter
+        ):
+            @classmethod
+            def _configure_backend(cls, **backend_context: Any) -> None:
+                return None
+
+            @classmethod
+            def _has_backend_context(cls) -> bool:
+                return True
+
+            @classmethod
+            def _get_instance_context(cls) -> dict[str, Any]:
+                return {"drain_enabled": False}
+
+            @classmethod
+            def _reset_backend_context(cls) -> None:
+                return None
+
+            @classmethod
+            def _configure_hint(cls) -> str:
+                return "isolated configure hint"
+
+            async def _dispatch_task(
+                self, func_path: str, payload: dict, task_id: str
+            ) -> None:
+                return None
+
+            def _has_local_capacity(self) -> bool:
+                return True
+
+        class IsolatedLimiterB(
+            AsyncManagedRateLimiter, AbstractAsyncDistributedRateLimiter
+        ):
+            @classmethod
+            def _configure_backend(cls, **backend_context: Any) -> None:
+                return None
+
+            @classmethod
+            def _has_backend_context(cls) -> bool:
+                return True
+
+            @classmethod
+            def _get_instance_context(cls) -> dict[str, Any]:
+                return {"drain_enabled": False}
+
+            @classmethod
+            def _reset_backend_context(cls) -> None:
+                return None
+
+            @classmethod
+            def _configure_hint(cls) -> str:
+                return "isolated configure hint"
+
+            async def _dispatch_task(
+                self, func_path: str, payload: dict, task_id: str
+            ) -> None:
+                return None
+
+            def _has_local_capacity(self) -> bool:
+                return True
+
+        # Arrange
+        isolated_limiter_a_cache_key = (
+            "isolated_limiter_a_instance_for_subclass_isolation_test"
+        )
+        IsolatedLimiterA._instances[isolated_limiter_a_cache_key] = (
+            IsolatedLimiterA.__new__(IsolatedLimiterA)
+        )
+        IsolatedLimiterA._redis_client = async_redis_client
+
+        # Assert
+        assert IsolatedLimiterA._instances is not IsolatedLimiterB._instances, (
+            "subclasses should not share _instances mapping"
+        )
+        assert IsolatedLimiterB._instances == {}, (
+            "second subclass should start with empty _instances"
+        )
+        assert IsolatedLimiterA._redis_client is not IsolatedLimiterB._redis_client, (
+            "subclasses should not share _redis_client"
+        )
+        assert IsolatedLimiterB._redis_client is None, (
+            "second subclass should start with no redis client"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Observability tests
 # ---------------------------------------------------------------------------
@@ -904,136 +1034,6 @@ class TestRefreshConfigObservability:
             level="WARNING",
             required_fragments=[f"limiter={limiter_id}", "error="],
             message="should emit a warning log with limiter id and error details on malformed config",
-        )
-
-
-class TestResetAndConstruction:
-    """Test suite for ``_reset()`` and direct construction guards."""
-
-    @staticmethod
-    async def test_reset_clears_cached_instances_and_configuration(
-        limiter_id,
-    ):
-        """Verify that ``_reset()`` clears the class cache and the shared configuration."""
-        # Arrange
-        await create_test_limiter(limiter_id)
-
-        # Act
-        AsyncManagedTestRateLimiter._reset()
-
-        # Assert
-        assert len(AsyncManagedTestRateLimiter._instances) == 0, (
-            "reset should clear local limiter cache"
-        )
-        assert AsyncManagedTestRateLimiter._redis_client is None, (
-            "reset should clear shared redis client"
-        )
-        assert AsyncManagedTestRateLimiter._backend_label is None, (
-            "reset should clear shared backend context"
-        )
-
-    @staticmethod
-    async def test_direct_construction_raises_runtime_error(
-        async_redis_client,
-    ):
-        """Verify that direct ``__init__`` invocation, bypassing ``create()``/``get()``, raises a ``RuntimeError``."""
-        # Act & Assert
-        with pytest.raises(RuntimeError, match="Direct.*construction is not supported"):
-            AsyncManagedTestRateLimiter(
-                redis_client=async_redis_client,
-                limiter_id="direct_construction_test",
-                limit=5,
-                window=1.0,
-                max_concurrency=2,
-            )
-
-    @staticmethod
-    async def test_subclass_isolation_separate_instances(async_redis_client):
-        """Verify that ``__init_subclass__`` isolates ``_instances`` and ``_redis_client`` per subclass."""
-
-        class IsolatedLimiterA(
-            AsyncManagedRateLimiter, AbstractAsyncDistributedRateLimiter
-        ):
-            @classmethod
-            def _configure_backend(cls, **backend_context: Any) -> None:
-                return None
-
-            @classmethod
-            def _has_backend_context(cls) -> bool:
-                return True
-
-            @classmethod
-            def _get_instance_context(cls) -> dict[str, Any]:
-                return {"drain_enabled": False}
-
-            @classmethod
-            def _reset_backend_context(cls) -> None:
-                return None
-
-            @classmethod
-            def _configure_hint(cls) -> str:
-                return "isolated configure hint"
-
-            async def _dispatch_task(
-                self, func_path: str, payload: dict, task_id: str
-            ) -> None:
-                return None
-
-            def _has_local_capacity(self) -> bool:
-                return True
-
-        class IsolatedLimiterB(
-            AsyncManagedRateLimiter, AbstractAsyncDistributedRateLimiter
-        ):
-            @classmethod
-            def _configure_backend(cls, **backend_context: Any) -> None:
-                return None
-
-            @classmethod
-            def _has_backend_context(cls) -> bool:
-                return True
-
-            @classmethod
-            def _get_instance_context(cls) -> dict[str, Any]:
-                return {"drain_enabled": False}
-
-            @classmethod
-            def _reset_backend_context(cls) -> None:
-                return None
-
-            @classmethod
-            def _configure_hint(cls) -> str:
-                return "isolated configure hint"
-
-            async def _dispatch_task(
-                self, func_path: str, payload: dict, task_id: str
-            ) -> None:
-                return None
-
-            def _has_local_capacity(self) -> bool:
-                return True
-
-        # Arrange
-        isolated_limiter_a_cache_key = (
-            "isolated_limiter_a_instance_for_subclass_isolation_test"
-        )
-        IsolatedLimiterA._instances[isolated_limiter_a_cache_key] = (
-            IsolatedLimiterA.__new__(IsolatedLimiterA)
-        )
-        IsolatedLimiterA._redis_client = async_redis_client
-
-        # Assert
-        assert IsolatedLimiterA._instances is not IsolatedLimiterB._instances, (
-            "subclasses should not share _instances mapping"
-        )
-        assert IsolatedLimiterB._instances == {}, (
-            "second subclass should start with empty _instances"
-        )
-        assert IsolatedLimiterA._redis_client is not IsolatedLimiterB._redis_client, (
-            "subclasses should not share _redis_client"
-        )
-        assert IsolatedLimiterB._redis_client is None, (
-            "second subclass should start with no redis client"
         )
 
 

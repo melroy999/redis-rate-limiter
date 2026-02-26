@@ -49,6 +49,7 @@ class TestImportString:
         ):
             import_string("json.this_attribute_does_not_exist")
 
+    @staticmethod
     @pytest.mark.parametrize(
         ("invalid_path", "expected_exception", "expected_match"),
         [
@@ -58,7 +59,6 @@ class TestImportString:
         ],
         ids=["empty_string", "no_dot", "whitespace_padded"],
     )
-    @staticmethod
     def test_import_string_raises_on_malformed_path(
         invalid_path: str,
         expected_exception: type[Exception],

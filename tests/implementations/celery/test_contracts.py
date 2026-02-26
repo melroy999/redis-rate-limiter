@@ -3,6 +3,10 @@
 This module inherits the shared contract suite and binds it to the
 ``CeleryRateLimiter`` implementation via the ``limiter`` fixture
 defined in the accompanying conftest module.
+
+Fixture dependencies:
+    - ``limiter``: from ``tests/implementations/celery/conftest.py``.
+    - ``_reset_limiter_class_state``: autouse fixture from ``tests/fixtures/celery_backend.py``.
 """
 
 import pytest
