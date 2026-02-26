@@ -1,5 +1,13 @@
-"""Unit tests for the Prometheus metrics exporter integration."""
+"""Unit tests for the Prometheus metrics exporter integration.
 
+Fixture dependencies from the root ``tests/conftest.py``:
+    - ``limiter_id``: unique per-test limiter identifier.
+
+External dependencies:
+    - ``prometheus_client``: provides ``CollectorRegistry`` for isolated metric testing.
+"""
+
+import inspect
 import logging
 
 import pytest
@@ -433,3 +441,27 @@ class TestEdgeCases:
             )
             is None
         ), "registry B should not contain metrics from exporter A"
+
+
+# ---------------------------------------------------------------------------
+# Signature tests
+# ---------------------------------------------------------------------------
+
+
+class TestPrometheusExporterSignatures:
+    """Signature tests for ``PrometheusMetricsExporter.__init__`` default parameter values."""
+
+    @staticmethod
+    def test_registry_default_is_none():
+        """Verify that the ``registry`` parameter defaults to ``None``.
+
+        Mutation target: ``registry`` default value in
+        ``PrometheusMetricsExporter.__init__``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(PrometheusMetricsExporter.__init__)
+
+        # Assert
+        assert sig.parameters["registry"].default is None, (
+            "registry default must be None"
+        )

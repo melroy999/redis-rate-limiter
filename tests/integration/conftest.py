@@ -1,4 +1,15 @@
-"""Shared helpers for integration tests."""
+"""Shared helpers for integration tests.
+
+This module provides two helpers used throughout the integration test suite:
+
+- ``consume_and_complete``: consumes a task and immediately completes its
+  lifecycle, thereby releasing the concurrency slot and isolating rate
+  limiting behaviour from concurrency limiting.
+- ``precise_sleep``: an active-polling sleep that works around the coarse
+  timer resolution on Windows (~15ms). All integration tests that require
+  sub-second timing precision must use this function instead of
+  ``time.sleep()`` (see TESTING_GUIDELINES.md Section 5.5).
+"""
 
 import time
 

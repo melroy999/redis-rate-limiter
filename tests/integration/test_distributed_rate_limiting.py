@@ -64,7 +64,7 @@ def make_distributed_limiter(
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# Concrete test cases
 # ---------------------------------------------------------------------------
 
 
@@ -141,11 +141,6 @@ class TestDistributedRateLimiting:
                 f"(limit={limit})"
             )
 
-        # Cleanup.
-        keys = redis_client.keys(f"{limiter_id}:*")
-        if keys:
-            redis_client.delete(*keys)
-
     @staticmethod
     def test_buffer_grows_when_offered_exceeds_limit(
         redis_client,
@@ -202,11 +197,6 @@ class TestDistributedRateLimiting:
         assert buffer_count > 0, (
             f"buffer should have grown under 2x offered load, got {buffer_count}"
         )
-
-        # Cleanup.
-        keys = redis_client.keys(f"{limiter_id}:*")
-        if keys:
-            redis_client.delete(*keys)
 
     @staticmethod
     def test_buffer_drains_when_offered_below_limit(
@@ -270,11 +260,6 @@ class TestDistributedRateLimiting:
         assert buffer_count == 0, (
             f"buffer should have drained under 0.5x offered load, got {buffer_count} remaining"
         )
-
-        # Cleanup.
-        keys = redis_client.keys(f"{limiter_id}:*")
-        if keys:
-            redis_client.delete(*keys)
 
     @staticmethod
     def test_sine_wave_throughput_bounded(
@@ -361,8 +346,3 @@ class TestDistributedRateLimiting:
                 f"window {idx} consumed {count} tasks, exceeding max {max_allowed} "
                 f"(limit={limit})"
             )
-
-        # Cleanup.
-        keys = redis_client.keys(f"{limiter_id}:*")
-        if keys:
-            redis_client.delete(*keys)

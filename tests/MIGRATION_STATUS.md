@@ -92,10 +92,10 @@ Tracks compliance of each file against `TESTING_GUIDELINES.md`. Files are checke
 
 ## Batch 9: integration/ and integrations/
 
-- [ ] `tests/integration/conftest.py`
-- [ ] `tests/integration/test_rate_limiting.py`
-- [ ] `tests/integration/test_distributed_rate_limiting.py`
-- [ ] `tests/integrations/test_prometheus.py`
+- [x] `tests/integration/conftest.py`
+- [x] `tests/integration/test_rate_limiting.py`
+- [x] `tests/integration/test_distributed_rate_limiting.py`
+- [x] `tests/integrations/test_prometheus.py`
 
 ## Deferred Testing Decisions
 

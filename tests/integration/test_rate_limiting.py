@@ -3,6 +3,19 @@
 This module contains end-to-end tests that verify the rate limiter
 correctly enforces request limits and handles burst scenarios using
 Redis and Lua scripts.
+
+Fixture dependencies from the root ``tests/conftest.py``:
+    - ``redis_client``: sync Redis client with per-test ``flushdb`` isolation.
+    - ``limiter_id``: unique per-test limiter identifier.
+    - ``func_path``: static function path string.
+
+Test helpers from ``tests/implementations/conftest``:
+    - ``MinimalRateLimiter``: minimal concrete rate limiter for testing.
+    - ``TrackingRateLimiter``: rate limiter that records dispatch and drain calls.
+
+Test helpers from ``tests/integration/conftest``:
+    - ``consume_and_complete``: consume and release concurrency slot in one step.
+    - ``precise_sleep``: active-polling sleep for sub-second timing precision.
 """
 
 import json
@@ -14,6 +27,10 @@ import pytest
 from celery_rate_limiter import AbstractDistributedRateLimiter
 from tests.implementations.conftest import MinimalRateLimiter, TrackingRateLimiter
 from tests.integration.conftest import consume_and_complete, precise_sleep
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -39,11 +56,8 @@ def integration_limiter(redis_client, limiter_id):
 
     yield limiter
 
-    # Cleanup: delete all keys associated with the limiter to ensure that
-    # each test begins with a clean state.
-    keys = redis_client.keys(f"{limiter.id}:*")
-    if keys:
-        redis_client.delete(*keys)
+    # Teardown: stop the subscriber thread.
+    limiter.shutdown()
 
 
 def wait_until_task_is_expired(
@@ -91,7 +105,7 @@ def position_at_window_percentage(
 
     Args:
         limiter: The rate limiter instance.
-        target_pct: The target position expressed as a fraction (0.0--1.0,
+        target_pct: The target position expressed as a fraction (0.0 to 1.0,
             e.g., 0.8 for 80%).
         verbose: Whether to print debug information.
 
@@ -140,6 +154,11 @@ def position_at_window_percentage(
         )
 
     return actual_pct
+
+
+# ---------------------------------------------------------------------------
+# Concrete test cases
+# ---------------------------------------------------------------------------
 
 
 class TestRateLimitingIntegration:
@@ -210,7 +229,11 @@ class TestRateLimitingIntegration:
         )
 
     @staticmethod
-    @pytest.mark.parametrize("num_tasks", [3, 5, 10, 20])
+    @pytest.mark.parametrize(
+        "num_tasks",
+        [3, 5, 10, 20],
+        ids=["below_limit", "at_limit", "above_limit_10", "above_limit_20"],
+    )
     def test_accurate_telemetry_tracking(integration_limiter, num_tasks, func_path):
         """Verify that telemetry accurately tracks the remaining tokens and tasks."""
         # Arrange
@@ -559,7 +582,7 @@ class TestSlidingWindowBehavior:
 
     1. Burst behaviour: At window boundaries, up to 2x the limit may be
        consumed within a short period. This occurs when the previous window
-       is empty and requests arrive at the boundary--the algorithm permits
+       is empty and requests arrive at the boundary, the algorithm permits
        a full limit from each adjacent window.
 
     2. Steady-state approximation: Once past the initial window (in which
@@ -604,9 +627,8 @@ class TestSlidingWindowBehavior:
 
         yield limiter
 
-        keys = redis_client.keys(f"{limiter.id}:*")
-        if keys:
-            redis_client.delete(*keys)
+        # Teardown: stop the subscriber thread.
+        limiter.shutdown()
 
     @staticmethod
     def test_long_term_rate_converges_to_limit(sliding_window_limiter, func_path):
@@ -641,7 +663,7 @@ class TestSlidingWindowBehavior:
             if result["success"]:
                 timestamps.append(time.time())
             else:
-                # Rate limited--wait for tokens to recover.
+                # Rate limited: wait for tokens to recover.
                 precise_sleep(window * sleep_fraction)
 
         total_consumed = len(timestamps)
@@ -746,7 +768,7 @@ class TestSlidingWindowBehavior:
             result = consume_and_complete(sliding_window_limiter)
             if result["success"]:
                 timestamps.append(time.time())
-            # No sleep--consume as rapidly as possible to maximise the burst.
+            # No sleep: consume as rapidly as possible to maximise the burst.
 
         total_consumed = len(timestamps)
         burst_duration = timestamps[-1] - timestamps[0] if len(timestamps) > 1 else 0
@@ -912,8 +934,3 @@ class TestSlidingWindowBehavior:
             f"the drain should calculate token recovery time from the "
             f"sliding window, not use the full window reset time."
         )
-
-        # Cleanup
-        keys = redis_client.keys(f"{limiter.id}:*")
-        if keys:
-            redis_client.delete(*keys)

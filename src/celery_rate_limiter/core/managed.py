@@ -527,7 +527,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         cls._require_configured()
         assert cls._redis_client is not None
 
-        raw_config = await cast(
+        raw_config = await cast(  # pragma: no mutate
             Awaitable, cls._redis_client.hget(cls._REGISTRY_KEY, limiter_id)
         )
         if raw_config is None:
@@ -546,7 +546,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         )
         await instance.start()
 
-        raw_version = await cast(
+        raw_version = await cast(  # pragma: no mutate
             Awaitable, cls._redis_client.hget(cls._VERSION_KEY, limiter_id)
         )
         if raw_version is not None:
@@ -597,15 +597,15 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         assert cls._redis_client is not None
         config = instance._build_persist_config()
 
-        await cast(
+        await cast(  # pragma: no mutate
             Awaitable,
             cls._redis_client.hset(cls._REGISTRY_KEY, instance.id, json.dumps(config)),
         )
-        await cast(
+        await cast(  # pragma: no mutate
             Awaitable, cls._redis_client.hincrby(cls._VERSION_KEY, instance.id, 1)
         )
 
-        raw_version = await cast(
+        raw_version = await cast(  # pragma: no mutate
             Awaitable, cls._redis_client.hget(cls._VERSION_KEY, instance.id)
         )
         if raw_version is not None:
