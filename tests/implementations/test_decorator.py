@@ -330,6 +330,47 @@ class TestRateLimitedDecorator:
         )
         mock_get.assert_called_once_with(limiter_id)
 
+    @staticmethod
+    def test_raises_attribute_error_when_resolver_returns_none(limiter_id, task_id):
+        """Verify that an ``AttributeError`` propagates when the resolver returns ``None``.
+
+        The decorator calls ``limiter.task_lifecycle()`` without a ``None``
+        check, so a resolver that returns ``None`` raises ``AttributeError``.
+        """
+        # Arrange
+        resolver = MagicMock(return_value=None)
+
+        @rate_limited(limiter_id, get_limiter=resolver)
+        def wrapped_function() -> str:
+            return "ok"
+
+        # Act & Assert
+        with pytest.raises(AttributeError):
+            wrapped_function(_rate_limit_task_id=task_id)
+
+    @staticmethod
+    def test_propagates_exception_from_lifecycle_enter(
+        limiter_mock, limiter_id, task_id
+    ):
+        """Verify that an exception from ``task_lifecycle().__enter__`` propagates unchanged.
+
+        The context manager entry is not wrapped in a try/except, so
+        exceptions from ``__enter__`` propagate directly to the caller.
+        """
+        # Arrange
+        limiter, lifecycle_context = limiter_mock
+        lifecycle_context.__enter__.side_effect = RuntimeError(
+            "lifecycle entry failed"
+        )
+
+        @rate_limited(limiter_id, get_limiter=MagicMock(return_value=limiter))
+        def wrapped_function() -> str:
+            return "ok"
+
+        # Act & Assert
+        with pytest.raises(RuntimeError, match="lifecycle entry failed"):
+            wrapped_function(_rate_limit_task_id=task_id)
+
 
 # ---------------------------------------------------------------------------
 # Observability tests

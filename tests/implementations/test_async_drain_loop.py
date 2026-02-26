@@ -257,6 +257,27 @@ class TestAsyncDrainLoop:
         )
 
     @staticmethod
+    async def test_shutdown_is_idempotent():
+        """Verify that calling ``shutdown()`` twice does not raise."""
+        # Arrange
+        limiter = MagicMock()
+        drain_called = asyncio.Event()
+        limiter.drain = AsyncMock(side_effect=lambda: drain_called.set())
+        loop = AsyncDrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        loop.wake(0)
+        await asyncio.wait_for(drain_called.wait(), timeout=2.0)
+        await asyncio.wait_for(loop.shutdown(), timeout=1.0)
+
+        # Assert
+        # Second shutdown must not raise.
+        await asyncio.wait_for(loop.shutdown(), timeout=1.0)
+        assert loop._shutdown is True, (
+            "shutdown flag should remain True after second shutdown"
+        )
+
+    @staticmethod
     async def test_lazy_start():
         """Verify that the drain task is not started until the first ``wake()`` call."""
         # Arrange

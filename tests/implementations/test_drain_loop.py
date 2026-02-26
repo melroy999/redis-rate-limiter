@@ -211,6 +211,27 @@ class TestDrainLoop:
         assert not loop._thread.is_alive(), "thread should be stopped after shutdown"
 
     @staticmethod
+    def test_shutdown_is_idempotent():
+        """Verify that calling ``shutdown()`` twice does not raise."""
+        # Arrange
+        limiter = MagicMock()
+        drain_called = Event()
+        limiter.drain.side_effect = lambda: drain_called.set()
+        loop = DrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        loop.wake(0)
+        drain_called.wait(timeout=2.0)
+        loop.shutdown()
+
+        # Assert
+        # Second shutdown must not raise.
+        loop.shutdown()
+        assert loop._shutdown is True, (
+            "shutdown flag should remain True after second shutdown"
+        )
+
+    @staticmethod
     def test_lazy_start():
         """Verify that the drain thread is not started until the first ``wake()`` call."""
         # Arrange

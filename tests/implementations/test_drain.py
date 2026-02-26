@@ -665,6 +665,20 @@ class DrainBehaviorTests:
         await limiter.shutdown()
 
     @staticmethod
+    async def test_shutdown_twice_does_not_raise(limiter):
+        """Verify that calling ``shutdown()`` twice does not raise.
+
+        Exercises the idempotency guarantee: the second call should be a
+        no-op on already-stopped drain loop and subscriber components.
+        """
+        # Act
+        await limiter.shutdown()
+
+        # Assert
+        # Second shutdown must not raise.
+        await limiter.shutdown()
+
+    @staticmethod
     async def test_drain_defers_when_local_capacity_full(limiter, mock_target):
         """Verify that ``drain()`` defers execution when local capacity is exhausted."""
         # Arrange
@@ -1126,6 +1140,19 @@ class DrainDisabledTests:
 
         # Act & Assert
         # Must not raise.
+        await limiter.shutdown()
+
+    @staticmethod
+    async def test_shutdown_twice_does_not_raise_when_drain_disabled(limiter_factory):
+        """Verify that calling ``shutdown()`` twice does not raise when ``drain_enabled=False``."""
+        # Arrange
+        limiter = await limiter_factory(drain_enabled=False)
+
+        # Act
+        await limiter.shutdown()
+
+        # Assert
+        # Second shutdown must not raise.
         await limiter.shutdown()
 
 

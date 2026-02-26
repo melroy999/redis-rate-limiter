@@ -103,15 +103,17 @@ Decisions made during migration review where a coverage gap was identified but d
 
 ### Deferred to Lua script tests (Section 10)
 
-| Gap | Rationale | Future location |
-|---|---|---|
-| `limit=0` denies all consumption requests | At the algorithm level this tests `0.0 < 0`, which is a trivial property of Python's `<` operator. The meaningful test is at the Lua level, where it verifies ARGV parsing, the boundary check in `consume.lua`, and the return value encoding with real Redis state. | `tests/lua/test_consume.py` (Section 10.4: "Boundary decisions") |
-| `consume.lua` expired task path: DLQ insertion, buffer count decrement, inflight cleanup | Drain tests mock `consume()` entirely; the Lua-level expired-task handling (return value `-1`, `RPUSH` to DLQ, `ZREM` from buffer, inflight key deletion) is never exercised by Python tests. | `tests/lua/test_consume.py` |
-| `consume.lua` concurrency enforcement: rejection when `ZCARD >= max_concurrency` | Drain tests set `active_concurrency=max_concurrency` in mock results but the actual Lua-level `ZCARD` check and early return are not exercised. | `tests/lua/test_consume.py` |
-| `consume.lua` token counter expiry: `PEXPIRE` only on first increment | The `PEXPIRE` on the current-window counter key is set only when `current_count == 0` (i.e., on the first increment). No test verifies that subsequent consumes within the same window do not reset the TTL. A mutation changing `== 0` to `== 1` would go undetected. | `tests/lua/test_consume.py` |
-| `schedule.lua` with `max_age=None` producing ARGV[3]="" | When `max_age` is not provided, the Python layer passes `""` to the Lua script. `tonumber("")` returns `nil`, so no `__meta_max_age` field is injected. No test verifies this interaction. | `tests/lua/test_schedule.py` |
-| `schedule.lua` metadata injection via `string.gsub(task_json, '}$', ...)` | The `gsub` approach is correct for `json.dumps(sort_keys=True)` output but fragile in principle. A Lua-level test with a payload containing a trailing `}` inside a nested string value would verify the pattern's correctness. | `tests/lua/test_schedule.py` |
-| `health.lua` return value format and edge cases | The Python-side `get_status()` tests mock `_eval_script`. No test exercises `health.lua` directly against real Redis to verify: return value ordering, behavior when rate limit keys do not yet exist, and behavior during a window boundary crossing. | `tests/lua/test_health.py` |
+*All items in this section have been resolved.*
+
+| Gap | Resolution |
+|---|---|
+| ~~`limit=0` denies all consumption requests~~ | Resolved: `TestConsumeBoundaryDecisions.test_limit_zero_denies_all_requests` in `tests/lua/test_consume.py`. |
+| ~~`consume.lua` expired task path: DLQ insertion, buffer count decrement, inflight cleanup~~ | Resolved: `TestConsumeBoundaryDecisions.test_expired_task_routed_to_dlq` and `test_expired_task_does_not_consume_token` in `tests/lua/test_consume.py`. |
+| ~~`consume.lua` concurrency enforcement: rejection when `ZCARD >= max_concurrency`~~ | Resolved: `TestConsumeBoundaryDecisions.test_concurrency_at_max_denies_request` and `test_concurrency_below_max_allows_request` in `tests/lua/test_consume.py`. |
+| ~~`consume.lua` token counter expiry: `PEXPIRE` only on first increment~~ | Resolved: `TestConsumeBoundaryDecisions.test_pexpire_set_on_first_increment_only` in `tests/lua/test_consume.py`. |
+| ~~`schedule.lua` with `max_age=None` producing ARGV[3]=""~~ | Resolved: `TestSchedule.test_meta_max_age_absent_when_argv3_is_empty_string` in `tests/lua/test_schedule.py`. |
+| ~~`schedule.lua` metadata injection via `string.gsub(task_json, '}$', ...)`~~ | Resolved: `TestSchedule.test_gsub_handles_nested_closing_brace` in `tests/lua/test_schedule.py`. |
+| ~~`health.lua` return value format and edge cases~~ | Resolved: `TestHealthReturnValues` (6 tests) and `TestHealthReadOnly.test_does_not_modify_redis_state` in `tests/lua/test_health.py`. |
 
 ### Deferred to configuration edge cases (Section 11.1)
 
@@ -126,16 +128,20 @@ Decisions made during migration review where a coverage gap was identified but d
 
 ### Deferred to Lua script tests (Section 10) and Lua-level contracts
 
-| Gap | Rationale | Future location |
-|---|---|---|
-| `extend_lease()` contract test | Currently tested indirectly via heartbeat in lifecycle tests. A direct contract test would verify the score update in the concurrency set, but the Lua script (`renew.lua`) handles the actual semantics. A Lua-level unit test for `renew.lua` (verifying return value, score update, and "task not found" behavior) would be more targeted than a Python contract test. | `tests/lua/test_renew.py` (Section 10) |
+*All items in this section have been resolved.*
+
+| Gap | Resolution |
+|---|---|
+| ~~`extend_lease()` contract test~~ | Resolved: `TestRenew` (5 tests: return values, score update, missing task, member preservation) in `tests/lua/test_renew.py`. |
 
 ### Deferred to error handling tests
 
-| Gap | Rationale | Future location |
-|---|---|---|
-| `rate_limited` decorator when `get_limiter` resolver returns `None` | The decorator assumes the resolver returns a valid limiter and calls `limiter.task_lifecycle()`. If the resolver returns `None`, an `AttributeError` propagates. No test validates this path or whether it should raise a more descriptive error. | `tests/implementations/test_decorator.py` |
-| `rate_limited` decorator when `task_lifecycle.__enter__` raises | The context manager entry is not wrapped in a try/except. No test verifies exception propagation when the lifecycle context manager fails on entry. | `tests/implementations/test_decorator.py` |
+*All items in this section have been resolved.*
+
+| Gap | Resolution |
+|---|---|
+| ~~`rate_limited` decorator when `get_limiter` resolver returns `None`~~ | Resolved: `TestRateLimitedDecorator.test_raises_attribute_error_when_resolver_returns_none` in `tests/implementations/test_decorator.py`. Verifies that a resolver returning `None` propagates an `AttributeError` when `limiter.task_lifecycle()` is called. |
+| ~~`rate_limited` decorator when `task_lifecycle.__enter__` raises~~ | Resolved: `TestRateLimitedDecorator.test_propagates_exception_from_lifecycle_enter` in `tests/implementations/test_decorator.py`. Verifies that a `RuntimeError` from `__enter__` propagates unchanged to the caller. |
 
 ### Deferred to concurrency tests
 
@@ -147,9 +153,11 @@ Decisions made during migration review where a coverage gap was identified but d
 
 ### Deferred to Lua script tests (batch 6 additions)
 
-| Gap | Rationale | Future location |
-|---|---|---|
-| `acquire.lua` edge cases: atomic token comparison on release, lock key exists with different token, renewal semantics | `test_distributed_lock.py` verifies the Python wrapper (UUID token generation, SET NX). Lua-level atomicity and token comparison are not exercised by Python tests. | `tests/lua/test_acquire.py` |
+*All items in this section have been resolved.*
+
+| Gap | Resolution |
+|---|---|
+| ~~Inline lock script edge cases: atomic token comparison on release, lock key with different token, contention-aware fairness~~ | Resolved: `TestLockAcquireScript` (5 tests), `TestLockReleaseScript` (5 tests), and `TestLockSimpleReleaseScript` (3 tests) in `tests/lua/test_lock_scripts.py`. The original entry incorrectly referenced `acquire.lua`; the distributed lock uses inline Lua scripts (`LOCK_ACQUIRE_SCRIPT`, `LOCK_RELEASE_SCRIPT`, `LOCK_SIMPLE_RELEASE_SCRIPT`) in `limiters.py`, not `acquire.lua` (which is the ASGI sliding window counter). |
 
 ### Deferred to async class API parity (batch 7 verification)
 
@@ -162,6 +170,8 @@ Decisions made during migration review where a coverage gap was identified but d
 
 ### Deferred to idempotency tests (Section 11.2)
 
-| Gap | Rationale | Future location |
-|---|---|---|
-| `shutdown()` idempotency contract | Calling `shutdown()` multiple times should not raise exceptions or corrupt state. Behavior varies between backends (thread cleanup vs task cancellation), so a single contract test is difficult to write universally. Better addressed as a per-backend idempotency test. | `tests/implementations/<backend>/` (Section 11.2: "Calling `shutdown()` multiple times") |
+*All items in this section have been resolved.*
+
+| Gap | Resolution |
+|---|---|
+| ~~`shutdown()` idempotency contract~~ | Resolved across multiple test files: `TestDrainLoop.test_shutdown_is_idempotent` in `test_drain_loop.py` (sync drain loop), `TestAsyncDrainLoop.test_shutdown_is_idempotent` in `test_async_drain_loop.py` (async drain loop), `DrainBehaviorTests.test_shutdown_twice_does_not_raise` in `test_drain.py` (limiter-level, covers both sync and async via mixin), and `DrainDisabledTests.test_shutdown_twice_does_not_raise_when_drain_disabled` in `test_drain.py` (drain-disabled variant, covers both sync and async via mixin). |
