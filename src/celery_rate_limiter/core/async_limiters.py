@@ -881,9 +881,7 @@ class AbstractAsyncDistributedRateLimiter(
             payload: The task payload dictionary.
             task_id: The unique task identifier.
         """
-        # fmt: off
-        raise NotImplementedError("Subclasses must implement _dispatch_task")  # pragma: no mutate
-        # fmt: on
+        raise NotImplementedError("Subclasses must implement _dispatch_task")
 
     def _schedule_drain(self, delay: float = 0.0) -> None:
         """Schedule the drain method to execute again after ``delay`` seconds.

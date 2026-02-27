@@ -456,8 +456,8 @@ class TestSendBlockedResponse:
     @staticmethod
     @pytest.mark.parametrize(
         ("reset_ms", "expected_retry_after"),
-        [(1500, 2), (1000, 1)],
-        ids=["1500ms_rounds_up_to_2s", "1000ms_boundary_stays_at_1s"],
+        [(1001, 2), (1000, 1)],
+        ids=["1001ms_rounds_up_to_2s", "1000ms_boundary_stays_at_1s"],
     )
     async def test_send_blocked_retry_after_ceiling_division(
         reset_ms, expected_retry_after

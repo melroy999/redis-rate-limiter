@@ -13,6 +13,60 @@ Fixture dependencies:
     - ``async_redis_client``, ``func_path``, ``payload``: from ``tests/conftest.py``.
 """
 
+import inspect
+from unittest.mock import MagicMock
+
+import pytest
+
+from celery_rate_limiter.core.async_limiters import (
+    AbstractAsyncDistributedRateLimiter,
+)
+from celery_rate_limiter.core.limiters import AbstractDistributedRateLimiter
+
+
+class _BareSyncLimiter(AbstractDistributedRateLimiter):
+    """Subclass that does not override ``_dispatch_task``.
+
+    Used by ``TestAbstractDispatchHook`` to verify that the sync base class
+    properly enforces the interface contract via ``NotImplementedError``.
+    """
+
+
+class _BareAsyncLimiter(AbstractAsyncDistributedRateLimiter):
+    """Subclass that does not override ``_dispatch_task``.
+
+    Used by ``TestAbstractDispatchHook`` to verify that the async base class
+    properly enforces the interface contract via ``NotImplementedError``.
+    """
+
+
+class TestAbstractDispatchHook:
+    """Contract: unoverridden ``_dispatch_task`` must raise ``NotImplementedError``."""
+
+    @staticmethod
+    @pytest.mark.parametrize(
+        "bare_cls",
+        [_BareSyncLimiter, _BareAsyncLimiter],
+        ids=["sync", "async"],
+    )
+    async def test_dispatch_task_raises_not_implemented(bare_cls):
+        """Contract: ``_dispatch_task`` must raise ``NotImplementedError`` when not overridden."""
+        # Arrange
+        limiter = bare_cls(
+            redis_client=MagicMock(),
+            limiter_id="test-bare",
+            limit=5,
+            window=60,
+            max_concurrency=2,
+            drain_enabled=False,
+        )
+
+        # Act & Assert
+        with pytest.raises(NotImplementedError, match="^Subclasses"):
+            result = limiter._dispatch_task("myapp.tasks.noop", {}, "task-1")
+            if inspect.isawaitable(result):
+                await result
+
 
 class RateLimiterContractTest:
     """Abstract test suite that any RateLimiter implementation must pass.
