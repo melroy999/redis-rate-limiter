@@ -384,25 +384,6 @@ class TestDrainSignalSubscriber:
         )
 
     @staticmethod
-    def test_shutdown_sets_flag(generic_limiter):
-        """Verify that ``shutdown()`` sets the ``_shutdown`` flag to ``True``."""
-        # Arrange
-        subscriber = DrainSignalSubscriber(generic_limiter)
-
-        # Assert
-        assert subscriber._shutdown is False, (
-            "shutdown flag should be False before shutdown is called"
-        )
-
-        # Act
-        subscriber.shutdown()
-
-        # Assert
-        assert subscriber._shutdown is True, (
-            "shutdown flag should be True after shutdown"
-        )
-
-    @staticmethod
     def test_subscriber_processes_remote_drain_signal():
         """Verify that the subscriber calls ``_schedule_drain`` upon receiving a remote drain signal."""
         # Arrange

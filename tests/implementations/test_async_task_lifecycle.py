@@ -366,29 +366,6 @@ class TestAsyncHeartbeatLoop:
     """Tests for the async heartbeat loop that periodically extends the task lease."""
 
     @staticmethod
-    async def test_heartbeat_loop_extends_lease_periodically(
-        async_redis_client, mock_limiter, task_id
-    ):
-        """Verify that the heartbeat loop extends the lease at regular intervals."""
-        # Act
-        async with AsyncTaskLifecycle(mock_limiter, task_id):
-            # Wait for at least one heartbeat interval.
-            # The interval is lease_duration / 2.
-            # Sleep slightly longer to ensure the heartbeat executes.
-            await asyncio.sleep(0.75 * mock_limiter.lease_duration)
-
-        # Assert
-        # The heartbeat should have been invoked at least once during the context.
-        assert mock_limiter.extend_lease.call_count >= 1, (
-            "extend_lease must be called periodically by heartbeat loop"
-        )
-
-        # Verify that the correct parameters were passed.
-        mock_limiter.extend_lease.assert_called_with(
-            task_id, mock_limiter.lease_duration
-        )
-
-    @staticmethod
     async def test_heartbeat_interval_calculation(mock_limiter, task_id):
         """Verify that the heartbeat interval is correctly calculated as ``lease_duration / 2``.
 

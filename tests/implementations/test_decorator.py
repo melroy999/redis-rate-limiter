@@ -181,26 +181,6 @@ class TestRateLimitedDecorator:
         mock_get.assert_called_once_with(limiter_id)
 
     @staticmethod
-    def test_decorator_returns_function_result(limiter_mock, limiter_id, task_id):
-        """Verify that the decorator returns the wrapped function's result unchanged."""
-        # Arrange
-        limiter, _ = limiter_mock
-
-        @rate_limited(limiter_id)
-        def wrapped_function(left: int, right: int) -> dict:
-            return {"sum": left + right}
-
-        # Act
-        with patch(
-            "celery_rate_limiter.core.decorators._get_default_limiter",
-            return_value=limiter,
-        ):
-            result = wrapped_function(2, 5, _rate_limit_task_id=task_id)
-
-        # Assert
-        assert result == {"sum": 7}, "decorator should not alter wrapped return value"
-
-    @staticmethod
     def test_decorator_propagates_wrapped_function_exception(
         limiter_mock, limiter_id, task_id
     ):

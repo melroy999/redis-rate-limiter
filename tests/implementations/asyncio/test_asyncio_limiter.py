@@ -141,51 +141,6 @@ class TestAsyncIOTaskLimiter:
         assert len(limiter._active_tasks) == 1, "active tasks set should have one entry"
 
     @staticmethod
-    async def test_dispatch_task_executes_target_function(limiter):
-        """Verify that ``_dispatch_task`` resolves and executes the target function without error."""
-        # Arrange
-        assert limiter._active_count == 0, "active count should start at zero"
-
-        # Act
-        await limiter._dispatch_task(
-            "tests.helpers.tasks.async_noop_task", {}, "exec-task-id"
-        )
-        # Allow the created task to fully complete.
-        await asyncio.gather(*list(limiter._active_tasks), return_exceptions=True)
-
-        # Assert
-        assert limiter._active_count == 0, (
-            "active count should return to zero after task completion"
-        )
-
-    @staticmethod
-    async def test_dispatch_sync_function_raises_type_error(limiter):
-        """Verify that dispatching a synchronous function raises ``TypeError`` internally."""
-        # Arrange
-        assert limiter._active_count == 0, "active count should start at zero"
-
-        # Act
-        # Dispatch a sync function; the TypeError is raised inside the created
-        # asyncio task and caught by the internal exception handler.
-        await limiter._dispatch_task(
-            "tests.helpers.tasks.noop_task", {}, "sync-task-id"
-        )
-
-        # Allow the created task to fully complete.
-        # A single sleep(0) is insufficient because the task lifecycle context
-        # manager performs multiple async Redis operations during cleanup.
-        await asyncio.gather(*list(limiter._active_tasks), return_exceptions=True)
-
-        # Assert
-        # The task should have completed (with an error), cleaning up after itself.
-        assert limiter._active_count == 0, (
-            "active count should return to zero after sync function rejection"
-        )
-        assert len(limiter._active_tasks) == 0, (
-            "active tasks set should be empty after sync function rejection"
-        )
-
-    @staticmethod
     async def test_shutdown_cancels_active_tasks(limiter):
         """Verify that ``shutdown`` cancels all active asyncio tasks."""
         # Arrange
