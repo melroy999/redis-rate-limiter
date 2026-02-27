@@ -232,3 +232,11 @@ class TestASGILimiterClassVariables:
         assert ASGIRateLimiter._refresh_interval == 5.0, (
             "_refresh_interval class variable must default to 5.0"
         )
+
+    @staticmethod
+    async def test_last_refresh_initializes_to_zero(limiter):
+        """Verify that ``_last_refresh`` initializes to ``0.0`` on a new instance."""
+        # Assert
+        assert limiter._last_refresh == 0.0, (
+            "_last_refresh must initialize to 0.0 so the first acquire triggers a script refresh"
+        )

@@ -285,9 +285,7 @@ class TestLockSimpleReleaseScript:
         redis_client.set(lock_key, token)
 
         # Act
-        result = redis_client.eval(
-            LOCK_SIMPLE_RELEASE_SCRIPT, 1, lock_key, token
-        )
+        result = redis_client.eval(LOCK_SIMPLE_RELEASE_SCRIPT, 1, lock_key, token)
 
         # Assert
         assert result == 1, "simple release should return 1 when token matches"
@@ -302,9 +300,7 @@ class TestLockSimpleReleaseScript:
         redis_client.set(lock_key, "other-token")
 
         # Act
-        result = redis_client.eval(
-            LOCK_SIMPLE_RELEASE_SCRIPT, 1, lock_key, "my-token"
-        )
+        result = redis_client.eval(LOCK_SIMPLE_RELEASE_SCRIPT, 1, lock_key, "my-token")
 
         # Assert
         assert result == 0, "simple release should return 0 when token mismatches"
@@ -316,11 +312,7 @@ class TestLockSimpleReleaseScript:
     def test_returns_zero_when_lock_does_not_exist(redis_client, lock_key):
         """Verify that simple release returns 0 when the lock key does not exist."""
         # Act
-        result = redis_client.eval(
-            LOCK_SIMPLE_RELEASE_SCRIPT, 1, lock_key, "any-token"
-        )
+        result = redis_client.eval(LOCK_SIMPLE_RELEASE_SCRIPT, 1, lock_key, "any-token")
 
         # Assert
-        assert result == 0, (
-            "simple release should return 0 when lock does not exist"
-        )
+        assert result == 0, "simple release should return 0 when lock does not exist"

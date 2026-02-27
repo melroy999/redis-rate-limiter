@@ -160,9 +160,10 @@ class TestHealthReadOnly:
         assert redis_client.get(previous_key) == snap_previous, (
             "previous window counter should be unchanged"
         )
-        assert redis_client.zrange(concurrency_key, 0, -1, withscores=True) == snap_concurrency, (
-            "concurrency set should be unchanged"
-        )
+        assert (
+            redis_client.zrange(concurrency_key, 0, -1, withscores=True)
+            == snap_concurrency
+        ), "concurrency set should be unchanged"
         assert redis_client.zrange(buffer_key, 0, -1, withscores=True) == snap_buffer, (
             "buffer set should be unchanged"
         )

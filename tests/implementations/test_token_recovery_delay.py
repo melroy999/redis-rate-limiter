@@ -45,10 +45,10 @@ class TokenRecoveryDelayTests:
         assert delay < 1.0, "delay should be less than the full window"
 
     @staticmethod
-    async def test_token_recovery_returns_immediate_when_decay_already_freed_token(
+    async def test_token_recovery_returns_zero_when_decay_already_freed_token(
         limiter,
     ):
-        """Verify that an immediate retry is returned when previous-window decay has already freed a token."""
+        """Verify that zero delay is returned when previous-window decay has already freed a token."""
         # Arrange
         limiter.window = 1.0
         limiter.limit = 5
@@ -59,8 +59,8 @@ class TokenRecoveryDelayTests:
         )
 
         # Assert
-        assert delay == pytest.approx(0.001), (
-            "delay should be 0.001 when decay has already freed a token"
+        assert delay == pytest.approx(0.0), (
+            "delay should be 0.0 when decay has already freed a token"
         )
 
     @staticmethod
@@ -76,9 +76,9 @@ class TokenRecoveryDelayTests:
         )
 
         # Assert
-        # Fallback formula: reset_in_ms / 1000.0 + 0.001 = 0.501
-        assert delay == pytest.approx(0.501), (
-            "delay should equal reset_in_ms / 1000 + 0.001 when val_previous is zero"
+        # Fallback formula: reset_in_ms / 1000.0 = 0.5
+        assert delay == pytest.approx(0.5), (
+            "delay should equal reset_in_ms / 1000 when val_previous is zero"
         )
 
     @staticmethod
@@ -94,17 +94,14 @@ class TokenRecoveryDelayTests:
         )
 
         # Assert
-        # Fallback formula: reset_in_ms / 1000.0 + 0.001 = 0.501
-        assert delay == pytest.approx(0.501), (
-            "delay should equal reset_in_ms / 1000 + 0.001 when val_current equals limit"
+        # Fallback formula: reset_in_ms / 1000.0 = 0.5
+        assert delay == pytest.approx(0.5), (
+            "delay should equal reset_in_ms / 1000 when val_current equals limit"
         )
 
     @staticmethod
     async def test_token_recovery_primary_path_exact_value(limiter):
-        """Verify the exact delay value computed via the primary decay formula.
-
-        Mutation target: arithmetic operators in ``_calculate_token_recovery_delay``.
-        """
+        """Verify the exact delay value computed via the primary decay formula."""
         # Arrange
         limiter.window = 1.0
         limiter.limit = 5
@@ -124,11 +121,8 @@ class TokenRecoveryDelayTests:
         )
 
     @staticmethod
-    async def test_token_recovery_primary_path_floor_when_wait_ms_zero(limiter):
-        """Verify that the 0.001 floor is returned when wait_ms is exactly zero.
-
-        Mutation target: ``max(delay, 0.001)`` floor in ``_calculate_token_recovery_delay``.
-        """
+    async def test_token_recovery_primary_path_zero_when_wait_ms_zero(limiter):
+        """Verify that zero delay is returned when wait_ms is exactly zero."""
         # Arrange
         limiter.window = 1.0
         limiter.limit = 5
@@ -142,16 +136,13 @@ class TokenRecoveryDelayTests:
         )
 
         # Assert
-        assert delay == pytest.approx(0.001), (
-            "delay should be 0.001 when wait_ms is exactly zero"
+        assert delay == pytest.approx(0.0), (
+            "delay should be 0.0 when wait_ms is exactly zero"
         )
 
     @staticmethod
     async def test_token_recovery_primary_path_when_val_previous_is_one(limiter):
-        """Verify that ``val_previous=1`` takes the primary decay path, not the fallback.
-
-        Mutation target: ``val_previous == 0`` guard in ``_calculate_token_recovery_delay``.
-        """
+        """Verify that ``val_previous=1`` takes the primary decay path, not the fallback."""
         # Arrange
         limiter.window = 1.0
         limiter.limit = 5
@@ -160,22 +151,19 @@ class TokenRecoveryDelayTests:
         # t_needed_ms = 1000 * (1.0 - (5 - 3) / 1) = -1000
         # time_passed_ms = 1000 - 500 = 500
         # wait_ms = -1000 - 500 = -1500 (<= 0)
-        # Primary path returns 0.001 (floor); the fallback would return 0.501.
+        # Primary path returns 0.0; the fallback would return 0.5.
         delay = limiter._calculate_token_recovery_delay(
             val_previous=1, val_current=3, reset_in_ms=500
         )
 
         # Assert
-        assert delay == pytest.approx(0.001), (
-            "val_previous=1 should take the primary path and return 0.001"
+        assert delay == pytest.approx(0.0), (
+            "val_previous=1 should take the primary path and return 0.0"
         )
 
     @staticmethod
     async def test_token_recovery_primary_path_fractional_wait_ms(limiter):
-        """Verify that a fractional wait_ms between 0 and 1 returns the exact value, not the floor.
-
-        Mutation target: ``wait_ms <= 0`` comparison in ``_calculate_token_recovery_delay``.
-        """
+        """Verify that a fractional wait_ms between 0 and 1 returns the exact value, not the floor."""
         # Arrange
         limiter.window = 1.0
         limiter.limit = 5

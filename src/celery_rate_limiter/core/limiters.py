@@ -647,7 +647,7 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
         # No previous window exists to decay, or the current window alone is at the limit.
         # In either case, wait for the next window.
         if val_previous <= 0 or val_current >= self.limit:
-            return (reset_in_ms / 1000.0) + 0.001
+            return reset_in_ms / 1000.0
 
         # Determine the earliest point at which previous-window decay frees a token.
         #   estimated = val_previous * (window_ms - t) / window_ms + val_current
@@ -657,8 +657,8 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
         wait_ms = t_needed_ms - time_passed_ms
 
         if wait_ms <= 0:
-            # Decay has already freed a token; a retry may be performed immediately.
-            return 0.001
+            # Decay has already freed a token; no waiting is needed.
+            return 0.0
 
         return wait_ms / 1000.0
 

@@ -183,10 +183,7 @@ class TestDrainLoop:
 
     @staticmethod
     def test_shutdown_completes_promptly():
-        """Verify that ``shutdown()`` completes well within its internal 5.0s join timeout.
-
-        Mutation target: ``self._condition.notify()`` and ``self._shutdown = True`` in ``DrainLoop.shutdown()``.
-        """
+        """Verify that ``shutdown()`` completes well within its internal 5.0s join timeout."""
         # Arrange
         limiter = MagicMock()
         drain_called = Event()
@@ -540,9 +537,7 @@ class TestDrainLoopObservability:
         loop = DrainLoop(limiter, watchdog_interval=60.0)
 
         # Act
-        with caplog.at_level(
-            logging.ERROR, logger="celery_rate_limiter.core.limiters"
-        ):
+        with caplog.at_level(logging.ERROR, logger="celery_rate_limiter.core.limiters"):
             loop.wake(0)
             time.sleep(0.1)
             loop.wake(0)
@@ -593,9 +588,7 @@ class TestDrainSignalSubscriberObservability:
         # Act
         safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
         safety_timer.start()
-        with caplog.at_level(
-            logging.ERROR, logger="celery_rate_limiter.core.limiters"
-        ):
+        with caplog.at_level(logging.ERROR, logger="celery_rate_limiter.core.limiters"):
             subscriber._run()
         safety_timer.cancel()
 

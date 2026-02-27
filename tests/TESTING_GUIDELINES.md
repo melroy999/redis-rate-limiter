@@ -110,13 +110,13 @@ Every test method must have a docstring. The docstring is a single sentence that
 
 - **Contract tests** use the prefix `Contract:` to distinguish interface guarantees from implementation tests.
 - **Algorithm property tests** use the prefix `Property:` to distinguish mathematical invariants verified by the test from behavioral assertions.
-- **Mutation-targeted tests** include a `Mutation target:` annotation (see Section 6.1).
+- **Mutation-targeted tests** include a `Mutation target:` annotation (see Section 6.1). This annotation is reserved for tests that exist primarily to document API contracts (e.g., signature defaults, class-variable constants) rather than to verify behavioral correctness.
 
 Examples:
 - `"""Verify that ``shutdown()`` sets the ``_shutdown`` flag to exactly ``True``."""`
 - `"""Contract: ``schedule_task()`` must return a ``(bool, str)`` tuple."""`
 - `"""Property: the 2x burst bound holds for various limit and window configurations."""`
-- `"""Verify the exact delay value computed via the primary decay formula.\n\nMutation target: kills mutants that alter arithmetic operators in ``_calculate_token_recovery_delay``."""`
+- `"""Verify that the ``delay`` parameter of ``wake()`` defaults to ``0.0``.\n\nMutation target: default value of ``delay`` in ``DrainLoop.wake()``."""`
 
 ### 2.4 AAA Section Comments
 
@@ -254,15 +254,11 @@ mock_cls = (
 )
 ```
 
-**Data-flow verification via mocks**: tests that mock internal method calls and assert on the arguments forwarded to those methods are a valid and important category. They verify that the correct data flows through the system, which is essential for mutation testing: if mutmut mutates the arguments passed to an internal method (e.g., swapping `task_id` and `func_path`), these tests catch it. Such tests should include a `Mutation target:` annotation (see Section 6.1) explaining that they verify data forwarding correctness.
+**Data-flow verification via mocks**: tests that mock internal method calls and assert on the arguments forwarded to those methods are a valid and important category. They verify that the correct data flows through the system: if the arguments passed to an internal method are swapped (e.g., `task_id` and `func_path`), these tests catch it. Data-flow verification tests are normal behavioral tests; they do not require a `Mutation target:` annotation because they guard against real bugs, not merely theoretical mutations.
 
 ```python
 def test_execution_lock_forwards_all_attributes(limiter, ...):
-    """Verify that ``execution_lock()`` forwards the correct lock key, worker ID, and contention key.
-
-    Mutation target: catches argument swap mutations where internal attributes
-    are forwarded to the wrong parameter.
-    """
+    """Verify that ``execution_lock()`` forwards the correct lock key, worker ID, and contention key."""
 ```
 
 Do not confuse data-flow verification with call-count verification. Asserting that a method was called with specific arguments is valuable; asserting only that a method was called a specific number of times (without verifying the arguments) is weaker and should be avoided unless the call count itself is the behavioral contract.
@@ -453,34 +449,31 @@ Do not create helpers preemptively. Inline the code until the third use, then ex
 
 ### 6.1 Mutation-Targeted Test Annotation
 
-Tests that exist primarily to kill specific mutants must include a `Mutation target:` annotation in their docstring. This annotation explains what mutation class the test guards against.
+The `Mutation target:` annotation is reserved for tests that exist primarily to document API contracts or implementation constants that a developer would not naturally write without mutation analysis. Tests that verify genuinely important behavior (formula correctness, boundary conditions, data integrity, concurrency safety, HTTP response structure, argument forwarding) should be written as normal tests with a single-sentence docstring per Section 2.3, even if mutation testing originally surfaced the gap.
 
 **Format**: the annotation begins with `Mutation target:` on a new paragraph after the first-line summary. It identifies the mutated code element and its location concisely, without repeating the test logic. Use back-ticked code references for operators, constants, method names, and index expressions.
 
 ```python
-def test_execution_lock_cooldown_below_cap_reflects_multiplier(limiter):
-    """Verify that cooldown_ms reflects the ``* 1000`` multiplier when below the cap.
+def test_wake_default_delay_is_zero():
+    """Verify that the ``delay`` parameter of ``wake()`` defaults to ``0.0``.
 
-    Mutation target: ``* 1000`` multiplier in ``execution_lock()`` cooldown calculation.
-    """
-```
-
-```python
-def test_consume_result_index_mapping_is_correct(limiter):
-    """Verify that ``consume()`` maps each Lua return index to the correct result field.
-
-    Mutation target: index-swap mutations in ``consume()`` result parsing (e.g., ``result[5]`` to ``result[6]``).
+    Mutation target: default value of ``delay`` in ``DrainLoop.wake()``.
     """
 ```
 
 This annotation serves two purposes: (a) it prevents future developers from removing the test as "over-specified," and (b) it documents the coupling so that refactors know to update the test alongside the implementation.
 
-Tests that need this annotation include, but are not limited to:
-- Tests asserting exact numeric outputs of internal formula methods (e.g., `test_token_recovery_primary_path_exact_value`).
+Tests that need this annotation are limited to:
 - Tests asserting on `inspect.signature` defaults (e.g., `test_wake_default_delay_is_zero`).
-- Tests asserting on result index mapping with sentinel values (e.g., `test_consume_result_index_mapping_is_correct`).
-- Tests asserting that shutdown completes within a timing deadline (e.g., `test_shutdown_completes_promptly`).
-- Tests asserting on Prometheus metric names, descriptions, or label names.
+- Tests asserting on class-variable constants that document configuration defaults (e.g., `test_refresh_interval_defaults_to_5`).
+
+Tests that do **not** need this annotation (write them as normal behavioral tests instead):
+- Tests asserting exact numeric outputs of internal formula methods (these verify algorithm correctness).
+- Tests asserting on result index mapping with sentinel values (these verify data integrity).
+- Tests asserting that shutdown completes within a timing deadline (these verify concurrency safety).
+- Tests asserting on HTTP response structure, status codes, or headers (these verify protocol compliance).
+- Tests asserting on argument forwarding via mock call verification (these verify data-flow correctness).
+- Tests asserting on Prometheus metric names, descriptions, or label names (these verify observability contracts).
 
 **Known limitation for default-parameter tests**: Python stores default parameter values in the function's `__defaults__` tuple when the `def` statement executes during import. Mutmut's fork model imports the module in the parent process (setting `__defaults__`), then forks children for mutation testing. The mutation modifies the code object in the child, but `__defaults__` is an attribute of the function object and remains unchanged. As a result, `inspect.signature` tests for default values are undetectable under mutmut. These tests are still valuable for documenting the expected contract; the annotation should reference the default parameter without repeating this limitation note.
 

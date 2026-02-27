@@ -790,6 +790,32 @@ class TestResetAndConstruction:
         )
 
 
+class TestManagedMixinInternals:
+    """Tests for internal class machinery in ``ManagedRateLimiterMixin``."""
+
+    @staticmethod
+    def test_sentinel_is_unique_object_not_none():
+        """Verify that ``_SENTINEL`` is a unique ``object()`` instance, not ``None``."""
+        # Assert
+        assert ManagedTestRateLimiter._SENTINEL is not None, (
+            "_SENTINEL must not be None to prevent collisions with explicit None arguments"
+        )
+
+    @staticmethod
+    def test_parse_raw_config_decodes_bytes_with_utf8():
+        """Verify that ``_parse_raw_config`` correctly decodes bytes input via UTF-8."""
+        # Arrange
+        raw_bytes = b'{"limit": 10, "window": 60}'
+
+        # Act
+        result = ManagedTestRateLimiter._parse_raw_config(raw_bytes)
+
+        # Assert
+        assert result == {"limit": 10, "window": 60}, (
+            "_parse_raw_config should decode bytes via utf-8 and return a dict"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Observability tests
 # ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ variant via the mixin pattern.
 
 Fixture dependencies:
     - ``async_generic_limiter``: from ``tests/implementations/conftest.py``.
+    - ``async_redis_client``, ``limiter_id``: from ``tests/conftest.py``.
 """
 
 import asyncio
@@ -23,6 +24,7 @@ from celery_rate_limiter.core.async_limiters import (
     AsyncDrainSignalSubscriber,
 )
 from tests.helpers.utils import assert_log_emitted
+from tests.implementations.conftest import MinimalAsyncRateLimiter
 
 
 class TestAsyncDrainLoop:
@@ -222,10 +224,7 @@ class TestAsyncDrainLoop:
 
     @staticmethod
     async def test_shutdown_completes_promptly():
-        """Verify that ``shutdown()`` completes well within its internal 5.0s timeout.
-
-        Mutation target: ``self._condition.notify()`` and ``self._shutdown = True`` in ``AsyncDrainLoop.shutdown()``.
-        """
+        """Verify that ``shutdown()`` completes well within its internal 5.0s timeout."""
         # Arrange
         limiter = MagicMock()
         drain_called = asyncio.Event()
@@ -544,6 +543,34 @@ class TestAsyncDrainSignalSubscriber:
         assert subscriber._shutdown is True, (
             "shutdown flag should be True after shutdown"
         )
+
+
+class TestAsyncWatchdogInterval:
+    """Tests for the watchdog interval computation in ``AbstractAsyncDistributedRateLimiter``."""
+
+    @staticmethod
+    async def test_watchdog_interval_floor_is_five_seconds(
+        async_redis_client, limiter_id
+    ):
+        """Verify that the watchdog interval floor is 5.0 seconds when ``window * 2`` is smaller."""
+        # Arrange
+        # window=1.0 produces window*2=2.0 which is below the 5.0 floor.
+        limiter = MinimalAsyncRateLimiter(
+            redis_client=async_redis_client,
+            limiter_id=f"{limiter_id}_watchdog",
+            limit=10,
+            window=1.0,
+            max_concurrency=2,
+        )
+        await limiter.start()
+
+        # Assert
+        assert limiter._drain_loop._watchdog_interval == pytest.approx(5.0), (
+            "watchdog interval should be 5.0 when window * 2 is below the floor"
+        )
+
+        # Teardown
+        await limiter.shutdown()
 
 
 # ---------------------------------------------------------------------------

@@ -332,9 +332,7 @@ class TestConsumeBoundaryDecisions:
         _add_task_to_buffer(redis_client, buffer_key, task_json)
         # Fill the concurrency set with valid (future) leases.
         for i in range(MAX_CONCURRENCY):
-            redis_client.zadd(
-                concurrency_key, {f"active-task-{i}": now + 3600}
-            )
+            redis_client.zadd(concurrency_key, {f"active-task-{i}": now + 3600})
 
         # Act
         result = _eval_consume(
@@ -356,9 +354,7 @@ class TestConsumeBoundaryDecisions:
         task_json = build_task_json("task-1", arrived_at_ms=now * 1000)
         _add_task_to_buffer(redis_client, buffer_key, task_json)
         for i in range(MAX_CONCURRENCY - 1):
-            redis_client.zadd(
-                concurrency_key, {f"active-task-{i}": now + 3600}
-            )
+            redis_client.zadd(concurrency_key, {f"active-task-{i}": now + 3600})
 
         # Act
         result = _eval_consume(
@@ -421,9 +417,7 @@ class TestConsumeBoundaryDecisions:
         current_key, _ = get_window_keys(redis_client, base_key)
 
         # Act
-        _eval_consume(
-            redis_client, base_key, buffer_key, concurrency_key, dlq_key
-        )
+        _eval_consume(redis_client, base_key, buffer_key, concurrency_key, dlq_key)
 
         # Assert
         counter = redis_client.get(current_key)
@@ -450,16 +444,12 @@ class TestConsumeBoundaryDecisions:
 
         # Act
         # First consume: sets PEXPIRE.
-        _eval_consume(
-            redis_client, base_key, buffer_key, concurrency_key, dlq_key
-        )
+        _eval_consume(redis_client, base_key, buffer_key, concurrency_key, dlq_key)
         current_key, _ = get_window_keys(redis_client, base_key)
         pttl_after_first = redis_client.pttl(current_key)
 
         # Second consume: should NOT reset PEXPIRE.
-        _eval_consume(
-            redis_client, base_key, buffer_key, concurrency_key, dlq_key
-        )
+        _eval_consume(redis_client, base_key, buffer_key, concurrency_key, dlq_key)
         pttl_after_second = redis_client.pttl(current_key)
 
         # Assert
@@ -491,9 +481,7 @@ class TestConsumeBoundaryDecisions:
         # Assert
         # The expired lease should have been removed by ZREMRANGEBYSCORE.
         # The only member should be the newly registered task.
-        assert result[0] == 1, (
-            "consume should succeed after removing expired lease"
-        )
+        assert result[0] == 1, "consume should succeed after removing expired lease"
         members = redis_client.zrange(concurrency_key, 0, -1)
         assert "expired-lease" not in members, (
             "expired lease should be removed by self-healing"
@@ -512,9 +500,7 @@ class TestConsumeBoundaryDecisions:
         redis_client.zadd(concurrency_key, {"valid-lease": now + 3600})
 
         # Act
-        _eval_consume(
-            redis_client, base_key, buffer_key, concurrency_key, dlq_key
-        )
+        _eval_consume(redis_client, base_key, buffer_key, concurrency_key, dlq_key)
 
         # Assert
         members = redis_client.zrange(concurrency_key, 0, -1)

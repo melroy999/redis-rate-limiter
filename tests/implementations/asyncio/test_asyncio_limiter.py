@@ -121,9 +121,7 @@ class TestAsyncIOTaskLimiter:
         result = limiter._has_local_capacity()
 
         # Assert
-        assert result is False, (
-            "_has_local_capacity should return False at max_tasks"
-        )
+        assert result is False, "_has_local_capacity should return False at max_tasks"
 
     @staticmethod
     async def test_dispatch_task_creates_asyncio_task(limiter):
@@ -247,13 +245,10 @@ class TestAsyncIODispatchObservability:
         )
 
     @staticmethod
-    async def test_dispatch_task_normal_execution_does_not_emit_error_log(limiter, caplog):
-        """Verify that ``_dispatch_task`` does not emit error logs when the target function executes successfully.
-
-        Mutation target: if ``import_string(func_path)`` is replaced with ``None``,
-        ``iscoroutinefunction(None)`` returns ``False``, raising ``TypeError``.
-        The exception handler logs at ERROR level, failing this assertion.
-        """
+    async def test_dispatch_task_normal_execution_does_not_emit_error_log(
+        limiter, caplog
+    ):
+        """Verify that ``_dispatch_task`` does not emit error logs when the target function executes successfully."""
         # Act
         with caplog.at_level(
             logging.ERROR, logger="celery_rate_limiter.backends.asyncio.limiter"

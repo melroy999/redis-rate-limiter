@@ -372,8 +372,8 @@ class DrainBehaviorTests:
         assert len(limiter.scheduled_drains) == 1, (
             "drain should schedule one delayed retry when rate-limited"
         )
-        assert limiter.scheduled_drains[0] == pytest.approx(0.251), (
-            "rate-limited retry delay should be reset_in_ms/1000 + 0.001 = 0.251 on fallback path"
+        assert limiter.scheduled_drains[0] == pytest.approx(0.25), (
+            "rate-limited retry delay should be reset_in_ms/1000 = 0.25 on fallback path"
         )
 
     async def test_drain_calls_refresh_config_if_available(self, limiter, mock_target):
@@ -437,10 +437,7 @@ class DrainBehaviorTests:
     async def test_drain_backoff_increases_with_consecutive_failures(
         self, limiter, mock_target
     ):
-        """Verify that the recovery delay doubles with each consecutive failure.
-
-        Mutation target: ``0.1 * (2 ** (attempt - 1))`` exponential backoff formula in ``drain()``.
-        """
+        """Verify that the recovery delay doubles with each consecutive failure."""
         # Act
         with (
             patch.object(
@@ -708,10 +705,7 @@ class DrainBehaviorTests:
 
     @staticmethod
     async def test_drain_loop_watchdog_interval(limiter):
-        """Verify that the watchdog interval is ``max(5.0, window * 2)``.
-
-        Mutation target: ``max(5.0, window * 2)`` formula in drain loop initialization.
-        """
+        """Verify that the watchdog interval is ``max(5.0, window * 2)``."""
         expected = max(5.0, limiter.window * 2)
         actual = limiter._drain_loop._watchdog_interval
         assert actual == expected, (
@@ -1017,7 +1011,7 @@ class DrainObservabilityTests:
             level="INFO",
             required_fragments=[
                 f"limiter={limiter.id}",
-                "delay_s=0.251",
+                "delay_s=0.250",
                 "remaining_tasks=4",
             ],
             message="should emit an info log for the rate-limited retry with delay and remaining tasks",
@@ -1235,7 +1229,6 @@ class TestAsyncScheduleDrainDelegation:
         # Must not raise AttributeError.
         with patch.object(async_generic_limiter, "_drain_loop", None):
             AbstractAsyncDistributedRateLimiter._schedule_drain(async_generic_limiter)
-
 
 
 class TestCrossProcessDrainSignal:

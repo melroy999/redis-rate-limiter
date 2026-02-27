@@ -97,10 +97,7 @@ class TestRateLimitedDecorator:
     def test_decorator_forwards_limiter_id_kwarg_to_wrapped_function(
         limiter_mock, limiter_id, task_id
     ):
-        """Verify that ``limiter_id`` in kwargs is read (not popped) and forwarded to the wrapped function.
-
-        Mutation target: ``kwargs.get("limiter_id")`` vs ``kwargs.pop("limiter_id")``.
-        """
+        """Verify that ``limiter_id`` in kwargs is read (not popped) and forwarded to the wrapped function."""
         # Arrange
         limiter, _ = limiter_mock
         captured_kwargs = {}
@@ -339,9 +336,7 @@ class TestRateLimitedDecorator:
         """
         # Arrange
         limiter, lifecycle_context = limiter_mock
-        lifecycle_context.__enter__.side_effect = RuntimeError(
-            "lifecycle entry failed"
-        )
+        lifecycle_context.__enter__.side_effect = RuntimeError("lifecycle entry failed")
 
         @rate_limited(limiter_id, get_limiter=MagicMock(return_value=limiter))
         def wrapped_function() -> str:

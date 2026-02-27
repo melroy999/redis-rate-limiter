@@ -21,7 +21,6 @@ from celery_rate_limiter.core.limiters import (
 )
 from celery_rate_limiter.core.scripts import load_lua_script
 
-
 CONSUME_SOURCE: str = load_lua_script("consume.lua")
 ACQUIRE_SOURCE: str = load_lua_script("acquire.lua")
 HEALTH_SOURCE: str = load_lua_script("health.lua")

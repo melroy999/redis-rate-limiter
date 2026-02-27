@@ -219,7 +219,6 @@ class TestTaskLifecycleImplementation:
         )
 
 
-
 # ---------------------------------------------------------------------------
 # Observability tests
 # ---------------------------------------------------------------------------
@@ -292,10 +291,7 @@ class TestHeartbeatLoop:
 
     @staticmethod
     def test_heartbeat_interval_calculation(mock_limiter, task_id):
-        """Verify that the heartbeat interval is correctly calculated as ``lease_duration / 2``.
-
-        Mutation target: ``/ 2`` divisor in ``TaskLifecycle.__init__`` interval calculation.
-        """
+        """Verify that the heartbeat interval is correctly calculated as ``lease_duration / 2``."""
         # Arrange & Act
         with patch("threading.Thread"):
             lifecycle = TaskLifecycle(mock_limiter, task_id)
@@ -394,10 +390,7 @@ class TestHeartbeatLoop:
     def test_heartbeat_loop_calls_extend_lease_with_correct_parameters(
         redis_client, mock_limiter, task_id
     ):
-        """Verify that the heartbeat loop calls ``extend_lease`` with the correct ``task_id`` and duration.
-
-        Mutation target: argument order in the ``extend_lease`` call inside the heartbeat loop.
-        """
+        """Verify that the heartbeat loop calls ``extend_lease`` with the correct ``task_id`` and duration."""
         # Act
         with TaskLifecycle(mock_limiter, task_id):
             time.sleep(0.75 * mock_limiter.lease_duration)
@@ -558,10 +551,7 @@ class TestExtendLease:
 
     @staticmethod
     def test_extend_lease_passes_correct_arguments_to_lua(generic_limiter, task_id):
-        """Verify that ``extend_lease()`` invokes ``_eval_script`` with the expected arguments.
-
-        Mutation target: argument order and values in the ``_eval_script`` call within ``extend_lease()``.
-        """
+        """Verify that ``extend_lease()`` invokes ``_eval_script`` with the expected arguments."""
         # Arrange
         duration = 45
 

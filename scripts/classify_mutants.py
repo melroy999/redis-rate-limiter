@@ -1,21 +1,22 @@
 """Classify mutmut survivors by relevancy to prioritize remediation effort.
 
 Parses ``mutmut-results/results.txt`` and ``mutmut-results/diffs.txt``, then
-assigns each surviving mutation a relevancy score (0 to 4) based on the type
+assigns each surviving mutation a relevancy score (0 to 3) based on the type
 of change. Mutations are grouped by score with the most actionable items
 printed first. Sync/async mirror pairs are collapsed into a single entry.
 
 Relevancy scores:
 
-- **0 (log text)**: string mutations (XX wrap, lowercase, uppercase) inside
-  a ``logger.debug/info/warning/error/exception`` call.
-- **1 (cosmetic)**: string mutations in error messages, ``NotImplementedError``
-  text, or other non-logger contexts where the change has no behavioral impact.
-- **2 (argument)**: argument removal from a function or method call.
-- **3 (logic)**: everything else, including operator swaps, numeric increments,
+- **0 (cosmetic)**: string mutations (XX wrap, lowercase, uppercase) inside
+  logger calls, error messages, ``NotImplementedError`` text, ASGI response
+  body text, or other non-behavioral text contexts. Also includes
+  ``exc_info`` boolean swaps and value-to-None replacements on logger
+  format arguments.
+- **1 (argument)**: argument removal from a function or method call.
+- **2 (logic)**: everything else, including operator swaps, numeric increments,
   index changes, value-to-None replacements, boolean swaps, keyword swaps,
   unary operator removal, and string mutations on dict keys or identifiers.
-- **4 (fork-immune)**: mutations on default parameter values in ``def``
+- **3 (fork-immune)**: mutations on default parameter values in ``def``
   signatures. These are false survivors: Python stores defaults in the
   function object's ``__defaults__`` tuple at import time, but mutmut's
   AST mutations only modify the code object inside forked children. The
@@ -156,54 +157,63 @@ def _extract_diff_lines(body: str) -> tuple[list[str], list[str], list[str]]:
 # ---------------------------------------------------------------------------
 
 
-def _extract_quoted_string(line: str) -> tuple[str | None, str, str]:
-    """Extract the first double-quoted string from a line.
+def _extract_quoted_strings(line: str) -> list[tuple[str, str, str]]:
+    """Extract all double-quoted strings from a line.
 
-    Returns (string_content, prefix, suffix) where prefix and suffix are the
-    parts of the line outside the quoted string. Returns (None, "", "") if no
-    quoted string is found.
+    Returns a list of (string_content, prefix, suffix) tuples where prefix and
+    suffix are the parts of the line outside each quoted string. Returns an
+    empty list if no quoted string is found.
     """
-    match = re.search(r'"((?:[^"\\]|\\.)*)"', line)
-    if not match:
-        return None, "", ""
-    return match.group(1), line[: match.start(1)], line[match.end(1) :]
+    results: list[tuple[str, str, str]] = []
+    for match in re.finditer(r'"((?:[^"\\]|\\.)*)"', line):
+        results.append((match.group(1), line[: match.start(1)], line[match.end(1) :]))
+    return results
 
 
 def _detect_string_mutation(old_lines: list[str], new_lines: list[str]) -> str | None:
     """Detect XX wrap, lowercase, or uppercase string mutations.
 
-    Returns "xx_wrap", "lowercase", "uppercase", or None.
+    Returns "xx_wrap", "lowercase", "uppercase", or None. When a line contains
+    multiple quoted strings, each pair is checked so that mutations on the
+    second (or later) string are also detected.
     """
     if len(old_lines) != 1 or len(new_lines) != 1:
         return None
 
-    old_str, old_pre, old_suf = _extract_quoted_string(old_lines[0].strip())
-    new_str, new_pre, new_suf = _extract_quoted_string(new_lines[0].strip())
+    old_strings = _extract_quoted_strings(old_lines[0].strip())
+    new_strings = _extract_quoted_strings(new_lines[0].strip())
 
-    if old_str is None or new_str is None:
+    if not old_strings or not new_strings or len(old_strings) != len(new_strings):
         return None
 
-    # Verify that the rest of the line (outside the string) is unchanged.
-    if old_pre != new_pre or old_suf != new_suf:
-        return None
+    for (old_str, old_pre, old_suf), (new_str, new_pre, new_suf) in zip(
+        old_strings, new_strings
+    ):
+        # Skip pairs where the string content is identical.
+        if old_str == new_str:
+            continue
 
-    # XX wrap: new == "XX" + old + "XX"
-    if new_str == f"XX{old_str}XX":
-        return "xx_wrap"
+        # Verify that the rest of the line (outside the string) is unchanged.
+        if old_pre != new_pre or old_suf != new_suf:
+            continue
 
-    # Lowercase: either first character or full string lowercased.
-    if len(old_str) > 0 and old_str != new_str:
-        if (
-            new_str == old_str[0].lower() + old_str[1:]
-            and old_str[0] != old_str[0].lower()
-        ):
-            return "lowercase"
-        if new_str == old_str.lower():
-            return "lowercase"
+        # XX wrap: new == "XX" + old + "XX"
+        if new_str == f"XX{old_str}XX":
+            return "xx_wrap"
 
-    # Uppercase.
-    if len(old_str) > 0 and new_str == old_str.upper() and old_str != new_str:
-        return "uppercase"
+        # Lowercase: either first character or full string lowercased.
+        if len(old_str) > 0:
+            if (
+                new_str == old_str[0].lower() + old_str[1:]
+                and old_str[0] != old_str[0].lower()
+            ):
+                return "lowercase"
+            if new_str == old_str.lower():
+                return "lowercase"
+
+        # Uppercase.
+        if len(old_str) > 0 and new_str == old_str.upper():
+            return "uppercase"
 
     return None
 
@@ -250,6 +260,78 @@ def _has_raise_context(context_lines: list[str], old_lines: list[str]) -> bool:
     """Check if the diff is within a raise statement or exception constructor."""
     all_lines = context_lines + old_lines
     return any(_RAISE_PATTERN.search(line) for line in all_lines)
+
+
+_ASGI_BODY_PATTERN = re.compile(r'"type"\s*:\s*"http\.response\.body"')
+
+
+def _has_asgi_body_context(
+    context_lines: list[str],
+    old_lines: list[str],
+    new_lines: list[str],
+) -> bool:
+    """Check if the diff is a byte string content mutation within an ASGI response body.
+
+    Returns ``True`` only when the surrounding context contains
+    ``"type": "http.response.body"`` AND the mutated quoted string is a byte
+    string literal (preceded by ``b``). This ensures only human-readable body
+    text is classified as cosmetic, not structural ASGI keys or type values.
+    """
+    all_lines = context_lines + old_lines
+    has_body_type = any(_ASGI_BODY_PATTERN.search(line) for line in all_lines)
+    if not has_body_type:
+        return False
+    # Verify the mutated string is actually a byte string (preceded by 'b').
+    if len(old_lines) != 1 or len(new_lines) != 1:
+        return False
+    return _is_byte_string_mutation(old_lines[0], new_lines[0])
+
+
+_FORMAT_STRING_PATTERN = re.compile(r'["\'].*%[sd]')
+
+
+def _has_logger_format_context(context_lines: list[str], old_lines: list[str]) -> bool:
+    """Check if the diff is a trailing argument to a logger format call.
+
+    Catches value-to-None mutations on logger arguments when the
+    ``logger.<level>(`` call opening is outside the diff hunk boundary.
+    Detects the pattern by looking for format string specifiers (``%s``,
+    ``%d``, ``%.3f``) in context lines.
+    """
+    all_lines = context_lines + old_lines
+    has_format_string = any(
+        re.search(r'["\'].*%[sdfiexXog]', line) for line in all_lines
+    )
+    if not has_format_string:
+        return False
+    # Verify the mutated line looks like a trailing function argument
+    # (indented, possibly with a trailing comma).
+    for line in old_lines:
+        stripped = line.strip()
+        if stripped and (stripped.endswith(",") or stripped.endswith(")")):
+            return True
+    return False
+
+
+def _is_byte_string_mutation(old_line: str, new_line: str) -> bool:
+    """Check if the mutated quoted string has a ``b`` prefix (byte string literal).
+
+    The prefix returned by ``_extract_quoted_strings`` includes the opening
+    quote character, so a byte string prefix ends with ``b"``.
+    """
+    old_strings = _extract_quoted_strings(old_line.strip())
+    new_strings = _extract_quoted_strings(new_line.strip())
+    if not old_strings or not new_strings or len(old_strings) != len(new_strings):
+        return False
+    for (old_str, old_pre, _), (new_str, _, _) in zip(old_strings, new_strings):
+        if old_str != new_str and old_pre.endswith('b"'):
+            return True
+    return False
+
+
+def _is_exc_info_swap(old_lines: list[str]) -> bool:
+    """Check if a boolean swap is on an ``exc_info=`` parameter."""
+    return any("exc_info=" in line for line in old_lines)
 
 
 # ---------------------------------------------------------------------------
@@ -548,7 +630,7 @@ def _classify(diff: MutationDiff) -> tuple[int, str, str]:
     if _is_default_param_mutation(old, new):
         old_summary = old[0].strip() if old else "(empty)"
         new_summary = new[0].strip() if new else "(empty)"
-        return 4, "default_param", f"{old_summary}  ->  {new_summary}"
+        return 3, "default_param", f"{old_summary}  ->  {new_summary}"
 
     # 1. String mutations (XX wrap, lowercase, uppercase).
     string_type = _detect_string_mutation(old, new)
@@ -559,46 +641,51 @@ def _classify(diff: MutationDiff) -> tuple[int, str, str]:
             return 0, f"string_{string_type}", desc
         if _has_raise_context(ctx, old):
             desc = f"{string_type.replace('_', ' ')} on error message"
-            return 1, f"string_{string_type}", desc
-        # String mutation outside logger/raise context is real logic.
+            return 0, f"string_{string_type}", desc
+        if _has_asgi_body_context(ctx, old, new):
+            desc = f"{string_type.replace('_', ' ')} on ASGI response body text"
+            return 0, f"string_{string_type}", desc
+        # String mutation outside logger/raise/ASGI-body context is real logic.
         old_str = old[0].strip() if old else ""
         new_str = new[0].strip() if new else ""
-        return 3, f"string_{string_type}", f"{old_str}  ->  {new_str}"
+        return 2, f"string_{string_type}", f"{old_str}  ->  {new_str}"
 
     # 2. Argument removal.
     arg_desc = _detect_argument_removal(old, new)
     if arg_desc is not None:
-        return 2, "argument_removal", arg_desc
+        return 1, "argument_removal", arg_desc
 
     # 3. Operator swap.
     op_desc = _detect_operator_swap(old, new)
     if op_desc is not None:
-        return 3, "operator_swap", op_desc
+        return 2, "operator_swap", op_desc
 
     # 4. Boolean swap.
     bool_desc = _detect_boolean_swap(old, new)
     if bool_desc is not None:
-        return 3, "boolean_swap", bool_desc
+        if _is_exc_info_swap(old):
+            return 0, "boolean_swap", "exc_info boolean swap (cosmetic)"
+        return 2, "boolean_swap", bool_desc
 
     # 5. Keyword swap.
     kw_desc = _detect_keyword_swap(old, new)
     if kw_desc is not None:
-        return 3, "keyword_swap", kw_desc
+        return 2, "keyword_swap", kw_desc
 
     # 6. Unary removal.
     unary_desc = _detect_unary_removal(old, new)
     if unary_desc is not None:
-        return 3, "unary_removal", unary_desc
+        return 2, "unary_removal", unary_desc
 
     # 7. Augmented to simple assignment.
     aug_desc = _detect_augmented_to_simple(old, new)
     if aug_desc is not None:
-        return 3, "augmented_assignment", aug_desc
+        return 2, "augmented_assignment", aug_desc
 
     # 8. String method swap.
     method_desc = _detect_string_method_swap(old, new)
     if method_desc is not None:
-        return 3, "string_method_swap", method_desc
+        return 2, "string_method_swap", method_desc
 
     # 9. Value to None.
     none_desc = _detect_value_to_none(old, new)
@@ -610,12 +697,18 @@ def _classify(diff: MutationDiff) -> tuple[int, str, str]:
                 "value_to_none",
                 f"format string  ->  None on logger.{logger_level}",
             )
-        return 3, "value_to_none", none_desc
+        if _has_logger_format_context(ctx, old):
+            return (
+                0,
+                "value_to_none",
+                f"{none_desc} (logger format argument)",
+            )
+        return 2, "value_to_none", none_desc
 
     # 10. Numeric increment.
     num_desc = _detect_numeric_increment(old, new)
     if num_desc is not None:
-        return 3, "numeric_increment", num_desc
+        return 2, "numeric_increment", num_desc
 
     # 11. Fallback: show the raw diff lines.
     old_summary = old[0].strip() if old else "(empty)"
@@ -625,7 +718,7 @@ def _classify(diff: MutationDiff) -> tuple[int, str, str]:
     else:
         desc = f"{old_summary}  ->  {new_summary}"
 
-    return 3, "unknown", desc
+    return 2, "unknown", desc
 
 
 def _get_logger_level(context_lines: list[str], old_lines: list[str]) -> str | None:
@@ -737,23 +830,21 @@ def _find_mirrors(
 # ---------------------------------------------------------------------------
 
 _SCORE_LABELS = {
-    0: "log text",
-    1: "cosmetic",
-    2: "argument",
-    3: "logic",
-    4: "fork-immune",
+    0: "cosmetic",
+    1: "argument",
+    2: "logic",
+    3: "fork-immune",
 }
 
 _SCORE_HEADERS = {
-    0: "SCORE 0: LOG TEXT",
-    1: "SCORE 1: COSMETIC",
-    2: "SCORE 2: ARGUMENT",
-    3: "SCORE 3: LOGIC (needs tests)",
-    4: "FORK-IMMUNE",
+    0: "SCORE 0: COSMETIC",
+    1: "SCORE 1: ARGUMENT",
+    2: "SCORE 2: LOGIC (needs tests)",
+    3: "FORK-IMMUNE",
 }
 
 _SCORE_NOTES = {
-    4: (
+    3: (
         "mutmut cannot exercise these: Python stores default parameter\n"
         "  values in __defaults__ at import time, but mutmut's AST mutations\n"
         "  only modify the code object inside forked children. The parent's\n"
@@ -795,14 +886,14 @@ def _format_report(
     lines.append(f"Total: {', '.join(parts)}")
     lines.append("")
 
-    for score in (4, 3, 2, 1, 0):
+    for score in (3, 2, 1, 0):
         count = len(by_score.get(score, []))
         label = _SCORE_LABELS[score]
         lines.append(f"  Score {score} ({label}): {count:>4}")
     lines.append("")
 
     # Print each score group (highest first).
-    for score in (4, 3, 2, 1, 0):
+    for score in (3, 2, 1, 0):
         mutations = by_score.get(score, [])
         if not mutations:
             continue
@@ -963,6 +1054,13 @@ _KNOWN_BENIGN: list[tuple[str, str, str]] = [
         "True  ->  False",
         "fork-immune: default parameter value (use_executor=True) is tested by"
         " test_schedule_task_use_executor_default_is_true (signature inspection)",
+    ),
+    (
+        "SyncManagedRateLimiter.get",
+        "SyncManagedRateLimiter  ->  None",
+        "cast() is a type-checking no-op that returns its second argument"
+        " unchanged at runtime regardless of the first argument"
+        " (documented equivalent mutant per TESTING_GUIDELINES.md Section 6.3)",
     ),
 ]
 

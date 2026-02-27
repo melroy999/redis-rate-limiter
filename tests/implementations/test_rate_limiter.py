@@ -420,10 +420,7 @@ class RateLimiterImplementationTests:
 
     @staticmethod
     async def test_execution_lock_cooldown_below_cap_reflects_multiplier(limiter):
-        """Verify that cooldown_ms reflects the ``* 1000`` multiplier when below the cap.
-
-        Mutation target: ``* 1000`` multiplier in ``execution_lock()`` cooldown calculation.
-        """
+        """Verify that cooldown_ms reflects the ``* 1000`` multiplier when below the cap."""
         # Arrange
         original_window, original_limit = limiter.window, limiter.limit
         limiter.window, limiter.limit = 2, 3
@@ -497,10 +494,7 @@ class RateLimiterImplementationTests:
 
     @staticmethod
     async def test_consume_result_index_mapping_is_correct(limiter):
-        """Verify that ``consume()`` maps each Lua return index to the correct result field.
-
-        Mutation target: index-swap mutations in ``consume()`` result parsing (e.g., ``result[5]`` to ``result[6]``).
-        """
+        """Verify that ``consume()`` maps each Lua return index to the correct result field."""
         # Arrange
         task_json = json.dumps(
             {

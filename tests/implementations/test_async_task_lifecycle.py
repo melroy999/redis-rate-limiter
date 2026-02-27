@@ -289,7 +289,6 @@ class TestAsyncTaskLifecycleImplementation:
             await limiter.shutdown()
 
 
-
 # ---------------------------------------------------------------------------
 # Observability tests
 # ---------------------------------------------------------------------------
@@ -367,10 +366,7 @@ class TestAsyncHeartbeatLoop:
 
     @staticmethod
     async def test_heartbeat_interval_calculation(mock_limiter, task_id):
-        """Verify that the heartbeat interval is correctly calculated as ``lease_duration / 2``.
-
-        Mutation target: ``/ 2`` divisor in ``AsyncTaskLifecycle.__init__`` interval calculation.
-        """
+        """Verify that the heartbeat interval is correctly calculated as ``lease_duration / 2``."""
         # Arrange & Act
         lifecycle = AsyncTaskLifecycle(mock_limiter, task_id)
 
@@ -500,10 +496,7 @@ class TestAsyncHeartbeatLoop:
     async def test_heartbeat_loop_calls_extend_lease_with_correct_parameters(
         async_redis_client, mock_limiter, task_id
     ):
-        """Verify that the heartbeat loop calls ``extend_lease`` with the correct ``task_id`` and duration.
-
-        Mutation target: argument order in the ``extend_lease`` call inside the async heartbeat loop.
-        """
+        """Verify that the heartbeat loop calls ``extend_lease`` with the correct ``task_id`` and duration."""
         # Act
         async with AsyncTaskLifecycle(mock_limiter, task_id):
             await asyncio.sleep(0.75 * mock_limiter.lease_duration)
@@ -684,10 +677,7 @@ class TestAsyncExtendLease:
     async def test_extend_lease_passes_correct_arguments_to_lua(
         async_generic_limiter, task_id
     ):
-        """Verify that ``extend_lease()`` invokes ``_eval_script`` with the expected arguments.
-
-        Mutation target: argument order and values in the ``_eval_script`` call within ``extend_lease()``.
-        """
+        """Verify that ``extend_lease()`` invokes ``_eval_script`` with the expected arguments."""
         # Arrange
         duration = 45
 

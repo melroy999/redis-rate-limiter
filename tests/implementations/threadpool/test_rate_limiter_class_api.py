@@ -25,3 +25,15 @@ class TestThreadPoolRateLimiterClassApi:
         # Act & Assert
         with pytest.raises(RuntimeError, match="executor"):
             ThreadPoolRateLimiter.configure(redis_client)
+
+    @staticmethod
+    def test_reset_clears_backend_context_to_none():
+        """Verify that ``_reset()`` sets the backend attribute to exactly ``None``."""
+        # Act
+        ThreadPoolRateLimiter._reset()
+
+        # Assert
+        # Identity check, not truthiness, catches None -> "" mutations.
+        assert ThreadPoolRateLimiter._executor is None, (
+            "_executor must be None after reset, not another falsy value"
+        )

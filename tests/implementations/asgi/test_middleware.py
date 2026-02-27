@@ -2,11 +2,16 @@
 
 Fixture dependencies:
     - ``limiter``, ``_reset_asgi_limiter_class_state``: from ``tests/implementations/asgi/conftest.py``.
+
+Direct static-method tests for ``_send_blocked`` and ``_send_error`` use
+``AsyncMock`` as the ASGI ``send`` callable and do not require fixtures.
 """
 
 import inspect
 import logging
 from unittest.mock import AsyncMock
+
+import pytest
 
 from celery_rate_limiter.backends.asgi import RateLimitMiddleware, by_client_ip
 from tests.helpers.utils import assert_log_emitted
@@ -444,6 +449,105 @@ class TestRateLimitMiddleware:
             "rate limit headers should be injected even when inner app omits headers key"
         )
 
+
+class TestSendBlockedResponse:
+    """Tests for ``RateLimitMiddleware._send_blocked`` response structure and arithmetic."""
+
+    @staticmethod
+    @pytest.mark.parametrize(
+        ("reset_ms", "expected_retry_after"),
+        [(1500, 2), (1000, 1)],
+        ids=["1500ms_rounds_up_to_2s", "1000ms_boundary_stays_at_1s"],
+    )
+    async def test_send_blocked_retry_after_ceiling_division(
+        reset_ms, expected_retry_after
+    ):
+        """Verify that ``_send_blocked`` computes ``Retry-After`` via ceiling division."""
+        # Arrange
+        send = AsyncMock()
+
+        # Act
+        await RateLimitMiddleware._send_blocked(send, {"reset_in_ms": reset_ms})
+
+        # Assert
+        start_message = send.call_args_list[0].args[0]
+        header_dict = dict(start_message["headers"])
+        assert header_dict[b"retry-after"] == str(expected_retry_after).encode(), (
+            f"retry-after should be {expected_retry_after} for reset_ms={reset_ms}"
+        )
+
+    @staticmethod
+    async def test_send_blocked_response_structure():
+        """Verify that ``_send_blocked`` produces a well-formed 429 response with correct headers."""
+        # Arrange
+        send = AsyncMock()
+        reset_ms = 2000
+
+        # Act
+        await RateLimitMiddleware._send_blocked(send, {"reset_in_ms": reset_ms})
+
+        # Assert
+        assert send.call_count == 2, "should send exactly two ASGI messages"
+
+        start_msg = send.call_args_list[0].args[0]
+        assert start_msg["type"] == "http.response.start", (
+            "first message type should be http.response.start"
+        )
+        assert start_msg["status"] == 429, "status should be 429"
+        header_dict = dict(start_msg["headers"])
+        assert header_dict[b"content-type"] == b"text/plain; charset=utf-8", (
+            "content-type should be text/plain; charset=utf-8"
+        )
+        assert header_dict[b"x-ratelimit-remaining"] == b"0", (
+            "x-ratelimit-remaining should be 0"
+        )
+        assert header_dict[b"x-ratelimit-reset"] == b"2000", (
+            "x-ratelimit-reset should equal the reset_ms value"
+        )
+
+        body_msg = send.call_args_list[1].args[0]
+        assert body_msg["type"] == "http.response.body", (
+            "second message type should be http.response.body"
+        )
+        assert body_msg["body"] == b"Rate limit exceeded. Please retry later.", (
+            "response body should be the default blocked message"
+        )
+
+
+class TestSendErrorResponse:
+    """Tests for ``RateLimitMiddleware._send_error`` response structure."""
+
+    @staticmethod
+    async def test_send_error_response_structure():
+        """Verify that ``_send_error`` produces a well-formed 503 response."""
+        # Arrange
+        send = AsyncMock()
+
+        # Act
+        await RateLimitMiddleware._send_error(send)
+
+        # Assert
+        assert send.call_count == 2, "should send exactly two ASGI messages"
+
+        start_msg = send.call_args_list[0].args[0]
+        assert start_msg["type"] == "http.response.start", (
+            "first message type should be http.response.start"
+        )
+        assert start_msg["status"] == 503, "status should be 503"
+        assert start_msg["headers"] == [
+            (b"content-type", b"text/plain; charset=utf-8")
+        ], "headers should contain only the content-type header"
+
+        body_msg = send.call_args_list[1].args[0]
+        assert isinstance(body_msg, dict), (
+            "second send argument must be a dict, not None"
+        )
+        assert body_msg["type"] == "http.response.body", (
+            "second message type should be http.response.body"
+        )
+        assert body_msg["body"] == b"Service temporarily unavailable.", (
+            "response body should be the default error message"
+        )
 
 
 # ---------------------------------------------------------------------------

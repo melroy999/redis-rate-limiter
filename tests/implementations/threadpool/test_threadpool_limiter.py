@@ -168,9 +168,7 @@ class TestLocalCapacityGuard:
         result = limiter._has_local_capacity()
 
         # Assert
-        assert result is False, (
-            "_has_local_capacity should return False at max_workers"
-        )
+        assert result is False, "_has_local_capacity should return False at max_workers"
 
     @staticmethod
     def test_dispatch_task_increments_and_decrements_counter(

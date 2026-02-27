@@ -86,7 +86,7 @@ class TestTokenRecoveryDelayProperties:
         val_current,
         reset_fraction,
     ):
-        """Property: the delay is always at least 0.001 seconds (the minimum floor)."""
+        """Property: the delay is always non-negative."""
         # Arrange
         property_limiter.limit = limit
         property_limiter.window = window
@@ -100,8 +100,8 @@ class TestTokenRecoveryDelayProperties:
         )
 
         # Assert
-        assert delay >= 0.001, (
-            f"delay should be >= 0.001, got {delay} "
+        assert delay >= 0, (
+            f"delay should be >= 0, got {delay} "
             f"(limit={limit}, window={window}, prev={val_previous}, "
             f"curr={val_current}, reset_in_ms={reset_in_ms})"
         )
@@ -133,7 +133,7 @@ class TestTokenRecoveryDelayProperties:
         val_current,
         reset_fraction,
     ):
-        """Property: the delay never exceeds ``window + 0.001`` seconds."""
+        """Property: the delay never exceeds the window size."""
         # Arrange
         property_limiter.limit = limit
         property_limiter.window = window
@@ -147,9 +147,8 @@ class TestTokenRecoveryDelayProperties:
         )
 
         # Assert
-        upper_bound = window + 0.001
-        assert delay <= upper_bound + 1e-9, (
-            f"delay should be <= window + 0.001 ({upper_bound}), got {delay} "
+        assert delay <= window + 1e-9, (
+            f"delay should be <= window ({window}), got {delay} "
             f"(limit={limit}, window={window}, prev={val_previous}, "
             f"curr={val_current}, reset_in_ms={reset_in_ms})"
         )

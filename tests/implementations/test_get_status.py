@@ -181,10 +181,7 @@ class GetStatusTests:
 
     @staticmethod
     async def test_get_status_available_clamps_to_zero_when_over_capacity(limiter):
-        """Verify that ``available`` is clamped to 0 when concurrency exceeds ``max_concurrency``.
-
-        Mutation target: ``max(0, ...)`` guard in the ``available`` calculation.
-        """
+        """Verify that ``available`` is clamped to 0 when concurrency exceeds ``max_concurrency``."""
         # Arrange
         # Seed one more task than max_concurrency so the raw subtraction is negative.
         for i in range(limiter.max_concurrency + 1):
@@ -224,10 +221,7 @@ class GetStatusTests:
 
     @staticmethod
     async def test_get_status_val_current_uses_correct_result_index(limiter):
-        """Verify that ``get_status()`` maps each health.lua return index to the correct result field.
-
-        Mutation target: index-swap mutations in ``get_status()`` result parsing (e.g., ``result[1]`` vs ``result[2]``).
-        """
+        """Verify that ``get_status()`` maps each health.lua return index to the correct result field."""
         # Arrange
         # health.lua returns: [prev_count, curr_count, estimated_count, active_now, reset_in_ms, buffer_count]
         # Each value is deliberately distinct to detect index swaps.

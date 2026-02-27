@@ -125,7 +125,7 @@ Jitter is automatically added when the following conditions are met:
 The calculation is as follows:
 
 ```python
-base_delay = (reset_in_ms / 1000.0) + 0.001  # Wait for window reset
+base_delay = reset_in_ms / 1000.0  # Wait for window reset
 jitter = _calculate_smart_jitter(
     remaining_tasks=result["remaining_tasks"],
     remaining_tokens=result["remaining_tokens"],

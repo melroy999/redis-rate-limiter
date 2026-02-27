@@ -101,9 +101,7 @@ class TestSchedule:
         )
 
     @staticmethod
-    def test_meta_max_age_absent_when_argv3_is_empty_string(
-        redis_client, buffer_key
-    ):
+    def test_meta_max_age_absent_when_argv3_is_empty_string(redis_client, buffer_key):
         """Verify that ``__meta_max_age`` is absent when ARGV[3] is an empty string.
 
         When ``max_age`` is not provided, the Python layer passes ``""`` to
@@ -131,9 +129,7 @@ class TestSchedule:
         """
         # Arrange
         # Payload contains a value with a closing brace character.
-        task_json = build_task_json(
-            "task-1", payload={"nested": "value}with}braces"}
-        )
+        task_json = build_task_json("task-1", payload={"nested": "value}with}braces"})
 
         # Act
         _eval_schedule(redis_client, buffer_key, task_json)

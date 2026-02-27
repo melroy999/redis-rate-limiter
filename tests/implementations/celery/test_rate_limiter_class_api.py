@@ -25,3 +25,15 @@ class TestCeleryRateLimiterClassApi:
         # Act & Assert
         with pytest.raises(RuntimeError, match="celery_app"):
             CeleryRateLimiter.configure(redis_client)
+
+    @staticmethod
+    def test_reset_clears_backend_context_to_none():
+        """Verify that ``_reset()`` sets the backend attribute to exactly ``None``."""
+        # Act
+        CeleryRateLimiter._reset()
+
+        # Assert
+        # Identity check, not truthiness, catches None -> "" mutations.
+        assert CeleryRateLimiter._celery_app is None, (
+            "_celery_app must be None after reset, not another falsy value"
+        )
