@@ -21,6 +21,7 @@ class TestCeleryContracts(RateLimiterContractTest):
     @pytest.fixture
     def limiter(self, limiter):
         """Wrap the sync Celery limiter in an async adapter for the unified contracts."""
-        # Drain loop is not required for contract tests and may cause race conditions.
-        limiter._drain_loop = None
+        # Pause the drain loop far into the future to prevent it from consuming
+        # tasks before the contract assertions inspect the buffer.
+        limiter._paused_until = 5_000_000_000.0
         return SyncToAsyncLimiterAdapter(limiter)

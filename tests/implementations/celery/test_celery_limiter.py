@@ -25,6 +25,11 @@ class TestCeleryRateLimiter:
         limiter, redis_client, func_path, payload
     ):
         """Verify that ``schedule_task`` defaults ``use_executor`` to ``True`` when not specified."""
+        # Arrange
+        # Pause the drain loop far into the future to prevent it from consuming
+        # the task before the assertions inspect the buffer.
+        limiter._paused_until = 5_000_000_000.0
+
         # Act
         success, task_id = limiter.schedule_task(func_path, payload)
 
@@ -46,6 +51,11 @@ class TestCeleryRateLimiter:
         limiter, redis_client, func_path, payload
     ):
         """Verify that ``schedule_task`` stores ``use_executor=False`` in the task payload metadata."""
+        # Arrange
+        # Pause the drain loop far into the future to prevent it from consuming
+        # the task before the assertions inspect the buffer.
+        limiter._paused_until = 5_000_000_000.0
+
         # Act
         success, task_id = limiter.schedule_task(func_path, payload, use_executor=False)
 
