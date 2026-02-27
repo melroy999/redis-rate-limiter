@@ -96,8 +96,8 @@ All Lua script operations (`schedule_task`, `consume`, `extend_lease`, `get_stat
 
 `schedule_task()` acquires the inflight key via `SET NX` before calling the Lua script. If the Lua call fails for any reason (NoScriptError, ConnectionError, or any other exception), the inflight key is cleaned up via `_cleanup_inflight_key()` to prevent orphaned deduplication locks that would permanently block resubmission. The cleanup method itself suppresses all exceptions and logs a warning, such that a secondary Redis failure during cleanup does not mask the original error.
 
-- [limiters.py:938-956](../../src/celery_rate_limiter/core/limiters.py): `_cleanup_inflight_key()`.
-- [limiters.py:1029-1033](../../src/celery_rate_limiter/core/limiters.py): cleanup calls on generic exceptions.
+- [limiters.py:939-957](../../src/celery_rate_limiter/core/limiters.py): `_cleanup_inflight_key()`.
+- [limiters.py:1030-1034](../../src/celery_rate_limiter/core/limiters.py): cleanup calls on generic exceptions.
 
 ## Consumption and Dispatch Layer
 
@@ -143,7 +143,7 @@ flowchart TD
 
 `_emit_metric()` wraps the user-provided callback in a `try/except` that catches and logs all exceptions, thereby preventing a buggy callback from disrupting the limiter. This isolation boundary ensures that observability integrations cannot introduce cascading failures into the rate limiting logic.
 
-- [limiters.py:744-765](../../src/celery_rate_limiter/core/limiters.py): `_emit_metric()` with exception suppression.
+- [limiters.py:745-766](../../src/celery_rate_limiter/core/limiters.py): `_emit_metric()` with exception suppression.
 
 ## Drain Control Layer
 
@@ -182,7 +182,7 @@ flowchart TD
 
 `drain()` wraps `_drain_inner()` in a `try/except` that catches all exceptions, increments `_consecutive_drain_failures`, and schedules a recovery drain with `delay = min(window, 0.1 * 2^(n-1))`. The backoff starts at 100ms for the first failure and doubles on each consecutive failure, capped at the window duration. On the first successful drain, the error counter resets to 0. If the recovery scheduling itself also fails, the system logs a critical error and relies on the next external trigger (a `trigger_consume()` call from `schedule_task()` or `TaskLifecycle.__exit__()`, or a watchdog timeout) to resume the drain loop.
 
-- [limiters.py:1169-1217](../../src/celery_rate_limiter/core/limiters.py): drain exception handling and backoff calculation.
+- [limiters.py:1169-1218](../../src/celery_rate_limiter/core/limiters.py): drain exception handling and backoff calculation.
 
 ## Execution Layer
 
@@ -239,13 +239,13 @@ flowchart TD
 
 `TaskLifecycle.__exit__()` performs cleanup (ZREM on the concurrency set, DEL on the inflight key) in a `try` block, with `trigger_consume()` in the `finally` block. This guarantees that the feedback loop continues even if the Redis cleanup operations fail, such that a freed concurrency slot is always followed by a consumption attempt.
 
-- [limiters.py:319-355](../../src/celery_rate_limiter/core/limiters.py): `TaskLifecycle.__exit__()` with try/finally.
+- [limiters.py:320-356](../../src/celery_rate_limiter/core/limiters.py): `TaskLifecycle.__exit__()` with try/finally.
 
 ### Heartbeat Failure Strategies
 
 The heartbeat loop catches all exceptions from `extend_lease()`. In `"warn"` mode, it sets `is_healthy = False` and logs a critical message, allowing the task to continue running at the risk of the concurrency slot lease expiring. In `"kill"` mode, it sends `SIGTERM` to the worker process, ensuring that the task is terminated and the concurrency slot self-heals via lease expiry. The choice between strategies is configured per `TaskLifecycle` instance.
 
-- [limiters.py:271-304](../../src/celery_rate_limiter/core/limiters.py): `_heartbeat_loop()` exception handling.
+- [limiters.py:272-306](../../src/celery_rate_limiter/core/limiters.py): `_heartbeat_loop()` exception handling.
 
 ## ASGI Layer
 
