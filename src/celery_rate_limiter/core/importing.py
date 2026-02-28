@@ -22,6 +22,8 @@ def import_string(import_path: str) -> Callable[..., Any]:
 
     # noinspection PyUnnecessaryCast
     # This cast is, in fact, necessary to satisfy mypy type validation.
+    # fmt: off
     return cast(  # pragma: no mutate
         Callable[..., Any], func
     )
+    # fmt: on

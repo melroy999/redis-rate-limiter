@@ -221,9 +221,11 @@ class AbstractAsyncRateLimiter(AbstractRateLimiter):
 
         sha = self._script_shas[script_name]
         try:
+            # fmt: off
             return await cast(  # pragma: no mutate
                 Awaitable, self.redis.evalsha(sha, num_keys, *args)
             )
+            # fmt: on
         except redis.exceptions.NoScriptError:
             logger.warning(
                 "Lua script cache miss; reloading (async): limiter=%s, script=%s.",
@@ -233,9 +235,11 @@ class AbstractAsyncRateLimiter(AbstractRateLimiter):
             await self._register_script(script_name)
             new_sha = self._script_shas[script_name]
             try:
+                # fmt: off
                 return await cast(  # pragma: no mutate
                     Awaitable, self.redis.evalsha(new_sha, num_keys, *args)
                 )
+                # fmt: on
             except redis.exceptions.NoScriptError:
                 raise RuntimeError(
                     f"Redis failed to retain the Lua script '{script_name}' after reload."

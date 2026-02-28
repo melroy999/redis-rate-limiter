@@ -1062,6 +1062,18 @@ _KNOWN_BENIGN: list[tuple[str, str, str]] = [
         " unchanged at runtime regardless of the first argument"
         " (documented equivalent mutant per TESTING_GUIDELINES.md Section 6.3)",
     ),
+    (
+        "_calculate_token_recovery_delay",
+        "<=  ->  <",
+        "when wait_ms equals zero, the fallthrough path returns 0 / 1000.0 = 0.0,"
+        " identical to the early return of 0.0",
+    ),
+    (
+        "_calculate_token_recovery_delay",
+        ">=  ->  >",
+        "when val_current equals limit, the primary decay formula computes"
+        " reset_in_ms / 1000.0, identical to the fallback return value",
+    ),
 ]
 
 

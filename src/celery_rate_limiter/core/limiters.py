@@ -335,9 +335,11 @@ class TaskLifecycle:
             if self.task_id:
                 inflight_key = self.limiter.get_inflight_key(self.task_id)
 
+                # fmt: off
                 inflight_removed = cast(  # pragma: no mutate
                     int, self.limiter.redis.delete(inflight_key)
                 )
+                # fmt: on
 
             logger.debug(
                 "Concurrency slot released and inflight key cleared: limiter=%s, task_id=%s, removed_concurrency=%s, removed_inflight=%s.",
@@ -1054,6 +1056,7 @@ class AbstractDistributedRateLimiter(
         logger.debug("Consume attempt started: limiter=%s.", self.id)
 
         # Execute the consume Lua script and obtain the result.
+        # fmt: off
         result = cast(  # pragma: no mutate
             list[str],
             self._eval_script(
@@ -1072,12 +1075,17 @@ class AbstractDistributedRateLimiter(
                 self.lease_duration,
             ),
         )
+        # fmt: on
 
         # Parse and structure the result.
         consume_result: ConsumeResult = {
             "success": int(result[0]) == 1,
             "expired": int(result[0]) == -1,
-            "task": cast(TaskData, json.loads(result[1]))  # pragma: no mutate
+            # fmt: off
+            "task": cast(  # pragma: no mutate
+                TaskData, json.loads(result[1])
+            )
+            # fmt: on
             if result[1]
             else None,
             "remaining_tokens": int(result[2]),
@@ -1130,6 +1138,7 @@ class AbstractDistributedRateLimiter(
             KeyError: If the task identifier is not present in the concurrency set.
             RuntimeError: If the renew Lua script cannot be reloaded after a NoScriptError.
         """
+        # fmt: off
         renewed = int(
             cast(  # pragma: no mutate
                 str,
@@ -1144,6 +1153,7 @@ class AbstractDistributedRateLimiter(
                 ),
             )
         )
+        # fmt: on
 
         logger.debug(
             "Lease extension result: limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
@@ -1497,6 +1507,7 @@ class AbstractDistributedRateLimiter(
         Raises:
             RuntimeError: If the required Lua scripts cannot be (re)loaded.
         """
+        # fmt: off
         result = cast(  # pragma: no mutate
             list[str],
             self._eval_script(
@@ -1510,6 +1521,7 @@ class AbstractDistributedRateLimiter(
                 self.window,
             ),
         )
+        # fmt: on
 
         # Map the result list to a structured dictionary.
         return {

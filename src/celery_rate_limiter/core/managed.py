@@ -160,7 +160,11 @@ class ManagedRateLimiterMixin:
             The integer version number.
         """
         # This cast is necessary for mypy type validation.
-        version_value = cast(str | bytes | int, raw_version)
+        # fmt: off
+        version_value = cast(  # pragma: no mutate
+            str | bytes | int, raw_version
+        )
+        # fmt: on
         return int(
             version_value.decode("utf-8")
             if isinstance(version_value, bytes)
@@ -283,7 +287,11 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
                 cls.__name__,
                 limiter_id,
             )
-            return cast(SyncManagedRateLimiter, cls._instances[limiter_id])
+            # fmt: off
+            return cast(  # pragma: no mutate
+                SyncManagedRateLimiter, cls._instances[limiter_id]
+            )
+            # fmt: on
 
         cls._require_configured()
         assert cls._redis_client is not None
@@ -522,14 +530,20 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
                 cls.__name__,
                 limiter_id,
             )
-            return cast(AsyncManagedRateLimiter, cls._instances[limiter_id])
+            # fmt: off
+            return cast(  # pragma: no mutate
+                AsyncManagedRateLimiter, cls._instances[limiter_id]
+            )
+            # fmt: on
 
         cls._require_configured()
         assert cls._redis_client is not None
 
+        # fmt: off
         raw_config = await cast(  # pragma: no mutate
             Awaitable, cls._redis_client.hget(cls._REGISTRY_KEY, limiter_id)
         )
+        # fmt: on
         if raw_config is None:
             raise ValueError(
                 f"Limiter '{limiter_id}' not found in local cache or Redis. "
@@ -546,9 +560,11 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         )
         await instance.start()
 
+        # fmt: off
         raw_version = await cast(  # pragma: no mutate
             Awaitable, cls._redis_client.hget(cls._VERSION_KEY, limiter_id)
         )
+        # fmt: on
         if raw_version is not None:
             instance._config_version = cls._parse_version(raw_version)
 
@@ -597,6 +613,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         assert cls._redis_client is not None
         config = instance._build_persist_config()
 
+        # fmt: off
         await cast(  # pragma: no mutate
             Awaitable,
             cls._redis_client.hset(cls._REGISTRY_KEY, instance.id, json.dumps(config)),
@@ -608,6 +625,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         raw_version = await cast(  # pragma: no mutate
             Awaitable, cls._redis_client.hget(cls._VERSION_KEY, instance.id)
         )
+        # fmt: on
         if raw_version is not None:
             instance._config_version = cls._parse_version(raw_version)
 

@@ -129,10 +129,12 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
         enhanced_payload = self._get_enhanced_payload(payload, use_executor)
 
         # Delegate to the parent scheduler.
+        # fmt: off
         return cast(  # pragma: no mutate
             tuple[bool, str],
             super().schedule_task(func_path, enhanced_payload, priority, max_age),
         )
+        # fmt: on
 
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
         # Determine whether the built-in generic worker should be used.

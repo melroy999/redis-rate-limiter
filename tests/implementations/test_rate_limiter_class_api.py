@@ -802,6 +802,49 @@ class TestManagedMixinInternals:
         )
 
     @staticmethod
+    def test_init_subclass_assigns_fresh_sentinel_not_none():
+        """Verify that ``__init_subclass__`` assigns a non-None sentinel to each new subclass.
+
+        The subclass is defined inside the test body so that ``__init_subclass__``
+        executes at test time, when the mutmut trampoline is active. Module-level
+        subclasses (e.g., ``ManagedTestRateLimiter``) are defined at import time
+        before the trampoline activates, so they cannot catch this mutation.
+        """
+
+        # Act
+        class FreshSubclass(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
+            @classmethod
+            def _configure_backend(cls, **backend_context):
+                return None
+
+            @classmethod
+            def _has_backend_context(cls) -> bool:
+                return True
+
+            @classmethod
+            def _get_instance_context(cls) -> dict:
+                return {}
+
+            @classmethod
+            def _reset_backend_context(cls) -> None:
+                return None
+
+            @classmethod
+            def _configure_hint(cls) -> str:
+                return "FreshSubclass.configure(redis_client)"
+
+            def _dispatch_task(self, func_path, payload, task_id):
+                return None
+
+            def _schedule_drain(self, delay=0.0):
+                return None
+
+        # Assert
+        assert FreshSubclass._SENTINEL is not None, (
+            "__init_subclass__ must assign a unique object() sentinel, not None"
+        )
+
+    @staticmethod
     def test_parse_raw_config_decodes_bytes_with_utf8():
         """Verify that ``_parse_raw_config`` correctly decodes bytes input via UTF-8."""
         # Arrange

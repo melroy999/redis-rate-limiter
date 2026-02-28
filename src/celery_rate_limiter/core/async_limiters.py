@@ -84,6 +84,7 @@ class AsyncDistributedLock:
     async def __aenter__(self) -> bool:
         """Attempt to acquire the dispatch lock."""
         if self._fairness_enabled:
+            # fmt: off
             self.acquired = bool(
                 await cast(  # pragma: no mutate
                     Awaitable,
@@ -98,6 +99,7 @@ class AsyncDistributedLock:
                     ),
                 )
             )
+            # fmt: on
         else:
             self.acquired = bool(
                 await self.redis.set(
@@ -123,6 +125,7 @@ class AsyncDistributedLock:
         """Release the dispatch lock, provided it is still owned by this instance."""
         if self.acquired:
             if self._fairness_enabled:
+                # fmt: off
                 result = await cast(  # pragma: no mutate
                     Awaitable,
                     self.redis.eval(
@@ -135,13 +138,16 @@ class AsyncDistributedLock:
                         self.cooldown_ms,
                     ),
                 )
+                # fmt: on
             else:
+                # fmt: off
                 result = await cast(  # pragma: no mutate
                     Awaitable,
                     self.redis.eval(
                         LOCK_SIMPLE_RELEASE_SCRIPT, 1, self.lock_key, self.token
                     ),
                 )
+                # fmt: on
 
             if result:
                 logger.debug(
@@ -257,9 +263,11 @@ class AsyncTaskLifecycle:
             inflight_removed = 0
             if self.task_id:
                 inflight_key = self.limiter.get_inflight_key(self.task_id)
+                # fmt: off
                 inflight_removed = cast(  # pragma: no mutate
                     int, await self.limiter.redis.delete(inflight_key)
                 )
+                # fmt: on
 
             logger.debug(
                 "Concurrency slot released and inflight key cleared (async): limiter=%s, task_id=%s, removed_concurrency=%s, removed_inflight=%s.",
@@ -636,6 +644,7 @@ class AbstractAsyncDistributedRateLimiter(
         """
         logger.debug("Consume attempt started (async): limiter=%s.", self.id)
 
+        # fmt: off
         result = cast(  # pragma: no mutate
             list[str],
             await self._eval_script(
@@ -652,11 +661,16 @@ class AbstractAsyncDistributedRateLimiter(
                 self.lease_duration,
             ),
         )
+        # fmt: on
 
         consume_result: ConsumeResult = {
             "success": int(result[0]) == 1,
             "expired": int(result[0]) == -1,
-            "task": cast(TaskData, json.loads(result[1]))  # pragma: no mutate
+            # fmt: off
+            "task": cast(  # pragma: no mutate
+                TaskData, json.loads(result[1])
+            )
+            # fmt: on
             if result[1]
             else None,
             "remaining_tokens": int(result[2]),
@@ -695,6 +709,7 @@ class AbstractAsyncDistributedRateLimiter(
             task_id: The task identifier.
             duration: The number of seconds by which to extend the lease.
         """
+        # fmt: off
         renewed = int(
             cast(  # pragma: no mutate
                 str,
@@ -707,6 +722,7 @@ class AbstractAsyncDistributedRateLimiter(
                 ),
             )
         )
+        # fmt: on
 
         logger.debug(
             "Lease extension result (async): limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
@@ -998,6 +1014,7 @@ class AbstractAsyncDistributedRateLimiter(
         Returns:
             A dictionary containing all status information.
         """
+        # fmt: off
         result = cast(  # pragma: no mutate
             list[str],
             await self._eval_script(
@@ -1009,6 +1026,7 @@ class AbstractAsyncDistributedRateLimiter(
                 self.window,
             ),
         )
+        # fmt: on
 
         return {
             "limiter_id": self.id,
