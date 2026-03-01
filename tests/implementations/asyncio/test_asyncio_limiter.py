@@ -6,7 +6,6 @@ Fixture dependencies:
 
 import asyncio
 import logging
-from unittest.mock import AsyncMock, patch
 
 from tests.helpers.utils import assert_log_emitted
 

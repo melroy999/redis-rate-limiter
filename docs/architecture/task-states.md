@@ -67,7 +67,7 @@ stateDiagram-v2
 
 The completion of a task initiates a feedback cycle that keeps the system operating at the configured throughput. When `TaskLifecycle.__exit__()` runs, it performs three operations in sequence: it removes the concurrency lease via `ZREM` on the `{id}:concurrency` ZSET, it deletes the inflight deduplication key via `DEL`, and it calls `trigger_consume()` on the limiter instance. The `trigger_consume()` method in turn wakes the `DrainLoop`, which calls `drain()`, which acquires the distributed lock and invokes `consume()` to pop the next task from the buffer. As such, every completed task immediately attempts to fill the freed concurrency slot with the next buffered task, thereby forming a self-sustaining cycle: completion triggers consumption, consumption triggers dispatch, and dispatch eventually triggers completion.
 
-This feedback loop is the primary mechanism by which the system achieves maximum throughput within the configured rate and concurrency limits. Without it, the system would rely exclusively on the watchdog timer for forward progress. The [Drain Loop Flow](drain-flow.md) documents the three-layer drain control loop and the five feedback entry points in detail.
+This feedback loop is the primary mechanism by which the system achieves maximum throughput within the configured rate and concurrency limits. Without it, the system would rely exclusively on the watchdog timer for forward progress. The [Drain Loop Flow](drain-flow.md) documents the three-layer drain control loop and the six feedback entry points in detail.
 
 ## Self-Healing Lease Expiry
 

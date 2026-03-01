@@ -120,7 +120,7 @@ class TestResolveImportPath:
     def test_rejects_lambda():
         """Verify that lambda functions are rejected with a ``ValueError``."""
         # Arrange
-        fn = lambda x: x
+        fn = lambda x: x  # noqa: E731
 
         # Act & Assert
         with pytest.raises(ValueError, match="lambda"):

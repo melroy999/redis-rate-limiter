@@ -14,11 +14,6 @@ import time
 
 import pytest
 
-from celery_rate_limiter.core.limiters import (
-    LOCK_ACQUIRE_SCRIPT,
-    LOCK_RELEASE_SCRIPT,
-    LOCK_SIMPLE_RELEASE_SCRIPT,
-)
 from celery_rate_limiter.core.scripts import load_lua_script
 
 CONSUME_SOURCE: str = load_lua_script("consume.lua")

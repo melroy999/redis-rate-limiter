@@ -13,8 +13,6 @@ import inspect
 import logging
 from unittest.mock import patch
 
-import pytest
-
 from celery_rate_limiter.core.limiters import DistributedRateLimiterMixin
 from tests.helpers.utils import assert_log_emitted
 

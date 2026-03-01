@@ -38,7 +38,11 @@ tests/
 │   ├── test_drain.py                   # Drain and trigger_consume branch tests
 │   ├── test_drain_loop.py             # DrainLoop scheduling and coalescing tests
 │   ├── test_get_status.py              # Status reporting tests
-│   ├── test_internal_helpers.py        # Internal helpers (eval, cleanup, token recovery, script loading)
+│   ├── test_lua_script_infrastructure.py  # Script loading, registration, and _eval_script recovery tests
+│   ├── test_task_data_helpers.py          # Task signature building, inflight TTL computation, and cleanup tests
+│   ├── test_token_recovery_delay.py       # Token recovery delay calculation boundary and exact-value tests
+│   ├── test_limiter_config.py             # Initial configuration defaults and window change tests
+│   ├── test_async_drain_loop.py           # Async drain loop scheduling, coalescing, and shutdown tests
 │   ├── test_smart_jitter.py            # Adaptive jitter calculation tests
 │   ├── test_metrics_callback.py        # Metrics callback observability tests
 │   ├── test_concurrent_access.py       # Multi-worker contention and atomicity tests
