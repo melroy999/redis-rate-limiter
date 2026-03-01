@@ -7,6 +7,7 @@ from celery_rate_limiter.core import (
     TaskLifecycle,
     import_string,
     rate_limited,
+    resolve_import_path,
 )
 
 __all__ = [
@@ -22,6 +23,7 @@ __all__ = [
     "ThreadPoolRateLimiter",
     "import_string",
     "rate_limited",
+    "resolve_import_path",
 ]
 
 # The Celery backend is only available when the celery package is installed.

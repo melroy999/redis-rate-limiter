@@ -13,7 +13,7 @@ from celery_rate_limiter.core.base import (
     AbstractSyncRateLimiter,
 )
 from celery_rate_limiter.core.decorators import rate_limited
-from celery_rate_limiter.core.importing import import_string
+from celery_rate_limiter.core.importing import import_string, resolve_import_path
 from celery_rate_limiter.core.limiters import (
     AbstractDistributedRateLimiter,
     DistributedLock,
@@ -46,4 +46,5 @@ __all__ = [
     "import_string",
     "load_lua_script",
     "rate_limited",
+    "resolve_import_path",
 ]

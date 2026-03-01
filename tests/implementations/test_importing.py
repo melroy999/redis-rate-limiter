@@ -1,11 +1,12 @@
 """Tests for the core import-string utility behavior."""
 
+import functools
 import json
 import logging
 
 import pytest
 
-from celery_rate_limiter import import_string
+from celery_rate_limiter import import_string, resolve_import_path
 from tests.helpers.utils import assert_log_emitted
 
 
@@ -70,6 +71,154 @@ class TestImportString:
             import_string(invalid_path)
 
 
+class TestResolveImportPath:
+    """Test suite for ``resolve_import_path()`` behavior."""
+
+    @staticmethod
+    def test_resolves_module_level_function():
+        """Verify that a module-level function resolves to its dotted import path."""
+        # Act
+        result = resolve_import_path(json.dumps)
+
+        # Assert
+        assert result == "json.dumps", (
+            "resolve_import_path should return the dotted path for json.dumps"
+        )
+
+    @staticmethod
+    def test_resolves_module_level_class():
+        """Verify that a module-level class resolves to its dotted import path.
+
+        Note: ``__module__`` reflects the defining module, not the re-export.
+        ``json.JSONEncoder`` is defined in ``json.encoder``, so the resolved
+        path is ``json.encoder.JSONEncoder``, not ``json.JSONEncoder``.
+        """
+        # Act
+        result = resolve_import_path(json.JSONEncoder)
+
+        # Assert
+        assert result == "json.encoder.JSONEncoder", (
+            "resolve_import_path should return the defining module path for json.JSONEncoder"
+        )
+
+    @staticmethod
+    def test_round_trip_with_import_string():
+        """Verify that the resolved path round-trips through ``import_string``."""
+        # Arrange
+        original = json.dumps
+
+        # Act
+        path = resolve_import_path(original)
+        resolved = import_string(path)
+
+        # Assert
+        assert resolved is original, (
+            "import_string of the resolved path should return the same object"
+        )
+
+    @staticmethod
+    def test_rejects_lambda():
+        """Verify that lambda functions are rejected with a ``ValueError``."""
+        # Arrange
+        fn = lambda x: x
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="lambda"):
+            resolve_import_path(fn)
+
+    @staticmethod
+    def test_rejects_nested_function():
+        """Verify that nested (inner) functions are rejected with a ``ValueError``."""
+        # Arrange
+        def inner_function():
+            pass
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="nested function or closure"):
+            resolve_import_path(inner_function)
+
+    @staticmethod
+    def test_rejects_bound_method():
+        """Verify that bound methods are rejected with a ``ValueError``."""
+        # Arrange
+        encoder = json.JSONEncoder()
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="class-bound callable"):
+            resolve_import_path(encoder.encode)
+
+    @staticmethod
+    def test_rejects_static_method_reference():
+        """Verify that a reference to a static method via class attribute is rejected."""
+
+        # Arrange
+        class Example:
+            @staticmethod
+            def helper():
+                pass
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="class-bound callable|nested function"):
+            resolve_import_path(Example.helper)
+
+    @staticmethod
+    def test_rejects_functools_partial():
+        """Verify that ``functools.partial`` objects are rejected with a ``ValueError``."""
+        # Arrange
+        fn = functools.partial(json.dumps, indent=2)
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="missing __module__ or __qualname__"):
+            resolve_import_path(fn)
+
+    @staticmethod
+    def test_rejects_callable_without_module_attribute():
+        """Verify that a callable missing ``__module__`` is rejected."""
+        # Arrange
+        # Simulate a callable lacking __module__ by wrapping a function and
+        # stripping the attribute. Standard classes in CPython 3.12+ have
+        # immutable __module__, so a wrapper is necessary.
+        def original():
+            pass
+
+        class Wrapper:
+            """Callable wrapper that deliberately omits __module__."""
+
+            __qualname__ = "Wrapper"
+
+            def __call__(self):
+                return original()
+
+        fn = Wrapper()
+        # Instance objects do not have __module__ by default; getattr falls
+        # through to the class. Override at instance level to hide the class attr.
+        fn.__module__ = None  # type: ignore[assignment]
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="missing __module__ or __qualname__"):
+            resolve_import_path(fn)
+
+    @staticmethod
+    def test_rejects_callable_without_qualname_attribute():
+        """Verify that a callable missing ``__qualname__`` is rejected."""
+        # Arrange
+        # Simulate via a simple namespace-like callable that lacks __qualname__.
+        class BareCallable:
+            """Callable wrapper that deliberately omits __qualname__."""
+
+            __module__ = "some.module"
+
+            def __call__(self):
+                pass
+
+        fn = BareCallable()
+        fn.__qualname__ = None  # type: ignore[assignment]
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="missing __module__ or __qualname__"):
+            resolve_import_path(fn)
+
+
 # ---------------------------------------------------------------------------
 # Observability tests
 # ---------------------------------------------------------------------------
@@ -93,4 +242,25 @@ class TestImportStringObservability:
             "DEBUG",
             ["import_path=json.dumps", "module=json", "callable=dumps"],
             "should emit a debug log for the resolved import with import path, module, and callable",
+        )
+
+
+class TestResolveImportPathObservability:
+    """Observability tests for ``resolve_import_path()``."""
+
+    @staticmethod
+    def test_emits_debug_log_on_success(caplog):
+        """Verify that ``resolve_import_path()`` emits a debug log with the resolved path."""
+        # Act
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.core.importing"
+        ):
+            resolve_import_path(json.dumps)
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            "DEBUG",
+            ["import_path=json.dumps"],
+            "should emit a debug log with the resolved import path",
         )
