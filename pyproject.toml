@@ -18,7 +18,7 @@ prometheus = ["prometheus_client (>=0.21.0,<1.0.0)"]
 pytest = ">=9.0.2"
 pytest_cov = ">=7.0.0"
 fakeredis = ">=2.33.0"
-ruff = "^0.15.0"
+ruff = "^0.15.2"
 mypy = "^1.19.1"
 hypothesis = "^6.151.9"
 
