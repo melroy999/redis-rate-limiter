@@ -133,6 +133,28 @@ jobs:
           maxColorRange: 100
           minColorRange: 0
 
+      - name: Update CI Badge (passing)
+        if: ${{ github.ref_name == 'master' && success() }}
+        uses: schneegans/dynamic-badges-action@v1.7.0
+        with:
+          auth: ${{ secrets.GIST_SECRET }}
+          gistID: f3caa8f0af98bf11563b5b2031c1ef3e
+          filename: celery-rate-limiter-ci.json
+          label: CI
+          message: passing
+          color: brightgreen
+
+      - name: Update CI Badge (failing)
+        if: ${{ github.ref_name == 'master' && failure() }}
+        uses: schneegans/dynamic-badges-action@v1.7.0
+        with:
+          auth: ${{ secrets.GIST_SECRET }}
+          gistID: f3caa8f0af98bf11563b5b2031c1ef3e
+          filename: celery-rate-limiter-ci.json
+          label: CI
+          message: failing
+          color: red
+
   # Build the project and push the docker image.
   build-and-push:
     needs: test-and-report
