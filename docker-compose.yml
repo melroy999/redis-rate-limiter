@@ -73,7 +73,7 @@ services:
   test-all:
     <<: *test-base
     container_name: celery-rate-limiter-test-all
-    command: poetry run pytest --override-ini='addopts=' tests/ -v -s
+    command: poetry run pytest --override-ini='addopts=--import-mode=importlib' tests/ -v -s
     profiles:
       - test-all
 

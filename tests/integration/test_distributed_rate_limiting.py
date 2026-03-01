@@ -227,18 +227,19 @@ class TestDistributedRateLimiting:
         prefill = limit * 2
         schedule_n_tasks(limiter, n=prefill, func_path=func_path)
 
-        stop = threading.Event()
+        producer_stop = threading.Event()
+        consumer_stop = threading.Event()
 
         def producer() -> None:
             seq = prefill
             interval = 1.0 / (limit * 0.5)
-            while not stop.is_set():
+            while not producer_stop.is_set():
                 limiter.schedule_task(func_path, {"seq": seq})
                 seq += 1
                 precise_sleep(interval)
 
         def consumer() -> None:
-            while not stop.is_set():
+            while not consumer_stop.is_set():
                 result = consume_and_complete(limiter)
                 if not result["success"]:
                     time.sleep(0.01)
@@ -254,8 +255,14 @@ class TestDistributedRateLimiting:
         # At net rate of (limit - 0.5*limit) = 0.5*limit per window, draining
         # 2*limit tasks takes approximately 4 windows.
         precise_sleep(window * 6)
-        stop.set()
+
+        # Stop the producer first, then let the consumer drain any stragglers
+        # before stopping it. This avoids a race where the producer schedules
+        # a task after the consumer's final iteration.
+        producer_stop.set()
         producer_thread.join(timeout=2)
+        precise_sleep(window)
+        consumer_stop.set()
         consumer_thread.join(timeout=2)
 
         # Assert

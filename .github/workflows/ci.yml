@@ -76,7 +76,7 @@ jobs:
       - name: Run Pytest in Container
         run: |
           docker run --name test-container app-test \
-          sh -c "redis-server --daemonize yes && PYTHONPATH=src python3 -m pytest --override-ini='addopts=' --junitxml=result.xml --cov=src/celery_rate_limiter --cov-report=xml:coverage.xml tests/ && redis-cli shutdown || true"
+          sh -c "redis-server --daemonize yes && PYTHONPATH=src python3 -m pytest --override-ini='addopts=--import-mode=importlib' --junitxml=result.xml --cov=src/celery_rate_limiter --cov-report=xml:coverage.xml tests/ && redis-cli shutdown || true"
 
       - name: Extract Artifacts
         if: always()

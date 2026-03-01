@@ -138,7 +138,10 @@ class TestConfigRoundTripProperties:
         max_concurrency=st.integers(min_value=1, max_value=1000),
         max_age=st.integers(min_value=1, max_value=86400),
         lease_duration=st.integers(min_value=1, max_value=3600),
-        extra_key=st.text(min_size=1, max_size=20),
+        extra_key=st.text(min_size=1, max_size=20).filter(
+            lambda k: k
+            not in {"limit", "window", "max_concurrency", "max_age", "lease_duration"}
+        ),
         extra_value=st.integers(min_value=0, max_value=1000),
     )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
