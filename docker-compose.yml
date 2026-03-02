@@ -73,9 +73,49 @@ services:
   test-all:
     <<: *test-base
     container_name: celery-rate-limiter-test-all
-    command: poetry run pytest --override-ini='addopts=' tests/ -v -s
+    command: poetry run pytest --override-ini='addopts=--import-mode=importlib' tests/ -v -s
     profiles:
       - test-all
+
+  # Mutation testing service (runs mutmut inside Docker; requires Linux fork support).
+  mutate:
+    <<: *test-base
+    container_name: celery-rate-limiter-mutate
+    volumes:
+      # Output directory only; /app/mutants is mutmut's internal working directory.
+      # Rebuild with --build to pick up source changes.
+      - ./mutmut-results:/app/mutation-output
+    command: >-
+      bash -c "
+        python scripts/run_mutmut.py run 2>&1 | tee /tmp/mutmut-run.log;
+        MUTMUT_EXIT=$${PIPESTATUS[0]};
+        if [ $$MUTMUT_EXIT -ne 0 ]; then
+          echo '*** BASELINE FAILURE: mutmut run exited with code '$$MUTMUT_EXIT' ***';
+          echo 'Re-running test suite to capture the failing test:';
+          python -m pytest -x --tb=short -q
+            --ignore=tests/properties/
+            --deselect=tests/integration/test_rate_limiting.py::TestSlidingWindowBehavior
+            --deselect=tests/integration/test_distributed_rate_limiting.py::TestDistributedRateLimiting;
+          exit 1;
+        fi;
+        echo '--- MUTATION RESULTS ---';
+        python scripts/run_mutmut.py results | tee /app/mutation-output/results.txt;
+        echo '--- SURVIVED, UNTESTED, SUSPICIOUS, AND TIMEOUT MUTATION DIFFS ---' > /app/mutation-output/diffs.txt;
+        python scripts/run_mutmut.py results | grep -E ': (survived|no tests|suspicious|timeout)' | sed 's/^[[:space:]]*//' | cut -d: -f1 | while read -r name; do
+          echo \"=== $$name ===\" >> /app/mutation-output/diffs.txt;
+          python scripts/run_mutmut.py show \"$$name\" >> /app/mutation-output/diffs.txt 2>&1;
+          echo '' >> /app/mutation-output/diffs.txt;
+        done;
+        echo '';
+        echo '--- MUTANT CLASSIFICATION ---';
+        python scripts/classify_mutants.py /app/mutation-output/diffs.txt | tee /app/mutation-output/classification.txt;
+        cp mutants/mutmut-stats.json /app/mutation-output/stats.json 2>/dev/null || echo 'No stats file found';
+        echo '';
+        echo '--- MUTATION SCORE ---';
+        python scripts/extract_mutation_score.py /tmp/mutmut-run.log /app/mutation-output/mutation-score.txt
+      "
+    profiles:
+      - mutate
 
   # Optional: Redis Commander (web UI for debugging).
   redis-commander:

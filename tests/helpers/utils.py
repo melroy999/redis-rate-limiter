@@ -1,44 +1,75 @@
 """Shared test utilities and helper functions.
 
-This module contains utility functions used across multiple test files.
+This module provides utility functions that are used across multiple test files.
 """
 
+import asyncio
 import math
+import time
+
+import pytest
+
+
+async def wait_for_key_expiry(
+    redis_client, key: str, deadline_seconds: float = 5.0
+) -> None:
+    """Poll until a Redis key expires, using wall-clock time for the deadline.
+
+    Relies on ``time.monotonic()`` rather than an iteration count to ensure
+    the budget is honoured even when ``asyncio.sleep`` returns early or late
+    (as observed under mutmut's trampoline overhead).
+
+    Args:
+        redis_client: An async Redis client.
+        key: The Redis key to monitor.
+        deadline_seconds: Maximum wall-clock seconds to wait before failing.
+
+    Raises:
+        pytest.fail: If the key has not expired within the deadline. The
+            failure message includes the key's current PTTL for diagnosis.
+    """
+    end = time.monotonic() + deadline_seconds
+    while time.monotonic() < end:
+        if await redis_client.exists(key) == 0:
+            return
+        await asyncio.sleep(0.05)
+    ttl = await redis_client.pttl(key)
+    pytest.fail(f"key {key!r} did not expire within {deadline_seconds}s (pttl={ttl}ms)")
 
 
 def dict_equals_approx(left, right, relative_tolerance=1e-9, absolute_tolerance=1e-9):
-    """Check if two values are approximately equal, handling nested structures.
+    """Determine whether two values are approximately equal, with support for nested structures.
 
-    For floats, uses approximate equality with configurable tolerance.
-    For nested dicts and lists, recursively compares elements.
-    For other types, uses exact equality.
+    For float values, approximate equality is evaluated using a configurable tolerance.
+    For nested dictionaries and lists, the comparison is performed recursively.
+    For all other types, exact equality is used.
 
     Args:
-        left: First value to compare.
-        right: Second value to compare.
-        relative_tolerance: Relative tolerance for float comparisons.
-        absolute_tolerance: Absolute tolerance for float comparisons.
+        left: The first value to compare.
+        right: The second value to compare.
+        relative_tolerance: The relative tolerance applied to float comparisons.
+        absolute_tolerance: The absolute tolerance applied to float comparisons.
 
     Returns:
-        True if values are approximately equal, False otherwise.
+        True if the values are approximately equal, False otherwise.
     """
-    # Handle None.
+    # Handle the case where both values are None.
     if left is None and right is None:
         return True
     if left is None or right is None:
         return False
 
-    # Handle different types.
+    # Handle the case where the types differ.
     if type(left) is not type(right):
         return False
 
-    # Handle floats with approximate equality.
+    # Handle float values with approximate equality.
     if isinstance(left, float):
         return math.isclose(
             left, right, rel_tol=relative_tolerance, abs_tol=absolute_tolerance
         )
 
-    # Handle dicts recursively.
+    # Handle dictionaries recursively.
     if isinstance(left, dict):
         if set(left.keys()) != set(right.keys()):
             return False
@@ -60,19 +91,40 @@ def dict_equals_approx(left, right, relative_tolerance=1e-9, absolute_tolerance=
             for i in range(len(left))
         )
 
-    # For all other types (int, str, bool), use exact equality.
+    # For all remaining types (i.e., int, str, bool), exact equality is used.
     return left == right
 
 
-def is_subset(target: dict, superset: dict):
-    """Check if the given target is a subset of the given superset.
+def assert_log_emitted(
+    caplog_records: list,
+    level: str,
+    required_fragments: list[str],
+    message: str,
+) -> None:
+    """Assert that at least one log record matches the given level and contains all required fragments.
 
     Args:
-        target: The data that is considered the subset in the comparison.
-        superset: The superset data.
+        caplog_records: The list of captured log records (typically ``caplog.records``).
+        level: The expected log level name (e.g., ``"DEBUG"``, ``"INFO"``, ``"WARNING"``).
+        required_fragments: Substrings that must all appear in the matching record's message.
+        message: The assertion failure message.
+    """
+    assert any(
+        record.levelname == level
+        and all(fragment in record.message for fragment in required_fragments)
+        for record in caplog_records
+    ), message
+
+
+def is_subset(target: dict, superset: dict):
+    """Determine whether the given target dictionary is a recursive subset of the given superset.
+
+    Args:
+        target: The dictionary that is considered the subset in the comparison.
+        superset: The dictionary that is considered the superset in the comparison.
 
     Returns:
-        True if 'target' is a recursive subset of 'superset,' False otherwise.
+        True if ``target`` is a recursive subset of ``superset``, False otherwise.
     """
     for key, value in target.items():
         if key not in superset:

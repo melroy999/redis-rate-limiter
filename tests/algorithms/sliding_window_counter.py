@@ -1,6 +1,7 @@
-"""Pure Python sliding window counter algorithm used by tests.
+"""Pure Python implementation of the sliding window counter algorithm for use in tests.
 
-This mirrors the Lua logic in consume.lua to enable deterministic testing.
+This module mirrors the Lua logic defined in consume.lua, thereby enabling
+deterministic testing of the algorithm independently of the Redis runtime.
 """
 
 
@@ -10,19 +11,20 @@ def sliding_window_estimate(
     window_ms: int,
     elapsed_ms: int,
 ) -> float:
-    """Calculate the estimated request count using sliding window counter algorithm.
+    """Calculate the estimated request count using the sliding window counter algorithm.
 
-    Pure Python implementation of the algorithm from consume.lua. Weights the
-    previous window's count based on how much of it overlaps the sliding window.
+    This is a pure Python implementation of the algorithm defined in consume.lua.
+    The previous window's count is weighted according to the proportion of overlap
+    with the current sliding window.
 
     Args:
-        previous_count: Number of requests in the previous fixed window.
-        current_count: Number of requests in the current fixed window.
-        window_ms: Window size in milliseconds.
-        elapsed_ms: Time elapsed since current window started.
+        previous_count: The number of requests recorded in the previous fixed window.
+        current_count: The number of requests recorded in the current fixed window.
+        window_ms: The window size in milliseconds.
+        elapsed_ms: The time elapsed since the current window started, in milliseconds.
 
     Returns:
-        Estimated request count for the sliding window.
+        The estimated request count for the sliding window.
     """
     weight = (window_ms - elapsed_ms) / window_ms
     return current_count + (previous_count * weight)
@@ -35,17 +37,17 @@ def is_allowed(
     elapsed_ms: int,
     limit: int,
 ) -> bool:
-    """Determine if a request is allowed under the rate limit.
+    """Determine whether a request is permitted under the configured rate limit.
 
     Args:
-        previous_count: Number of requests in the previous fixed window.
-        current_count: Number of requests in the current fixed window.
-        window_ms: Window size in milliseconds.
-        elapsed_ms: Time elapsed since current window started.
-        limit: Maximum requests allowed per window.
+        previous_count: The number of requests recorded in the previous fixed window.
+        current_count: The number of requests recorded in the current fixed window.
+        window_ms: The window size in milliseconds.
+        elapsed_ms: The time elapsed since the current window started, in milliseconds.
+        limit: The maximum number of requests permitted per window.
 
     Returns:
-        True if a request can be made, False otherwise.
+        True if the request is permitted, False otherwise.
     """
     estimated = sliding_window_estimate(
         previous_count, current_count, window_ms, elapsed_ms

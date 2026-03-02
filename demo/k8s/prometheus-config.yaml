@@ -1,0 +1,48 @@
+# Prometheus scrape configuration for the Kubernetes demo. Uses
+# kubernetes_sd_configs for automatic pod discovery; pods opt in via
+# prometheus.io/scrape, prometheus.io/port, and prometheus.io/path
+# annotations. A 1-second scrape interval provides near-real-time
+# dashboard updates.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: celery-rate-limiter-demo
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 1s
+      evaluation_interval: 1s
+
+    scrape_configs:
+      - job_name: celery-rate-limiter
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - celery-rate-limiter-demo
+        relabel_configs:
+          # Only scrape pods with the prometheus.io/scrape annotation.
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          # Drop init containers (pod SD creates one target per container).
+          - source_labels: [__meta_kubernetes_pod_container_init]
+            action: drop
+            regex: "true"
+          # Use the port from the prometheus.io/port annotation.
+          - source_labels: [__meta_kubernetes_pod_ip, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: (.+);(.+)
+            replacement: $1:$2
+          # Use the path from the prometheus.io/path annotation.
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          # Expose the pod name as an instance label.
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: instance

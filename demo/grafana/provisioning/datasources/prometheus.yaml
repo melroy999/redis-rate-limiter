@@ -1,0 +1,19 @@
+# Grafana datasource provisioning: auto-configure Prometheus on startup.
+# deleteDatasources runs first on each startup, removing the stale copy from
+# Grafana's SQLite DB so the datasource section below is always applied fresh.
+
+apiVersion: 1
+
+deleteDatasources:
+  - name: Prometheus
+    orgId: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: "1s"

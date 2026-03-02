@@ -1,0 +1,66 @@
+name: Mutation Testing
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types: [completed]
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  mutate:
+    runs-on: ubuntu-latest
+    # Run only if manually dispatched or CI succeeded on master.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Configure Kernel for Redis
+        run: sudo sysctl vm.overcommit_memory=1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Run Mutation Tests
+        run: >
+          docker compose --profile mutate up
+          --build
+          --abort-on-container-exit
+          --exit-code-from mutate
+
+      - name: Upload Results
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: mutmut-results
+          path: mutmut-results/
+
+      - name: Extract Mutation Score
+        id: mutation_score
+        if: success()
+        run: |
+          SCORE=$(cat mutmut-results/mutation-score.txt)
+          echo "score=$SCORE" >> "$GITHUB_OUTPUT"
+          echo "Mutation score: ${SCORE}%"
+
+      - name: Update Mutation Score Badge
+        if: success()
+        uses: schneegans/dynamic-badges-action@e9a478b16159b4d31420099ba146cdc50f134483 # v1.7.0
+        with:
+          auth: ${{ secrets.GIST_SECRET }}
+          gistID: f3caa8f0af98bf11563b5b2031c1ef3e
+          filename: celery-rate-limiter-mutation-score.json
+          label: Mutation Score
+          message: ${{ steps.mutation_score.outputs.score }}%
+          valColorRange: ${{ steps.mutation_score.outputs.score }}
+          maxColorRange: 100
+          minColorRange: 0
