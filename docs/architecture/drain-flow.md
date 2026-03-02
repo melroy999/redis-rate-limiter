@@ -1,30 +1,31 @@
 # Drain Loop Flow
 
-The drain loop is a three-layer control loop that orchestrates the consumption and dispatch of buffered tasks. The outermost layer (`DrainLoop._run()`) is a background thread that manages wake signals and watchdog timing. The middle layer (`drain()`) handles configuration refresh, window-change pauses, error recovery, and exponential backoff. The innermost layer (`_drain_inner()`) performs the actual lock acquisition, task consumption, dispatch, and rescheduling. This document presents the control loop as four diagrams: an overview that shows how the layers connect, followed by one detailed flowchart per layer. Each detail diagram is accompanied by a test coverage table that maps every decision branch to the test(s) that exercise it.
+The drain loop is a three-layer control loop that orchestrates the consumption and dispatch of buffered tasks. Both sync and async implementations follow the same structure. For the sync path, the outermost layer (`DrainLoop._run()`) is a background thread that manages wake signals and watchdog timing; for the async path, `AsyncDrainLoop._run()` is an `asyncio.Task` that fulfils the same role using `asyncio.Condition` and `asyncio.sleep()`. The middle layer (`drain()`) handles configuration refresh, window-change pauses, error recovery, and exponential backoff. The innermost layer (`_drain_inner()`) performs the actual lock acquisition, task consumption, dispatch, and rescheduling. This document presents the control loop as four diagrams: an overview that shows how the layers connect, followed by one detailed flowchart per layer. Each detail diagram is accompanied by a test coverage table that maps every decision branch to the test(s) that exercise it.
 
 ## Overview
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 flowchart TD
     subgraph Triggers ["Feedback Entry Points"]
-        T_SCHEDULE["schedule_task()\ncalls trigger_consume()"]
-        T_LIFECYCLE["TaskLifecycle.__exit__()\ncalls trigger_consume()"]
-        T_PUBSUB["Cross-process Pub/Sub:\nDrainSignalSubscriber"]
-        T_FOLLOWUP["Remaining tasks > 0:\nimmediate follow-up"]
-        T_RATE["Rate limited:\ndelayed retry"]
-        T_WATCHDOG["Watchdog timer:\nevery max(5.0, window × 2)"]
+        T_SCHEDULE["schedule_task()<br>calls trigger_consume()"]
+        T_LIFECYCLE["TaskLifecycle.__exit__()<br>calls trigger_consume()"]
+        T_PUBSUB["Cross-process Pub/Sub:<br>DrainSignalSubscriber"]
+        T_FOLLOWUP["Remaining tasks > 0:<br>immediate follow-up"]
+        T_RATE["Rate limited:<br>delayed retry"]
+        T_WATCHDOG["Watchdog timer:<br>every max(5.0, window × 2)"]
     end
 
     subgraph L1 ["Layer 1: DrainLoop._run()"]
-        L1_BLOCK["Background thread:\nmanages wake signals,\nwatchdog timeout,\nwake coalescing"]
+        L1_BLOCK["Background thread:<br>manages wake signals,<br>watchdog timeout,<br>wake coalescing"]
     end
 
     subgraph L2 ["Layer 2: drain()"]
-        L2_BLOCK["Config refresh,\nwindow-change pause,\nerror recovery"]
+        L2_BLOCK["Config refresh,<br>window-change pause,<br>error recovery"]
     end
 
     subgraph L3 ["Layer 3: _drain_inner()"]
-        L3_BLOCK["Local capacity check,\nlock acquisition,\ntask consumption,\ndispatch,\nrescheduling"]
+        L3_BLOCK["Local capacity check,<br>lock acquisition,<br>task consumption,<br>dispatch,<br>rescheduling"]
     end
 
     T_SCHEDULE -- "wake(0)" --> L1_BLOCK
@@ -39,7 +40,7 @@ flowchart TD
 
     L3_BLOCK -. "remaining tasks" .-> T_FOLLOWUP
     L3_BLOCK -. "rate limited" .-> T_RATE
-    L2_BLOCK -. "exception → backoff\n→ _schedule_drain(delay)" .-> L1_BLOCK
+    L2_BLOCK -. "exception → backoff<br>→ _schedule_drain(delay)" .-> L1_BLOCK
 
     style Triggers fill:#e8f5e9,stroke:#388E3C
     style L1 fill:#e8f4f8,stroke:#2196F3
@@ -50,7 +51,7 @@ flowchart TD
 **Legend:**
 
 - *Green subgraph* (Feedback Entry Points): the six triggers that drive the drain loop; see [Feedback Entry Points](#feedback-entry-points) for detailed descriptions.
-- *Blue subgraph* (Layer 1): the `DrainLoop._run()` background thread.
+- *Blue subgraph* (Layer 1): `DrainLoop._run()` (background thread, sync) or `AsyncDrainLoop._run()` (`asyncio.Task`, async).
 - *Orange subgraph* (Layer 2): the `drain()` method.
 - *Purple subgraph* (Layer 3): the `_drain_inner()` method.
 - *Solid arrows* indicate synchronous call chains (Layer 1 → Layer 2 → Layer 3).
@@ -58,19 +59,20 @@ flowchart TD
 
 ## Layer 1: DrainLoop._run()
 
-The `DrainLoop._run()` background thread manages wake signals and watchdog timing. It sleeps on a condition variable until either an explicit `wake()` call sets `_next_wake` or the watchdog timeout elapses, then calls `drain()` and loops back to the shutdown check.
+The `DrainLoop._run()` background thread (sync) or `AsyncDrainLoop._run()` asyncio task (async) manages wake signals and watchdog timing. It sleeps on a condition variable (`threading.Condition` or `asyncio.Condition`) until either an explicit `wake()` call sets `_next_wake` or the watchdog timeout elapses, then calls `drain()` and loops back to the shutdown check. The flowchart below uses the sync naming; the async variant mirrors it identically with `asyncio` primitives.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 flowchart TD
     L1_START["Thread start"]
-    L1_SHUTDOWN{"Shutdown\nflag set?"}
+    L1_SHUTDOWN{"Shutdown<br>flag set?"}
     L1_EXIT["Return (thread exits)"]
-    L1_HAS_WAKE{"_next_wake\nis set?"}
-    L1_WAIT_WATCHDOG["Wait on condition variable\ntimeout = watchdog_interval"]
-    L1_WOKE_REAL{"_next_wake set\nduring wait?"}
+    L1_HAS_WAKE{"_next_wake<br>is set?"}
+    L1_WAIT_WATCHDOG["Wait on condition variable<br>timeout = watchdog_interval"]
+    L1_WOKE_REAL{"_next_wake set<br>during wait?"}
     L1_CALC_REMAINING["remaining = _next_wake − now"]
-    L1_REMAINING_POS{"remaining\n> 0?"}
-    L1_WAIT_REMAINING["Wait on condition variable\ntimeout = remaining"]
+    L1_REMAINING_POS{"remaining<br>> 0?"}
+    L1_WAIT_REMAINING["Wait on condition variable<br>timeout = remaining"]
     L1_CLEAR_WAKE["Clear _next_wake = None"]
     L1_CALL_DRAIN["Call limiter.drain()"]
 
@@ -119,19 +121,20 @@ The watchdog fires every `max(5.0, window * 2)` seconds. With the introduction o
 The `drain()` method handles configuration refresh, window-change pauses, and error recovery. It wraps the entire drain pipeline (configuration refresh, pause check, and `_drain_inner()`) in a `try/except` that catches all exceptions and schedules recovery drains with exponential backoff. Placing `refresh_config()` inside the try/except ensures that Redis connection errors during configuration refresh are caught by the backoff recovery rather than killing the drain loop thread.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 flowchart TD
     L2_TRY_START["Enter try/except"]
     L2_REFRESH["Call refresh_config()"]
-    L2_PAUSED{"time.time()\n< _paused_until?"}
-    L2_SCHEDULE_RESUME["Schedule drain at\nremaining pause time"]
+    L2_PAUSED{"time.time()<br>< _paused_until?"}
+    L2_SCHEDULE_RESUME["Schedule drain at<br>remaining pause time"]
     L2_RETURN_PAUSED["Return (skip drain)"]
     L2_INNER["Call _drain_inner()"]
     L2_SUCCESS["Reset _consecutive_drain_failures = 0"]
     L2_EXCEPT["Increment _consecutive_drain_failures"]
     L2_BACKOFF["delay = min(window, 0.1 × 2^(n−1))"]
-    L2_SCHEDULE_RETRY["Schedule recovery drain\nwith backoff delay"]
-    L2_DOUBLE_FAIL{"Recovery scheduling\nalso fails?"}
-    L2_CRITICAL["Log critical:\nrely on watchdog or\nexternal trigger"]
+    L2_SCHEDULE_RETRY["Schedule recovery drain<br>with backoff delay"]
+    L2_DOUBLE_FAIL{"Recovery scheduling<br>also fails?"}
+    L2_CRITICAL["Log critical:<br>rely on watchdog or<br>external trigger"]
 
     L2_TRY_START --> L2_REFRESH
     L2_REFRESH --> L2_PAUSED
@@ -174,34 +177,35 @@ where `n` is the consecutive error count. The backoff starts at 100ms for the fi
 The `_drain_inner()` method performs the local capacity check, lock acquisition, task consumption, dispatch, and rescheduling. It is the most complex layer, as it must handle all possible outcomes of the consumption attempt and determine the appropriate follow-up action.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 flowchart TD
-    L3_LOCAL_CAP{"Local execution\ncapacity available?"}
-    L3_DEFER_LOCAL["Schedule retry\ndelay = window / limit"]
-    L3_COOLDOWN{"Worker in\ncooldown?"}
-    L3_LOCK{"Acquire dispatch_lock\nSET NX with UUID token"}
-    L3_CONTENTION["INCR contention counter\n(record competition)"]
-    L3_NOT_ACQUIRED["Schedule backup drain\ndelay = window / limit"]
+    L3_LOCAL_CAP{"Local execution<br>capacity available?"}
+    L3_DEFER_LOCAL["Schedule retry<br>delay = window / limit"]
+    L3_COOLDOWN{"Worker in<br>cooldown?"}
+    L3_LOCK{"Acquire dispatch_lock<br>SET NX with UUID token"}
+    L3_CONTENTION["INCR contention counter<br>(record competition)"]
+    L3_NOT_ACQUIRED["Schedule backup drain<br>delay = window / limit"]
     L3_RETURN_LOCK["Return"]
-    L3_CONSUME["Call consume()\nEVALSHA consume.lua"]
-    L3_EXPIRED{"Task\nexpired?"}
-    L3_LOG_EXPIRED["Log warning:\ntask moved to DLQ"]
-    L3_SUCCESS{"Success and\ntask present?"}
+    L3_CONSUME["Call consume()<br>EVALSHA consume.lua"]
+    L3_EXPIRED{"Task<br>expired?"}
+    L3_LOG_EXPIRED["Log warning:<br>task moved to DLQ"]
+    L3_SUCCESS{"Success and<br>task present?"}
     L3_DISPATCH["Dispatch via _dispatch_task()"]
-    L3_RELEASE_OK["Release lock,\nverify token ownership"]
-    L3_CHECK_CONTENTION{"Contention\ncounter > 0?"}
-    L3_SET_COOLDOWN["SET per-worker cooldown key\n(TTL = window / limit, capped 1s)\nDEL contention counter"]
-    L3_REMAINING{"remaining_tasks\n> 0?"}
-    L3_FOLLOWUP["Schedule immediate\nfollow-up drain (delay=0)"]
-    L3_EMPTY{"remaining_tasks\n== 0?"}
-    L3_STOP_EMPTY["Stop: wait for\nschedule_task() trigger"]
-    L3_CONCURRENCY{"active_concurrency\n>= max_concurrency?"}
-    L3_STOP_FULL["Stop: wait for\nTaskLifecycle.__exit__() trigger"]
-    L3_RATE_LIMITED{"remaining_tokens\n<= 0?"}
-    L3_CALC_DELAY["Calculate token recovery delay\nvia _calculate_token_recovery_delay()"]
-    L3_IS_FALLBACK{"val_previous <= 0\nor val_current >= limit?"}
-    L3_ADD_JITTER["Add smart jitter via\n_calculate_smart_jitter()"]
+    L3_RELEASE_OK["Release lock,<br>verify token ownership"]
+    L3_CHECK_CONTENTION{"Contention<br>counter > 0?"}
+    L3_SET_COOLDOWN["SET per-worker cooldown key<br>(TTL = window / limit, capped 1s)<br>DEL contention counter"]
+    L3_REMAINING{"remaining_tasks<br>> 0?"}
+    L3_FOLLOWUP["Schedule immediate<br>follow-up drain (delay=0)"]
+    L3_EMPTY{"remaining_tasks<br>== 0?"}
+    L3_STOP_EMPTY["Stop: wait for<br>schedule_task() trigger"]
+    L3_CONCURRENCY{"active_concurrency<br>>= max_concurrency?"}
+    L3_STOP_FULL["Stop: wait for<br>TaskLifecycle.__exit__() trigger"]
+    L3_RATE_LIMITED{"remaining_tokens<br><= 0?"}
+    L3_CALC_DELAY["Calculate token recovery delay<br>via _calculate_token_recovery_delay()"]
+    L3_IS_FALLBACK{"val_previous <= 0<br>or val_current >= limit?"}
+    L3_ADD_JITTER["Add smart jitter via<br>_calculate_smart_jitter()"]
     L3_NO_JITTER["jitter = 0"]
-    L3_SCHEDULE_RATE["Schedule retry with\nmax(0.001, base_delay + jitter)"]
+    L3_SCHEDULE_RATE["Schedule retry with<br>max(0.001, base_delay + jitter)"]
 
     L3_LOCAL_CAP -- "No" --> L3_DEFER_LOCAL
     L3_LOCAL_CAP -- "Yes" --> L3_COOLDOWN
@@ -254,7 +258,7 @@ flowchart TD
 | Buffer empty → stop | No follow-up scheduled | `implementations/test_drain::test_drain_stops_when_buffer_empty` |
 | Concurrency full → stop | Wait for `TaskLifecycle.__exit__()` trigger | `implementations/test_drain::test_drain_stops_when_concurrency_at_capacity` |
 | Rate limited → fallback (jitter) | Window reset delay + smart jitter | `implementations/test_drain::test_drain_schedules_delayed_retry_when_rate_limited` |
-| Rate limited → token recovery (no jitter) | Sliding-window decay calculation, jitter skipped | `implementations/test_drain::test_drain_skips_jitter_on_token_recovery_path` |
+| Rate limited → token recovery (no jitter) | Sliding-window decay calculation, jitter skipped | `implementations/test_drain::test_drain_skips_jitter_on_token_recovery_path`, `implementations/test_token_recovery_delay::test_token_recovery_primary_path_exact_value`, `implementations/test_token_recovery_delay::test_token_recovery_fallback_when_val_previous_is_zero`, `properties/test_token_recovery` (mathematical invariants) |
 | Concurrent lock serialization | Distributed lock serializes drains across workers | `implementations/test_concurrent_access::test_distributed_lock_serializes_drains` |
 | All tasks eventually consumed | Buffer fully drained under contention | `implementations/test_concurrent_access::test_all_tasks_eventually_consumed_under_contention` |
 | Cooldown distributes drains | Multiple workers dispatch under contention | `implementations/test_concurrent_access::test_contention_aware_cooldown_distributes_drains` |
@@ -323,7 +327,8 @@ When the token recovery calculation cannot determine an exact delay via previous
 
 ## References
 
-- [limiters.py](../../src/celery_rate_limiter/core/limiters.py): core implementation (DrainLoop, DrainSignalSubscriber, drain, _drain_inner, delay calculations).
+- [limiters.py](../../src/celery_rate_limiter/core/limiters.py): sync core implementation (DrainLoop, DrainSignalSubscriber, drain, _drain_inner, delay calculations).
+- [async_limiters.py](../../src/celery_rate_limiter/core/async_limiters.py): async core implementation (AsyncDrainLoop, AsyncDrainSignalSubscriber, and async counterparts of drain and delay calculations).
 - [Smart Jitter](../smart-jitter.md): adaptive thundering herd prevention strategy for retry delays.
 - [Task State Diagram](task-states.md): all possible task states and their transitions.
 - [Component Diagram](components.md): high-level component overview showing the DrainLoop's position in the architecture.

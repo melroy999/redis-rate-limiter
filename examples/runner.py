@@ -51,7 +51,8 @@ def setup_logging(log_dir: str) -> None:
 
     # Demonstration log: captures output from all examples.* loggers.
     demo_handler = logging.FileHandler(
-        os.path.join(log_dir, "demo.log"), mode="w",
+        os.path.join(log_dir, "demo.log"),
+        mode="w",
     )
     demo_handler.setLevel(logging.DEBUG)
     demo_handler.setFormatter(fmt)
@@ -60,7 +61,8 @@ def setup_logging(log_dir: str) -> None:
 
     # Rate limiter internals log: captures the library's debug output.
     limiter_handler = logging.FileHandler(
-        os.path.join(log_dir, "limiter_debug.log"), mode="w",
+        os.path.join(log_dir, "limiter_debug.log"),
+        mode="w",
     )
     limiter_handler.setLevel(logging.DEBUG)
     limiter_handler.setFormatter(fmt)
@@ -85,34 +87,51 @@ def flush_stale_keys(redis_client: redis.Redis, limiter_id: str) -> None:
 
 def run_demo(
     *,
-    limiter,
+    scheduler,
+    create_consumer: Callable,
     limiter_id: str,
     cleanup: Callable[[], None],
 ) -> None:
     """Execute the standard demonstration sequence: deduplication, burst, monitoring, and cleanup.
 
+    This function uses a two-limiter pattern to ensure that all tasks are buffered
+    before consumption begins. The *scheduler* instance has its drain loop disabled
+    (``drain_enabled=False``) and is used solely for scheduling. After all tasks
+    have been enqueued, *create_consumer* is called to obtain a second instance
+    with the drain loop enabled, which processes the pre-filled buffer.
+
     Args:
-        limiter: A fully configured rate limiter instance.
+        scheduler: A rate limiter instance with ``drain_enabled=False``, used only
+            for scheduling tasks into the Redis buffer.
+        create_consumer: A callable that returns a drain-enabled rate limiter instance.
+            Invoked after all tasks have been scheduled.
         limiter_id: The display identifier used in the dashboard header.
-        cleanup: A callable invoked after monitoring completes (e.g., to shut down workers).
+        cleanup: A callable invoked after monitoring completes (e.g., to shut down
+            backend resources such as executors or worker processes).
     """
     rng = random.Random(PRIORITY_SEED)
 
     logger.info(
         "Limiter created: limit=%d/%.1fs, concurrency=%d",
-        LIMIT, WINDOW, MAX_CONCURRENCY,
+        LIMIT,
+        WINDOW,
+        MAX_CONCURRENCY,
     )
 
-    # --- Deduplication demonstration ------------------------------------------
+    # ---------------------------------------------------------------------------
+    # Deduplication demonstration
+    # ---------------------------------------------------------------------------
     logger.info("--- Deduplication demo ---")
     logger.info("Scheduling the same task %d times...", DEDUP_COUNT)
     accepted = sum(
-        limiter.schedule_task(FUNC_PATH, {"user_id": 1})[0]
+        scheduler.schedule_task(FUNC_PATH, {"user_id": 1})[0]
         for _ in range(DEDUP_COUNT)
     )
     logger.info("Accepted: %d/%d (duplicates rejected)", accepted, DEDUP_COUNT)
 
-    # --- Build the task list with random priorities --------------------------
+    # ---------------------------------------------------------------------------
+    # Build the task list with random priorities
+    # ---------------------------------------------------------------------------
     tasks: list[tuple[str, dict, int]] = []
 
     # Normal burst tasks
@@ -133,26 +152,33 @@ def run_demo(
     # Shuffle the list such that the scheduling order is also randomised.
     rng.shuffle(tasks)
 
-    # --- Schedule all tasks ---------------------------------------------------
+    # ---------------------------------------------------------------------------
+    # Schedule all tasks
+    # ---------------------------------------------------------------------------
     total = BURST_COUNT + ERROR_COUNT
     logger.info(
         "Scheduling %d tasks (seed=%d): %d normal + %d failing, interleaved by priority",
-        total, PRIORITY_SEED, BURST_COUNT, ERROR_COUNT,
+        total,
+        PRIORITY_SEED,
+        BURST_COUNT,
+        ERROR_COUNT,
     )
+
     for func_path, payload, priority in tasks:
-        limiter.schedule_task(func_path, payload, priority=priority)
+        scheduler.schedule_task(func_path, payload, priority=priority)
     logger.info("All %d tasks queued", total)
 
-    # The drain loop is started automatically when the first task is scheduled
-    # (via trigger_consume -> DrainLoop.wake).
-    logger.info("Drain loop started automatically via task scheduling")
-    time.sleep(0.5)  # Brief pause to allow the first drain cycle to fire.
+    # ---------------------------------------------------------------------------
+    # Create consumer and begin draining
+    # ---------------------------------------------------------------------------
+    consumer = create_consumer()
+    consumer.trigger_consume()
+    logger.info("Consumer created; drain loop active")
 
-    # --- Live monitoring ------------------------------------------------------
     dashboard = Dashboard(limiter_id=limiter_id, limit=LIMIT)
 
     # The exit condition is not evaluated until the drain loop has had
-    # sufficient time to begin consuming.  Without this grace period, the
+    # sufficient time to begin consuming. Without this grace period, the
     # monitor may observe a momentary buffer=0 / concurrency=0 snapshot
     # before the first drain cycle fires.
     grace_period = 2.0
@@ -160,7 +186,7 @@ def run_demo(
 
     try:
         while True:
-            status = limiter.get_status()
+            status = consumer.get_status()
             dashboard.render(status)
 
             elapsed = time.time() - start
@@ -176,7 +202,10 @@ def run_demo(
     except KeyboardInterrupt:
         logger.info("Interrupted")
 
-    # --- Cleanup --------------------------------------------------------------
+    # ---------------------------------------------------------------------------
+    # Cleanup
+    # ---------------------------------------------------------------------------
+    consumer.shutdown()
     cleanup()
     elapsed = time.time() - start
     logger.info("Done. Total elapsed: %.1fs", elapsed)

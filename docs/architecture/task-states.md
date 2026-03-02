@@ -7,6 +7,7 @@ There are seven distinct states in total. Of these, six represent physical locat
 ## State Diagram
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 stateDiagram-v2
     [*] --> Scheduled : task submitted
 
@@ -17,14 +18,14 @@ stateDiagram-v2
 
     Buffered --> Active : consumed and dispatched
     Buffered --> ExpiredDLQ : task expired
-    Buffered --> Buffered : rate or concurrency\nlimit reached
+    Buffered --> Buffered : rate or concurrency<br>limit reached
 
     ExpiredDLQ --> [*] : moved to dead letter queue
 
     Active --> Completed : execution completes
-    Active --> LeaseExpired : worker crash leads\nto lease timeout
+    Active --> LeaseExpired : worker crash leads<br>to lease timeout
 
-    Completed --> [*] : cleanup complete,\nnext drain triggered
+    Completed --> [*] : cleanup complete,<br>next drain triggered
 
     LeaseExpired --> [*] : stale lease reclaimed
 
@@ -66,7 +67,7 @@ stateDiagram-v2
 
 The completion of a task initiates a feedback cycle that keeps the system operating at the configured throughput. When `TaskLifecycle.__exit__()` runs, it performs three operations in sequence: it removes the concurrency lease via `ZREM` on the `{id}:concurrency` ZSET, it deletes the inflight deduplication key via `DEL`, and it calls `trigger_consume()` on the limiter instance. The `trigger_consume()` method in turn wakes the `DrainLoop`, which calls `drain()`, which acquires the distributed lock and invokes `consume()` to pop the next task from the buffer. As such, every completed task immediately attempts to fill the freed concurrency slot with the next buffered task, thereby forming a self-sustaining cycle: completion triggers consumption, consumption triggers dispatch, and dispatch eventually triggers completion.
 
-This feedback loop is the primary mechanism by which the system achieves maximum throughput within the configured rate and concurrency limits. Without it, the system would rely exclusively on the watchdog timer for forward progress. The [Drain Loop Flow](drain-flow.md) documents the three-layer drain control loop and the five feedback entry points in detail.
+This feedback loop is the primary mechanism by which the system achieves maximum throughput within the configured rate and concurrency limits. Without it, the system would rely exclusively on the watchdog timer for forward progress. The [Drain Loop Flow](drain-flow.md) documents the three-layer drain control loop and the six feedback entry points in detail.
 
 ## Self-Healing Lease Expiry
 
@@ -98,7 +99,8 @@ These three mechanisms operate independently and do not require coordination. Th
 
 ## References
 
-- [limiters.py](../../src/celery_rate_limiter/core/limiters.py): core implementation (scheduling, consumption, lifecycle management).
+- [limiters.py](../../src/celery_rate_limiter/core/limiters.py): sync core implementation (scheduling, consumption, lifecycle management).
+- [async_limiters.py](../../src/celery_rate_limiter/core/async_limiters.py): async core implementation (async scheduling, consumption, lifecycle management).
 - [consume.lua](../../src/celery_rate_limiter/lua/consume.lua): atomic consumption script (state transitions within Redis).
 - [schedule.lua](../../src/celery_rate_limiter/lua/schedule.lua): task scheduling script (buffer insertion).
 - [Task Lifecycle Sequence](task-lifecycle.md): detailed sequence diagram of the nominal task flow.

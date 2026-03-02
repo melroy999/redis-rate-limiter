@@ -15,17 +15,19 @@ The following backends are currently supported:
 
 - `tests/implementations/celery/...` for Celery-specific assertions.
 - `tests/implementations/threadpool/...` for ThreadPool-specific assertions.
+- `tests/implementations/asyncio/...` for AsyncIO-specific assertions.
+- `tests/implementations/asgi/...` for ASGI-specific assertions.
 
-Each backend inherits the shared contract suite via `RateLimiterContractTest` and only adds tests for behavior that is unique to that backend.
+All backends inherit the shared contract suite via `RateLimiterContractTest` (unified async). Sync backends participate by wrapping their implementations with `SyncToAsyncLimiterAdapter`, while async backends run natively. Each backend only adds tests for behavior that is unique to that backend.
 
 ## Directory Structure
 
 ```text
 tests/
 ├── contracts/                          # Abstract interface contracts
-│   ├── test_rate_limiter.py            # Tests any limiter must satisfy
-│   ├── test_distributed_lock.py        # Tests any lock must satisfy
-│   └── test_task_lifecycle.py          # Tests any lifecycle manager must satisfy
+│   ├── test_rate_limiter.py            # Tests any limiter must satisfy (unified async)
+│   ├── test_distributed_lock.py        # Tests any lock must satisfy (unified async)
+│   └── test_task_lifecycle.py          # Tests any lifecycle manager must satisfy (unified async)
 │
 ├── implementations/                    # Core implementation tests (backend-agnostic)
 │   ├── conftest.py                     # Shared core test fixtures/limiters
@@ -36,10 +38,16 @@ tests/
 │   ├── test_drain.py                   # Drain and trigger_consume branch tests
 │   ├── test_drain_loop.py             # DrainLoop scheduling and coalescing tests
 │   ├── test_get_status.py              # Status reporting tests
-│   ├── test_internal_helpers.py        # Lua script loading and helpers
+│   ├── test_lua_script_infrastructure.py  # Script loading, registration, and _eval_script recovery tests
+│   ├── test_task_data_helpers.py          # Task signature building, inflight TTL computation, and cleanup tests
+│   ├── test_token_recovery_delay.py       # Token recovery delay calculation boundary and exact-value tests
+│   ├── test_limiter_config.py             # Initial configuration defaults and window change tests
+│   ├── test_async_drain_loop.py           # Async drain loop scheduling, coalescing, and shutdown tests
 │   ├── test_smart_jitter.py            # Adaptive jitter calculation tests
 │   ├── test_metrics_callback.py        # Metrics callback observability tests
 │   ├── test_concurrent_access.py       # Multi-worker contention and atomicity tests
+│   ├── test_async_distributed_lock.py   # Async lock implementation tests
+│   ├── test_async_task_lifecycle.py     # Async lifecycle implementation tests
 │   ├── test_decorator.py               # Decorator behavior (core)
 │   ├── test_importing.py               # Dynamic import helper behavior
 │   ├── celery/                         # Celery-specific implementation tests
@@ -48,11 +56,21 @@ tests/
 │   │   ├── test_celery_limiter.py      # Celery payload/dispatch behavior
 │   │   ├── test_rate_limiter_class_api.py  # Celery-only class API tests
 │   │   └── test_tasks.py              # Celery task helper tests
-│   └── threadpool/                     # ThreadPool-specific implementation tests
-│       ├── conftest.py                 # Imports ThreadPool backend fixtures
-│       ├── test_contracts.py           # Contract suite against real ThreadPoolRateLimiter
-│       ├── test_threadpool_limiter.py  # ThreadPool dispatch behavior
-│       └── test_rate_limiter_class_api.py  # ThreadPool-only class API tests
+│   ├── threadpool/                     # ThreadPool-specific implementation tests
+│   │   ├── conftest.py                 # Imports ThreadPool backend fixtures
+│   │   ├── test_contracts.py           # Contract suite against real ThreadPoolRateLimiter
+│   │   ├── test_threadpool_limiter.py  # ThreadPool dispatch behavior
+│   │   └── test_rate_limiter_class_api.py  # ThreadPool-only class API tests
+│   ├── asyncio/                        # AsyncIO-specific implementation tests
+│   │   ├── conftest.py                 # Imports AsyncIO backend fixtures
+│   │   ├── test_contracts.py           # Contract suite against real AsyncIOTaskLimiter
+│   │   ├── test_asyncio_limiter.py     # AsyncIO dispatch and lifecycle behavior
+│   │   └── test_rate_limiter_class_api.py  # AsyncIO-only class API tests
+│   └── asgi/                           # ASGI-specific implementation tests
+│       ├── conftest.py                 # Imports ASGI backend fixtures
+│       ├── test_asgi_limiter.py        # ASGI limiter acquire behavior
+│       ├── test_middleware.py          # ASGI middleware integration tests
+│       └── test_keys.py               # Key extraction function tests
 │
 ├── algorithms/                         # Pure algorithm/spec tests (no backend)
 │   ├── sliding_window_counter.py       # Shared pure algorithm used by tests
@@ -63,7 +81,12 @@ tests/
 │   ├── test_serialization.py           # Payload serialization properties
 │   ├── test_is_subset.py               # Mathematical subset properties
 │   ├── test_sliding_window_counter.py  # Sliding window invariants (Hypothesis)
-│   └── test_smart_jitter.py            # Smart jitter invariants (Hypothesis)
+│   ├── test_smart_jitter.py            # Smart jitter invariants (Hypothesis)
+│   ├── test_token_recovery.py          # Token recovery delay invariants (Hypothesis)
+│   ├── test_inflight_ttl.py            # In-flight TTL calculation invariants (Hypothesis)
+│   ├── test_config_round_trip.py       # Config persist/hydrate round-trip invariants (Hypothesis)
+│   └── asgi/                           # ASGI-specific property tests
+│       └── test_keys.py                # Key extraction invariants (Hypothesis)
 │
 ├── integration/                        # End-to-end integration tests
 │   ├── test_rate_limiting.py           # Single-consumer rate limiting behavior
@@ -71,13 +94,18 @@ tests/
 │   ├── README.md                       # Platform requirements and timing notes
 │   └── celery/                         # Reserved for Celery-specific integration tests
 │
+├── integrations/                       # Third-party integration tests
+│   └── test_prometheus.py              # Prometheus metrics exporter tests
+│
 ├── fixtures/                           # Shared backend fixture modules
 │   ├── celery_backend.py               # Celery backend fixture definitions
 │   └── threadpool_backend.py           # ThreadPool backend fixture definitions
 │
 ├── helpers/                            # Shared test utilities and strategies
 │   ├── utils.py                        # Subset checker and approximate equality
-│   └── strategies.py                   # Shared Hypothesis strategies
+│   ├── strategies.py                   # Shared Hypothesis strategies
+│   ├── adapters.py                     # Sync-to-async adapters for unified contract tests
+│   └── tasks.py                        # Shared task functions for backend tests
 │
 ├── conftest.py                         # Global pytest fixtures and configuration
 └── README.md                           # This file
@@ -89,9 +117,13 @@ tests/
 2. Implementation tests that are backend-agnostic are placed in `implementations/`.
 3. Implementation tests that assert backend-specific behavior are placed in `implementations/<backend>/`.
 4. Algorithm/spec tests validate pure logic with no Redis/Celery dependency in the test code and are placed in `algorithms/`.
-5. Property-based tests use Hypothesis to check invariants and are placed in `properties/`.
+5. Property-based tests use Hypothesis to check invariants and are placed in `properties/`. Backend-scoped property tests are placed in `properties/<backend>/` (e.g., `properties/asgi/`).
 6. Integration tests verify end-to-end behavior with real Redis/Lua wiring and are placed in `integration/`.
 7. If an integration scenario depends on backend dispatch/wiring details, it should be placed under `integration/<backend>/`.
+
+## Within-File Organization
+
+Tests that cover the same feature, function, or component are grouped within a single class. Each class acts as a logical unit of related assertions, and when a file tests multiple distinct features, each feature gets its own class. Methods that do not use `self` are decorated with `@staticmethod`. The only exception is Hypothesis `@given`-decorated methods, which require `self` due to a framework limitation.
 
 ## Testing Philosophy
 
@@ -119,9 +151,9 @@ class RateLimiterContractTest:
         assert isinstance(success, bool)
         assert isinstance(task_id, str)
 
-# implementations/test_rate_limiter.py: generic backend.
-class TestRateLimiterImplementation(RateLimiterContractTest):
-    """Inherits all contract tests + adds generic implementation tests."""
+# implementations/test_rate_limiter.py: contract compliance.
+class TestRateLimiterContracts(RateLimiterContractTest):
+    """Verify the generic backend satisfies all rate limiter contracts."""
     pass
 
 # implementations/threadpool/test_contracts.py: real backend.
@@ -194,11 +226,11 @@ Integration tests verify the end-to-end behavior of the rate limiter with real R
 ```python
 # integration/test_rate_limiting.py
 @pytest.fixture
-def integration_limiter(redis_client, default_limiter_id):
+def integration_limiter(redis_client, limiter_id):
     """Create a backend-agnostic limiter for integration tests."""
     return MinimalRateLimiter(
         redis_client=redis_client,
-        limiter_id=f"{default_limiter_id}_integration_default",
+        limiter_id=f"{limiter_id}_integration_default",
         limit=5,
         window=60,
         max_concurrency=2,
@@ -207,11 +239,12 @@ def integration_limiter(redis_client, default_limiter_id):
     )
 
 
-def test_basic_rate_limit_enforcement(self, integration_limiter):
+@staticmethod
+def test_basic_rate_limit_enforcement(integration_limiter, func_path):
     """Verify rate limiter enforces the configured limit."""
     # Arrange
     for i in range(10):
-        integration_limiter.schedule_task("path", {"index": i})
+        integration_limiter.schedule_task(func_path, {"index": i})
 
     # Act
     consumed = sum(1 for _ in range(10) if integration_limiter.consume()["success"])
@@ -225,7 +258,8 @@ def test_basic_rate_limit_enforcement(self, integration_limiter):
 All tests follow the AAA pattern for clarity:
 
 ```python
-def test_example(self, limiter, redis_client):
+@staticmethod
+def test_example(limiter, redis_client):
     """Clear description of what this test verifies."""
     # Arrange
     payload = {"user_id": 123}
@@ -278,13 +312,19 @@ pytest tests/contracts/
 pytest tests/implementations/
 
 # Core implementation tests only (no backend-specific).
-pytest tests/implementations/ --ignore=tests/implementations/celery --ignore=tests/implementations/threadpool
+pytest tests/implementations/ --ignore=tests/implementations/celery --ignore=tests/implementations/threadpool --ignore=tests/implementations/asyncio --ignore=tests/implementations/asgi
 
 # Celery-specific implementation tests only.
 pytest tests/implementations/celery/
 
 # ThreadPool-specific implementation tests only.
 pytest tests/implementations/threadpool/
+
+# AsyncIO-specific implementation tests only.
+pytest tests/implementations/asyncio/
+
+# ASGI-specific implementation tests only.
+pytest tests/implementations/asgi/
 
 # Property-based tests only.
 pytest tests/properties/
@@ -310,6 +350,48 @@ pytest tests/properties/
 pytest tests/properties/ --hypothesis-max-examples=200
 ```
 
+## Mutation Testing
+
+[Mutation testing](https://en.wikipedia.org/wiki/Mutation_testing) evaluates the quality of the test suite by systematically introducing small code changes (mutations) and checking whether the tests detect them. A mutation that causes at least one test to fail is "killed"; a mutation where all tests still pass is a "survivor", indicating a potential gap in assertions or coverage. The project uses [mutmut](https://mutmut.readthedocs.io/) for mutation testing, configured in `pyproject.toml` under `[tool.mutmut]`.
+
+### Running
+
+mutmut requires `fork()` support and must be run inside Docker. The `--build` flag is required because the source code is copied into the image rather than volume-mounted:
+
+```bash
+docker compose --profile mutate up --build --abort-on-container-exit --exit-code-from mutate
+```
+
+### Interpreting Results
+
+The output ends with a progress line and a list of unresolved mutants:
+
+```
+1912/1912  🎉 1906 🫥 0  ⏰ 5  🤔 0  🙁 1  🔇 0
+    celery_rate_limiter.core.limiters.xǁSomeClassǁsome_method__mutmut_6: survived
+```
+
+mutmut processes one mutant at a time. For each mutant, it applies the mutation, runs the mapped tests, classifies the outcome, and advances the progress counter. The progress line reads as `processed/total` followed by six cumulative outcome counts (i.e., the running totals across all mutants processed so far, summing to `processed`):
+
+- 🎉 **Killed** (1906): a mapped test failed, confirming the mutation was detected.
+- 🫥 **No tests** (0): mutmut could not map the mutant to any test via coverage data.
+- ⏰ **Timeout** (5): the mapped tests timed out, typically because the mutation caused an infinite loop (e.g., mutating a shutdown flag); effectively killed.
+- 🤔 **Suspicious** (0): the test suite exited with an unexpected status (e.g., a segfault or internal error rather than a clean pass or fail); warrants manual investigation.
+- 🙁 **Survived** (1): all mapped tests passed despite the mutation; investigate whether a stronger assertion is needed.
+- 🔇 **Skipped** (0): the mutant was not tested, typically due to mutmut configuration or filters.
+
+mutmut uses coverage data to select only the tests that exercise the mutated code path, rather than running the full suite for each mutant.
+
+Not all survivors are actionable. Logger format string mutations, type cast changes (e.g., `cast(int, x)` to `cast(float, x)`), and mutations in abstract methods that are always overridden are common false positives and can be suppressed with `# pragma: no mutate`.
+
+### Known Trampoline Limitations
+
+mutmut v3 rewrites each function with a trampoline dispatcher that uses `object.__getattribute__(self, ...)` to resolve the original and mutant variants. This approach has three known limitations:
+
+1. **`__init_subclass__`**: the trampoline generates `self` as the first parameter, but `__init_subclass__` receives `cls`. This causes a `NameError` that poisons test collection. The fix is to add an explicit `@classmethod` decorator, which is redundant at runtime (Python implicitly wraps `__init_subclass__`) but tells mutmut to use `cls` in the trampoline. See `ManagedRateLimiterMixin.__init_subclass__` in `core/managed.py` and [mutmut#366](https://github.com/boxed/mutmut/issues/366).
+2. **`async def` methods**: in released versions (up to 3.4.0), the trampoline dispatcher is a synchronous function wrapping `async def` methods, causing `TypeError: object dict can't be used in 'await' expression`. This was fixed on the mutmut main branch in commit `810d761` ("Preserve original signature, including async keyword"), which is why the dependency points at the git main branch rather than a PyPI release.
+3. **Default parameter values**: Python stores default parameter values in the function object's `__defaults__` tuple when the `def` statement executes at import time. mutmut's AST mutations only modify the code object inside forked children, but the `__defaults__` tuple inherited from the parent process is unchanged. This means any mutation to a default value (e.g., `delay: float = 0.0` to `delay: float = 1.0`) is invisible to the test suite, regardless of what tests exist. Use `inspect.signature` tests to verify default values independently: these catch real regressions in normal development, even though they cannot catch mutmut mutations. The classifier reports these as "fork-immune" false survivors.
+
 ## Adding a New Limiter Implementation
 
 When adding a new backend limiter implementation, the following steps should be taken:
@@ -331,28 +413,30 @@ tests/implementations/mybackend/conftest.py
 
 This keeps the backend fixtures centralized and reusable across categories.
 
-### Step 3: Add Contract-Inheriting Tests
+### Step 3: Add Fixtures and Contract Compliance Tests
 ```python
-# tests/implementations/mybackend/test_mybackend_limiter.py
+# tests/implementations/mybackend/conftest.py
 import pytest
 from your_module import MyBackendRateLimiter
+
+
+@pytest.fixture
+def limiter(limiter_id):
+    return MyBackendRateLimiter(
+        limiter_id=f"{limiter_id}_mybackend_default",
+        limit=100,
+        window=60,
+        max_concurrency=10,
+    )
+
+
+# tests/implementations/mybackend/test_contracts.py
 from tests.contracts.test_rate_limiter import RateLimiterContractTest
 
 
-class TestMyBackendRateLimiter(RateLimiterContractTest):
-    """Test my backend limiter implementation.
-
-    Inherits all contract tests automatically.
-    """
-
-    @pytest.fixture
-    def limiter(self, default_limiter_id):
-        return MyBackendRateLimiter(
-            limiter_id=f"{default_limiter_id}_mybackend_default",
-            limit=100,
-            window=60,
-            max_concurrency=10,
-        )
+class TestMyBackendContracts(RateLimiterContractTest):
+    """Verify ``MyBackendRateLimiter`` satisfies all rate limiter contracts."""
+    pass
 ```
 
 ### Step 4: Add Backend-Specific Integration/Property Tests Only Where Needed
@@ -404,6 +488,44 @@ def test_something(self, payload):
     pass
 ```
 
+### helpers/adapters.py
+
+Contains sync-to-async adapter classes that wrap synchronous rate limiters, distributed locks, and task lifecycle managers so that the unified async contract test suite can exercise sync backends via `await`. The underlying sync Redis calls block the event loop briefly, which is acceptable in a test context.
+
+- `SyncToAsyncLimiterAdapter`: wraps a sync `AbstractDistributedRateLimiter` as an async-compatible limiter.
+- `SyncToAsyncLockAdapter`: wraps a sync `DistributedLock` as an async context manager (`async with`).
+- `SyncToAsyncLifecycleAdapter`: wraps a sync `TaskLifecycle` as an async context manager.
+
+**Usage:**
+
+```python
+from tests.helpers.adapters import SyncToAsyncLimiterAdapter
+
+# Wrap a sync limiter for use in async contract tests.
+async_compatible = SyncToAsyncLimiterAdapter(sync_limiter)
+result = await async_compatible.schedule_task("path", {})
+```
+
+### helpers/tasks.py
+
+Contains shared task functions used by backend tests. These are referenced via their dotted-path strings (e.g., `"tests.helpers.tasks.noop_task"`) in tests that exercise task dispatch:
+
+- `noop_task(**kwargs)`: a synchronous no-op task that accepts any keyword arguments and returns immediately.
+- `noop_task_2(**kwargs)`: a second synchronous no-op task with a distinct function path for deduplication tests.
+- `async_noop_task(**kwargs)`: an async no-op task that accepts any keyword arguments and returns immediately. Used by the AsyncIO backend tests, which require coroutine functions.
+- `async_noop_task_2(**kwargs)`: a second async no-op task with a distinct function path for deduplication tests.
+- `slow_task(**kwargs)`: an async task that sleeps for a long duration, used for cancellation tests.
+
+**Usage:**
+
+```python
+# Sync backend: pass a sync function path.
+limiter.schedule_task("tests.helpers.tasks.noop_task", {"key": "value"})
+
+# Async backend: pass an async function path.
+await limiter.schedule_task("tests.helpers.tasks.async_noop_task", {"key": "value"})
+```
+
 ## Test Naming Conventions
 
 ### Test Class Names
@@ -433,14 +555,16 @@ Test method names should be descriptive and read like sentences. They should sta
 
 **Examples:**
 ```python
-def test_schedule_duplicate_task_returns_false(self, limiter):
+@staticmethod
+def test_schedule_duplicate_task_returns_false(limiter, func_path, payload):
     """Contract: scheduling identical tasks must return False on duplicate."""
 
 @given(payload=json_value)
 def test_payload_survives_round_trip(self, payload):
     """Property: any JSON-serializable payload survives Redis round-trip."""
 
-def test_lua_script_recovery_on_noscript_error(self, limiter):
+@staticmethod
+def test_lua_script_recovery_on_noscript_error(limiter, func_path):
     """Verify limiter recovers from ``NoScriptError`` by reloading Lua script."""
 ```
 
@@ -474,50 +598,82 @@ redis_client.flushdb()
 redis_client.flushdb()  # Clean state
 ```
 
-## Fixtures
+## Fixture Architecture
 
-### Session-Scoped Fixtures
+### Naming Convention
 
-Used for expensive, one-time setup:
+Fixtures use natural, descriptive names without prefixes. A fixture's name describes what it provides, not its role in a derivation chain.
 
-- `_redis_connection`: a single Redis connection for the entire test suite (configurable via `REDIS_HOST`/`REDIS_PORT` environment variables).
-- `func_path`: a fictional function path for test task scheduling.
-- `default_payload`: the default payload `{"user_id": 123}` for tests.
+For example, `limiter_id` is preferred over `default_limiter_id`: callers already know it is a base from context. Backend limiter fixtures are all named `limiter`, since directory-scoped conftests prevent collisions.
 
-### Function-Scoped Fixtures (Default)
+### Definition Location
 
-Used for most tests to ensure a clean state between tests:
+Fixtures are placed at the **narrowest scope** that serves all their consumers:
 
-- `redis_client`: wraps `_redis_connection` with `flushall()` before and after each test.
-- `default_limiter_id`: a unique limiter ID per test (UUID-backed).
-- `default_lock_key`: a unique lock key per test for distributed lock tests.
+| Level | Location | What belongs here |
+|---|---|---|
+| **Root** | `tests/conftest.py` | Global infrastructure (`redis_client`, `async_redis_client`) and universal identifiers/values (`limiter_id`, `module_limiter_id`, `lock_key`, `func_path`, `payload`) |
+| **Category** | `tests/{category}/conftest.py` | Shared fixtures for a test category (e.g., `implementations/conftest.py` has `generic_limiter`, `tracking_limiter`, while `properties/conftest.py` has `property_redis_client`) |
+| **Backend** | `tests/implementations/{backend}/conftest.py` | Backend-specific `limiter` fixture and autouse reset fixtures |
+| **External module** | `tests/fixtures/{backend}_backend.py` | Sync backend fixture definitions re-exported by conftest (Celery, ThreadPool: needed for cross-directory import) |
+| **Test file** | The test file itself | Fixtures used exclusively by that file (`mock_limiter`, `inflight_key`, `create_lifecycle`, local factories) |
 
-### Core Implementation Fixtures
+**Rule: never duplicate a fixture across files.** If two files need the same fixture, promote it to the nearest shared conftest.
 
-Defined in `implementations/conftest.py`:
+### No Redefinition Without Transformation
+
+Each backend conftest provides its limiter under the name `limiter`. Contract test binding follows naturally:
+
+- **Async backends** (AsyncIO): conftest provides `limiter`: the contract test class inherits directly (no override needed).
+- **Sync backends** (Celery, ThreadPool): conftest provides `limiter`: the contract test class overrides with `SyncToAsyncLimiterAdapter` wrapping (genuine transformation, justified).
+- **Generic implementations**: `implementations/conftest.py` provides `generic_limiter` (distinct name because it coexists with backend `limiter` fixtures in the same directory tree): test classes map to `limiter` at class level.
+
+**Rule: a fixture override at the class or file level is only justified when it transforms the value.** A pass-through that returns the input unchanged must be removed, and the source fixture should be renamed to match the expected name instead.
+
+### Scoping Conventions
+
+| Scope | When to use | Examples |
+|---|---|---|
+| `session` | Expensive creation (connections, apps, executors), immutable constants | `_redis_connection`, `celery_app`, `executor`, `func_path`, `payload` |
+| `module` | Property-based test fixtures needing persistence across Hypothesis examples | `module_limiter_id`, `property_redis_client`, `property_limiter` |
+| `function` | Everything else: ensures test isolation (this is the default) | `redis_client`, `limiter_id`, `lock_key`, `limiter`, all test-specific fixtures |
+
+### Fixture Reference
+
+#### Root fixtures (`tests/conftest.py`)
+
+- `_redis_connection` (session): a single Redis connection for the entire test suite (configurable via `REDIS_HOST`/`REDIS_PORT`).
+- `redis_client` (function): wraps `_redis_connection` with `flushdb()` before and after each test.
+- `async_redis_client` (function): a per-test async Redis client with `flushdb()` before and after each test.
+- `limiter_id` (function): a unique limiter ID per test (UUID-backed).
+- `module_limiter_id` (module): a unique limiter ID per module.
+- `lock_key` (function): a unique lock key per test.
+- `func_path` (session): a fictional function path for test task scheduling.
+- `payload` (session): the default payload `{"user_id": 123}` for tests.
+
+#### Implementation fixtures (`tests/implementations/conftest.py`)
 
 - `generic_limiter`: a `MinimalRateLimiter` instance (no-op dispatch/schedule) for testing `AbstractDistributedRateLimiter` behavior.
 - `tracking_limiter`: a `TrackingRateLimiter` instance that records `_dispatch_task()` and `_schedule_drain()` calls.
 - `make_limiter_pool`: a factory fixture that creates N limiter instances sharing the same Redis-backed limiter ID.
 - `task_id`: a unique task ID string for testing.
 
-### Backend Fixture Modules
+#### Backend fixtures
 
-Backend fixtures are centralized in `tests/fixtures/` and imported where needed:
+Sync backend fixtures are centralized in `tests/fixtures/` and imported where needed:
 
 - `tests/fixtures/celery_backend.py` defines Celery fixtures (`celery_app`, `celery_config`, `limiter`, class-state reset fixture).
 - `tests/fixtures/threadpool_backend.py` defines ThreadPool fixtures (`executor`, `limiter`, class-state reset fixture).
-- Backend-local conftests (e.g., `tests/implementations/celery/conftest.py`) import from the corresponding fixture module.
 
-This avoids leaking backend fixtures into unrelated test categories.
+Async backend fixtures are defined directly in their backend-local conftests:
 
-### Module-Scoped Fixtures
+- `tests/implementations/asyncio/conftest.py` defines `limiter` (function-scoped, creates an `AsyncIOTaskLimiter`) and an autouse class-state reset fixture.
+- `tests/implementations/asgi/conftest.py` defines `limiter` (function-scoped, creates an `ASGIRateLimiter`) and an autouse class-state reset fixture.
 
-Used in property tests to improve performance:
+#### Property test fixtures
 
-- `default_module_limiter_id`: a unique limiter ID per module.
-- `property_redis_client`: a shared Redis client for a module's Hypothesis runs.
-- `property_limiter`: a shared limiter for a module's Hypothesis runs.
+- `property_redis_client` (module): a shared Redis client for a module's Hypothesis runs (defined in `tests/properties/conftest.py`).
+- `property_limiter` (module): a shared limiter for a module's Hypothesis runs (defined locally per property test module, as each module uses different limiter configurations).
 
 ## Best Practices
 
@@ -532,7 +688,8 @@ Each test should verify one specific behavior. If multiple assertions are needed
     [{"a": 1}, {}, {"nested": {"b": 2}}],
     ids=["simple", "empty", "nested"],
 )
-def test_various_payloads(self, limiter, payload):
+@staticmethod
+def test_various_payloads(limiter, payload):
     pass
 ```
 
@@ -549,9 +706,8 @@ Fixtures with proper teardown or context managers should be used to ensure that 
 Fixture-provided unique IDs should be preferred over hardcoded IDs for limiter names, lock keys and task IDs.
 
 ```python
-def test_example(default_limiter_id, default_lock_key):
-    limiter_id = f"{default_limiter_id}_example"
-    lock_key = default_lock_key
+def test_example(limiter_id, lock_key):
+    derived_id = f"{limiter_id}_example"
 ```
 
 Explicit hardcoded IDs should only be used when the test is specifically about ID identity or the readability of a known failure case.

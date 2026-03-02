@@ -63,16 +63,17 @@ The jitter calculation also takes the available worker slots into account:
 ### Default Settings
 
 ```python
-limiter = CeleryRateLimiter(
-    redis_client=redis_client,
-    celery_app=celery_app,
+CeleryRateLimiter.configure(redis_client, celery_app=celery_app)
+
+limiter = CeleryRateLimiter.create(
     limiter_id="my_limiter",
     limit=100,
     window=60,
     max_concurrency=10,
-    jitter_enabled=True,        # Default: True
-    jitter_min_pct=0.02,        # Default: 2% of window
-    jitter_max_pct=0.08,        # Default: 8% of window
+    jitter_enabled=True,  # Default: True
+    jitter_min_pct=0.02,  # Default: 2% of window
+    jitter_max_pct=0.08,  # Default: 8% of window
+    override=True,
 )
 ```
 
@@ -81,29 +82,35 @@ limiter = CeleryRateLimiter(
 **Tighter jitter** (faster processing, higher risk of collisions):
 
 ```python
-limiter = CeleryRateLimiter(
+limiter = CeleryRateLimiter.create(
+    limiter_id="my_limiter",
     # ...
     jitter_min_pct=0.01,  # 1% of window
     jitter_max_pct=0.03,  # 3% of window
+    override=True,
 )
 ```
 
 **Wider jitter** (slower processing, less contention):
 
 ```python
-limiter = CeleryRateLimiter(
+limiter = CeleryRateLimiter.create(
+    limiter_id="my_limiter",
     # ...
     jitter_min_pct=0.05,  # 5% of window
     jitter_max_pct=0.15,  # 15% of window
+    override=True,
 )
 ```
 
 **Disable jitter** (not recommended):
 
 ```python
-limiter = CeleryRateLimiter(
+limiter = CeleryRateLimiter.create(
+    limiter_id="my_limiter",
     # ...
     jitter_enabled=False,
+    override=True,
 )
 ```
 
@@ -118,7 +125,7 @@ Jitter is automatically added when the following conditions are met:
 The calculation is as follows:
 
 ```python
-base_delay = (reset_in_ms / 1000.0) + 0.001  # Wait for window reset
+base_delay = reset_in_ms / 1000.0  # Wait for window reset
 jitter = _calculate_smart_jitter(
     remaining_tasks=result["remaining_tasks"],
     remaining_tokens=result["remaining_tokens"],
@@ -138,7 +145,9 @@ def _calculate_smart_jitter(remaining_tasks, remaining_tokens, active_concurrenc
     max_jitter = window * jitter_max_pct
 
     # Calculate load pressure (0.0 = low, 1.0 = high).
-    if remaining_tasks < 10:
+    if remaining_tasks <= 0:
+        load_pressure = 0.0
+    elif remaining_tasks < 10:
         load_pressure = 0.2
     elif remaining_tasks < 50:
         load_pressure = 0.5
@@ -148,7 +157,8 @@ def _calculate_smart_jitter(remaining_tasks, remaining_tokens, active_concurrenc
         load_pressure = 1.0
 
     # Calculate concurrency pressure (0.0 = many free slots, 1.0 = at capacity).
-    concurrency_pressure = active_concurrency / max_concurrency
+    # The max(1, ...) guard prevents division by zero when max_concurrency is 0.
+    concurrency_pressure = active_concurrency / max(1, max_concurrency)
 
     # Combine pressures (weight queue load 70%, concurrency 30%).
     combined_pressure = (load_pressure * 0.7) + (concurrency_pressure * 0.3)
@@ -259,9 +269,8 @@ print(f"Jitter range: {limiter.jitter_min_pct * limiter.window}s - "
 
 **Solution:**
 ```python
-# Reduce the jitter percentages.
-limiter.jitter_min_pct = 0.01  # Was 0.02
-limiter.jitter_max_pct = 0.04  # Was 0.08
+# Reduce the jitter percentages via the managed API.
+CeleryRateLimiter.update("my_limiter", jitter_min_pct=0.01, jitter_max_pct=0.04)
 ```
 
 ### Issue: Redis Still Seeing Load Spikes
@@ -277,9 +286,8 @@ print(f"Tasks waiting: {result['remaining_tasks']}")
 
 **Solution:**
 ```python
-# Increase the jitter percentages.
-limiter.jitter_min_pct = 0.05  # Was 0.02
-limiter.jitter_max_pct = 0.12  # Was 0.08
+# Increase the jitter percentages via the managed API.
+CeleryRateLimiter.update("my_limiter", jitter_min_pct=0.05, jitter_max_pct=0.12)
 ```
 
 ### Issue: Jitter Not Being Applied
@@ -297,8 +305,14 @@ limiter.jitter_max_pct = 0.12  # Was 0.08
 - **Concurrency Tracking**: limits the number of simultaneously executing tasks.
 - **Task Lifecycle**: manages the lease-based concurrency slots.
 
+## Async Support
+
+The smart jitter calculation is defined in `DistributedRateLimiterMixin._calculate_smart_jitter()` within `limiters.py`, which is shared by both the sync and async rate limiter hierarchies via mixin inheritance. As such, both `AbstractDistributedRateLimiter` (sync) and `AbstractAsyncDistributedRateLimiter` (async) apply smart jitter identically when scheduling retry delays. No additional configuration is required for async backends; the same `jitter_enabled`, `jitter_min_pct`, and `jitter_max_pct` parameters apply.
+
 ## References
 
-- Implementation: `src/celery_rate_limiter/limiters.py` (`_calculate_smart_jitter`)
+- Implementation: `src/celery_rate_limiter/core/limiters.py` (`DistributedRateLimiterMixin._calculate_smart_jitter`)
+- Sync caller: `src/celery_rate_limiter/core/limiters.py` (`_drain_inner`)
+- Async caller: `src/celery_rate_limiter/core/async_limiters.py` (`_drain_inner`)
 - Tests: `tests/implementations/test_smart_jitter.py`
 - Integration: `tests/integration/test_rate_limiting.py` (timing tests)

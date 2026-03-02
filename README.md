@@ -1,4 +1,4 @@
-![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/melroy999/f3caa8f0af98bf11563b5b2031c1ef3e/raw/celery-rate-limiter-coverage.json)
+[![CI](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/melroy999/f3caa8f0af98bf11563b5b2031c1ef3e/raw/celery-rate-limiter-ci.json)](https://github.com/melroy999/celery-rate-limiter/actions/workflows/ci.yml) [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/melroy999/f3caa8f0af98bf11563b5b2031c1ef3e/raw/celery-rate-limiter-coverage.json)](https://github.com/melroy999/celery-rate-limiter/actions/workflows/ci.yml) [![Mutation Score](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/melroy999/f3caa8f0af98bf11563b5b2031c1ef3e/raw/celery-rate-limiter-mutation-score.json)](https://github.com/melroy999/celery-rate-limiter/actions/workflows/mutation.yml) [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff) [![mypy](https://img.shields.io/badge/type%20checking-mypy%20strict-blue)](http://mypy-lang.org/)
 
 # celery-rate-limiter
 
@@ -9,12 +9,14 @@ The core algorithm is a sliding window counter implemented as atomic Lua scripts
 ## Features
 
 - **Sliding window counter**: smooth rate limiting without sudden token resets at window boundaries.
+- **Sync and async support**: both synchronous (threading, Celery) and asynchronous (asyncio, ASGI) backends, sharing the same Redis-backed rate limiting state.
 - **Concurrency control**: lease-based concurrency slots with automatic expiry, such that crashed workers do not permanently consume capacity.
 - **Task deduplication**: identical tasks, i.e., tasks with the same function and payload, are deduplicated via atomic Redis markers.
 - **Priority queue**: tasks are buffered in a Redis sorted set and consumed in priority order.
 - **Dead letter queue**: tasks that exceed their maximum age are moved to a DLQ instead of being silently dropped.
 - **Dynamic configuration**: rate limits, concurrency caps and window sizes can be changed in Redis at runtime. All existing limiter instances across workers and machines pick up the new configuration on their next drain cycle.
 - **Smart jitter**: adaptive retry delays that scale with queue depth and concurrency pressure to prevent the thundering herd problem at window resets (see [docs/smart-jitter.md](docs/smart-jitter.md)).
+- **ASGI middleware**: request-level rate limiting for FastAPI/Starlette with per-client identity keys, standard rate limit headers and configurable bypass rules.
 - **Metrics callbacks**: an optional hook for observability, invoked after every consume and schedule operation.
 
 ## Installation
@@ -25,6 +27,9 @@ pip install celery-rate-limiter
 
 # With the Celery backend.
 pip install celery-rate-limiter[celery]
+
+# With the ASGI middleware backend (FastAPI/Starlette).
+pip install celery-rate-limiter[asgi]
 ```
 
 The project requires Python 3.12+ and a single Redis instance (not Redis Cluster, see the class docstring for details).
@@ -58,45 +63,141 @@ success, task_id = limiter.schedule_task(
 
 # Check limiter status at any time.
 status = limiter.get_status()
+
+# Stop background threads when done.
+limiter.shutdown()
 ```
 
-The `examples/` directory contains a full working demo with a Celery worker, task simulator and a live status inspector.
+### Quick Start (Thread Pool)
+
+```python
+import redis
+from concurrent.futures import ThreadPoolExecutor
+from celery_rate_limiter import ThreadPoolRateLimiter
+
+redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
+executor = ThreadPoolExecutor(max_workers=4)
+ThreadPoolRateLimiter.configure(redis_client, executor=executor)
+
+limiter = ThreadPoolRateLimiter.create(
+    limiter_id="api_calls",
+    limit=100,
+    window=60,
+    max_concurrency=10,
+    override=True,
+)
+
+success, task_id = limiter.schedule_task(
+    "myapp.services.call_external_api",
+    {"user_id": 42},
+)
+
+# Stop background threads when done.
+limiter.shutdown()
+```
+
+### Quick Start (AsyncIO)
+
+```python
+import redis.asyncio
+from celery_rate_limiter import AsyncIOTaskLimiter
+
+redis_client = redis.asyncio.Redis(host="localhost", port=6379, decode_responses=True)
+AsyncIOTaskLimiter.configure(redis_client, max_tasks=10)
+
+limiter = await AsyncIOTaskLimiter.create(
+    limiter_id="api_calls",
+    limit=100,
+    window=60,
+    max_concurrency=10,
+    override=True,
+)
+
+success, task_id = await limiter.schedule_task(
+    "myapp.services.call_external_api",
+    {"user_id": 42},
+)
+
+# Stop background tasks when done.
+await limiter.shutdown()
+```
+
+### Quick Start (ASGI Middleware)
+
+```python
+import redis.asyncio
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from celery_rate_limiter.backends.asgi import ASGIRateLimiter, by_client_ip
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    redis_client = redis.asyncio.Redis(host="localhost", port=6379, decode_responses=True)
+    ASGIRateLimiter.configure(redis_client)
+    app.state.limiter = await ASGIRateLimiter.create(
+        limiter_id="api_gateway",
+        limit=1000,
+        window=60,
+        override=True,
+    )
+    yield
+    await redis_client.aclose()
+
+app = FastAPI(lifespan=lifespan)
+
+@app.middleware("http")
+async def rate_limit(request: Request, call_next):
+    key = by_client_ip(request.scope)
+    if key is None:
+        return await call_next(request)
+    result = await request.app.state.limiter.acquire(key)
+    if not result["allowed"]:
+        return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded."})
+    return await call_next(request)
+```
+
+The `by_client_ip` key function extracts the client IP from the ASGI scope. For header-based identity (e.g., API key), use `by_header("x-api-key")` instead. For the direct ASGI wrapper approach using `RateLimitMiddleware`, see [examples/asgi/demo.py](examples/asgi/demo.py).
+
+The `examples/` directory contains full working demos for each backend with task simulators and live status dashboards.
 
 ## How It Works
 
 1. `schedule_task()` adds a task to a Redis priority queue, with deduplication.
 2. A drain loop acquires a distributed lock and calls `consume()`.
 3. `consume()` runs a Lua script that atomically checks the sliding window counter, verifies the concurrency capacity and pops the next task from the buffer.
-4. The task is dispatched to the configured backend (Celery, thread pool, etc.).
-5. The worker holds a concurrency lease that is renewed via a heartbeat thread. If the worker crashes, the lease expires and the slot is reclaimed automatically.
+4. The task is dispatched to the configured backend (Celery, thread pool, asyncio, etc.).
+5. The worker holds a concurrency lease that is renewed via a background heartbeat (thread or asyncio task, depending on the backend). If the worker crashes, the lease expires and the slot is reclaimed automatically.
 6. On completion or failure, the concurrency slot is released and the next drain is triggered.
+
+The ASGI middleware follows a simpler path: `acquire()` atomically checks the sliding window counter for a given client identity key and returns an allow/deny decision with standard rate limit headers. There is no task buffer, concurrency tracking or drain loop.
 
 ## Backend Roadmap
 
-All backends extend `AbstractRedisManagedRateLimiter` to share the same distributed rate limiting state and dynamic configuration support. They differ only in how tasks are dispatched for execution.
+All task-oriented backends compose `SyncManagedRateLimiter` (or `AsyncManagedRateLimiter`) with `AbstractDistributedRateLimiter` (or its async counterpart) to share the same distributed rate limiting state and dynamic configuration support. They differ only in how tasks are dispatched for execution.
 
 | Backend          | Dispatch mechanism                       | Status  |
 |------------------|------------------------------------------|---------|
 | Celery           | Celery broker (`send_task`)              | Done    |
 | Threading        | `concurrent.futures.ThreadPoolExecutor`  | Done    |
-| AsyncIO          | `asyncio` event loop / task group        | Planned |
+| AsyncIO          | `asyncio` event loop / task group        | Done    |
+| ASGI Middleware  | Starlette/FastAPI request handling       | Done    |
 | Multiprocessing  | `concurrent.futures.ProcessPoolExecutor` | Planned |
 | RQ (Redis Queue) | RQ job queue                             | Planned |
 | Dramatiq         | Dramatiq broker                          | Planned |
-| ASGI Middleware  | Starlette/FastAPI request handling       | Planned |
 
 ### Class Hierarchy
 
 ```
-AbstractDistributedRateLimiter        -- distributed rate limiting via Redis
-└── AbstractRedisManagedRateLimiter   -- adds singleton registry + dynamic config
-    ├── CeleryRateLimiter             -- dispatches via Celery
-    ├── ThreadPoolRateLimiter         -- dispatches to thread pool
-    ├── AsyncIORateLimiter            -- dispatches to event loop
-    ├── ProcessPoolRateLimiter        -- dispatches to process pool
-    ├── RQRateLimiter                 -- dispatches via RQ
-    ├── DramatiqRateLimiter           -- dispatches via Dramatiq
-    └── ASGIRateLimiterMiddleware     -- rate limits HTTP requests
+SyncManagedRateLimiter + AbstractDistributedRateLimiter     -- sync managed + distributed
+    ├── CeleryRateLimiter                                   -- dispatches via Celery
+    └── ThreadPoolRateLimiter                               -- dispatches to thread pool
+
+AsyncManagedRateLimiter + AbstractAsyncDistributedRateLimiter -- async managed + distributed
+    └── AsyncIOTaskLimiter                                  -- dispatches to event loop
+
+AsyncManagedRateLimiter + AbstractAsyncRateLimiter          -- async managed (no task machinery)
+    └── ASGIRateLimiter                                     -- rate limits HTTP requests
 ```
 
 ### Use Case Examples
@@ -109,7 +210,20 @@ AbstractDistributedRateLimiter        -- distributed rate limiting via Redis
 
 ## Testing
 
-The test suite is organized into contract, implementation, algorithm, property-based (Hypothesis) and integration tests. All tests require a running Redis instance. See [tests/README.md](tests/README.md) for the full breakdown.
+The test suite is organized into contract, implementation, algorithm, property-based (Hypothesis) and integration tests. All tests require a running Redis instance; running them through Docker is recommended because Windows has unreliable sub-second `time.sleep()` resolution, which causes timing-sensitive integration tests to flake. See [tests/README.md](tests/README.md) for the full breakdown.
+
+```bash
+# Fast tests (excludes slow integration tests).
+docker compose --profile test up --build --abort-on-container-exit --exit-code-from test
+
+# All tests including slow integration tests.
+docker compose --profile test-all up --build --abort-on-container-exit --exit-code-from test-all
+
+# Mutation testing (manual, on-demand).
+docker compose --profile mutate up --build --abort-on-container-exit --exit-code-from mutate
+```
+
+With a local Redis instance running, pytest can be invoked directly:
 
 ```bash
 # Run tests (excludes slow tests by default).

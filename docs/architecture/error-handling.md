@@ -5,30 +5,31 @@ This document serves as a reference for understanding how exceptions propagate t
 ## Overview
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 flowchart TD
     subgraph SL ["Scheduling Layer"]
-        S_BLOCK["NoScript retry,\ninflight cleanup,\nre-raise to caller"]
+        S_BLOCK["NoScript retry,<br>inflight cleanup,<br>re-raise to caller"]
     end
 
     subgraph CL ["Consumption and Dispatch Layer"]
-        C_BLOCK["NoScript retry,\npropagate to drain"]
+        C_BLOCK["NoScript retry,<br>propagate to drain"]
     end
 
     subgraph DL ["Drain Control Layer"]
-        D_BLOCK["Catch all exceptions,\nbackoff, schedule recovery"]
+        D_BLOCK["Catch all exceptions,<br>backoff, schedule recovery"]
     end
 
     subgraph EL ["Execution Layer"]
-        E_BLOCK["Decorator guards,\nlifecycle cleanup,\nheartbeat strategies"]
+        E_BLOCK["Decorator guards,<br>lifecycle cleanup,<br>heartbeat strategies"]
     end
 
-    CALLER["Caller\n(user code)"]
+    CALLER["Caller<br>(user code)"]
 
-    S_BLOCK -. "non-recoverable\nexception" .-> CALLER
+    S_BLOCK -. "non-recoverable<br>exception" .-> CALLER
     C_BLOCK -. "exception" .-> D_BLOCK
-    D_BLOCK -. "double failure:\nrely on watchdog" .-> D_BLOCK
-    E_BLOCK -. "trigger_consume()\nwakes DrainLoop" .-> D_BLOCK
-    E_BLOCK -. "user exception\npropagates" .-> CALLER
+    D_BLOCK -. "double failure:<br>rely on watchdog" .-> D_BLOCK
+    E_BLOCK -. "trigger_consume()<br>wakes DrainLoop" .-> D_BLOCK
+    E_BLOCK -. "user exception<br>propagates" .-> CALLER
 
     style SL fill:#e8f5e9,stroke:#388E3C
     style CL fill:#e3f2fd,stroke:#1976D2
@@ -49,16 +50,17 @@ flowchart TD
 The scheduling layer handles exceptions raised during `schedule_task()`. The two primary concerns are recovering from `NoScriptError` (Lua script cache flush) and cleaning up the inflight deduplication key when any exception prevents successful buffering.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 flowchart TD
-    S_EVAL["schedule_task() calls\nEVALSHA schedule.lua"]
+    S_EVAL["schedule_task() calls<br>EVALSHA schedule.lua"]
     S_NOSCRIPT{"NoScriptError?"}
-    S_RETRY["Reload SHA,\ncleanup inflight key,\nretry with retry=False"]
-    S_RETRY_FAIL{"2nd attempt\nalso fails?"}
-    S_RUNTIME["RuntimeError:\nscript not retained"]
-    S_OTHER["Non-NoScript exception\n(e.g., ConnectionError)"]
-    S_CLEANUP["Cleanup inflight key\nvia _cleanup_inflight_key()"]
-    S_RERAISE["Re-raise original\nexception to caller"]
-    S_INFLIGHT_FAIL["Cleanup itself fails:\ncatch, log warning,\ncontinue with re-raise"]
+    S_RETRY["Reload SHA,<br>cleanup inflight key,<br>retry with retry=False"]
+    S_RETRY_FAIL{"2nd attempt<br>also fails?"}
+    S_RUNTIME["RuntimeError:<br>script not retained"]
+    S_OTHER["Non-NoScript exception<br>(e.g., ConnectionError)"]
+    S_CLEANUP["Cleanup inflight key<br>via _cleanup_inflight_key()"]
+    S_RERAISE["Re-raise original<br>exception to caller"]
+    S_INFLIGHT_FAIL["Cleanup itself fails:<br>catch, log warning,<br>continue with re-raise"]
 
     S_EVAL --> S_NOSCRIPT
     S_NOSCRIPT -- "Yes" --> S_RETRY --> S_RETRY_FAIL
@@ -78,40 +80,40 @@ flowchart TD
 | NoScript → reload → retry succeeds | SHA reload recovers from cache flush | `implementations/test_rate_limiter::test_lua_script_recovery_on_noscript_error` |
 | NoScript → reload → retry fails | Permanent failure raises RuntimeError | `implementations/test_rate_limiter::test_lua_script_permanent_failure_raises_error` |
 | Non-NoScript → cleanup → re-raise | Inflight key cleaned up before re-raising | `implementations/test_rate_limiter::test_schedule_non_noscript_failure_cleans_inflight_and_reraises` |
-| Cleanup itself fails | Suppressed, log warning, continue with re-raise | `implementations/test_internal_helpers::test_cleanup_inflight_key_suppresses_redis_failure` |
-| Lua script not found on disk | ImportError at initialization | `implementations/test_internal_helpers::test_load_lua_script_raises_import_error_on_failure` |
+| Cleanup itself fails | Suppressed, log warning, continue with re-raise | `implementations/test_task_data_helpers::test_cleanup_inflight_key_suppresses_redis_failure` |
+| Lua script not found on disk | ImportError at initialization | `implementations/test_lua_script_infrastructure::test_register_script_raises_import_error_on_missing_source` |
+| Lua script fallback via second package | First package fails, second succeeds | `implementations/test_lua_script_infrastructure::test_load_lua_script_falls_back_to_second_package` |
 | Metrics callback exception during schedule | Does not disrupt scheduling | `implementations/test_metrics_callback::test_callback_exception_does_not_break_schedule` |
 
 ### NoScriptError Two-Phase Retry
 
-All four Lua script operations (`schedule_task`, `consume`, `extend_lease`, `get_status`) implement a two-phase retry. The first attempt uses `EVALSHA`; if Redis returns a `NoScriptError` (indicating that the script cache was flushed, e.g., after a `SCRIPT FLUSH` or Redis restart), the method reloads the SHA via `script_load` and retries with `retry=False`. If the second attempt also fails with `NoScriptError`, a `RuntimeError` is raised. This pattern tolerates transient script cache losses while preventing infinite retry loops. The retry logic is identical across all four operations; the scheduling layer is documented here as the canonical example, with cross-references to the consumption layer (below) and the execution layer (for `extend_lease` and `get_status`).
+All Lua script operations (`schedule_task`, `consume`, `extend_lease`, `get_status`, and the ASGI `acquire`) share a centralized two-phase retry implemented in `_eval_script()`. The first attempt uses `EVALSHA`; if Redis returns a `NoScriptError` (indicating that the script cache was flushed, e.g., after a `SCRIPT FLUSH` or Redis restart), the method reloads the SHA via `script_load` and retries with `retry=False`. If the second attempt also fails with `NoScriptError`, a `RuntimeError` is raised. This pattern tolerates transient script cache losses while preventing infinite retry loops.
 
-- [limiters.py:677-785](../../src/celery_rate_limiter/core/limiters.py): `schedule_task()` retry logic.
-- [limiters.py:787-878](../../src/celery_rate_limiter/core/limiters.py): `consume()` retry logic.
-- [limiters.py:880-944](../../src/celery_rate_limiter/core/limiters.py): `extend_lease()` retry logic.
-- [limiters.py:1356-1424](../../src/celery_rate_limiter/core/limiters.py): `get_status()` retry logic.
+- [base.py:128-165](../../src/celery_rate_limiter/core/base.py): `AbstractSyncRateLimiter._eval_script()` (sync two-phase retry).
+- [base.py:205-246](../../src/celery_rate_limiter/core/base.py): `AbstractAsyncRateLimiter._eval_script()` (async two-phase retry).
 
 ### Inflight Key Cleanup on Any Schedule Failure
 
 `schedule_task()` acquires the inflight key via `SET NX` before calling the Lua script. If the Lua call fails for any reason (NoScriptError, ConnectionError, or any other exception), the inflight key is cleaned up via `_cleanup_inflight_key()` to prevent orphaned deduplication locks that would permanently block resubmission. The cleanup method itself suppresses all exceptions and logs a warning, such that a secondary Redis failure during cleanup does not mask the original error.
 
-- [limiters.py:643-665](../../src/celery_rate_limiter/core/limiters.py): `_cleanup_inflight_key()`.
-- [limiters.py:751-780](../../src/celery_rate_limiter/core/limiters.py): cleanup calls on NoScriptError and generic exceptions.
+- [limiters.py:941-959](../../src/celery_rate_limiter/core/limiters.py): `_cleanup_inflight_key()`.
+- [limiters.py:1032-1036](../../src/celery_rate_limiter/core/limiters.py): cleanup calls on generic exceptions.
 
 ## Consumption and Dispatch Layer
 
 The consumption and dispatch layer handles exceptions raised during `consume()` and `_dispatch_task()`. Non-recoverable exceptions from either operation propagate to the `drain()` method, which catches them and applies exponential backoff (see [Drain Control Layer](#drain-control-layer)).
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 flowchart TD
-    C_EVAL["consume() calls\nEVALSHA consume.lua"]
+    C_EVAL["consume() calls<br>EVALSHA consume.lua"]
     C_NOSCRIPT{"NoScriptError?"}
-    C_RETRY["Reload SHA,\nretry with retry=False"]
-    C_RETRY_FAIL{"2nd attempt\nalso fails?"}
-    C_RUNTIME["RuntimeError:\nscript not retained"]
-    C_PROPAGATE["Non-NoScript exception\npropagates to drain()"]
-    C_DISPATCH["_dispatch_task() calls\nbackend (send_task / executor)"]
-    C_DISPATCH_FAIL["Backend exception\npropagates to drain()"]
+    C_RETRY["Reload SHA,<br>retry with retry=False"]
+    C_RETRY_FAIL{"2nd attempt<br>also fails?"}
+    C_RUNTIME["RuntimeError:<br>script not retained"]
+    C_PROPAGATE["Non-NoScript exception<br>propagates to drain()"]
+    C_DISPATCH["_dispatch_task() calls<br>backend (send_task / executor)"]
+    C_DISPATCH_FAIL["Backend exception<br>propagates to drain()"]
 
     C_EVAL --> C_NOSCRIPT
     C_NOSCRIPT -- "Yes" --> C_RETRY --> C_RETRY_FAIL
@@ -134,27 +136,29 @@ flowchart TD
 | Consume non-NoScript → propagate | ConnectionError propagates to drain() | `implementations/test_rate_limiter::test_consume_connection_error_propagates` |
 | Dispatch Celery failure → propagate | send_task() exception propagates to drain() | `implementations/celery/test_celery_limiter::test_dispatch_task_send_task_failure_propagates` |
 | Dispatch ThreadPool failure → propagate | import_string() exception propagates to drain() | `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_import_failure_propagates` |
+| Dispatch AsyncIO sync function → TypeError | Sync function passed to async dispatch raises TypeError | `implementations/asyncio/test_asyncio_limiter::test_dispatch_sync_function_raises_type_error` |
 | Metrics callback exception during consume | Does not disrupt consumption | `implementations/test_metrics_callback::test_callback_exception_does_not_break_consume` |
 
 ### Metrics Callback Isolation
 
 `_emit_metric()` wraps the user-provided callback in a `try/except` that catches and logs all exceptions, thereby preventing a buggy callback from disrupting the limiter. This isolation boundary ensures that observability integrations cannot introduce cascading failures into the rate limiting logic.
 
-- [limiters.py:946-967](../../src/celery_rate_limiter/core/limiters.py): `_emit_metric()` with exception suppression.
+- [limiters.py:747-768](../../src/celery_rate_limiter/core/limiters.py): `_emit_metric()` with exception suppression.
 
 ## Drain Control Layer
 
 The drain control layer wraps `_drain_inner()` in a `try/except` that catches all exceptions from the consumption and dispatch operations. It applies exponential backoff and schedules recovery drains. The [Drain Loop Flow](drain-flow.md) documents the control flow in detail; this section focuses specifically on the error handling aspects.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 flowchart TD
-    D_INNER["_drain_inner() orchestrates\nlock, consume, dispatch"]
-    D_CATCH["drain() catches\nall exceptions"]
-    D_BACKOFF["Increment failure count\ndelay = min(window, 0.1 × 2^(n−1))"]
-    D_SCHEDULE["Schedule recovery drain\nvia _schedule_drain(delay)"]
-    D_DOUBLE_FAIL{"Recovery scheduling\nalso fails?"}
-    D_CRITICAL["Log critical:\nrely on watchdog,\ntrigger_consume(),\nor task completion"]
-    D_RESET["On success:\nreset failure count to 0"]
+    D_INNER["_drain_inner() orchestrates<br>lock, consume, dispatch"]
+    D_CATCH["drain() catches<br>all exceptions"]
+    D_BACKOFF["Increment failure count<br>delay = min(window, 0.1 × 2^(n−1))"]
+    D_SCHEDULE["Schedule recovery drain<br>via _schedule_drain(delay)"]
+    D_DOUBLE_FAIL{"Recovery scheduling<br>also fails?"}
+    D_CRITICAL["Log critical:<br>rely on watchdog,<br>trigger_consume(),<br>or task completion"]
+    D_RESET["On success:<br>reset failure count to 0"]
 
     D_INNER -- "exception" --> D_CATCH --> D_BACKOFF --> D_SCHEDULE
     D_SCHEDULE -- "exception" --> D_DOUBLE_FAIL
@@ -178,27 +182,28 @@ flowchart TD
 
 `drain()` wraps `_drain_inner()` in a `try/except` that catches all exceptions, increments `_consecutive_drain_failures`, and schedules a recovery drain with `delay = min(window, 0.1 * 2^(n-1))`. The backoff starts at 100ms for the first failure and doubles on each consecutive failure, capped at the window duration. On the first successful drain, the error counter resets to 0. If the recovery scheduling itself also fails, the system logs a critical error and relies on the next external trigger (a `trigger_consume()` call from `schedule_task()` or `TaskLifecycle.__exit__()`, or a watchdog timeout) to resume the drain loop.
 
-- [limiters.py:1092-1141](../../src/celery_rate_limiter/core/limiters.py): drain exception handling and backoff calculation.
+- [limiters.py:1180-1228](../../src/celery_rate_limiter/core/limiters.py): drain exception handling and backoff calculation.
 
 ## Execution Layer
 
 The execution layer encompasses the `@rate_limited` decorator, the `TaskLifecycle` context manager, and the heartbeat loop. These components handle task execution errors, concurrency slot cleanup, and lease renewal failures.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 flowchart TD
-    E_DEC_LID["@rate_limited: resolve\nlimiter_id and limiter"]
-    E_DEC_TID["Pop _rate_limit_task_id\nfrom kwargs"]
-    E_MISSING_LID["ValueError:\nmissing limiter_id"]
-    E_MISSING_TID["KeyError:\nmissing _rate_limit_task_id"]
-    E_LIFECYCLE["TaskLifecycle context:\nexecute user function"]
-    E_USER_EXC["User function raises:\nexception propagates"]
-    E_CLEANUP["__exit__: ZREM concurrency,\nDEL inflight key"]
-    E_CLEANUP_FAIL["Redis error during cleanup:\npropagates, but finally\nstill runs trigger_consume()"]
-    E_TRIGGER["finally: trigger_consume()\nalways called"]
-    E_HB_LOOP["Heartbeat loop:\nextend_lease() every\nlease_duration / 2"]
-    E_HB_FAIL{"on_heartbeat_failure\nstrategy?"}
-    E_HB_WARN["warn: set is_healthy=False,\nlog critical, continue"]
-    E_HB_KILL["kill: os.kill(SIGTERM),\nbreak heartbeat loop"]
+    E_DEC_LID["@rate_limited: resolve<br>limiter_id and limiter"]
+    E_DEC_TID["Pop _rate_limit_task_id<br>from kwargs"]
+    E_MISSING_LID["ValueError:<br>missing limiter_id"]
+    E_MISSING_TID["KeyError:<br>missing _rate_limit_task_id"]
+    E_LIFECYCLE["TaskLifecycle context:<br>execute user function"]
+    E_USER_EXC["User function raises:<br>exception propagates"]
+    E_CLEANUP["__exit__: ZREM concurrency,<br>DEL inflight key"]
+    E_CLEANUP_FAIL["Redis error during cleanup:<br>propagates, but finally<br>still runs trigger_consume()"]
+    E_TRIGGER["finally: trigger_consume()<br>always called"]
+    E_HB_LOOP["Heartbeat loop:<br>extend_lease() every<br>lease_duration / 2"]
+    E_HB_FAIL{"on_heartbeat_failure<br>strategy?"}
+    E_HB_WARN["warn: set is_healthy=False,<br>log critical, continue"]
+    E_HB_KILL["kill: os.kill(SIGTERM),<br>break heartbeat loop"]
 
     E_DEC_LID -- "missing" --> E_MISSING_LID
     E_DEC_TID -- "missing" --> E_MISSING_TID
@@ -234,13 +239,63 @@ flowchart TD
 
 `TaskLifecycle.__exit__()` performs cleanup (ZREM on the concurrency set, DEL on the inflight key) in a `try` block, with `trigger_consume()` in the `finally` block. This guarantees that the feedback loop continues even if the Redis cleanup operations fail, such that a freed concurrency slot is always followed by a consumption attempt.
 
-- [limiters.py:311-347](../../src/celery_rate_limiter/core/limiters.py): `__exit__()` with try/finally.
+- [limiters.py:320-358](../../src/celery_rate_limiter/core/limiters.py): `TaskLifecycle.__exit__()` with try/finally.
 
 ### Heartbeat Failure Strategies
 
 The heartbeat loop catches all exceptions from `extend_lease()`. In `"warn"` mode, it sets `is_healthy = False` and logs a critical message, allowing the task to continue running at the risk of the concurrency slot lease expiring. In `"kill"` mode, it sends `SIGTERM` to the worker process, ensuring that the task is terminated and the concurrency slot self-heals via lease expiry. The choice between strategies is configured per `TaskLifecycle` instance.
 
-- [limiters.py:263-296](../../src/celery_rate_limiter/core/limiters.py): `_heartbeat_loop()` exception handling.
+- [limiters.py:272-305](../../src/celery_rate_limiter/core/limiters.py): `_heartbeat_loop()` exception handling.
+
+## ASGI Layer
+
+The ASGI backend uses a request-oriented architecture that differs from the task-oriented backends. The `ASGIRateLimiter.acquire()` method wraps the `acquire.lua` Lua script call in a `try/except` that logs all exceptions and re-raises. The `RateLimitMiddleware` catches exceptions from `acquire()` and applies a configurable error strategy: `"fail_open"` allows the request to proceed without rate limit headers, while `"fail_closed"` returns a 503 Service Unavailable response.
+
+```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
+flowchart TD
+    A_REQUEST["Incoming HTTP request"]
+    A_KEY{"key_func returns<br>a key?"}
+    A_PASSTHROUGH["Pass through to<br>inner application"]
+    A_ACQUIRE["ASGIRateLimiter.acquire(key)<br>EVALSHA acquire.lua"]
+    A_NOSCRIPT{"NoScriptError?"}
+    A_RETRY["Reload SHA,<br>retry via _eval_script()"]
+    A_OTHER["Non-NoScript exception<br>logged by acquire()"]
+    A_STRATEGY{"on_error<br>strategy?"}
+    A_OPEN["fail_open: proceed<br>without headers"]
+    A_CLOSED["fail_closed: return<br>503 Service Unavailable"]
+    A_ALLOWED{"Request<br>allowed?"}
+    A_HEADERS["Inject X-RateLimit-*<br>headers, pass through"]
+    A_BLOCKED["Return 429 Too Many<br>Requests (or custom callback)"]
+
+    A_REQUEST --> A_KEY
+    A_KEY -- "None" --> A_PASSTHROUGH
+    A_KEY -- "key" --> A_ACQUIRE
+    A_ACQUIRE --> A_NOSCRIPT
+    A_NOSCRIPT -- "Yes" --> A_RETRY --> A_ACQUIRE
+    A_NOSCRIPT -- "No (other exception)" --> A_OTHER --> A_STRATEGY
+    A_STRATEGY -- "fail_open" --> A_OPEN
+    A_STRATEGY -- "fail_closed" --> A_CLOSED
+    A_ACQUIRE -- "success" --> A_ALLOWED
+    A_ALLOWED -- "Yes" --> A_HEADERS
+    A_ALLOWED -- "No" --> A_BLOCKED
+
+    style A_CLOSED fill:#ffcdd2,stroke:#D32F2F
+    style A_BLOCKED fill:#fff3e0,stroke:#FF9800
+    style A_OPEN fill:#e8f5e9,stroke:#388E3C
+```
+
+**Test coverage:**
+
+| Path | Description | Tested by |
+|------|-------------|-----------|
+| key_func returns None | Request passes through without rate limiting | `implementations/asgi/test_middleware::test_none_key_bypasses_rate_limiting` |
+| Non-HTTP scope | Request passes through unconditionally | `implementations/asgi/test_middleware::test_non_http_scope_passes_through` |
+| acquire() raises, fail_open | Request proceeds without headers | `implementations/asgi/test_middleware::test_fail_open_allows_on_error` |
+| acquire() raises, fail_closed | Returns 503 Service Unavailable | `implementations/asgi/test_middleware::test_fail_closed_returns_503_on_error` |
+| acquire() script exception logged | Exception is logged with limiter ID | `implementations/asgi/test_asgi_limiter::test_acquire_logs_exception_on_script_failure` |
+| Request allowed | X-RateLimit-* headers injected | `implementations/asgi/test_middleware::test_allowed_response_includes_rate_limit_headers` |
+| Request blocked | 429 response with Retry-After header | `implementations/asgi/test_middleware::test_blocked_response_returns_429` |
 
 ## Failure Mode Traceability
 
@@ -267,23 +322,34 @@ The following table enumerates every identified failure mode, its handling strat
 | 17 | Missing `limiter_id` in decorator | `@rate_limited` | `ValueError` | Propagates to caller | `implementations/test_decorator::test_decorator_raises_value_error_when_limiter_id_missing` | No |
 | 18 | Missing `_rate_limit_task_id` in decorator | `@rate_limited` | `KeyError` | Propagates to caller | `implementations/test_decorator::test_decorator_raises_when_task_id_missing` | No |
 | 19 | User function raises exception inside `@rate_limited` | `@rate_limited` wrapper | Any `Exception` | Propagates; `TaskLifecycle.__exit__()` cleanup still runs | `implementations/test_decorator::test_decorator_propagates_wrapped_function_exception` | No |
-| 20 | `configure()` not called before `create()`/`get()` | Class API | `RuntimeError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_create_without_configure_raises` | No |
-| 21 | Limiter not found in cache or Redis | `get()` | `ValueError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_get_nonexistent_limiter_raises_value_error` | No |
-| 22 | Duplicate limiter creation without override | `create()` | `ValueError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_create_duplicate_without_override_raises` | No |
-| 23 | Direct constructor invocation (bypass class API) | `__init__()` | `RuntimeError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_direct_construction_raises_runtime_error` | No |
-| 24 | Corrupted JSON in persisted config | `refresh_config()` | `JSONDecodeError` | Catch, log warning, return `False` | `implementations/test_rate_limiter_class_api::test_refresh_config_handles_corrupted_redis_data` | No |
-| 25 | Lua script not found on disk | `_load_lua_script()` | `ImportError` | Propagates (fatal at initialization) | `implementations/test_internal_helpers::test_load_lua_script_raises_import_error_on_failure` | No |
-| 26 | Inflight key cleanup fails during scheduling error | `_cleanup_inflight_key()` | Any `Exception` | Suppressed, log warning | `implementations/test_internal_helpers::test_cleanup_inflight_key_suppresses_redis_failure` | No |
+| 20 | `configure()` not called before `create()`/`get()` | Class API | `RuntimeError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_create_without_configure_raises`, `implementations/asyncio/test_rate_limiter_class_api::test_create_without_configure_raises` | No |
+| 21 | Limiter not found in cache or Redis | `get()` | `ValueError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_get_nonexistent_limiter_raises_value_error`, `implementations/asyncio/test_rate_limiter_class_api::test_get_nonexistent_limiter_raises_value_error` | No |
+| 22 | Duplicate limiter creation without override | `create()` | `ValueError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_create_duplicate_without_override_raises`, `implementations/asyncio/test_rate_limiter_class_api::test_create_duplicate_without_override_raises` | No |
+| 23 | Direct constructor invocation (bypass class API) | `__init__()` | `RuntimeError` | Propagates to caller | `implementations/test_rate_limiter_class_api::test_direct_construction_raises_runtime_error`, `implementations/asyncio/test_rate_limiter_class_api::test_direct_construction_raises_runtime_error` | No |
+| 24 | Corrupted JSON in persisted config | `refresh_config()` | `JSONDecodeError` | Catch, log warning, return `False` | `implementations/test_rate_limiter_class_api::test_refresh_config_handles_corrupted_redis_data`, `implementations/asyncio/test_rate_limiter_class_api::test_refresh_config_handles_corrupted_redis_data` | No |
+| 25 | Lua script not found on disk | `load_lua_script()` | `ImportError` | Propagates (fatal at initialization) | `implementations/test_lua_script_infrastructure::test_register_script_raises_import_error_on_missing_source` | No |
+| 26 | Inflight key cleanup fails during scheduling error | `_cleanup_inflight_key()` | Any `Exception` | Suppressed, log warning | `implementations/test_task_data_helpers::test_cleanup_inflight_key_suppresses_redis_failure` | No |
 | 27 | Celery `send_task()` fails during dispatch | `_dispatch_task()` (Celery) | `Exception` | Propagates to `drain()` backoff | `implementations/celery/test_celery_limiter::test_dispatch_task_send_task_failure_propagates` | No |
 | 28 | `import_string()` fails during dispatch | `_dispatch_task()` (ThreadPool) | `ModuleNotFoundError` | Propagates to `drain()` backoff | `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_import_failure_propagates` | No |
 | 29 | Metrics callback raises exception | `_emit_metric()` | Any `Exception` | Caught, logged, does not disrupt limiter | `implementations/test_metrics_callback::test_callback_exception_does_not_break_consume` | No |
 | 30 | Missing backend context during `configure()` | `_configure_backend()` | `RuntimeError` | Propagates to caller | `test_rate_limiter_class_api` (per backend) | No |
+| 31 | Sync function dispatched to async backend | `_dispatch_task()` (AsyncIO) | `TypeError` | Caught by `_run_task()` exception handler; task set cleaned up | `implementations/asyncio/test_asyncio_limiter::test_dispatch_sync_function_raises_type_error` | No |
+| 32 | Lua script first package unavailable | `load_lua_script()` | `ModuleNotFoundError` | Falls back to second package in `resource_packages` | `implementations/test_lua_script_infrastructure::test_load_lua_script_falls_back_to_second_package` | No |
+| 33 | ASGI `acquire()` script failure | `ASGIRateLimiter.acquire()` | Any `Exception` | Logged, re-raised to middleware | `implementations/asgi/test_asgi_limiter::test_acquire_logs_exception_on_script_failure` | No |
+| 34 | ASGI middleware error, fail_open | `RateLimitMiddleware.__call__()` | Any `Exception` | Request proceeds without rate limit headers | `implementations/asgi/test_middleware::test_fail_open_allows_on_error` | No |
+| 35 | ASGI middleware error, fail_closed | `RateLimitMiddleware.__call__()` | Any `Exception` | Returns 503 Service Unavailable | `implementations/asgi/test_middleware::test_fail_closed_returns_503_on_error` | No |
 
 ## References
 
-- [limiters.py](../../src/celery_rate_limiter/core/limiters.py): core implementation containing all error handling patterns.
+- [base.py](../../src/celery_rate_limiter/core/base.py): centralized `_eval_script()` two-phase NoScriptError retry (sync and async).
+- [scripts.py](../../src/celery_rate_limiter/core/scripts.py): `load_lua_script()` resource loading with fallback.
+- [limiters.py](../../src/celery_rate_limiter/core/limiters.py): sync core implementation (scheduling, consumption, lifecycle, drain error handling).
+- [async_limiters.py](../../src/celery_rate_limiter/core/async_limiters.py): async core implementation (async drain, dispatch, lifecycle).
 - [decorators.py](../../src/celery_rate_limiter/core/decorators.py): `@rate_limited` decorator error paths.
 - [celery/limiter.py](../../src/celery_rate_limiter/backends/celery/limiter.py): Celery backend dispatch (`send_task`) error propagation.
 - [threading/limiter.py](../../src/celery_rate_limiter/backends/threading/limiter.py): ThreadPool backend dispatch (`import_string`) error propagation.
+- [asyncio/limiter.py](../../src/celery_rate_limiter/backends/asyncio/limiter.py): AsyncIO backend dispatch (`create_task`) error propagation and sync function guard.
+- [asgi/limiter.py](../../src/celery_rate_limiter/backends/asgi/limiter.py): ASGI `acquire()` error logging and re-raise.
+- [asgi/middleware.py](../../src/celery_rate_limiter/backends/asgi/middleware.py): ASGI middleware fail_open/fail_closed error strategy.
 - [Drain Loop Flow](drain-flow.md): the three-layer drain control loop and feedback entry points.
 - [Task State Diagram](task-states.md): all possible task states, including crash recovery mechanisms.

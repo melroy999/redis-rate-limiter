@@ -10,13 +10,13 @@ Start Redis in Docker, which avoids conflicts with a local Redis installation:
 
 ```bash
 # Start Redis on port 6380 (avoids conflicts with local Redis on 6379).
-docker-compose up redis
+docker compose up redis
 
 # Run tests locally, connecting to Docker Redis.
 REDIS_HOST=localhost REDIS_PORT=6380 poetry run pytest
 
 # Or run tests inside Docker.
-docker-compose --profile test up test
+docker compose --profile test up test
 ```
 
 ### Option 2: Using Local Redis
@@ -44,13 +44,13 @@ The Redis service that stores the rate limiting data.
 
 ```bash
 # Start Redis only.
-docker-compose up redis
+docker compose up redis
 
 # Start in background.
-docker-compose up -d redis
+docker compose up -d redis
 
 # Stop Redis.
-docker-compose down
+docker compose down
 ```
 
 **Custom port mapping:**
@@ -59,7 +59,7 @@ If port 6380 is also in use, the port can be overridden with an environment vari
 
 ```bash
 # Use port 6381 instead.
-REDIS_PORT=6381 docker-compose up redis
+REDIS_PORT=6381 docker compose up redis
 ```
 
 Alternatively, a `.env` file can be created:
@@ -67,7 +67,7 @@ Alternatively, a `.env` file can be created:
 ```bash
 cp .env.example .env
 # Edit .env and set REDIS_PORT=6381.
-docker-compose up redis
+docker compose up redis
 ```
 
 ### 2. test - Test Runner
@@ -78,16 +78,16 @@ Runs the test suite inside Docker with a clean Redis instance.
 
 ```bash
 # Run all tests.
-docker-compose --profile test up test
+docker compose --profile test up test
 
 # Run specific tests.
-docker-compose --profile test run test poetry run pytest tests/implementations/ -v
+docker compose --profile test run test poetry run pytest tests/implementations/ -v
 
 # Run tests without capturing output (shows print statements).
-docker-compose --profile test run test poetry run pytest tests/ -v -s
+docker compose --profile test run test poetry run pytest tests/ -v -s
 
 # Interactive shell in the test container.
-docker-compose --profile test run test bash
+docker compose --profile test run test bash
 ```
 
 **Benefits:**
@@ -97,7 +97,29 @@ docker-compose --profile test run test bash
 - Ensures consistency across different machines.
 - Print statements from tests are visible (uses the `-s` flag).
 
-### 3. celery-worker - Production Worker
+### 3. test-all - Full Test Runner
+
+Runs the complete test suite inside Docker, including integration tests marked with `@pytest.mark.slow` that require precise timing and real Redis interactions.
+
+**Usage:**
+
+```bash
+# Run all tests including slow integration tests.
+docker compose --profile test-all up --build --abort-on-container-exit --exit-code-from test-all
+```
+
+### 4. mutate - Mutation Testing
+
+Runs mutation testing via mutmut inside Docker. This service requires Linux fork support and therefore cannot run natively on Windows. Source changes are baked into the image at build time (no volume mount), so the `--build` flag is required to pick up modifications. Results are written to `./mutmut-results/`.
+
+**Usage:**
+
+```bash
+# Run mutation testing.
+docker compose --profile mutate up --build --abort-on-container-exit --exit-code-from mutate
+```
+
+### 5. celery-worker - Production Worker
 
 Runs Celery workers in production mode.
 
@@ -105,13 +127,13 @@ Runs Celery workers in production mode.
 
 ```bash
 # Start Redis and the Celery workers.
-docker-compose --profile production up
+docker compose --profile production up
 
 # Scale the number of workers.
-docker-compose --profile production up --scale celery-worker=3
+docker compose --profile production up --scale celery-worker=3
 ```
 
-### 4. redis-commander - Redis Web UI (Optional)
+### 6. redis-commander - Redis Web UI (Optional)
 
 A web-based UI for debugging the Redis data.
 
@@ -119,7 +141,7 @@ A web-based UI for debugging the Redis data.
 
 ```bash
 # Start Redis and Redis Commander.
-docker-compose --profile debug up redis redis-commander
+docker compose --profile debug up redis redis-commander
 
 # Access at http://localhost:8081.
 ```
@@ -148,7 +170,7 @@ poetry run pytest
 
 ```bash
 # Terminal 1: Start Docker Redis.
-docker-compose up redis
+docker compose up redis
 
 # Terminal 2: Run tests with Docker Redis.
 REDIS_HOST=localhost REDIS_PORT=6380 poetry run pytest
@@ -170,7 +192,7 @@ export REDIS_PORT=6380
 
 ```bash
 # Start Redis on port 6381.
-REDIS_PORT=6381 docker-compose up redis
+REDIS_PORT=6381 docker compose up redis
 
 # Run tests with the custom port.
 REDIS_HOST=localhost REDIS_PORT=6381 poetry run pytest
@@ -184,10 +206,10 @@ REDIS_HOST=localhost REDIS_PORT=6381 poetry run pytest
 
 ```bash
 # Run tests in Docker (no local setup needed).
-docker-compose --profile test up test
+docker compose --profile test up test
 
 # Run the production stack.
-docker-compose --profile production up
+docker compose --profile production up
 ```
 
 ### Scenario 5: CI/CD Pipeline
@@ -199,10 +221,10 @@ docker-compose --profile production up
 ```yaml
 # Example GitHub Actions workflow.
 - name: Start Redis
-  run: docker-compose up -d redis
+  run: docker compose up -d redis
 
 - name: Wait for Redis
-  run: docker-compose exec -T redis redis-cli ping
+  run: docker compose exec -T redis redis-cli ping
 
 - name: Run Tests
   run: poetry run pytest
@@ -225,7 +247,7 @@ docker-compose --profile production up
    redis-cli ping
 
    # For Docker Redis.
-   docker-compose exec redis redis-cli ping
+   docker compose exec redis redis-cli ping
    ```
 
 2. Check the port configuration:
@@ -250,7 +272,7 @@ docker-compose --profile production up
 **Solution:** Use a different port:
 
 ```bash
-REDIS_PORT=6381 docker-compose up redis
+REDIS_PORT=6381 docker compose up redis
 ```
 
 ### Docker Redis Will Not Start
@@ -261,19 +283,19 @@ REDIS_PORT=6381 docker-compose up redis
 
 1. Check the Docker logs:
    ```bash
-   docker-compose logs redis
+   docker compose logs redis
    ```
 
 2. Remove old containers:
    ```bash
-   docker-compose down
-   docker-compose up redis
+   docker compose down
+   docker compose up redis
    ```
 
 3. Remove volumes (**warning**: this deletes all Redis data):
    ```bash
-   docker-compose down -v
-   docker-compose up redis
+   docker compose down -v
+   docker compose up redis
    ```
 
 ## Best Practices
@@ -282,7 +304,7 @@ REDIS_PORT=6381 docker-compose up redis
 
 1. **Use Docker Redis**: avoids version mismatches and configuration drift.
    ```bash
-   docker-compose up -d redis
+   docker compose up -d redis
    ```
 
 2. **Set environment variables**: make the connection permanent.
@@ -292,34 +314,34 @@ REDIS_PORT=6381 docker-compose up redis
 
 3. **Use Redis Commander**: allows for visual debugging of the rate limiting behavior.
    ```bash
-   docker-compose --profile debug up -d redis redis-commander
+   docker compose --profile debug up -d redis redis-commander
    ```
 
 ### For Testing
 
 1. **Use the Docker test runner**: ensures a clean environment.
    ```bash
-   docker-compose --profile test up test
+   docker compose --profile test up test
    ```
 
 2. **Flush Redis between test runs**: keeps the tests independent.
    ```bash
    # Tests do this automatically, but for manual testing:
-   docker-compose exec redis redis-cli FLUSHALL
+   docker compose exec redis redis-cli FLUSHALL
    ```
 
 ### For Production
 
 1. **Use the production profile**: provides an optimized build.
    ```bash
-   docker-compose --profile production up -d
+   docker compose --profile production up -d
    ```
 
 2. **Persist Redis data**: ensure the `redis-data` volume is backed up.
 
 3. **Monitor health**: use the built-in health checks.
    ```bash
-   docker-compose ps
+   docker compose ps
    ```
 
 ## Architecture

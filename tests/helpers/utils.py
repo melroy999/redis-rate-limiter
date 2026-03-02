@@ -3,7 +3,38 @@
 This module provides utility functions that are used across multiple test files.
 """
 
+import asyncio
 import math
+import time
+
+import pytest
+
+
+async def wait_for_key_expiry(
+    redis_client, key: str, deadline_seconds: float = 5.0
+) -> None:
+    """Poll until a Redis key expires, using wall-clock time for the deadline.
+
+    Relies on ``time.monotonic()`` rather than an iteration count to ensure
+    the budget is honoured even when ``asyncio.sleep`` returns early or late
+    (as observed under mutmut's trampoline overhead).
+
+    Args:
+        redis_client: An async Redis client.
+        key: The Redis key to monitor.
+        deadline_seconds: Maximum wall-clock seconds to wait before failing.
+
+    Raises:
+        pytest.fail: If the key has not expired within the deadline. The
+            failure message includes the key's current PTTL for diagnosis.
+    """
+    end = time.monotonic() + deadline_seconds
+    while time.monotonic() < end:
+        if await redis_client.exists(key) == 0:
+            return
+        await asyncio.sleep(0.05)
+    ttl = await redis_client.pttl(key)
+    pytest.fail(f"key {key!r} did not expire within {deadline_seconds}s (pttl={ttl}ms)")
 
 
 def dict_equals_approx(left, right, relative_tolerance=1e-9, absolute_tolerance=1e-9):
@@ -62,6 +93,27 @@ def dict_equals_approx(left, right, relative_tolerance=1e-9, absolute_tolerance=
 
     # For all remaining types (i.e., int, str, bool), exact equality is used.
     return left == right
+
+
+def assert_log_emitted(
+    caplog_records: list,
+    level: str,
+    required_fragments: list[str],
+    message: str,
+) -> None:
+    """Assert that at least one log record matches the given level and contains all required fragments.
+
+    Args:
+        caplog_records: The list of captured log records (typically ``caplog.records``).
+        level: The expected log level name (e.g., ``"DEBUG"``, ``"INFO"``, ``"WARNING"``).
+        required_fragments: Substrings that must all appear in the matching record's message.
+        message: The assertion failure message.
+    """
+    assert any(
+        record.levelname == level
+        and all(fragment in record.message for fragment in required_fragments)
+        for record in caplog_records
+    ), message
 
 
 def is_subset(target: dict, superset: dict):

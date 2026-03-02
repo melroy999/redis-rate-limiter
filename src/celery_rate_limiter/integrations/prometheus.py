@@ -78,7 +78,9 @@ class PrometheusMetricsExporter:
         self._limiter_id = limiter_id
         registry = registry or DEFAULT_REGISTRY
 
-        # -- Counters ----------------------------------------------------------
+        # ---------------------------------------------------------------------------
+        # Counters
+        # ---------------------------------------------------------------------------
 
         self._consume_total = Counter(
             "celery_rate_limiter_consume_total",
@@ -94,7 +96,9 @@ class PrometheusMetricsExporter:
             registry=registry,
         )
 
-        # -- Gauges ------------------------------------------------------------
+        # ---------------------------------------------------------------------------
+        # Gauges
+        # ---------------------------------------------------------------------------
 
         self._remaining_tokens = Gauge(
             "celery_rate_limiter_remaining_tokens",
@@ -117,9 +121,9 @@ class PrometheusMetricsExporter:
             registry=registry,
         )
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Callback interface
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def __call__(self, event: str, data: dict) -> None:
         """Handle a metrics event emitted by the rate limiter.
@@ -142,9 +146,9 @@ class PrometheusMetricsExporter:
                 event,
             )
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Event handlers
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def _handle_consume(self, data: dict) -> None:
         """Process a consume event, updating counters and gauges."""
@@ -169,5 +173,6 @@ class PrometheusMetricsExporter:
         """Process a schedule event, updating the schedule counter."""
         scheduled = "true" if data.get("scheduled") else "false"
         self._schedule_total.labels(
-            limiter_id=self._limiter_id, scheduled=scheduled,
+            limiter_id=self._limiter_id,
+            scheduled=scheduled,
         ).inc()

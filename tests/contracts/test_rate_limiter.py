@@ -1,42 +1,99 @@
 """Contract tests that any RateLimiter implementation must satisfy.
 
 These tests define the expected behaviour for all implementations of
-``AbstractDistributedRateLimiter``. Any concrete implementation should
-inherit from ``RateLimiterContractTest`` and provide its own limiter
-fixture.
+``AbstractDistributedRateLimiter`` and ``AbstractAsyncDistributedRateLimiter``.
+Any concrete implementation should inherit from ``RateLimiterContractTest`` and
+provide its own limiter fixture.
+
+Sync implementations can use the ``SyncToAsyncLimiterAdapter`` from
+``tests.helpers.adapters`` to satisfy the async test interface.
+
+Fixture dependencies:
+    - ``limiter``: must be provided by subclass conftest.
+    - ``async_redis_client``, ``func_path``, ``payload``: from ``tests/conftest.py``.
 """
+
+import inspect
+from unittest.mock import MagicMock
+
+import pytest
+
+from celery_rate_limiter.core.async_limiters import (
+    AbstractAsyncDistributedRateLimiter,
+)
+from celery_rate_limiter.core.limiters import AbstractDistributedRateLimiter
+
+
+class _BareSyncLimiter(AbstractDistributedRateLimiter):
+    """Subclass that does not override ``_dispatch_task``.
+
+    Used by ``TestAbstractDispatchHook`` to verify that the sync base class
+    properly enforces the interface contract via ``NotImplementedError``.
+    """
+
+
+class _BareAsyncLimiter(AbstractAsyncDistributedRateLimiter):
+    """Subclass that does not override ``_dispatch_task``.
+
+    Used by ``TestAbstractDispatchHook`` to verify that the async base class
+    properly enforces the interface contract via ``NotImplementedError``.
+    """
+
+
+class TestAbstractDispatchHook:
+    """Contract: unoverridden ``_dispatch_task`` must raise ``NotImplementedError``."""
+
+    @staticmethod
+    @pytest.mark.parametrize(
+        "bare_cls",
+        [_BareSyncLimiter, _BareAsyncLimiter],
+        ids=["sync", "async"],
+    )
+    async def test_dispatch_task_raises_not_implemented(bare_cls):
+        """Contract: ``_dispatch_task`` must raise ``NotImplementedError`` when not overridden."""
+        # Arrange
+        limiter = bare_cls(
+            redis_client=MagicMock(),
+            limiter_id="test-bare",
+            limit=5,
+            window=60,
+            max_concurrency=2,
+            drain_enabled=False,
+        )
+
+        # Act & Assert
+        with pytest.raises(NotImplementedError, match="^Subclasses"):
+            result = limiter._dispatch_task("myapp.tasks.noop", {}, "task-1")
+            if inspect.isawaitable(result):
+                await result
 
 
 class RateLimiterContractTest:
     """Abstract test suite that any RateLimiter implementation must pass.
 
     Subclasses are required to provide the following:
-        - limiter: A fixture that returns a configured limiter instance.
-        - redis_client: A fixture that returns a Redis client.
+        - limiter: A fixture that returns a configured limiter instance
+          (or a ``SyncToAsyncLimiterAdapter`` wrapping a sync limiter).
+        - async_redis_client: An async fixture that returns an async Redis client.
 
-    Example:
-        class TestCeleryLimiter(RateLimiterContractTest):
+    Example (async backend, conftest provides ``limiter`` directly):
+        class TestAsyncIOContracts(RateLimiterContractTest):
+            pass
+
+    Example (sync backend via adapter):
+        class TestThreadPoolContracts(RateLimiterContractTest):
             @pytest.fixture
-            def limiter(self, redis_client, celery_app):
-                CeleryRateLimiter.configure(redis_client, celery_app=celery_app)
-                return CeleryRateLimiter.create(
-                    "example",
-                    limit=10,
-                    window=60,
-                    max_concurrency=5,
-                    override=True,
-                )
+            def limiter(self, limiter):
+                return SyncToAsyncLimiterAdapter(limiter)
     """
 
-    # ==================== Contract Tests ====================
-
     @staticmethod
-    def test_schedule_task_returns_success_and_task_id(
-        limiter, func_path, default_payload
+    async def test_schedule_task_returns_success_and_task_id(
+        limiter, func_path, payload
     ):
         """Contract: ``schedule_task()`` must return a ``(bool, str)`` tuple."""
         # Act
-        success, task_id = limiter.schedule_task(func_path, default_payload)
+        success, task_id = await limiter.schedule_task(func_path, payload)
 
         # Assert
         assert isinstance(success, bool), "first return value must be a boolean"
@@ -44,39 +101,39 @@ class RateLimiterContractTest:
         assert len(task_id) > 0, "task ID must not be empty"
 
     @staticmethod
-    def test_schedule_task_marks_task_as_inflight(
-        limiter, redis_client, func_path, default_payload
+    async def test_schedule_task_marks_task_as_inflight(
+        limiter, async_redis_client, func_path, payload
     ):
         """Contract: scheduled tasks must be marked as in-flight within Redis."""
         # Act
-        success, task_id = limiter.schedule_task(func_path, default_payload)
+        success, task_id = await limiter.schedule_task(func_path, payload)
 
         # Assert
         assert success is True, "scheduling should succeed for first task"
         inflight_key = limiter.get_inflight_key(task_id)
-        assert redis_client.exists(inflight_key) == 1, (
+        assert await async_redis_client.exists(inflight_key) == 1, (
             f"task {task_id} must be marked as in-flight in Redis"
         )
 
     @staticmethod
-    def test_schedule_task_adds_to_buffer(
-        limiter, redis_client, func_path, default_payload
+    async def test_schedule_task_adds_to_buffer(
+        limiter, async_redis_client, func_path, payload
     ):
         """Contract: scheduled tasks must be appended to the buffer."""
         # Act
-        success, task_id = limiter.schedule_task(func_path, default_payload)
+        success, task_id = await limiter.schedule_task(func_path, payload)
 
         # Assert
         assert success is True, "scheduling should succeed"
-        buffer_size = redis_client.zcard(limiter.buffer_key)
-        assert buffer_size >= 1, "buffer must contain at least the scheduled task"
+        buffer_size = await async_redis_client.zcard(limiter.buffer_key)
+        assert buffer_size == 1, "buffer must contain exactly the one scheduled task"
 
     @staticmethod
-    def test_schedule_duplicate_task_returns_false(limiter, func_path, default_payload):
+    async def test_schedule_duplicate_task_returns_false(limiter, func_path, payload):
         """Contract: scheduling identical tasks must return ``False`` for the duplicate."""
         # Act
-        success_1, task_id_1 = limiter.schedule_task(func_path, default_payload)
-        success_2, task_id_2 = limiter.schedule_task(func_path, default_payload)
+        success_1, task_id_1 = await limiter.schedule_task(func_path, payload)
+        success_2, task_id_2 = await limiter.schedule_task(func_path, payload)
 
         # Assert
         assert success_1 is True, "first scheduling should succeed"
@@ -100,7 +157,8 @@ class RateLimiterContractTest:
     @staticmethod
     def test_limiter_has_required_attributes(limiter):
         """Contract: the limiter must expose all required configuration attributes."""
-        # Assert that the required attributes exist and have the correct types.
+        # Assert
+        # Verify that the required attributes exist.
         assert hasattr(limiter, "id"), "limiter must have an 'id' attribute"
         assert hasattr(limiter, "redis"), "limiter must have a 'redis' attribute"
         assert hasattr(limiter, "buffer_key"), "limiter must have a 'buffer_key'"
@@ -113,20 +171,20 @@ class RateLimiterContractTest:
             "limiter must have a 'max_concurrency'"
         )
 
-        # Assert that the attributes have valid types.
+        # Verify that the attributes have valid types.
         assert isinstance(limiter.limit, int), "limit must be an int"
         assert isinstance(limiter.window, (int, float)), "window must be numeric"
         assert isinstance(limiter.max_concurrency, int), (
             "max_concurrency must be an int"
         )
 
-        # Assert that the attributes have valid values.
+        # Verify that the attributes have valid values.
         assert limiter.limit > 0, "limit must be positive"
         assert limiter.window > 0, "window must be positive"
         assert limiter.max_concurrency > 0, "max_concurrency must be positive"
 
     @staticmethod
-    def test_schedule_multiple_different_tasks(limiter, redis_client):
+    async def test_schedule_multiple_different_tasks(limiter, async_redis_client):
         """Contract: multiple distinct tasks must all be scheduled successfully."""
         # Arrange
         tasks = [
@@ -138,15 +196,15 @@ class RateLimiterContractTest:
 
         # Act & Assert
         for func_path, payload in tasks:
-            success, task_id = limiter.schedule_task(func_path, payload)
+            success, task_id = await limiter.schedule_task(func_path, payload)
             assert success is True, f"task {func_path} with {payload} should succeed"
             assert len(task_id) > 0, "each task should get a valid ID"
 
     @staticmethod
-    def test_consume_returns_expected_structure(limiter):
+    async def test_consume_returns_expected_structure(limiter):
         """Contract: ``consume()`` must return all required consume result keys."""
         # Act
-        result = limiter.consume()
+        result = await limiter.consume()
 
         # Assert
         expected_keys = {
@@ -158,7 +216,7 @@ class RateLimiterContractTest:
             "reset_in_ms",
             "remaining_tasks",
             "val_current",
-            "val_previous"
+            "val_previous",
         }
         assert isinstance(result, dict), "consume result must be a dictionary"
         assert set(result.keys()) == expected_keys, (
@@ -185,59 +243,105 @@ class RateLimiterContractTest:
         assert isinstance(result["val_current"], int), "val_current must be an int"
 
         # Assert that the values fall within valid bounds.
-        assert result["remaining_tokens"] >= 0, (
-            "remaining_tokens must be non-negative on empty buffer"
+        assert result["remaining_tokens"] == limiter.limit, (
+            "remaining_tokens must equal limit on empty buffer with no prior consumes"
         )
-        assert result["active_concurrency"] >= 0, (
-            "active_concurrency must be non-negative"
+        assert result["active_concurrency"] == 0, (
+            "active_concurrency must be 0 when no tasks are dispatched"
         )
         assert result["reset_in_ms"] >= 0, "reset_in_ms must be non-negative"
-        assert result["remaining_tasks"] >= 0, "remaining_tasks must be non-negative"
+        assert result["remaining_tasks"] == 0, (
+            "remaining_tasks must be 0 on empty buffer"
+        )
 
     @staticmethod
-    def test_consume_empty_buffer_returns_unsuccessful(limiter):
+    async def test_consume_empty_buffer_returns_unsuccessful(limiter):
         """Contract: consuming from an empty buffer must return no task and an unsuccessful result."""
         # Act
-        result = limiter.consume()
+        result = await limiter.consume()
 
         # Assert
         assert result["success"] is False, "consume should fail on empty buffer"
         assert result["task"] is None, "consume should return no task on empty buffer"
 
     @staticmethod
-    def test_consume_expired_field_is_boolean(limiter, func_path, default_payload):
+    async def test_consume_expired_field_is_boolean(limiter, func_path, payload):
         """Contract: the ``consume()`` expired flag must always be a boolean."""
         # Arrange
-        limiter.schedule_task(func_path, default_payload)
+        await limiter.schedule_task(func_path, payload)
 
         # Act
-        result = limiter.consume()
+        result = await limiter.consume()
 
         # Assert
         assert isinstance(result["expired"], bool), "expired must be a bool"
 
     @staticmethod
-    def test_execution_lock_context_manager_yields_boolean(limiter):
+    async def test_consume_result_fields_have_distinct_values(
+        limiter, func_path, payload
+    ):
+        """Contract: ``consume()`` result fields must map to the correct Lua return indices.
+
+        This test creates a state where ``val_previous``, ``val_current``, and
+        ``reset_in_ms`` are distinguishable from one another to catch index swap
+        mutations in the result parsing logic.
+        """
+        # Arrange
+        await limiter.schedule_task(func_path, payload)
+
+        # Act
+        result = await limiter.consume()
+
+        # Assert
+        # The background drain loop may race with our explicit consume() call.
+        # Regardless of which consumer won, the field mapping remains exercisable:
+        # val_current reflects at least one consume, while val_previous stays zero.
+        assert result["val_previous"] == 0, (
+            "val_previous should be 0 in the first window"
+        )
+        assert result["val_current"] >= 1, (
+            "val_current should reflect at least one consume in the first window"
+        )
+        assert result["reset_in_ms"] > 0, (
+            "reset_in_ms should be a positive countdown within the current window"
+        )
+        assert result["remaining_tasks"] == 0, (
+            "remaining_tasks should be 0 after the only scheduled task is consumed"
+        )
+
+    @staticmethod
+    async def test_execution_lock_context_manager_yields_boolean(limiter):
         """Contract: ``execution_lock()`` must yield a boolean indicating the acquisition result."""
         # Act & Assert
-        with limiter.execution_lock(timeout_ms=50) as acquired:
+        async with limiter.execution_lock(timeout_ms=50) as acquired:
             assert isinstance(acquired, bool), "execution_lock must yield a boolean"
 
     @staticmethod
-    def test_get_buffer_count_returns_nonnegative_integer(limiter):
+    async def test_execution_lock_default_timeout(limiter):
+        """Contract: ``execution_lock()`` must work with the default timeout_ms parameter."""
+        # Act & Assert
+        # Calling without arguments exercises the default timeout_ms=5000.
+        async with limiter.execution_lock() as acquired:
+            assert isinstance(acquired, bool), (
+                "execution_lock with default timeout must yield a boolean"
+            )
+            assert acquired is True, "execution_lock should succeed when uncontested"
+
+    @staticmethod
+    async def test_get_buffer_count_returns_nonnegative_integer(limiter):
         """Contract: ``get_buffer_count()`` must return a non-negative integer."""
         # Act
-        count = limiter.get_buffer_count()
+        count = await limiter.get_buffer_count()
 
         # Assert
         assert isinstance(count, int), "buffer count must be an integer"
         assert count >= 0, "buffer count must be non-negative"
 
     @staticmethod
-    def test_get_status_returns_dict_with_required_sections(limiter):
+    async def test_get_status_returns_dict_with_required_sections(limiter):
         """Contract: ``get_status()`` must return a dictionary containing all required top-level status sections."""
         # Act
-        result = limiter.get_status()
+        result = await limiter.get_status()
 
         # Assert
         required_sections = {

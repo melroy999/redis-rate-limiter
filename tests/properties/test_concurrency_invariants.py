@@ -2,6 +2,10 @@
 
 These tests employ Hypothesis to verify that the concurrency bound is never
 exceeded under arbitrary sequences of schedule, consume, and complete operations.
+
+Fixture dependencies:
+    - ``property_redis_client``, ``module_limiter_id``: from ``tests/conftest.py``
+      (via ``tests/properties/conftest.py``).
 """
 
 import pytest
@@ -10,29 +14,31 @@ from hypothesis import strategies as st
 
 from tests.implementations.conftest import MinimalRateLimiter
 
-
-@pytest.fixture(scope="module")
-def property_redis_client(_redis_connection):
-    """Provide a module-scoped Redis client for property-based tests."""
-    yield _redis_connection
-    _redis_connection.flushdb()
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
 def property_limiter(
     property_redis_client,
-    default_module_limiter_id,
+    module_limiter_id,
 ):
     """Provide a module-scoped rate limiter for concurrency-invariant property tests."""
     return MinimalRateLimiter(
         redis_client=property_redis_client,
-        limiter_id=f"{default_module_limiter_id}_property_concurrency",
+        limiter_id=f"{module_limiter_id}_property_concurrency",
         limit=10_000,
         window=60,
         max_concurrency=3,
         max_age=3600,
         lease_duration=30,
     )
+
+
+# ---------------------------------------------------------------------------
+# Concrete test cases
+# ---------------------------------------------------------------------------
 
 
 class TestConcurrencyInvariantProperties:
@@ -58,7 +64,7 @@ class TestConcurrencyInvariantProperties:
         next_payload_id = 0
         active_task_ids = set()
 
-        # Act
+        # Act & Assert
         for operation in operations:
             if operation == "schedule":
                 property_limiter.schedule_task(

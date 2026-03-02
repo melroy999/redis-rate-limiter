@@ -1,20 +1,35 @@
 """Tests for the adaptive jitter calculation in AbstractDistributedRateLimiter.
 
 Smart jitter prevents the thundering herd problem at window resets by spreading
-retry attempts based on system load.
+retry attempts based on system load. Tests are written once in async form; the
+sync implementation participates via the ``SyncToAsyncLimiterAdapter``, while
+the async implementation runs natively.
+
+Fixture dependencies:
+    - ``redis_client``, ``async_redis_client``, ``limiter_id``: from ``tests/conftest.py``.
 """
 
-import itertools
+import logging
 import random
 from unittest.mock import patch
 
 import pytest
 
-from tests.implementations.conftest import MinimalRateLimiter
+from tests.helpers.adapters import SyncToAsyncLimiterAdapter
+from tests.helpers.utils import assert_log_emitted
+from tests.implementations.conftest import MinimalAsyncRateLimiter, MinimalRateLimiter
+
+# ---------------------------------------------------------------------------
+# Unified implementation tests
+# ---------------------------------------------------------------------------
 
 
-class TestSmartJitter:
-    """Test suite for the adaptive jitter implementation."""
+class SmartJitterTests:
+    """Unified test suite for the adaptive jitter implementation.
+
+    Subclasses must provide a ``limiter`` fixture that creates a limiter with
+    default jitter settings (window=1, limit=10, max_concurrency=5).
+    """
 
     @staticmethod
     def _seeded_random_values(samples: int, seed: int) -> list[float]:
@@ -22,41 +37,8 @@ class TestSmartJitter:
         seeded_rng = random.Random(seed)
         return [seeded_rng.random() for _ in range(samples)]
 
-    @pytest.fixture
-    def make_limiter(self, redis_client, default_limiter_id):
-        """Factory fixture for creating generic limiters with specific jitter settings."""
-
-        def _make_limiter(
-            *,
-            limiter_suffix: str,
-            limit: int = 10,
-            window: int = 1,
-            max_concurrency: int = 5,
-            jitter_enabled: bool = True,
-            jitter_min_pct: float = 0.02,
-            jitter_max_pct: float = 0.08,
-        ) -> MinimalRateLimiter:
-            return MinimalRateLimiter(
-                redis_client=redis_client,
-                limiter_id=f"{default_limiter_id}_{limiter_suffix}",
-                limit=limit,
-                window=window,
-                max_concurrency=max_concurrency,
-                jitter_enabled=jitter_enabled,
-                jitter_min_pct=jitter_min_pct,
-                jitter_max_pct=jitter_max_pct,
-            )
-
-        return _make_limiter
-
-    @pytest.fixture
-    def limiter(self, make_limiter):
-        """Create a limiter with the default jitter settings for testing."""
-        return make_limiter(
-            limiter_suffix="jitter_default",
-        )
-
-    def test_jitter_disabled_returns_zero(self, limiter):
+    @staticmethod
+    async def test_jitter_disabled_returns_zero(limiter):
         """Verify that the jitter returns zero when it is disabled."""
         # Arrange
         limiter.jitter_enabled = False
@@ -71,38 +53,32 @@ class TestSmartJitter:
         # Assert
         assert jitter == 0.0, "disabled jitter should return 0"
 
-    def test_jitter_scales_with_window_size(self, make_limiter):
+    async def test_jitter_scales_with_window_size(self, limiter):
         """Verify that the average jitter is proportional to the window size."""
         # Arrange
-        short_limiter = make_limiter(
-            limiter_suffix="jitter_short_window",
-            window=1,
-        )
-        long_limiter = make_limiter(
-            limiter_suffix="jitter_long_window",
-            window=60,
-        )
+        samples = 100
+        random_values = self._seeded_random_values(samples, seed=20260207)
 
         # Act
         # Multiple samples are taken to test statistical properties.
-        samples = 100
-        random_values = self._seeded_random_values(samples, seed=20260207)
+        limiter.window = 1
         with patch(
             "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             short_jitters = [
-                short_limiter._calculate_smart_jitter(
+                limiter._calculate_smart_jitter(
                     remaining_tasks=50, remaining_tokens=0, active_concurrency=3
                 )
                 for _ in range(samples)
             ]
+        limiter.window = 60
         with patch(
             "celery_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             long_jitters = [
-                long_limiter._calculate_smart_jitter(
+                limiter._calculate_smart_jitter(
                     remaining_tasks=50, remaining_tokens=0, active_concurrency=3
                 )
                 for _ in range(samples)
@@ -118,7 +94,7 @@ class TestSmartJitter:
             f"window ratio (60.0)"
         )
 
-    def test_jitter_increases_with_load(self, limiter):
+    async def test_jitter_increases_with_load(self, limiter):
         """Verify that the average jitter increases under higher contention."""
         # Arrange
         samples = 100
@@ -189,32 +165,7 @@ class TestSmartJitter:
             f"avg_low={avg_low:.4f}, avg_medium={avg_medium:.4f}, avg_high={avg_high:.4f}"
         )
 
-    @pytest.mark.parametrize(
-        "remaining_tasks, active_concurrency",
-        itertools.product([0, 5, 25, 75, 200], [0, 2, 5]),
-    )
-    def test_jitter_within_configured_bounds(
-        self, limiter, remaining_tasks, active_concurrency
-    ):
-        """Verify that the jitter stays within the configured min/max percentages."""
-        # Arrange
-        min_expected = limiter.window * limiter.jitter_min_pct
-        max_expected = limiter.window * limiter.jitter_max_pct
-
-        # Act
-        jitter = limiter._calculate_smart_jitter(
-            remaining_tasks=remaining_tasks,
-            remaining_tokens=0,
-            active_concurrency=active_concurrency,
-        )
-
-        # Assert
-        assert min_expected <= jitter <= max_expected, (
-            f"jitter {jitter}s out of bounds [{min_expected}, {max_expected}] "
-            f"for tasks={remaining_tasks}, concurrency={active_concurrency}"
-        )
-
-    def test_jitter_is_randomized(self, limiter):
+    async def test_jitter_is_randomized(self, limiter):
         """Verify that repeated calls produce varied output."""
         # Act
         # The jitter calculation is invoked multiple times with identical inputs.
@@ -250,30 +201,35 @@ class TestSmartJitter:
             f"expected mean ({expected_mean:.4f})"
         )
 
-    def test_custom_jitter_percentages(self, make_limiter):
-        """Verify that custom jitter percentages are respected."""
+    @staticmethod
+    async def test_custom_jitter_percentages(limiter):
+        """Verify that custom jitter percentages produce the correct jitter value."""
         # Arrange
-        custom_limiter = make_limiter(
-            limiter_suffix="jitter_custom_percentages",
-            window=10,
-            jitter_min_pct=0.01,
-            jitter_max_pct=0.05,
-        )
+        limiter.window = 10
+        limiter.jitter_min_pct = 0.01
+        limiter.jitter_max_pct = 0.05
 
         # Act
-        jitter = custom_limiter._calculate_smart_jitter(
-            remaining_tasks=100,
-            remaining_tokens=0,
-            active_concurrency=3,
-        )
+        # Pin random to 0.5 so the output is deterministic.
+        # load_pressure=1.0 (100 >= 100), conc_pressure=3/5=0.6
+        # combined=0.7*1.0 + 0.3*0.6=0.88, scale=0.3+0.88*0.7=0.916
+        # range=0.4*0.916=0.3664, jitter=0.1+0.3664*0.5=0.2832, round=0.283
+        with patch(
+            "celery_rate_limiter.core.limiters.random.random",
+            return_value=0.5,
+        ):
+            jitter = limiter._calculate_smart_jitter(
+                remaining_tasks=100,
+                remaining_tokens=0,
+                active_concurrency=3,
+            )
 
         # Assert
-        # Custom bounds for a 10-second window: 100ms to 500ms.
-        assert 0.1 <= jitter <= 0.5, (
-            f"jitter {jitter}s should be within custom bounds [0.1, 0.5]"
+        assert jitter == pytest.approx(0.283), (
+            f"jitter {jitter}s should equal 0.283s for custom percentages"
         )
 
-    def test_concurrency_pressure_increases_jitter(self, limiter):
+    async def test_concurrency_pressure_increases_jitter(self, limiter):
         """Verify that higher concurrency pressure produces a larger average jitter.
 
         A seeded random stream is used so that this unit test is deterministic.
@@ -330,7 +286,35 @@ class TestSmartJitter:
             f"avg_low={avg_low:.4f}, avg_high={avg_high:.4f}"
         )
 
-    def test_jitter_precision(self, limiter):
+    @staticmethod
+    async def test_jitter_at_zero_remaining_tasks(limiter):
+        """Verify that ``remaining_tasks=0`` produces the minimum jitter range."""
+        # Arrange
+        limiter.window = 10
+        limiter.jitter_min_pct = 0.01
+        limiter.jitter_max_pct = 0.05
+
+        # Act
+        # Pin random to 0.5 for determinism.
+        # load_pressure=0.0, concurrency_pressure=0/5=0.0
+        # combined=0.0, scale=0.3, range=0.4*0.3=0.12, jitter=0.1+0.12*0.5=0.16
+        with patch(
+            "celery_rate_limiter.core.limiters.random.random",
+            return_value=0.5,
+        ):
+            jitter = limiter._calculate_smart_jitter(
+                remaining_tasks=0,
+                remaining_tokens=5,
+                active_concurrency=0,
+            )
+
+        # Assert
+        assert jitter == pytest.approx(0.16), (
+            f"jitter {jitter}s should equal 0.16s for zero remaining tasks and zero concurrency"
+        )
+
+    @staticmethod
+    async def test_jitter_precision(limiter):
         """Verify that the jitter is rounded to three decimal places."""
         # Act
         jitter = limiter._calculate_smart_jitter(
@@ -344,3 +328,93 @@ class TestSmartJitter:
         assert jitter == round(jitter, 3), (
             f"jitter {jitter} should be rounded to 3 decimal places"
         )
+
+
+# ---------------------------------------------------------------------------
+# Unified observability tests
+# ---------------------------------------------------------------------------
+
+
+class SmartJitterObservabilityTests:
+    """Observability tests for the adaptive jitter implementation.
+
+    Subclasses must provide the same ``limiter`` fixture as ``SmartJitterTests``.
+    """
+
+    @staticmethod
+    async def test_custom_jitter_emits_debug_log(limiter, caplog):
+        """Verify that ``_calculate_smart_jitter()`` emits a debug log with the input parameters and computed jitter."""
+        # Arrange
+        limiter.window = 10
+        limiter.jitter_min_pct = 0.01
+        limiter.jitter_max_pct = 0.05
+
+        # Act
+        with (
+            caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.limiters"),
+            patch(
+                "celery_rate_limiter.core.limiters.random.random",
+                return_value=0.5,
+            ),
+        ):
+            limiter._calculate_smart_jitter(
+                remaining_tasks=100,
+                remaining_tokens=0,
+                active_concurrency=3,
+            )
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            "DEBUG",
+            [
+                f"limiter={limiter.id}",
+                "remaining_tasks=100",
+                "remaining_tokens=0",
+                "active_concurrency=3",
+                "load_pressure=1.000",
+                "concurrency_pressure=0.600",
+                "jitter_s=0.283",
+            ],
+            "should emit a debug log containing the limiter id, input parameters, computed pressures, and jitter",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Concrete test cases
+# ---------------------------------------------------------------------------
+
+
+class TestSyncSmartJitter(SmartJitterTests, SmartJitterObservabilityTests):
+    """Sync rate limiter smart jitter exercised through the async adapter."""
+
+    @pytest.fixture
+    def limiter(self, redis_client, limiter_id):
+        """Create a sync limiter wrapped in the async adapter."""
+        _limiter = MinimalRateLimiter(
+            redis_client=redis_client,
+            limiter_id=f"{limiter_id}_jitter",
+            limit=10,
+            window=1,
+            max_concurrency=5,
+        )
+        yield SyncToAsyncLimiterAdapter(_limiter)
+        _limiter.shutdown()
+
+
+class TestAsyncSmartJitter(SmartJitterTests, SmartJitterObservabilityTests):
+    """Async rate limiter smart jitter exercised natively."""
+
+    @pytest.fixture
+    async def limiter(self, async_redis_client, limiter_id):
+        """Create a native async limiter."""
+        lim = MinimalAsyncRateLimiter(
+            redis_client=async_redis_client,
+            limiter_id=f"{limiter_id}_jitter",
+            limit=10,
+            window=1,
+            max_concurrency=5,
+        )
+        await lim.start()
+        yield lim
+        await lim.shutdown()

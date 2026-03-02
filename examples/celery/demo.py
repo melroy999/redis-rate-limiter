@@ -1,7 +1,7 @@
 """Self-contained CeleryRateLimiter demonstration.
 
 This script spawns a Celery worker subprocess, schedules rate-limited tasks,
-and monitors progress via the shared dashboard.  Unlike the thread pool
+and monitors progress via the shared dashboard. Unlike the thread pool
 demonstration, Celery requires a separate worker process; hence, this script
 manages the full worker lifecycle automatically.
 
@@ -41,8 +41,14 @@ from examples.runner import (
 
 logger = logging.getLogger("examples.celery.demo")
 
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
 LIMITER_ID = "celery_demo"
 REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
+
 
 # ---------------------------------------------------------------------------
 # Celery application (imported by the worker subprocess via the -A flag)
@@ -91,11 +97,13 @@ def main() -> None:
     flush_stale_keys(redis_client, LIMITER_ID)
 
     CeleryRateLimiter.configure(redis_client, celery_app=celery_app)
-    limiter = CeleryRateLimiter.create(
+
+    scheduler = CeleryRateLimiter.create(
         limiter_id=LIMITER_ID,
         limit=LIMIT,
         window=WINDOW,
         max_concurrency=MAX_CONCURRENCY,
+        drain_enabled=False,
         override=True,
     )
 
@@ -103,8 +111,11 @@ def main() -> None:
     logger.info("Starting Celery worker subprocess...")
     worker_proc = subprocess.Popen(
         [
-            sys.executable, "-m", "celery",
-            "-A", "examples.celery.demo:celery_app",
+            sys.executable,
+            "-m",
+            "celery",
+            "-A",
+            "examples.celery.demo:celery_app",
             "worker",
             f"--concurrency={CELERY_WORKER_CONCURRENCY}",
             "--loglevel=warning",
@@ -118,13 +129,28 @@ def main() -> None:
     time.sleep(3)  # Allow the worker sufficient time to connect to the broker.
     logger.info("Worker ready.")
 
+    def create_consumer():
+        return CeleryRateLimiter.create(
+            limiter_id=LIMITER_ID,
+            limit=LIMIT,
+            window=WINDOW,
+            max_concurrency=MAX_CONCURRENCY,
+            override=True,
+            persist=False,
+        )
+
     def cleanup():
+        scheduler.shutdown()
         logger.info("Shutting down worker...")
         worker_proc.terminate()
         worker_proc.wait(timeout=5)
-        limiter.shutdown()
 
-    run_demo(limiter=limiter, limiter_id=LIMITER_ID, cleanup=cleanup)
+    run_demo(
+        scheduler=scheduler,
+        create_consumer=create_consumer,
+        limiter_id=LIMITER_ID,
+        cleanup=cleanup,
+    )
 
 
 if __name__ == "__main__":

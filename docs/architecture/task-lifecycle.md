@@ -5,12 +5,13 @@ The sequence diagram traces the flow of a single task from the moment it is sche
 Several observations can be made about the lifecycle:
 
 - **Scheduling is synchronous**, i.e., the caller receives the result `(True, task_id)` immediately upon scheduling.
-- **Consumption is asynchronous**: the `DrainLoop` runs in a background thread and may fire milliseconds or seconds after the task has been scheduled.
+- **Consumption is asynchronous**: the `DrainLoop` runs in a background thread (sync backends) or as an `asyncio.Task` (async backends) and may fire milliseconds or seconds after the task has been scheduled.
 - **Lua scripts are atomic**: `consume.lua` checks the rate window, verifies the concurrency capacity, pops the task from the buffer, increments the window counter and registers the concurrency lease, all within a single indivisible Redis operation. As such, race conditions between concurrent consumers are eliminated.
 - **The heartbeat keeps the lease alive** during task execution. If the worker crashes, the lease expires and the concurrency slot is reclaimed automatically on the next consume invocation.
 - **The cycle repeats**: the completion of a task triggers the `DrainLoop` to wake up and consume the next buffered task, which in turn closes the feedback loop.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 sequenceDiagram
     participant U as User Code
     participant L as Limiter
@@ -26,7 +27,7 @@ sequenceDiagram
     R-->>L: OK (first time) / nil (duplicate)
 
     L->>R: EVALSHA schedule.lua
-    note right of R: Injects __meta_arrived_at,<br/>ZADD buffer with priority
+    note right of R: Injects __meta_arrived_at,<br>ZADD buffer with priority
 
     L->>D: wake(delay=0)
     L-->>-U: return (True, task_id)
@@ -38,7 +39,7 @@ sequenceDiagram
     R-->>L: OK (lock acquired)
 
     L->>R: EVALSHA consume.lua
-    note right of R: Atomic: check window rate,<br/>check concurrency cap,<br/>pop task from buffer,<br/>increment window counter,<br/>register concurrency lease
+    note right of R: Atomic: check window rate,<br>check concurrency cap,<br>pop task from buffer,<br>increment window counter,<br>register concurrency lease
 
     R-->>L: task_data + telemetry
 
@@ -54,7 +55,7 @@ sequenceDiagram
 
     loop Every lease_duration / 2
         W->>R: EVALSHA renew.lua
-        note right of R: ZADD concurrency<br/>with new expiry
+        note right of R: ZADD concurrency<br>with new expiry
     end
 
     note over W: Execute user function
@@ -83,7 +84,7 @@ sequenceDiagram
 | **Drain** | L → R: EVALSHA consume.lua | Atomic consumption | `contracts/test_rate_limiter::test_consume_returns_expected_structure`, `integration/test_rate_limiting::test_basic_rate_limit_enforcement` |
 | **Execute** | L → B: _dispatch_task() | Backend dispatch | `implementations/test_drain::test_drain_dispatches_task_and_schedules_follow_up` |
 | **Execute** | W: TaskLifecycle.__enter__() | Lifecycle context entered | `implementations/test_decorator::test_decorator_wraps_function_in_task_lifecycle` |
-| **Execute** | W → R: EVALSHA renew.lua | Heartbeat lease renewal | `implementations/test_task_lifecycle::test_heartbeat_loop_extends_lease_periodically` |
+| **Execute** | W → R: EVALSHA renew.lua | Heartbeat lease renewal | `implementations/test_task_lifecycle::test_heartbeat_loop_extends_lease_periodically`, `implementations/test_task_lifecycle::test_extend_lease_succeeds_for_existing_task` |
 | **Completion** | W: TaskLifecycle.__exit__() | Lifecycle context exit | `contracts/test_task_lifecycle::test_lifecycle_removes_task_from_concurrency_set` |
 | **Completion** | W → R: ZREM + DEL | Slot released, dedup cleared | `contracts/test_task_lifecycle::test_lifecycle_removes_active_marker`, `integration/test_rate_limiting::test_task_lifecycle_releases_slot_on_error` |
 | **Completion** | W → D: trigger_consume() | Feedback loop: completion triggers next drain | `contracts/test_task_lifecycle::test_lifecycle_triggers_consume`, `contracts/test_task_lifecycle::test_lifecycle_triggers_consume_even_on_exception` |

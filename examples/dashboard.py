@@ -1,7 +1,7 @@
 """Reusable live dashboard for any rate limiter demonstration.
 
 This module renders concurrency, buffer, rate limit, and dispatcher status
-to the terminal.  Per-window history is tracked automatically across
+to the terminal. Per-window history is tracked automatically across
 successive render calls.
 
 Usage::
@@ -29,9 +29,9 @@ class Dashboard:
         self._window_history: list[int] = []
         self._last_val_current: int | None = None
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def render(self, status: dict) -> None:
         """Clear the terminal and render the current status snapshot.
@@ -50,9 +50,9 @@ class Dashboard:
         os.system("clear" if os.name == "posix" else "cls")
         self._print(status, elapsed, val_current)
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Internals
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def _print(self, status: dict, elapsed: float, val_current: int) -> None:
         bar_width = 20
@@ -76,8 +76,12 @@ class Dashboard:
         usage_pct = min(1.0, val_current / limit) if limit > 0 else 0
         filled = int(usage_pct * bar_width)
         bar = "#" * filled + "-" * (bar_width - filled)
-        print(f"RATE LIMIT:  [{bar}] {val_current}/{limit} (resets in {r['reset_in_ms']}ms)")
-        print(f"             previous: {r['val_previous']}, estimated: {r['tokens_used']:.1f}")
+        print(
+            f"RATE LIMIT:  [{bar}] {val_current}/{limit} (resets in {r['reset_in_ms']}ms)"
+        )
+        print(
+            f"             previous: {r['val_previous']}, estimated: {r['tokens_used']:.1f}"
+        )
 
         # Dispatcher lock status
         lock = "BUSY" if status["dispatcher"]["is_locked"] else "IDLE"

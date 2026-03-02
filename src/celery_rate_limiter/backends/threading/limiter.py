@@ -7,12 +7,16 @@ from typing import Any, ClassVar, Optional
 
 from redis import Redis
 
-from celery_rate_limiter.core import AbstractRedisManagedRateLimiter, import_string
+from celery_rate_limiter.core import (
+    AbstractDistributedRateLimiter,
+    SyncManagedRateLimiter,
+    import_string,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class ThreadPoolRateLimiter(AbstractRedisManagedRateLimiter):
+class ThreadPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
     """A rate limiter that dispatches tasks to a local thread pool.
 
     Instances should be obtained through the class methods ``configure``,
@@ -21,11 +25,19 @@ class ThreadPoolRateLimiter(AbstractRedisManagedRateLimiter):
 
     _executor: ClassVar[Optional[ThreadPoolExecutor]] = None
 
+    # ---------------------------------------------------------------------------
+    # Managed backend hooks
+    # ---------------------------------------------------------------------------
+
     # No backend-specific ``configure`` override is required; the base class implementation suffices.
 
     @classmethod
     def _configure_backend(cls, **backend_context: Any) -> None:
-        """Store the backend-specific context required by thread pool limiter instances."""
+        """Store the backend-specific context required by thread pool limiter instances.
+
+        Raises:
+            RuntimeError: If the ``executor`` keyword argument is not provided.
+        """
         executor = backend_context.get("executor")
         if executor is None:
             raise RuntimeError(
@@ -55,15 +67,15 @@ class ThreadPoolRateLimiter(AbstractRedisManagedRateLimiter):
         """Return the ``configure`` usage hint to be included in runtime error messages."""
         return "ThreadPoolRateLimiter.configure(redis_client, executor=executor)"
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Instance construction
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def __init__(
         self,
         redis_client: Redis,
         executor: ThreadPoolExecutor,
-        *args: Any,
+        *,
         _sentinel: Any = None,
         **kwargs: Any,
     ):
@@ -76,14 +88,14 @@ class ThreadPoolRateLimiter(AbstractRedisManagedRateLimiter):
 
         All remaining parameters are inherited from ``AbstractDistributedRateLimiter``.
         """
-        super().__init__(redis_client, *args, _sentinel=_sentinel, **kwargs)
+        super().__init__(redis_client, _sentinel=_sentinel, **kwargs)
         self.executor = executor
         self._local_dispatched: int = 0
         self._local_dispatch_lock = threading.Lock()
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Local capacity guard
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def _has_local_capacity(self) -> bool:
         """Check whether the local thread pool can accept another task.
@@ -96,9 +108,9 @@ class ThreadPoolRateLimiter(AbstractRedisManagedRateLimiter):
         with self._local_dispatch_lock:
             return self._local_dispatched < self.executor._max_workers
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Backend dispatch
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
         target_func = import_string(func_path)

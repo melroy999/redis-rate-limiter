@@ -6,12 +6,16 @@ from typing import Any, ClassVar, Optional, cast
 from celery import Celery
 from redis import Redis
 
-from celery_rate_limiter.core import AbstractRedisManagedRateLimiter
+from celery_rate_limiter.core import (
+    AbstractDistributedRateLimiter,
+    SyncManagedRateLimiter,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
+# noinspection PyUnnecessaryCast
+class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
     """A rate limiter that dispatches tasks via the Celery distributed task queue.
 
     Instances should be obtained through the class methods ``configure``,
@@ -20,18 +24,29 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
 
     _celery_app: ClassVar[Optional[Celery]] = None
 
+    # ---------------------------------------------------------------------------
+    # Managed backend hooks
+    # ---------------------------------------------------------------------------
+
     @classmethod
     def configure(cls, redis_client: Redis, **backend_context: Any) -> None:
         """Configure the shared Redis client and Celery application context for the class-level API.
 
-        The ``celery_app`` keyword argument is required
-        (e.g., ``CeleryRateLimiter.configure(redis, celery_app=app)``).
+        Args:
+            redis_client: The Redis client instance used for rate limiting state.
+            **backend_context: Backend-specific keyword arguments. The ``celery_app``
+                keyword argument is required
+                (e.g., ``CeleryRateLimiter.configure(redis, celery_app=app)``).
         """
         super().configure(redis_client, **backend_context)
 
     @classmethod
     def _configure_backend(cls, **backend_context: Any) -> None:
-        """Store the backend-specific context required by Celery-backed limiter instances."""
+        """Store the backend-specific context required by Celery-backed limiter instances.
+
+        Raises:
+            RuntimeError: If the ``celery_app`` keyword argument is not provided.
+        """
         celery_app = backend_context.get("celery_app")
         if celery_app is None:
             raise RuntimeError(
@@ -61,15 +76,15 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
         """Return the ``configure`` usage hint to be included in runtime error messages."""
         return "CeleryRateLimiter.configure(redis_client, celery_app)"
 
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Instance construction
-    # ------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def __init__(
         self,
         redis_client: Redis,
         celery_app: Celery,
-        *args: Any,
+        *,
         _sentinel: Any = None,
         **kwargs: Any,
     ):
@@ -82,8 +97,12 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
 
         All remaining parameters are inherited from ``AbstractDistributedRateLimiter``.
         """
-        super().__init__(redis_client, *args, _sentinel=_sentinel, **kwargs)
+        super().__init__(redis_client, _sentinel=_sentinel, **kwargs)
         self.app = celery_app
+
+    # ---------------------------------------------------------------------------
+    # Backend dispatch
+    # ---------------------------------------------------------------------------
 
     @staticmethod
     def _get_enhanced_payload(payload: dict, use_executor: bool) -> dict:
@@ -104,24 +123,18 @@ class CeleryRateLimiter(AbstractRedisManagedRateLimiter):
         payload: dict,
         priority: int = 100,
         max_age: Optional[int] = None,
-        retry: bool = True,
         use_executor: bool = True,
     ) -> tuple[bool, str]:
         # Augment the payload with the executor flag.
-        # This is only performed on the initial attempt; on retries the payload already contains it.
-        enhanced_payload = payload
-        if retry:
-            enhanced_payload = self._get_enhanced_payload(payload, use_executor)
+        enhanced_payload = self._get_enhanced_payload(payload, use_executor)
 
         # Delegate to the parent scheduler.
-        # noinspection PyUnnecessaryCast
-        # The cast is necessary for mypy validation.
-        return cast(
+        # fmt: off
+        return cast(  # pragma: no mutate
             tuple[bool, str],
-            super().schedule_task(
-                func_path, enhanced_payload, priority, max_age, retry
-            ),
+            super().schedule_task(func_path, enhanced_payload, priority, max_age),
         )
+        # fmt: on
 
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
         # Determine whether the built-in generic worker should be used.

@@ -52,7 +52,7 @@ class TestWeightCalculation:
 
     @staticmethod
     def test_weight_is_one_at_window_start():
-        """At the start of a window, the previous window is assigned full weight (1.0)."""
+        """Verify that the previous window is assigned full weight (1.0) at the window start."""
         # Arrange
         window_ms = 1000
         elapsed_ms = 0
@@ -73,7 +73,7 @@ class TestWeightCalculation:
 
     @staticmethod
     def test_weight_is_half_at_window_midpoint():
-        """At the midpoint of a window, the previous window is assigned half weight (0.5)."""
+        """Verify that the previous window is assigned half weight (0.5) at the window midpoint."""
         # Arrange
         window_ms = 1000
         elapsed_ms = 500
@@ -94,7 +94,7 @@ class TestWeightCalculation:
 
     @staticmethod
     def test_weight_is_zero_at_window_end():
-        """At the end of a window, the previous window is assigned zero weight (0.0)."""
+        """Verify that the previous window is assigned zero weight (0.0) at the window end."""
         # Arrange
         window_ms = 1000
         elapsed_ms = 1000
@@ -134,7 +134,7 @@ class TestWeightCalculation:
 
     @staticmethod
     @pytest.mark.parametrize(
-        "elapsed_ms,expected_weight",
+        ("elapsed_ms", "expected_weight"),
         [
             (0, 1.0),
             (100, 0.9),
@@ -147,6 +147,19 @@ class TestWeightCalculation:
             (800, 0.2),
             (900, 0.1),
             (1000, 0.0),
+        ],
+        ids=[
+            "t=0ms_w=1.0",
+            "t=100ms_w=0.9",
+            "t=200ms_w=0.8",
+            "t=300ms_w=0.7",
+            "t=400ms_w=0.6",
+            "t=500ms_w=0.5",
+            "t=600ms_w=0.4",
+            "t=700ms_w=0.3",
+            "t=800ms_w=0.2",
+            "t=900ms_w=0.1",
+            "t=1000ms_w=0.0",
         ],
     )
     def test_weight_decreases_linearly(elapsed_ms, expected_weight):
@@ -174,7 +187,7 @@ class TestEstimateFormula:
 
     @staticmethod
     def test_combined_counts_at_midpoint():
-        """Both the previous and current counts contribute to the estimate."""
+        """Verify that both the previous and current counts contribute to the estimate."""
         # Arrange
         previous_count = 10
         current_count = 5
@@ -210,7 +223,7 @@ class TestEstimateFormula:
 
     @staticmethod
     @pytest.mark.parametrize(
-        "prev,curr,window,elapsed,expected",
+        ("prev", "curr", "window", "elapsed", "expected"),
         [
             # different window sizes
             (10, 5, 60000, 30000, 10.0),
@@ -221,9 +234,17 @@ class TestEstimateFormula:
             (0, 100, 1000, 100, 100.0),
             (50, 50, 1000, 500, 75.0),
         ],
+        ids=[
+            "60s_window_midpoint",
+            "500ms_window_midpoint",
+            "2s_window_midpoint",
+            "prev_dominant_early",
+            "curr_only_early",
+            "balanced_midpoint",
+        ],
     )
     def test_formula_across_configurations(prev, curr, window, elapsed, expected):
-        """The formula produces correct results across various configurations."""
+        """Verify that the formula produces correct results across various configurations."""
         # Act
         estimated = sliding_window_estimate(prev, curr, window, elapsed)
 
@@ -239,7 +260,7 @@ class TestRateLimitDecision:
 
     @staticmethod
     def test_allowed_when_under_limit():
-        """Requests are permitted when the estimate is below the limit."""
+        """Verify that requests are permitted when the estimate is below the limit."""
         # Arrange
         limit = 10
 
@@ -259,7 +280,7 @@ class TestRateLimitDecision:
 
     @staticmethod
     def test_denied_when_at_limit():
-        """Requests are denied when the estimate equals the limit."""
+        """Verify that requests are denied when the estimate equals the limit."""
         # Arrange
         limit = 10
 
@@ -279,7 +300,7 @@ class TestRateLimitDecision:
 
     @staticmethod
     def test_denied_when_over_limit():
-        """Requests are denied when the estimate exceeds the limit."""
+        """Verify that requests are denied when the estimate exceeds the limit."""
         # Arrange
         limit = 10
 
@@ -300,7 +321,7 @@ class TestRateLimitDecision:
 
     @staticmethod
     def test_previous_window_ages_out():
-        """Requests become permitted as the previous window ages out."""
+        """Verify that requests become permitted as the previous window ages out."""
         # Arrange
         limit = 10
 
@@ -346,7 +367,7 @@ class TestBurstBoundProperty:
 
     @staticmethod
     def test_max_burst_at_boundary_with_empty_history():
-        """Demonstration of the 2x burst scenario: an empty previous window permits the full limit at the window end."""
+        """Verify that an empty previous window permits the full limit at the window end (2x burst scenario)."""
         # Arrange
         limit = 10
         window_ms = 1000
@@ -366,7 +387,7 @@ class TestBurstBoundProperty:
 
     @staticmethod
     def test_second_window_allows_more_after_first_window_burst():
-        """After a burst at the window end, additional requests are permitted as the weight decays."""
+        """Verify that additional requests are permitted as the weight decays after a burst at the window end."""
         # Arrange
         limit = 10
         window_ms = 1000
@@ -442,7 +463,7 @@ class TestBurstBoundProperty:
 
     @staticmethod
     @pytest.mark.parametrize(
-        "limit,window_ms",
+        ("limit", "window_ms"),
         [
             (1, 100),
             (1, 1000),
@@ -451,6 +472,15 @@ class TestBurstBoundProperty:
             (10, 2000),
             (100, 60000),
             (1000, 1000),
+        ],
+        ids=[
+            "limit=1_window=100ms",
+            "limit=1_window=1s",
+            "limit=5_window=500ms",
+            "limit=10_window=1s",
+            "limit=10_window=2s",
+            "limit=100_window=60s",
+            "limit=1000_window=1s",
         ],
     )
     def test_2x_bound_holds_across_configurations(limit, window_ms):
@@ -525,7 +555,7 @@ class TestSmoothingBehavior:
 
     @staticmethod
     def test_steady_state_maintains_limit():
-        """In the steady state, the algorithm maintains approximately the limit per window."""
+        """Verify that the algorithm maintains approximately the limit per window in the steady state."""
         # Arrange
         limit = 10
         window_ms = 1000

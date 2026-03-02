@@ -1,16 +1,70 @@
-"""Tests for the ``DrainLoop`` scheduling component."""
+"""Tests for the ``DrainLoop`` and ``DrainSignalSubscriber`` scheduling components.
 
+These tests use threading primitives (``Event``, ``Timer``, ``time.sleep``)
+and therefore cannot be deduplicated with the async variant via the mixin
+pattern.
+
+Fixture dependencies:
+    - ``generic_limiter``: from ``tests/implementations/conftest.py``.
+"""
+
+import inspect
+import logging
 import time
-from threading import Event
+from threading import Event, Timer
 from unittest.mock import MagicMock
 
-from celery_rate_limiter.core.limiters import DrainLoop
+from celery_rate_limiter.core.limiters import DrainLoop, DrainSignalSubscriber
+from tests.helpers.utils import assert_log_emitted
 
 
 class TestDrainLoop:
     """Test suite for ``DrainLoop`` wake, coalesce, watchdog, and shutdown behavior."""
 
-    def test_wake_fires_drain_immediately(self):
+    @staticmethod
+    def test_shutdown_sets_flag():
+        """Verify that ``shutdown()`` sets the ``_shutdown`` flag to exactly ``True`` without a running thread."""
+        # Arrange
+        limiter = MagicMock()
+        loop = DrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        loop.shutdown()
+
+        # Assert
+        # Identity check catches mutations to None and False.
+        assert loop._shutdown is True, (
+            "shutdown flag must be exactly True after shutdown"
+        )
+        assert loop._thread is None, (
+            "thread should not have been started without a wake call"
+        )
+
+    @staticmethod
+    def test_wake_default_delay_fires_immediately():
+        """Verify that ``wake()`` with no arguments uses the default delay of 0.0 and fires promptly."""
+        # Arrange
+        limiter = MagicMock()
+        drain_called = Event()
+        limiter.drain.side_effect = lambda: drain_called.set()
+        loop = DrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        start = time.monotonic()
+        loop.wake()
+        fired = drain_called.wait(timeout=2.0)
+        elapsed = time.monotonic() - start
+        loop.shutdown()
+
+        # Assert
+        assert fired, "drain should be called after wake() with default delay"
+        assert elapsed < 0.5, (
+            f"drain should fire promptly with default delay=0.0, took {elapsed:.2f}s"
+        )
+        limiter.drain.assert_called()
+
+    @staticmethod
+    def test_wake_fires_drain_immediately():
         """Verify that ``wake(0)`` causes ``drain()`` to be called promptly."""
         # Arrange
         limiter = MagicMock()
@@ -27,7 +81,8 @@ class TestDrainLoop:
         assert fired, "drain should be called after wake(0)"
         limiter.drain.assert_called()
 
-    def test_wake_with_delay_fires_after_delay(self):
+    @staticmethod
+    def test_wake_with_delay_fires_after_delay():
         """Verify that ``wake(delay)`` waits approximately the specified duration before firing."""
         # Arrange
         limiter = MagicMock()
@@ -46,7 +101,8 @@ class TestDrainLoop:
         assert fired, "drain should be called after delayed wake"
         assert elapsed >= 0.1, "drain should not fire before the delay"
 
-    def test_wake_coalesces_to_sooner_time(self):
+    @staticmethod
+    def test_wake_coalesces_to_sooner_time():
         """Verify that ``wake(0)`` overrides a pending ``wake(large_delay)``."""
         # Arrange
         limiter = MagicMock()
@@ -64,7 +120,8 @@ class TestDrainLoop:
         # Assert
         assert fired, "immediate wake should override far-future wake"
 
-    def test_wake_ignores_later_time(self):
+    @staticmethod
+    def test_wake_ignores_later_time():
         """Verify that ``wake(large_delay)`` does not override a pending ``wake(0)``."""
         # Arrange
         limiter = MagicMock()
@@ -81,7 +138,8 @@ class TestDrainLoop:
         # Assert
         assert fired, "immediate wake should not be overridden by later wake"
 
-    def test_watchdog_fires_drain_when_idle(self):
+    @staticmethod
+    def test_watchdog_fires_drain_when_idle():
         """Verify that the watchdog timeout fires ``drain()`` even without an explicit ``wake()`` call."""
         # Arrange
         limiter = MagicMock()
@@ -106,7 +164,8 @@ class TestDrainLoop:
         assert fired, "watchdog should fire drain even without explicit wake"
         limiter.drain.assert_called()
 
-    def test_shutdown_stops_thread(self):
+    @staticmethod
+    def test_shutdown_stops_thread():
         """Verify that ``shutdown()`` stops the drain thread cleanly."""
         # Arrange
         limiter = MagicMock()
@@ -118,16 +177,68 @@ class TestDrainLoop:
         loop.shutdown()
 
         # Assert
+        assert loop._shutdown is True, "shutdown flag should be True after shutdown"
         assert loop._thread is not None, "thread should have been created"
         assert not loop._thread.is_alive(), "thread should be stopped after shutdown"
 
-    def test_lazy_start(self):
+    @staticmethod
+    def test_shutdown_completes_promptly():
+        """Verify that ``shutdown()`` completes well within its internal 5.0s join timeout."""
+        # Arrange
+        limiter = MagicMock()
+        drain_called = Event()
+        limiter.drain.side_effect = lambda: drain_called.set()
+        loop = DrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        # Start the thread and let it complete one drain cycle so it is
+        # blocked on _condition.wait() when shutdown is called.
+        loop.wake(0)
+        drain_called.wait(timeout=2.0)
+
+        start = time.monotonic()
+        loop.shutdown()
+        elapsed = time.monotonic() - start
+
+        # Assert
+        assert elapsed < 1.0, (
+            f"shutdown() took {elapsed:.2f}s; should complete promptly "
+            "when the condition is notified correctly"
+        )
+        assert not loop._thread.is_alive(), "thread should be stopped after shutdown"
+
+    @staticmethod
+    def test_shutdown_is_idempotent():
+        """Verify that calling ``shutdown()`` twice does not raise."""
+        # Arrange
+        limiter = MagicMock()
+        drain_called = Event()
+        limiter.drain.side_effect = lambda: drain_called.set()
+        loop = DrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        loop.wake(0)
+        drain_called.wait(timeout=2.0)
+        loop.shutdown()
+
+        # Assert
+        # Second shutdown must not raise.
+        loop.shutdown()
+        assert loop._shutdown is True, (
+            "shutdown flag should remain True after second shutdown"
+        )
+
+    @staticmethod
+    def test_lazy_start():
         """Verify that the drain thread is not started until the first ``wake()`` call."""
         # Arrange
         limiter = MagicMock()
         loop = DrainLoop(limiter, watchdog_interval=60.0)
 
         # Assert
+        assert loop._shutdown is False, (
+            "shutdown flag should be False before first wake"
+        )
         assert loop._thread is None, "thread should not exist before first wake"
 
         # Act
@@ -137,7 +248,8 @@ class TestDrainLoop:
         assert loop._thread is not None, "thread should exist after first wake"
         loop.shutdown()
 
-    def test_drain_loop_survives_drain_exception(self):
+    @staticmethod
+    def test_drain_loop_survives_drain_exception():
         """Verify that the drain loop thread survives when ``drain()`` raises an exception."""
         # Arrange
         limiter = MagicMock()
@@ -164,10 +276,50 @@ class TestDrainLoop:
         loop.shutdown()
 
         # Assert
-        assert fired, "drain loop should survive an exception and process subsequent wakes"
+        assert fired, (
+            "drain loop should survive an exception and process subsequent wakes"
+        )
         assert call_count >= 2, "drain should have been called at least twice"
 
-    def test_ensure_started_restarts_dead_thread(self):
+    @staticmethod
+    def test_ensure_started_thread_is_daemon():
+        """Verify that the drain thread is started as a daemon thread so it does not block process exit."""
+        # Arrange
+        limiter = MagicMock()
+        loop = DrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        loop.wake(10.0)
+
+        # Assert
+        assert loop._thread is not None, "thread should exist after wake"
+        assert loop._thread.daemon is True, (
+            "drain thread must be a daemon thread to avoid blocking process exit"
+        )
+        loop.shutdown()
+
+    @staticmethod
+    def test_ensure_started_reuses_alive_thread():
+        """Verify that ``wake()`` reuses the existing thread when it is still alive."""
+        # Arrange
+        limiter = MagicMock()
+        loop = DrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        loop.wake(10.0)
+        first_thread = loop._thread
+        loop.wake(10.0)
+        second_thread = loop._thread
+        loop.shutdown()
+
+        # Assert
+        assert first_thread is not None, "first wake should create a thread"
+        assert second_thread is first_thread, (
+            "wake on an alive thread should reuse the existing thread, not replace it"
+        )
+
+    @staticmethod
+    def test_ensure_started_restarts_dead_thread():
         """Verify that ``_ensure_started()`` detects and replaces a dead thread."""
         # Arrange
         limiter = MagicMock()
@@ -198,3 +350,272 @@ class TestDrainLoop:
 
         # Assert
         assert fired, "drain should be called again after thread recovery"
+
+
+class TestDrainSignalSubscriber:
+    """Test suite for ``DrainSignalSubscriber`` shutdown and message-processing behavior."""
+
+    @staticmethod
+    def test_shutdown_sets_flag_without_starting_thread():
+        """Verify that ``shutdown()`` sets the ``_shutdown`` flag to ``True`` without a running thread."""
+        # Arrange
+        limiter = MagicMock()
+        subscriber = DrainSignalSubscriber(limiter)
+
+        # Assert
+        # Verify initial state.
+        assert subscriber._shutdown is False, (
+            "shutdown flag should be False before shutdown is called"
+        )
+
+        # Act
+        subscriber.shutdown()
+
+        # Assert
+        # Identity check catches mutations to None and False.
+        assert subscriber._shutdown is True, (
+            "shutdown flag must be exactly True after shutdown"
+        )
+        assert subscriber._thread is None, (
+            "thread should not have been started without a start call"
+        )
+
+    @staticmethod
+    def test_subscriber_processes_remote_drain_signal():
+        """Verify that the subscriber calls ``_schedule_drain`` upon receiving a remote drain signal."""
+        # Arrange
+        limiter = MagicMock()
+        limiter._worker_id = "local-worker"
+        mock_pubsub = MagicMock()
+
+        drain_scheduled = Event()
+        limiter._schedule_drain.side_effect = lambda: drain_scheduled.set()
+
+        call_count = 0
+
+        def get_message_effect(timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {
+                    "type": "message",
+                    "data": "remote-worker",
+                    "channel": b"test:drain_signal",
+                }
+            # Subsequent calls simulate blocking on the pubsub socket.
+            time.sleep(timeout or 0.1)
+            return None
+
+        mock_pubsub.get_message.side_effect = get_message_effect
+        limiter.redis.pubsub.return_value = mock_pubsub
+
+        subscriber = DrainSignalSubscriber(limiter)
+
+        # Act
+        subscriber.start()
+        signaled = drain_scheduled.wait(timeout=2.0)
+        subscriber.shutdown()
+
+        # Assert
+        assert signaled, (
+            "subscriber should call _schedule_drain upon receiving a remote drain signal"
+        )
+
+    @staticmethod
+    def test_run_processes_message_in_main_thread():
+        """Verify that ``_run`` processes a remote message and calls ``_schedule_drain`` when invoked directly.
+
+        Calling ``_run()`` directly (rather than via ``start()``) ensures
+        coverage tracks the execution in the main thread, enabling mutmut
+        to select this test for mutations within ``_run``.
+
+        A ``Timer`` sets ``_shutdown`` from another thread after 0.5 seconds
+        as a safety net: if a mutation replaces the ``get_message()`` call
+        with ``None``, the side_effect that normally exits the loop never
+        executes, creating a tight infinite loop. The Timer breaks that
+        loop so the assertion ``get_message.assert_called()`` can execute
+        and fail, killing the mutation.
+        """
+        # Arrange
+        limiter = MagicMock()
+        limiter._worker_id = "local-worker"
+        subscriber = DrainSignalSubscriber(limiter)
+        mock_pubsub = MagicMock()
+        subscriber._pubsub = mock_pubsub
+
+        call_count = 0
+
+        def get_message_effect(timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {
+                    "type": "message",
+                    "data": "remote-worker",
+                    "channel": b"test:drain_signal",
+                }
+            # Return None without setting _shutdown on the second call so that
+            # an and-to-or mutation triggers a logged exception before exiting.
+            if call_count >= 3:
+                subscriber._shutdown = True
+            return None
+
+        mock_pubsub.get_message.side_effect = get_message_effect
+
+        # Act
+        safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
+        safety_timer.start()
+        subscriber._run()
+        safety_timer.cancel()
+
+        # Assert
+        mock_pubsub.get_message.assert_called()
+        limiter._schedule_drain.assert_called_once()
+
+    @staticmethod
+    def test_subscriber_ignores_local_drain_signal():
+        """Verify that the subscriber ignores drain signals originating from the local worker."""
+        # Arrange
+        limiter = MagicMock()
+        limiter._worker_id = "local-worker"
+        mock_pubsub = MagicMock()
+
+        call_count = 0
+
+        def get_message_effect(timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # Signal from the local worker should be ignored.
+                return {
+                    "type": "message",
+                    "data": "local-worker",
+                    "channel": b"test:drain_signal",
+                }
+            time.sleep(timeout or 0.1)
+            return None
+
+        mock_pubsub.get_message.side_effect = get_message_effect
+        limiter.redis.pubsub.return_value = mock_pubsub
+
+        subscriber = DrainSignalSubscriber(limiter)
+
+        # Act
+        subscriber.start()
+        time.sleep(0.3)
+        subscriber.shutdown()
+
+        # Assert
+        limiter._schedule_drain.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Observability tests
+# ---------------------------------------------------------------------------
+
+
+class TestDrainLoopObservability:
+    """Observability tests for ``DrainLoop`` log emissions."""
+
+    @staticmethod
+    def test_drain_exception_emits_error_log(caplog):
+        """Verify that the drain loop emits an ERROR log when ``drain()`` raises an exception."""
+        # Arrange
+        limiter = MagicMock()
+        limiter.id = "test-resilience"
+        call_count = 0
+        second_call = Event()
+
+        def _failing_then_succeeding_drain():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("simulated drain failure")
+            second_call.set()
+
+        limiter.drain.side_effect = _failing_then_succeeding_drain
+        loop = DrainLoop(limiter, watchdog_interval=60.0)
+
+        # Act
+        with caplog.at_level(logging.ERROR, logger="celery_rate_limiter.core.limiters"):
+            loop.wake(0)
+            time.sleep(0.1)
+            loop.wake(0)
+            second_call.wait(timeout=2.0)
+            loop.shutdown()
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="ERROR",
+            required_fragments=["limiter=test-resilience"],
+            message="should emit an error log containing the limiter id when drain raises",
+        )
+
+
+class TestDrainSignalSubscriberObservability:
+    """Observability tests for ``DrainSignalSubscriber`` log emissions."""
+
+    @staticmethod
+    def test_run_normal_processing_does_not_emit_error_log(caplog):
+        """Verify that ``_run`` does not emit error or critical logs during normal message processing."""
+        # Arrange
+        limiter = MagicMock()
+        limiter._worker_id = "local-worker"
+        subscriber = DrainSignalSubscriber(limiter)
+        mock_pubsub = MagicMock()
+        subscriber._pubsub = mock_pubsub
+
+        call_count = 0
+
+        def get_message_effect(timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {
+                    "type": "message",
+                    "data": "remote-worker",
+                    "channel": b"test:drain_signal",
+                }
+            # Return None without setting _shutdown on the second call so that
+            # an and-to-or mutation triggers a logged exception before exiting.
+            if call_count >= 3:
+                subscriber._shutdown = True
+            return None
+
+        mock_pubsub.get_message.side_effect = get_message_effect
+
+        # Act
+        safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
+        safety_timer.start()
+        with caplog.at_level(logging.ERROR, logger="celery_rate_limiter.core.limiters"):
+            subscriber._run()
+        safety_timer.cancel()
+
+        # Assert
+        assert not any(
+            record.levelname in ("ERROR", "CRITICAL") for record in caplog.records
+        ), "no exceptions should be logged during normal message processing"
+
+
+# ---------------------------------------------------------------------------
+# Signature tests
+# ---------------------------------------------------------------------------
+
+
+class TestDrainLoopSignatures:
+    """Signature tests for ``DrainLoop`` default parameter values."""
+
+    @staticmethod
+    def test_wake_default_delay_is_zero():
+        """Verify that the ``delay`` parameter of ``wake()`` defaults to ``0.0``.
+
+        Mutation target: default value of ``delay`` in ``DrainLoop.wake()``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(DrainLoop.wake)
+
+        # Assert
+        assert sig.parameters["delay"].default == 0.0, (
+            "wake() default delay should be 0.0 for immediate scheduling"
+        )

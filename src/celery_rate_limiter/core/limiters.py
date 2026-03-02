@@ -9,23 +9,22 @@ import random
 import signal
 import time
 import uuid
-from abc import ABC, abstractmethod
-from importlib import resources
+import warnings
 from threading import Condition, Event, Lock, Thread
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
-    ClassVar,
     ContextManager,
-    Dict,
     Literal,
     Optional,
     TypedDict,
     cast,
 )
 
-import redis
 from redis import Redis
+
+from celery_rate_limiter.core.base import AbstractRateLimiter, AbstractSyncRateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -44,13 +43,67 @@ class ConsumeResult(TypedDict):
 
     success: bool  # Indicates whether a task was successfully consumed.
     expired: bool  # Indicates whether the task has expired.
-    task: Optional[TaskData]  # The deserialized task data from Redis, or None if no task was consumed.
-    remaining_tokens: int  # The number of remaining rate limit tokens in the current window.
+    task: Optional[
+        TaskData
+    ]  # The deserialized task data from Redis, or None if no task was consumed.
+    remaining_tokens: (
+        int  # The number of remaining rate limit tokens in the current window.
+    )
     active_concurrency: int  # The number of concurrency slots currently in use.
     reset_in_ms: int  # The time in milliseconds until the current window expires.
-    remaining_tasks: int  # The number of tasks remaining in the buffer awaiting processing.
+    remaining_tasks: (
+        int  # The number of tasks remaining in the buffer awaiting processing.
+    )
     val_previous: int  # The raw counter value for the previous fixed window.
     val_current: int  # The raw counter value for the current fixed window.
+
+
+# ---------------------------------------------------------------------------
+# Distributed lock Lua scripts (shared by sync and async lock classes)
+# ---------------------------------------------------------------------------
+
+# Lua script for contention-aware acquisition.
+# Checks the per-worker cooldown key first; if active, returns 0 without
+# attempting SET NX. On SET NX failure (lock held by another worker), the
+# shared contention counter is incremented so that the holder can detect
+# competition upon release.
+LOCK_ACQUIRE_SCRIPT = """
+    if redis.call("EXISTS", KEYS[2]) == 1 then
+        return 0
+    end
+    if redis.call("SET", KEYS[1], ARGV[1], "PX", ARGV[2], "NX") then
+        return 1
+    end
+    redis.call("INCR", KEYS[3])
+    redis.call("PEXPIRE", KEYS[3], tonumber(ARGV[2]))
+    return 0
+"""
+
+# Lua script for contention-aware release.
+# Verifies token ownership before deleting. If contention was recorded
+# while the lock was held, a per-worker cooldown key is set and the
+# contention counter is reset.
+LOCK_RELEASE_SCRIPT = """
+    if redis.call("GET", KEYS[1]) ~= ARGV[1] then
+        return 0
+    end
+    redis.call("DEL", KEYS[1])
+    local contention = tonumber(redis.call("GET", KEYS[3]) or "0")
+    if contention > 0 and tonumber(ARGV[2]) > 0 then
+        redis.call("SET", KEYS[2], "1", "PX", ARGV[2])
+        redis.call("DEL", KEYS[3])
+    end
+    return 1
+"""
+
+# Lua script for simple release (no contention tracking).
+LOCK_SIMPLE_RELEASE_SCRIPT = """
+    if redis.call("GET", KEYS[1]) == ARGV[1] then
+        return redis.call("DEL", KEYS[1])
+    else
+        return 0
+    end
+"""
 
 
 class DistributedLock:
@@ -69,49 +122,6 @@ class DistributedLock:
     during a burst), no cooldown is applied and the lock can be re-acquired
     immediately. All contention and cooldown state is TTL-backed; hence, no
     deadlock can occur even if a worker crashes.
-    """
-
-    # Lua script for contention-aware acquisition.
-    # Checks the per-worker cooldown key first; if active, returns 0 without
-    # attempting SET NX. On SET NX failure (lock held by another worker), the
-    # shared contention counter is incremented so that the holder can detect
-    # competition upon release.
-    _ACQUIRE_SCRIPT = """
-        if redis.call("EXISTS", KEYS[2]) == 1 then
-            return 0
-        end
-        if redis.call("SET", KEYS[1], ARGV[1], "PX", ARGV[2], "NX") then
-            return 1
-        end
-        redis.call("INCR", KEYS[3])
-        redis.call("PEXPIRE", KEYS[3], tonumber(ARGV[2]))
-        return 0
-    """
-
-    # Lua script for contention-aware release.
-    # Verifies token ownership before deleting. If contention was recorded
-    # while the lock was held, a per-worker cooldown key is set and the
-    # contention counter is reset.
-    _RELEASE_SCRIPT = """
-        if redis.call("GET", KEYS[1]) ~= ARGV[1] then
-            return 0
-        end
-        redis.call("DEL", KEYS[1])
-        local contention = tonumber(redis.call("GET", KEYS[3]) or "0")
-        if contention > 0 and tonumber(ARGV[2]) > 0 then
-            redis.call("SET", KEYS[2], "1", "PX", ARGV[2])
-            redis.call("DEL", KEYS[3])
-        end
-        return 1
-    """
-
-    # Lua script for simple release (no contention tracking).
-    _SIMPLE_RELEASE_SCRIPT = """
-        if redis.call("GET", KEYS[1]) == ARGV[1] then
-            return redis.call("DEL", KEYS[1])
-        else
-            return 0
-        end
     """
 
     def __init__(
@@ -165,7 +175,7 @@ class DistributedLock:
         if self._fairness_enabled:
             self.acquired = bool(
                 self.redis.eval(
-                    self._ACQUIRE_SCRIPT,
+                    LOCK_ACQUIRE_SCRIPT,
                     3,
                     self.lock_key,
                     self._cooldown_key,
@@ -176,9 +186,7 @@ class DistributedLock:
             )
         else:
             self.acquired = bool(
-                self.redis.set(
-                    self.lock_key, self.token, px=self.timeout_ms, nx=True
-                )
+                self.redis.set(self.lock_key, self.token, px=self.timeout_ms, nx=True)
             )
 
         if self.acquired:
@@ -205,7 +213,7 @@ class DistributedLock:
         if self.acquired:
             if self._fairness_enabled:
                 result = self.redis.eval(
-                    self._RELEASE_SCRIPT,
+                    LOCK_RELEASE_SCRIPT,
                     3,
                     self.lock_key,
                     self._cooldown_key,
@@ -215,7 +223,7 @@ class DistributedLock:
                 )
             else:
                 result = self.redis.eval(
-                    self._SIMPLE_RELEASE_SCRIPT, 1, self.lock_key, self.token
+                    LOCK_SIMPLE_RELEASE_SCRIPT, 1, self.lock_key, self.token
                 )
 
             if result:
@@ -232,6 +240,7 @@ class DistributedLock:
                 )
 
 
+# noinspection PyUnnecessaryCast
 class TaskLifecycle:
     """Context manager responsible for concurrency slot cleanup upon task completion."""
 
@@ -257,7 +266,7 @@ class TaskLifecycle:
         self._thread: Optional[Thread] = None
 
         # Health monitoring controls.
-        self.on_failure_action = on_heartbeat_failure
+        self.on_failure_action = on_heartbeat_failure.lower()
         self.is_healthy = True
 
     def _heartbeat_loop(self) -> None:
@@ -326,16 +335,18 @@ class TaskLifecycle:
             if self.task_id:
                 inflight_key = self.limiter.get_inflight_key(self.task_id)
 
-                # noinspection PyUnnecessaryCast
-                # This cast is necessary for mypy type validation.
-                inflight_removed = cast(int, self.limiter.redis.delete(inflight_key))
+                # fmt: off
+                inflight_removed = cast(  # pragma: no mutate
+                    int, self.limiter.redis.delete(inflight_key)
+                )
+                # fmt: on
 
             logger.debug(
                 "Concurrency slot released and inflight key cleared: limiter=%s, task_id=%s, removed_concurrency=%s, removed_inflight=%s.",
                 self.limiter.id,
                 self.task_id,
-                removed_concurrency,
-                inflight_removed,
+                removed_concurrency == 1,
+                inflight_removed == 1,
             )
         finally:
             logger.debug(
@@ -486,40 +497,345 @@ class DrainSignalSubscriber:
             self._thread.join(timeout=5.0)
 
 
-class AbstractDistributedRateLimiter(ABC):
-    """Abstract base class for distributed rate limiting of task execution.
+class DistributedRateLimiterMixin(AbstractRateLimiter):
+    """Shared domain logic for distributed rate limiters (sync and async).
 
-    The term "distributed" refers to the rate limiting state, not to task execution
-    itself: multiple processes and machines sharing the same limiter identifier are
-    collectively rate-limited via Redis. The manner in which tasks are dispatched
-    (e.g., Celery, threads, asyncio) is determined by the concrete backend subclass.
+    The term "distributed" refers to the rate limiting state, not to task execution itself: multiple processes and machines sharing the same limiter identifier are collectively rate-limited via Redis. The manner in which tasks are dispatched (e.g., Celery, threads, asyncio) is determined by the concrete backend subclass.
 
-    Rate limiting is performed through atomic Lua scripts executed on a single Redis
-    instance. All rate limit state (i.e., window counters, the task buffer, and the
-    concurrency set) must reside on the same Redis node to guarantee correctness.
+    Rate limiting is performed through atomic Lua scripts executed on a single Redis instance. All rate limit state (i.e., window counters, the task buffer, and the concurrency set) must reside on the same Redis node to guarantee correctness.
 
     Redis configuration requirements:
-        - A single Redis instance, or a master-only setup in which all reads and writes
-          are directed to the same node. Read replicas introduce replication lag that
-          may cause the rate limit to be exceeded, as a replica may serve stale window
-          counters.
-        - Redis Cluster is not supported. The limiter utilizes multiple keys (window
-          counters, buffer, concurrency set, dispatch lock) that must be co-located on
-          the same shard. Key hash tags are not applied; hence, Redis Cluster may
-          distribute them across different nodes and violate atomicity.
+        - A single Redis instance, or a master-only setup in which all reads and writes are directed to the same node. Read replicas introduce replication lag that may cause the rate limit to be exceeded, as a replica may serve stale window counters.
+        - Redis Cluster is not supported. The limiter utilizes multiple keys (window counters, buffer, concurrency set, dispatch lock) that must be co-located on the same shard. Key hash tags are not applied; hence, Redis Cluster may distribute them across different nodes and violate atomicity.
+
+    This mixin provides configuration storage, Redis key construction, task data helpers, algorithm calculations (token recovery delay, adaptive jitter), and metric emission. It deliberately excludes all Redis I/O and threading/asyncio primitives so that both ``AbstractDistributedRateLimiter`` (sync) and ``AbstractAsyncDistributedRateLimiter`` (async) can reuse it via multiple inheritance.
+
+    The cooperative ``__init__`` accepts distributed-specific keyword arguments, stores them as instance attributes, and forwards the remaining keyword arguments to the next class in the MRO (typically ``AbstractSyncRateLimiter`` or ``AbstractAsyncRateLimiter``).
     """
 
-    _CONSUME_LUA_SCRIPT: str
-    _SCHEDULE_LUA_SCRIPT: str
-    _HEALTH_LUA_SCRIPT: str
-    _RENEW_LUA_SCRIPT: str
+    if TYPE_CHECKING:
+        id: str
+        limit: int
+        window: float
 
-    # Preferred package paths for Lua resources.
-    # The first entry supports installed wheels; the latter serves as a fallback for source-tree imports.
-    resource_packages: tuple[str, ...] = (
-        "celery_rate_limiter.lua",
-        "src.celery_rate_limiter.lua",
-    )
+        def _schedule_drain(self, delay: float = 0.0) -> None: ...
+
+    def __init__(
+        self,
+        *args: Any,
+        max_concurrency: int,
+        max_age: int = 3600,
+        lease_duration: int = 30,
+        on_heartbeat_failure: Literal["warn", "kill"] = "warn",
+        jitter_enabled: bool = True,
+        jitter_min_pct: float = 0.02,
+        jitter_max_pct: float = 0.08,
+        metrics_callback: Optional[Callable[[str, dict], None]] = None,
+        drain_enabled: bool = True,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.max_concurrency = max_concurrency
+        self.max_age = max_age
+        self.lease_duration = lease_duration
+        self.on_heartbeat_failure = on_heartbeat_failure
+        self.jitter_enabled = jitter_enabled
+        self.jitter_min_pct = jitter_min_pct
+        self.jitter_max_pct = jitter_max_pct
+        self.metrics_callback = metrics_callback
+        self.drain_enabled = drain_enabled
+
+        # Internal state.
+        self._worker_id: str = str(uuid.uuid4())
+        self._consecutive_drain_failures: int = 0
+
+        # Redis key construction (self.id is set by AbstractRateLimiter in the MRO).
+        self.buffer_key = f"{self.id}:buffer"
+        self.concurrency_key = f"{self.id}:concurrency"
+        self.lock_key = f"{self.id}:dispatch_lock"
+        self.contention_key = f"{self.id}:dispatch_lock:contention"
+        self.dlq_key = f"{self.id}:dlq"
+        self._drain_signal_channel = f"{self.id}:drain_signal"
+
+    # ---------------------------------------------------------------------------
+    # Task data helpers
+    # ---------------------------------------------------------------------------
+
+    @staticmethod
+    def _get_task_signature_str(func_path: str, payload: dict) -> str:
+        """Return the signature of a task as a deterministic JSON string."""
+        return json.dumps({"path": func_path, "payload": payload}, sort_keys=True)
+
+    def _get_task_data(self, task_id: str, func_path: str, payload: dict) -> dict:
+        """Return the structured data dictionary for a task."""
+        task_data = {
+            "id": task_id,
+            "func_path": func_path,
+            "payload": payload,
+            "inflight_key": self.get_inflight_key(task_id),
+        }
+        return task_data
+
+    def _get_task_data_str(self, task_id: str, func_path: str, payload: dict) -> str:
+        """Return the structured data of a task as a JSON string."""
+        return json.dumps(
+            self._get_task_data(task_id, func_path, payload), sort_keys=True
+        )
+
+    def get_inflight_key(self, task_id: str) -> str:
+        """Return the in-flight key for the specified task.
+
+        The in-flight key tracks a task from the moment it is scheduled
+        through to completion, thereby preventing duplicate scheduling.
+
+        Args:
+            task_id: The unique identifier of the task.
+
+        Returns:
+            The Redis key used for tracking the in-flight status of the task.
+        """
+        return f"{self.id}:inflight:{task_id}"
+
+    def _get_inflight_ttl(self, max_age_override: Optional[int] = None) -> int:
+        """Return a conservative TTL for in-flight deduplication keys.
+
+        The TTL must cover queue residence (``max_age``) plus sufficient time for dispatch and cleanup.
+        """
+        effective_max_age = (
+            self.max_age if max_age_override is None else max_age_override
+        )
+        ttl_seconds = (
+            max(1.0, float(effective_max_age))
+            + max(1.0, float(self.lease_duration))
+            + max(1.0, float(self.window))
+        )
+        return int(math.ceil(ttl_seconds))
+
+    # ---------------------------------------------------------------------------
+    # Algorithm helpers
+    # ---------------------------------------------------------------------------
+
+    def _calculate_token_recovery_delay(
+        self,
+        val_previous: int,
+        val_current: int,
+        reset_in_ms: int,
+    ) -> float:
+        """Calculate the duration until the next rate limit token becomes available.
+
+        The sliding window estimate decays linearly as time passes::
+
+            estimated = val_previous * weight + val_current
+
+        where ``weight`` decreases from ``reset_in_ms / window_ms`` to 0.
+
+        This method solves for the earliest time at which ``estimated < limit``,
+        i.e., the point at which one token is freed via previous-window decay.
+
+        The method falls back to ``reset_in_ms`` when decay cannot free a token
+        within the current window (i.e., when ``val_previous == 0`` or
+        ``val_current >= limit``).
+
+        Args:
+            val_previous: The raw counter value for the previous fixed window.
+            val_current: The raw counter value for the current fixed window.
+            reset_in_ms: The number of milliseconds until the current window expires.
+
+        Returns:
+            The delay in seconds until the next token is expected to become available.
+        """
+        window_ms = self.window * 1000
+
+        # No previous window exists to decay, or the current window alone is at the limit.
+        # In either case, wait for the next window.
+        if val_previous <= 0 or val_current >= self.limit:
+            return reset_in_ms / 1000.0
+
+        # Determine the earliest point at which previous-window decay frees a token.
+        #   estimated = val_previous * (window_ms - t) / window_ms + val_current
+        #   estimated < limit  =>  t > window_ms * (1 - (limit - val_current) / val_previous)
+        time_passed_ms = window_ms - reset_in_ms
+        t_needed_ms = window_ms * (1.0 - (self.limit - val_current) / val_previous)
+        wait_ms = t_needed_ms - time_passed_ms
+
+        if wait_ms <= 0:
+            # Decay has already freed a token; no waiting is needed.
+            return 0.0
+
+        return wait_ms / 1000.0
+
+    def _calculate_smart_jitter(
+        self,
+        remaining_tasks: int,
+        remaining_tokens: int,
+        active_concurrency: int,
+    ) -> float:
+        """Calculate adaptive jitter to mitigate the thundering herd problem at window resets.
+
+        Jitter prevents all workers from waking simultaneously when the rate limit resets.
+        The strategy scales with both the window size and the system load:
+            - Window proportional: a 1s window yields 20--80ms of jitter; a 60s window yields 1.2--4.8s.
+            - Load adaptive: high contention produces a larger jitter spread; low contention produces a smaller spread.
+
+        Args:
+            remaining_tasks: The number of tasks waiting in the buffer.
+            remaining_tokens: The number of rate limit tokens currently available.
+            active_concurrency: The number of tasks currently executing.
+
+        Returns:
+            The jitter amount in seconds to be added to the base delay.
+        """
+        if not self.jitter_enabled:
+            return 0.0
+
+        # The base jitter range scales proportionally with the window size.
+        min_jitter = self.window * self.jitter_min_pct
+        max_jitter = self.window * self.jitter_max_pct
+
+        # Compute the load pressure factor (0.0 = low contention, 1.0 = high contention).
+        # These thresholds and pressure values are tuning constants validated through
+        # behavioral properties (monotonicity, scaling) rather than exact-value tests.
+        # Mutating them does not break correctness: it merely shifts the retry distribution.
+        if remaining_tasks <= 0:  # pragma: no mutate
+            load_pressure = 0.0  # pragma: no mutate
+        elif remaining_tasks < 10:  # pragma: no mutate
+            load_pressure = 0.2  # pragma: no mutate
+        elif remaining_tasks < 50:  # pragma: no mutate
+            load_pressure = 0.5  # pragma: no mutate
+        elif remaining_tasks < 100:  # pragma: no mutate
+            load_pressure = 0.7  # pragma: no mutate
+        else:
+            load_pressure = 1.0  # pragma: no mutate
+
+        # Compute the concurrency pressure factor (0.0 = many free slots, 1.0 = at capacity).
+        # fmt: off
+        concurrency_pressure = active_concurrency / max(1, self.max_concurrency)  # pragma: no mutate
+        # fmt: on
+
+        # Combine the pressures, weighting queue load more heavily than concurrency.
+        # fmt: off
+        combined_pressure = (load_pressure * 0.7) + (concurrency_pressure * 0.3)  # pragma: no mutate
+        # fmt: on
+
+        # Scale the jitter range based on combined pressure.
+        # High pressure results in a larger jitter range (greater worker spread).
+        # Low pressure results in a smaller jitter range (faster processing, less spread).
+        # The resulting scale factor ranges from 0.3 to 1.0.
+        jitter_scale = 0.3 + (combined_pressure * 0.7)  # pragma: no mutate
+
+        # Compute the final jitter value with randomization.
+        jitter_range_size = (max_jitter - min_jitter) * jitter_scale
+        jitter = min_jitter + (jitter_range_size * random.random())
+
+        rounded_jitter = round(jitter, 3)
+        logger.debug(
+            "Smart jitter calculated: limiter=%s, remaining_tasks=%d, remaining_tokens=%d, active_concurrency=%d, load_pressure=%.3f, concurrency_pressure=%.3f, jitter_s=%.3f.",
+            self.id,
+            remaining_tasks,
+            remaining_tokens,
+            active_concurrency,
+            load_pressure,
+            concurrency_pressure,
+            rounded_jitter,
+        )
+        return rounded_jitter
+
+    # ---------------------------------------------------------------------------
+    # Metrics
+    # ---------------------------------------------------------------------------
+
+    def _emit_metric(self, event: str, data: dict) -> None:
+        """Safely invoke the metrics callback, if one has been configured.
+
+        Any exception raised by the callback is caught and logged to prevent a
+        user-provided callback failure from disrupting the limiter.
+
+        Args:
+            event: The event name (e.g., ``"consume"`` or ``"schedule"``).
+            data: A dictionary containing event-specific data.
+        """
+        if self.metrics_callback is None:
+            return
+
+        try:
+            self.metrics_callback(event, data)
+        except Exception as e:
+            logger.warning(
+                "Metrics callback raised an exception: limiter=%s, event=%s, error=%s.",
+                self.id,
+                event,
+                e,
+            )
+
+    # ---------------------------------------------------------------------------
+    # Scheduling helpers
+    # ---------------------------------------------------------------------------
+
+    @property
+    def _token_interval(self) -> float:
+        """The duration between successive rate limit tokens: ``window / limit``."""
+        return self.window / self.limit if self.limit > 0 else self.window
+
+    def _has_local_capacity(self) -> bool:
+        """Check whether the local execution environment can accept another dispatched task.
+
+        The base implementation always returns ``True``. Backends with bounded
+        local execution capacity (e.g., a ``ThreadPoolExecutor`` with a fixed
+        number of workers) should override this method to prevent the consumer
+        from acquiring Redis concurrency slots for tasks that would only be
+        queued locally.
+        """
+        return True
+
+    def _schedule_backup_drain(self) -> None:
+        """Schedule a safety-net drain after failing to acquire the dispatch lock.
+
+        The delay is set to one token interval (``window / limit``), which is
+        sufficiently long for the lock holder to finish yet short enough to maintain
+        throughput. The ``DrainLoop`` naturally coalesces multiple backup requests.
+        """
+        logger.debug(
+            "Backup drain scheduled: limiter=%s, delay_s=%.3f.",
+            self.id,
+            self._token_interval,
+        )
+        self._schedule_drain(delay=self._token_interval)
+
+    # ---------------------------------------------------------------------------
+    # Config persistence hooks
+    # ---------------------------------------------------------------------------
+
+    def _build_persist_config(self) -> dict[str, Any]:
+        """Return the configuration dictionary for Redis persistence."""
+        config: dict[str, Any] = super()._build_persist_config()
+        config.update(
+            {
+                "max_concurrency": self.max_concurrency,
+                "max_age": self.max_age,
+                "lease_duration": self.lease_duration,
+            }
+        )
+        return config
+
+    def _apply_config_overrides(self, overrides: dict[str, Any]) -> None:
+        """Apply configuration overrides for distributed-specific fields."""
+        super()._apply_config_overrides(overrides)
+        if "max_concurrency" in overrides:
+            self.max_concurrency = overrides["max_concurrency"]
+        if "max_age" in overrides:
+            self.max_age = overrides["max_age"]
+        if "lease_duration" in overrides:
+            self.lease_duration = overrides["lease_duration"]
+
+
+# noinspection PyUnnecessaryCast
+class AbstractDistributedRateLimiter(
+    DistributedRateLimiterMixin, AbstractSyncRateLimiter
+):
+    """Synchronous implementation of the distributed rate limiter.
+
+    Provides synchronous Redis operations, threading-based drain loop and signal subscriber, thread-based task lifecycle heartbeat, and a synchronous distributed lock. See ``DistributedRateLimiterMixin`` for distributed semantics, Redis requirements, and shared algorithm logic.
+    """
 
     def __init__(
         self,
@@ -563,38 +879,45 @@ class AbstractDistributedRateLimiter(ABC):
                 scheduler-only instances that push tasks into the buffer without consuming them
                 (e.g., a traffic generator in a multi-process deployment). Defaults to ``True``.
         """
-        self.redis = redis_client
-        self.id = limiter_id
-        self.buffer_key = f"{self.id}:buffer"
-        self.concurrency_key = f"{self.id}:concurrency"
-        self.lock_key = f"{self.id}:dispatch_lock"
-        self.contention_key = f"{self.id}:dispatch_lock:contention"
-        self.dlq_key = f"{self.id}:dlq"
-        self.limit = limit
-        self.window = window
-        self.max_concurrency = max_concurrency
-        self.max_age = max_age
-        self.lease_duration = lease_duration
-        self.on_heartbeat_failure = on_heartbeat_failure
-        self.jitter_enabled = jitter_enabled
-        self.jitter_min_pct = jitter_min_pct
-        self.jitter_max_pct = jitter_max_pct
-        self.metrics_callback = metrics_callback
-        self.drain_enabled = drain_enabled
-        self._worker_id: str = str(uuid.uuid4())
-        self._config_version: int = 0
-        self._paused_until: float = 0.0
-        self._consecutive_drain_failures: int = 0
-        self._drain_signal_channel = f"{self.id}:drain_signal"
+        # Cooperative __init__: chains through AbstractSyncRateLimiter (consumes redis),
+        # AbstractRateLimiter (consumes id, limit, window), and DistributedRateLimiterMixin
+        # (consumes max_concurrency, keys, etc.).
+        super().__init__(
+            redis_client,
+            limiter_id=limiter_id,
+            limit=limit,
+            window=window,
+            max_concurrency=max_concurrency,
+            max_age=max_age,
+            lease_duration=lease_duration,
+            on_heartbeat_failure=on_heartbeat_failure,
+            jitter_enabled=jitter_enabled,
+            jitter_min_pct=jitter_min_pct,
+            jitter_max_pct=jitter_max_pct,
+            metrics_callback=metrics_callback,
+            drain_enabled=drain_enabled,
+        )
+
+        # Start the drain loop and signal subscriber.
         if drain_enabled:
             self._drain_loop: DrainLoop | None = DrainLoop(
-                self, watchdog_interval=max(5.0, self.window * 2),
+                self,
+                watchdog_interval=max(5.0, self.window * 2),
             )
-            self._drain_signal_subscriber: DrainSignalSubscriber | None = DrainSignalSubscriber(self)
+            self._drain_signal_subscriber: DrainSignalSubscriber | None = (
+                DrainSignalSubscriber(self)
+            )
             self._drain_signal_subscriber.start()
         else:
             self._drain_loop = None
             self._drain_signal_subscriber = None
+
+        # Register Lua scripts with the Redis server.
+        self._register_script("consume.lua")
+        self._register_script("schedule.lua")
+        self._register_script("health.lua")
+        self._register_script("renew.lua")
+
         logger.info(
             "Rate limiter initialized: id=%s, limit=%d, window_s=%g, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s, drain_enabled=%s.",
             self.id,
@@ -611,112 +934,9 @@ class AbstractDistributedRateLimiter(ABC):
             self.drain_enabled,
         )
 
-        # Load the Lua scripts from disk.
-        self._load_lua_script("consume.lua", "_CONSUME_LUA_SCRIPT")
-        self._load_lua_script("schedule.lua", "_SCHEDULE_LUA_SCRIPT")
-        self._load_lua_script("health.lua", "_HEALTH_LUA_SCRIPT")
-        self._load_lua_script("renew.lua", "_RENEW_LUA_SCRIPT")
-
-        # Optimize performance by caching the scripts on the Redis server.
-        self.consume_script_sha: str = str(
-            self.redis.script_load(self._CONSUME_LUA_SCRIPT)
-        )
-        logger.debug(
-            "Lua script cached: limiter=%s, script=%s, sha=%s.",
-            self.id,
-            "consume.lua",
-            self.consume_script_sha,
-        )
-        self.schedule_script_sha: str = str(
-            self.redis.script_load(self._SCHEDULE_LUA_SCRIPT)
-        )
-        logger.debug(
-            "Lua script cached: limiter=%s, script=%s, sha=%s.",
-            self.id,
-            "schedule.lua",
-            self.schedule_script_sha,
-        )
-        self.health_script_sha: str = str(
-            self.redis.script_load(self._HEALTH_LUA_SCRIPT)
-        )
-        logger.debug(
-            "Lua script cached: limiter=%s, script=%s, sha=%s.",
-            self.id,
-            "health.lua",
-            self.health_script_sha,
-        )
-        self.renew_script_sha: str = str(self.redis.script_load(self._RENEW_LUA_SCRIPT))
-        logger.debug(
-            "Lua script cached: limiter=%s, script=%s, sha=%s.",
-            self.id,
-            "renew.lua",
-            self.renew_script_sha,
-        )
-
-    def _load_lua_script(self, lua_script: str, key: str) -> None:
-        """Load a Lua script from disk into the specified instance attribute.
-
-        Args:
-            lua_script: The filename of the Lua script to be loaded.
-            key: The instance attribute name under which the script source is stored.
-        """
-        if getattr(self, key, None) is None:
-            errors: list[str] = []
-            for resource_package in self.resource_packages:
-                try:
-                    source = resources.files(resource_package).joinpath(lua_script)
-                    setattr(self, key, source.read_text(encoding="utf-8"))
-                    logger.debug(
-                        "Lua script loaded from disk: limiter=%s, script=%s, attr=%s, package=%s.",
-                        self.id,
-                        lua_script,
-                        key,
-                        resource_package,
-                    )
-                    return
-                except (ModuleNotFoundError, OSError) as error:
-                    errors.append(f"{resource_package}: {error}")
-
-            raise ImportError(
-                f"Could not load {lua_script}; attempted packages: {', '.join(errors)}"
-            )
-
-    @staticmethod
-    def _get_task_signature_str(func_path: str, payload: dict) -> str:
-        """Return the signature of a task as a deterministic JSON string."""
-        return json.dumps({"path": func_path, "payload": payload}, sort_keys=True)
-
-    def _get_task_data(self, task_id: str, func_path: str, payload: dict) -> dict:
-        """Return the structured data dictionary for a task."""
-        task_data = {
-            "id": task_id,
-            "func_path": func_path,
-            "payload": payload,
-            "inflight_key": self.get_inflight_key(task_id),
-        }
-
-        return task_data
-
-    def _get_task_data_str(self, task_id: str, func_path: str, payload: dict) -> str:
-        """Return the structured data of a task as a JSON string."""
-        return json.dumps(
-            self._get_task_data(task_id, func_path, payload), sort_keys=True
-        )
-
-    def _get_inflight_ttl(self, max_age_override: Optional[int] = None) -> int:
-        """Return a conservative TTL for in-flight deduplication keys.
-
-        The TTL must cover queue residence (``max_age``) plus sufficient time for dispatch and cleanup.
-        """
-        effective_max_age = (
-            self.max_age if max_age_override is None else max_age_override
-        )
-        ttl_seconds = (
-            max(1.0, float(effective_max_age))
-            + max(1.0, float(self.lease_duration))
-            + max(1.0, float(self.window))
-        )
-        return int(math.ceil(ttl_seconds))
+    # ---------------------------------------------------------------------------
+    # Task scheduling
+    # ---------------------------------------------------------------------------
 
     def _cleanup_inflight_key(self, inflight_key: str, task_id: str) -> None:
         """Perform a best-effort cleanup of an in-flight key following a scheduling failure."""
@@ -738,27 +958,12 @@ class AbstractDistributedRateLimiter(ABC):
                 cleanup_error,
             )
 
-    def get_inflight_key(self, task_id: str) -> str:
-        """Return the in-flight key for the specified task.
-
-        The in-flight key tracks a task from the moment it is scheduled
-        through to completion, thereby preventing duplicate scheduling.
-
-        Args:
-            task_id: The unique identifier of the task.
-
-        Returns:
-            The Redis key used for tracking the in-flight status of the task.
-        """
-        return f"{self.id}:inflight:{task_id}"
-
     def schedule_task(
         self,
         func_path: str,
         payload: dict,
         priority: int = 100,
         max_age: Optional[int] = None,
-        retry: bool = True,
     ) -> tuple[bool, str]:
         """Schedule a task for execution once the rate limit permits.
 
@@ -767,7 +972,6 @@ class AbstractDistributedRateLimiter(ABC):
             payload: The payload dictionary for the task in question.
             priority: The priority of the task (default: 100).
             max_age: An optional override for the maximum age of the task, in seconds.
-            retry: Whether to retry the scheduling operation upon a NoScriptError (e.g., Redis restart).
 
         Returns:
             A tuple of (``was_scheduled``, ``task_id``). The ``was_scheduled`` value is ``False``
@@ -808,8 +1012,8 @@ class AbstractDistributedRateLimiter(ABC):
 
         try:
             # Attempt to schedule the task via the Lua script.
-            self.redis.evalsha(
-                self.schedule_script_sha,
+            self._eval_script(
+                "schedule.lua",
                 1,
                 # KEYS: [buffer]
                 self.buffer_key,
@@ -825,34 +1029,8 @@ class AbstractDistributedRateLimiter(ABC):
                 func_path,
                 priority,
             )
-
-        except redis.exceptions.NoScriptError:
-            # The Redis script cache is volatile; hence, the SHA may become invalid unexpectedly.
-            # Determine whether a retry should be performed; raise a runtime error if not.
-            if not retry:
-                # Clean up the in-flight key to avoid an orphaned lock.
-                self._cleanup_inflight_key(inflight_key, task_id)
-                raise RuntimeError(
-                    "Redis failed to retain the Lua script after a reload attempt."
-                )
-
-            # Reload the script SHA and reattempt the operation.
-            logger.warning(
-                "Lua script cache miss during schedule; reloading script: limiter=%s, script=%s, task_id=%s.",
-                self.id,
-                "schedule.lua",
-                task_id,
-            )
-            self.schedule_script_sha = str(
-                self.redis.script_load(self._SCHEDULE_LUA_SCRIPT)
-            )
-            # Release the claim so that the retry can re-acquire it.
-            self._cleanup_inflight_key(inflight_key, task_id)
-            return self.schedule_task(
-                func_path, payload, priority, max_age=max_age, retry=False
-            )
         except Exception:
-            # Any non-NOSCRIPT scheduling failure must release the claim so that retries
+            # Any scheduling failure must release the claim so that retries
             # from callers are not blocked by a stale in-flight marker.
             self._cleanup_inflight_key(inflight_key, task_id)
             raise
@@ -862,11 +1040,12 @@ class AbstractDistributedRateLimiter(ABC):
         self._emit_metric("schedule", {"scheduled": True, "task_id": task_id})
         return True, task_id
 
-    def consume(self, retry: bool = True) -> ConsumeResult:
-        """Attempt to consume a task from the queue.
+    # ---------------------------------------------------------------------------
+    # Task consumption and lease management
+    # ---------------------------------------------------------------------------
 
-        Args:
-            retry: Whether to retry the consumption upon a NoScriptError.
+    def consume(self) -> ConsumeResult:
+        """Attempt to consume a task from the queue.
 
         Returns:
             A result containing the task data if consumption was successful, or an empty result otherwise.
@@ -875,87 +1054,73 @@ class AbstractDistributedRateLimiter(ABC):
             RuntimeError: If the required Lua scripts cannot be (re)loaded.
         """
         logger.debug("Consume attempt started: limiter=%s.", self.id)
-        try:
-            # Execute the consume Lua script and obtain the result.
-            result = cast(
-                list[str],
-                cast(
-                    object,
-                    self.redis.evalsha(
-                        self.consume_script_sha,
-                        4,
-                        # KEYS: [base, buffer, concurrency, dlq]
-                        self.id,
-                        self.buffer_key,
-                        self.concurrency_key,
-                        self.dlq_key,
-                        # ARGV: [window, limit, max_concurrency, max_age, lease_duration]
-                        self.window,
-                        self.limit,
-                        self.max_concurrency,
-                        self.max_age,
-                        self.lease_duration,
-                    ),
-                ),
-            )
 
-            # Parse and structure the result.
-            consume_result: ConsumeResult = {
-                "success": int(result[0]) == 1,
-                "expired": int(result[0]) == -1,
-                "task": cast(TaskData, json.loads(result[1])) if result[1] else None,
-                "remaining_tokens": int(result[2]),
-                "active_concurrency": int(result[3]),
-                "reset_in_ms": int(result[4]),
-                "remaining_tasks": int(result[5]),
-                "val_previous": int(result[6]),
-                "val_current": int(result[7]),
-            }
-            task_id = consume_result["task"]["id"] if consume_result["task"] else None
-            logger.debug(
-                "Consume result: limiter=%s, success=%s, expired=%s, task_id=%s, remaining_tokens=%d, active_concurrency=%d, remaining_tasks=%d, reset_in_ms=%d.",
-                self.id,
-                consume_result["success"],
-                consume_result["expired"],
-                task_id,
-                consume_result["remaining_tokens"],
-                consume_result["active_concurrency"],
-                consume_result["remaining_tasks"],
-                consume_result["reset_in_ms"],
-            )
-            self._emit_metric(
-                "consume",
-                {
-                    "success": consume_result["success"],
-                    "expired": consume_result["expired"],
-                    "remaining_tokens": consume_result["remaining_tokens"],
-                    "active_concurrency": consume_result["active_concurrency"],
-                    "reset_in_ms": consume_result["reset_in_ms"],
-                    "remaining_tasks": consume_result["remaining_tasks"],
-                },
-            )
-            return consume_result
-
-        except redis.exceptions.NoScriptError:
-            # The Redis script cache is volatile; hence, the SHA may become invalid unexpectedly.
-            # Determine whether a retry should be performed; raise a runtime error if not.
-            if not retry:
-                raise RuntimeError(
-                    "Redis failed to retain the Lua script after a reload attempt."
-                )
-
-            # Reload the script SHA and reattempt the operation.
-            logger.warning(
-                "Lua script cache miss during consume; reloading script: limiter=%s, script=%s.",
-                self.id,
+        # Execute the consume Lua script and obtain the result.
+        # fmt: off
+        result = cast(  # pragma: no mutate
+            list[str],
+            self._eval_script(
                 "consume.lua",
-            )
-            self.consume_script_sha = str(
-                self.redis.script_load(self._CONSUME_LUA_SCRIPT)
-            )
-            return self.consume(retry=False)
+                4,
+                # KEYS: [base, buffer, concurrency, dlq]
+                self.id,
+                self.buffer_key,
+                self.concurrency_key,
+                self.dlq_key,
+                # ARGV: [window, limit, max_concurrency, max_age, lease_duration]
+                self.window,
+                self.limit,
+                self.max_concurrency,
+                self.max_age,
+                self.lease_duration,
+            ),
+        )
+        # fmt: on
 
-    def extend_lease(self, task_id: str, duration: int, retry: bool = True) -> None:
+        # Parse and structure the result.
+        consume_result: ConsumeResult = {
+            "success": int(result[0]) == 1,
+            "expired": int(result[0]) == -1,
+            # fmt: off
+            "task": cast(  # pragma: no mutate
+                TaskData, json.loads(result[1])
+            )
+            # fmt: on
+            if result[1]
+            else None,
+            "remaining_tokens": int(result[2]),
+            "active_concurrency": int(result[3]),
+            "reset_in_ms": int(result[4]),
+            "remaining_tasks": int(result[5]),
+            "val_previous": int(result[6]),
+            "val_current": int(result[7]),
+        }
+        task_id = consume_result["task"]["id"] if consume_result["task"] else None
+        logger.debug(
+            "Consume result: limiter=%s, success=%s, expired=%s, task_id=%s, remaining_tokens=%d, active_concurrency=%d, remaining_tasks=%d, reset_in_ms=%d.",
+            self.id,
+            consume_result["success"],
+            consume_result["expired"],
+            task_id,
+            consume_result["remaining_tokens"],
+            consume_result["active_concurrency"],
+            consume_result["remaining_tasks"],
+            consume_result["reset_in_ms"],
+        )
+        self._emit_metric(
+            "consume",
+            {
+                "success": consume_result["success"],
+                "expired": consume_result["expired"],
+                "remaining_tokens": consume_result["remaining_tokens"],
+                "active_concurrency": consume_result["active_concurrency"],
+                "reset_in_ms": consume_result["reset_in_ms"],
+                "remaining_tasks": consume_result["remaining_tasks"],
+            },
+        )
+        return consume_result
+
+    def extend_lease(self, task_id: str, duration: int) -> None:
         """Extend the lease on a concurrency slot.
 
         A lease-based concurrency system is employed such that proper cleanup can be performed
@@ -968,199 +1133,44 @@ class AbstractDistributedRateLimiter(ABC):
             duration: The number of seconds by which to extend the lease. This value is decoupled
                 from the actual lease duration such that it may be set to a fraction thereof,
                 ensuring that the lease is always refreshed well before expiration.
-            retry: An internal flag indicating whether the operation should be reattempted if a
-                script error occurs.
 
         Raises:
             KeyError: If the task identifier is not present in the concurrency set.
             RuntimeError: If the renew Lua script cannot be reloaded after a NoScriptError.
         """
-        try:
-            # noinspection PyUnnecessaryCast
-            # This cast is necessary for mypy type validation.
-            renewed = int(
-                cast(
-                    str,
-                    self.redis.evalsha(
-                        self.renew_script_sha,
-                        1,
-                        # KEYS: [concurrency]
-                        self.concurrency_key,
-                        # ARGV: [task_id, duration]
-                        task_id,
-                        duration,
-                    ),
-                )
+        # fmt: off
+        renewed = int(
+            cast(  # pragma: no mutate
+                str,
+                self._eval_script(
+                    "renew.lua",
+                    1,
+                    # KEYS: [concurrency]
+                    self.concurrency_key,
+                    # ARGV: [task_id, duration]
+                    task_id,
+                    duration,
+                ),
             )
-
-            logger.debug(
-                "Lease extension result: limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
-                self.id,
-                task_id,
-                duration,
-                renewed == 1,
-            )
-            if renewed != 1:
-                raise KeyError(
-                    f"Could not extend lease for task '{task_id}' on limiter '{self.id}': "
-                    "task id was not found in the concurrency set."
-                )
-        except redis.exceptions.NoScriptError:
-            if not retry:
-                raise RuntimeError(
-                    "Redis failed to retain the Lua script after a reload attempt."
-                )
-
-            # Reload the script SHA and reattempt the operation.
-            logger.warning(
-                "Lua script cache miss during lease extension; reloading script: limiter=%s, script=%s, task_id=%s.",
-                self.id,
-                "renew.lua",
-                task_id,
-            )
-            self.renew_script_sha = str(self.redis.script_load(self._RENEW_LUA_SCRIPT))
-            self.extend_lease(task_id, duration, retry=False)
-
-    def _emit_metric(self, event: str, data: dict) -> None:
-        """Safely invoke the metrics callback, if one has been configured.
-
-        Any exception raised by the callback is caught and logged to prevent a
-        user-provided callback failure from disrupting the limiter.
-
-        Args:
-            event: The event name (e.g., ``"consume"`` or ``"schedule"``).
-            data: A dictionary containing event-specific data.
-        """
-        if self.metrics_callback is None:
-            return
-
-        try:
-            self.metrics_callback(event, data)
-        except Exception as e:
-            logger.warning(
-                "Metrics callback raised an exception: limiter=%s, event=%s, error=%s.",
-                self.id,
-                event,
-                e,
-            )
-
-    def _calculate_token_recovery_delay(
-        self,
-        val_previous: int,
-        val_current: int,
-        reset_in_ms: int,
-    ) -> float:
-        """Calculate the duration until the next rate limit token becomes available.
-
-        The sliding window estimate decays linearly as time passes::
-
-            estimated = val_previous * weight + val_current
-
-        where ``weight`` decreases from ``reset_in_ms / window_ms`` to 0.
-
-        This method solves for the earliest time at which ``estimated < limit``,
-        i.e., the point at which one token is freed via previous-window decay.
-
-        The method falls back to ``reset_in_ms`` when decay cannot free a token
-        within the current window (i.e., when ``val_previous == 0`` or
-        ``val_current >= limit``).
-
-        Args:
-            val_previous: The raw counter value for the previous fixed window.
-            val_current: The raw counter value for the current fixed window.
-            reset_in_ms: The number of milliseconds until the current window expires.
-
-        Returns:
-            The delay in seconds until the next token is expected to become available.
-        """
-        window_ms = self.window * 1000
-
-        # No previous window exists to decay, or the current window alone is at the limit.
-        # In either case, wait for the next window.
-        if val_previous <= 0 or val_current >= self.limit:
-            return (reset_in_ms / 1000.0) + 0.001
-
-        # Determine the earliest point at which previous-window decay frees a token.
-        #   estimated = val_previous * (window_ms - t) / window_ms + val_current
-        #   estimated < limit  =>  t > window_ms * (1 - (limit - val_current) / val_previous)
-        time_passed_ms = window_ms - reset_in_ms
-        t_needed_ms = window_ms * (1.0 - (self.limit - val_current) / val_previous)
-        wait_ms = t_needed_ms - time_passed_ms
-
-        if wait_ms <= 0:
-            # Decay has already freed a token; a retry may be performed immediately.
-            return 0.001
-
-        return wait_ms / 1000.0
-
-    def _calculate_smart_jitter(
-        self,
-        remaining_tasks: int,
-        remaining_tokens: int,
-        active_concurrency: int,
-    ) -> float:
-        """Calculate adaptive jitter to mitigate the thundering herd problem at window resets.
-
-        Jitter prevents all workers from waking simultaneously when the rate limit resets.
-        The strategy scales with both the window size and the system load:
-            - Window proportional: a 1s window yields 20--80ms of jitter; a 60s window yields 1.2--4.8s.
-            - Load adaptive: high contention produces a larger jitter spread; low contention produces a smaller spread.
-
-        Args:
-            remaining_tasks: The number of tasks waiting in the buffer.
-            remaining_tokens: The number of rate limit tokens currently available.
-            active_concurrency: The number of tasks currently executing.
-
-        Returns:
-            The jitter amount in seconds to be added to the base delay.
-        """
-        if not self.jitter_enabled:
-            return 0.0
-
-        # The base jitter range scales proportionally with the window size.
-        min_jitter = self.window * self.jitter_min_pct
-        max_jitter = self.window * self.jitter_max_pct
-
-        # Compute the load pressure factor (0.0 = low contention, 1.0 = high contention).
-        if remaining_tasks <= 0:
-            load_pressure = 0.0
-        elif remaining_tasks < 10:
-            load_pressure = 0.2
-        elif remaining_tasks < 50:
-            load_pressure = 0.5
-        elif remaining_tasks < 100:
-            load_pressure = 0.7
-        else:
-            load_pressure = 1.0
-
-        # Compute the concurrency pressure factor (0.0 = many free slots, 1.0 = at capacity).
-        concurrency_pressure = active_concurrency / max(1, self.max_concurrency)
-
-        # Combine the pressures, weighting queue load more heavily than concurrency.
-        combined_pressure = (load_pressure * 0.7) + (concurrency_pressure * 0.3)
-
-        # Scale the jitter range based on combined pressure.
-        # High pressure results in a larger jitter range (greater worker spread).
-        # Low pressure results in a smaller jitter range (faster processing, less spread).
-        # The resulting scale factor ranges from 0.3 to 1.0.
-        jitter_scale = 0.3 + (combined_pressure * 0.7)
-
-        # Compute the final jitter value with randomization.
-        jitter_range_size = (max_jitter - min_jitter) * jitter_scale
-        jitter = min_jitter + (jitter_range_size * random.random())
-
-        rounded_jitter = round(jitter, 3)
-        logger.debug(
-            "Smart jitter calculated: limiter=%s, remaining_tasks=%d, remaining_tokens=%d, active_concurrency=%d, load_pressure=%.3f, concurrency_pressure=%.3f, jitter_s=%.3f.",
-            self.id,
-            remaining_tasks,
-            remaining_tokens,
-            active_concurrency,
-            load_pressure,
-            concurrency_pressure,
-            rounded_jitter,
         )
-        return rounded_jitter
+        # fmt: on
+
+        logger.debug(
+            "Lease extension result: limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
+            self.id,
+            task_id,
+            duration,
+            renewed == 1,
+        )
+        if renewed != 1:
+            raise KeyError(
+                f"Could not extend lease for task '{task_id}' on limiter '{self.id}': "
+                "task id was not found in the concurrency set."
+            )
+
+    # ---------------------------------------------------------------------------
+    # Drain orchestration
+    # ---------------------------------------------------------------------------
 
     def get_buffer_count(self) -> int:
         """Return the number of items currently in the buffer."""
@@ -1345,26 +1355,6 @@ class AbstractDistributedRateLimiter(ABC):
                 )
                 self._schedule_drain(delay=delay_seconds)
 
-    @property
-    def _token_interval(self) -> float:
-        """The duration between successive rate limit tokens: ``window / limit``."""
-        return self.window / self.limit if self.limit > 0 else self.window
-
-    def _schedule_backup_drain(self) -> None:
-        """Schedule a safety-net drain after failing to acquire the dispatch lock.
-
-        The delay is set to one token interval (``window / limit``), which is
-        sufficiently long for the lock holder to finish yet short enough to maintain
-        throughput. The ``DrainLoop`` naturally coalesces multiple backup requests.
-        """
-        logger.debug(
-            "Backup drain scheduled: limiter=%s, delay_s=%.3f.",
-            self.id,
-            self._token_interval,
-        )
-        self._schedule_drain(delay=self._token_interval)
-
-    @abstractmethod
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
         """Dispatch the task to the concrete execution backend (e.g., Celery worker, thread).
 
@@ -1373,18 +1363,7 @@ class AbstractDistributedRateLimiter(ABC):
             payload: The task payload dictionary.
             task_id: The unique task identifier.
         """
-        pass  # pragma: no cover
-
-    def _has_local_capacity(self) -> bool:
-        """Check whether the local execution environment can accept another dispatched task.
-
-        The base implementation always returns ``True``. Backends with bounded
-        local execution capacity (e.g., a ``ThreadPoolExecutor`` with a fixed
-        number of workers) should override this method to prevent the consumer
-        from acquiring Redis concurrency slots for tasks that would only be
-        queued locally.
-        """
-        return True
+        raise NotImplementedError("Subclasses must implement _dispatch_task")
 
     def _schedule_drain(self, delay: float = 0.0) -> None:
         """Schedule the drain method to execute again after ``delay`` seconds.
@@ -1395,6 +1374,10 @@ class AbstractDistributedRateLimiter(ABC):
         """
         if self._drain_loop is not None:
             self._drain_loop.wake(delay)
+
+    # ---------------------------------------------------------------------------
+    # Cross-process signaling
+    # ---------------------------------------------------------------------------
 
     def trigger_consume(self) -> None:
         """Trigger consumption from the task queue.
@@ -1423,12 +1406,42 @@ class AbstractDistributedRateLimiter(ABC):
                 self.id,
             )
 
+    # ---------------------------------------------------------------------------
+    # Lifecycle
+    # ---------------------------------------------------------------------------
+
     def shutdown(self) -> None:
-        """Stop the drain loop and signal subscriber to facilitate a clean shutdown."""
+        """Stop the drain loop and signal subscriber to facilitate a clean shutdown.
+
+        This method must be called when a limiter instance is no longer needed.
+        Each limiter created with ``drain_enabled=True`` (the default) runs
+        background threads for the drain loop and the Redis Pub/Sub signal
+        subscriber. Failing to call ``shutdown()`` will leak these threads.
+        """
+        self._shutdown_called = True
         if self._drain_loop is not None:
             self._drain_loop.shutdown()
         if self._drain_signal_subscriber is not None:
             self._drain_signal_subscriber.shutdown()
+
+    def __del__(self) -> None:
+        """Emit a warning if shutdown() was not called.
+
+        Calling ``shutdown()`` from ``__del__`` is intentionally avoided
+        because the garbage collector may invoke this method at unpredictable
+        times (e.g., between in-process test iterations), and joining threads
+        or closing Pub/Sub connections during GC can interfere with active
+        Redis state.
+        """
+        if getattr(self, "_drain_loop", None) is not None and not getattr(
+            self, "_shutdown_called", False
+        ):
+            warnings.warn(
+                f"Limiter {self.id!r} was not shut down; "
+                "call shutdown() to stop background threads",
+                ResourceWarning,
+                stacklevel=1,
+            )
 
     def execution_lock(self, timeout_ms: int = 5000) -> ContextManager[bool]:
         """Acquire the dispatch lock and perform cleanup after task completion.
@@ -1481,11 +1494,12 @@ class AbstractDistributedRateLimiter(ABC):
             limiter=self, task_id=task_id, on_heartbeat_failure=strategy
         )
 
-    def get_status(self, retry: bool = True) -> dict:
-        """Return a snapshot of the current state of the limiter.
+    # ---------------------------------------------------------------------------
+    # Status and monitoring
+    # ---------------------------------------------------------------------------
 
-        Args:
-            retry: Whether to retry the operation upon a script error.
+    def get_status(self) -> dict:
+        """Return a snapshot of the current state of the limiter.
 
         Returns:
             A dictionary containing all status information for the limiter.
@@ -1493,384 +1507,40 @@ class AbstractDistributedRateLimiter(ABC):
         Raises:
             RuntimeError: If the required Lua scripts cannot be (re)loaded.
         """
-        try:
-            result = cast(
-                list[str],
-                cast(
-                    object,
-                    self.redis.evalsha(
-                        self.health_script_sha,
-                        3,
-                        # KEYS: [base, buffer, concurrency]
-                        self.id,
-                        self.buffer_key,
-                        self.concurrency_key,
-                        # ARGV: [window, limit, max_concurrency]
-                        self.window,
-                        self.limit,
-                        self.max_concurrency,
-                    ),
-                ),
-            )
-
-            # Map the result list to a structured dictionary.
-            return {
-                "limiter_id": self.id,
-                "concurrency": {
-                    "current": result[3],
-                    "max": self.max_concurrency,
-                    "available": max(0, self.max_concurrency - int(result[3])),
-                },
-                "buffer": {
-                    "count": result[5],
-                },
-                "rate_limit": {
-                    "val_previous": result[0],
-                    "val_current": result[1],
-                    "tokens_used": float(result[2]),  # Estimated count is a float
-                    "limit": self.limit,
-                    "window": self.window,
-                    "reset_in_ms": result[4],
-                },
-                "dispatcher": {
-                    "is_locked": self.redis.exists(f"{self.id}:dispatch_lock")
-                },
-            }
-        except redis.exceptions.NoScriptError:
-            # The Redis script cache is volatile; hence, the SHA may become invalid unexpectedly.
-            # Determine whether a retry should be performed; raise a runtime error if not.
-            if not retry:
-                raise RuntimeError(
-                    "Redis failed to retain the Lua script after a reload attempt."
-                )
-
-            # Reload the script SHA and reattempt the operation.
-            logger.warning(
-                "Lua script cache miss during status fetch; reloading script: limiter=%s, script=%s.",
-                self.id,
+        # fmt: off
+        result = cast(  # pragma: no mutate
+            list[str],
+            self._eval_script(
                 "health.lua",
-            )
-            self.health_script_sha = str(
-                self.redis.script_load(self._HEALTH_LUA_SCRIPT)
-            )
-            return self.get_status(retry=False)
-
-
-class AbstractRedisManagedRateLimiter(AbstractDistributedRateLimiter, ABC):
-    """Shared class-level API for Redis-backed limiter implementations.
-
-    This base class provides singleton-style instance management and Redis-backed
-    configuration persistence, such that concrete implementations need only define
-    the backend-specific context setup (e.g., Celery app, thread pool).
-    """
-
-    _REGISTRY_KEY: ClassVar[str] = "rl:registry:configs"
-    _VERSION_KEY: ClassVar[str] = "rl:registry:versions"
-    _SENTINEL: ClassVar[object] = object()
-    _redis_client: ClassVar[Optional[Redis]] = None
-    _instances: ClassVar[Dict[str, "AbstractRedisManagedRateLimiter"]] = {}
-
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        """Ensure that each subclass receives isolated class-level state."""
-        super().__init_subclass__(**kwargs)
-        cls._SENTINEL = object()
-        cls._redis_client = None
-        cls._instances = {}
-
-    @classmethod
-    @abstractmethod
-    def _configure_backend(cls, **backend_context: Any) -> None:
-        """Store the backend-specific class context during ``configure()``."""
-
-    @classmethod
-    @abstractmethod
-    def _has_backend_context(cls) -> bool:
-        """Determine whether the backend-specific class context has been configured."""
-
-    @classmethod
-    @abstractmethod
-    def _get_instance_context(cls) -> dict[str, Any]:
-        """Return the backend context to be forwarded to concrete instance constructors."""
-
-    @classmethod
-    @abstractmethod
-    def _reset_backend_context(cls) -> None:
-        """Clear the backend-specific class context, intended for testing and resets."""
-
-    @classmethod
-    @abstractmethod
-    def _configure_hint(cls) -> str:
-        """Return a human-readable ``configure()`` usage hint suitable for error messages."""
-
-    @classmethod
-    def configure(cls, redis_client: Redis, **backend_context: Any) -> None:
-        """Configure the shared Redis client and backend context for class-level API usage."""
-        cls._redis_client = redis_client
-        cls._configure_backend(**backend_context)
-        logger.info("%s configured.", cls.__name__)
-
-    @classmethod
-    def _require_internal_construction(cls, sentinel: Any) -> None:
-        """Reject direct constructor invocations that bypass the managed class API."""
-        if sentinel is not cls._SENTINEL:
-            raise RuntimeError(
-                f"Direct {cls.__name__}() construction is not supported. "
-                f"Use {cls._configure_hint()} then {cls.__name__}.create() or {cls.__name__}.get()."
-            )
-
-    def __init__(
-        self,
-        redis_client: Redis,
-        *args: Any,
-        _sentinel: Any = None,
-        **kwargs: Any,
-    ) -> None:
-        """Construct a managed limiter instance via internal class API flows."""
-        self.__class__._require_internal_construction(_sentinel)
-        super().__init__(redis_client, *args, **kwargs)
-
-    @classmethod
-    def create(
-        cls,
-        limiter_id: str,
-        limit: int,
-        window: float,
-        max_concurrency: int,
-        max_age: int = 3600,
-        lease_duration: int = 30,
-        override: bool = False,
-        persist: bool = True,
-        **kwargs: Any,
-    ) -> "AbstractRedisManagedRateLimiter":
-        """Create and cache a limiter instance, optionally persisting the configuration to Redis."""
-        cls._require_configured()
-
-        if not override and limiter_id in cls._instances:
-            raise ValueError(
-                f"Limiter '{limiter_id}' already exists. Use override=True to replace it."
-            )
-
-        assert cls._redis_client is not None  # Guaranteed by _require_configured.
-        instance = cls(
-            redis_client=cls._redis_client,
-            limiter_id=limiter_id,
-            limit=limit,
-            window=window,
-            max_concurrency=max_concurrency,
-            max_age=max_age,
-            lease_duration=lease_duration,
-            _sentinel=cls._SENTINEL,
-            **cls._get_instance_context(),
-            **kwargs,
+                3,
+                # KEYS: [base, buffer, concurrency]
+                self.id,
+                self.buffer_key,
+                self.concurrency_key,
+                # ARGV: [window]
+                self.window,
+            ),
         )
-        cls._instances[limiter_id] = instance
+        # fmt: on
 
-        if persist:
-            cls._persist_config(instance)
-
-        logger.info(
-            "%s created: limiter_id=%s, window_s=%g, limit=%d, max_concurrency=%d, persist=%s.",
-            cls.__name__,
-            limiter_id,
-            window,
-            limit,
-            max_concurrency,
-            persist,
-        )
-        return instance
-
-    @classmethod
-    def get(cls, limiter_id: str) -> "AbstractRedisManagedRateLimiter":
-        """Retrieve a limiter by its identifier from the local cache or the Redis registry."""
-        if limiter_id in cls._instances:
-            logger.debug(
-                "%s resolved from local cache: limiter_id=%s.",
-                cls.__name__,
-                limiter_id,
-            )
-            return cls._instances[limiter_id]
-
-        cls._require_configured()
-        assert cls._redis_client is not None  # Guaranteed by _require_configured.
-
-        raw_config = cls._redis_client.hget(cls._REGISTRY_KEY, limiter_id)
-        if raw_config is None:
-            raise ValueError(
-                f"Limiter '{limiter_id}' not found in local cache or Redis. "
-                f"Ensure it was created via {cls.__name__}.create()."
-            )
-
-        config = json.loads(
-            raw_config.decode("utf-8")
-            if isinstance(raw_config, bytes)
-            else str(raw_config)
-        )
-        instance = cls(
-            redis_client=cls._redis_client,
-            limiter_id=limiter_id,
-            _sentinel=cls._SENTINEL,
-            **cls._get_instance_context(),
-            **config,
-        )
-
-        raw_version = cls._redis_client.hget(cls._VERSION_KEY, limiter_id)
-        if raw_version is not None:
-            # noinspection PyUnnecessaryCast
-            # This cast is necessary for mypy type validation.
-            version_value = cast(str | bytes | int, raw_version)
-            instance._config_version = int(
-                version_value.decode("utf-8")
-                if isinstance(version_value, bytes)
-                else version_value
-            )
-
-        cls._instances[limiter_id] = instance
-        logger.debug("%s hydrated from Redis: limiter_id=%s.", cls.__name__, limiter_id)
-        return instance
-
-    @classmethod
-    def update(
-        cls,
-        limiter_id: str,
-        limit: Optional[int] = None,
-        window: Optional[float] = None,
-        max_concurrency: Optional[int] = None,
-        max_age: Optional[int] = None,
-        lease_duration: Optional[int] = None,
-    ) -> "AbstractRedisManagedRateLimiter":
-        """Update the limiter configuration, persist it to Redis, and increment the version counter."""
-        instance = cls.get(limiter_id)
-
-        if window is not None and window != instance.window:
-            pause_duration = max(instance.window, window)
-            instance._paused_until = time.time() + pause_duration
-            instance.window = window
-            logger.info(
-                "Window changed for limiter %s: new_window=%g, paused_for_s=%g.",
-                limiter_id,
-                window,
-                pause_duration,
-            )
-
-        if limit is not None:
-            instance.limit = limit
-        if max_concurrency is not None:
-            instance.max_concurrency = max_concurrency
-        if max_age is not None:
-            instance.max_age = max_age
-        if lease_duration is not None:
-            instance.lease_duration = lease_duration
-
-        cls._persist_config(instance)
-
-        logger.info(
-            "%s updated: limiter_id=%s, limit=%d, window=%g, max_concurrency=%d.",
-            cls.__name__,
-            limiter_id,
-            instance.limit,
-            instance.window,
-            instance.max_concurrency,
-        )
-        return instance
-
-    @classmethod
-    def _reset(cls) -> None:
-        """Clear all class-level singleton state. This method is intended for use in tests."""
-        cls._instances.clear()
-        cls._redis_client = None
-        cls._reset_backend_context()
-
-    @classmethod
-    def _require_configured(cls) -> None:
-        """Raise an error if ``configure()`` has not been called with the required context."""
-        if cls._redis_client is None or not cls._has_backend_context():
-            raise RuntimeError(
-                f"{cls._configure_hint()} must be called before create() or get()."
-            )
-
-    @classmethod
-    def _persist_config(cls, instance: "AbstractRedisManagedRateLimiter") -> None:
-        """Write the limiter configuration to Redis and increment its version counter."""
-        assert cls._redis_client is not None
-        config = {
-            "limit": instance.limit,
-            "window": instance.window,
-            "max_concurrency": instance.max_concurrency,
-            "max_age": instance.max_age,
-            "lease_duration": instance.lease_duration,
+        # Map the result list to a structured dictionary.
+        return {
+            "limiter_id": self.id,
+            "concurrency": {
+                "current": result[3],
+                "max": self.max_concurrency,
+                "available": max(0, self.max_concurrency - int(result[3])),
+            },
+            "buffer": {
+                "count": result[5],
+            },
+            "rate_limit": {
+                "val_previous": result[0],
+                "val_current": result[1],
+                "tokens_used": float(result[2]),  # Estimated count is a float
+                "limit": self.limit,
+                "window": self.window,
+                "reset_in_ms": result[4],
+            },
+            "dispatcher": {"is_locked": self.redis.exists(f"{self.id}:dispatch_lock")},
         }
-        cls._redis_client.hset(cls._REGISTRY_KEY, instance.id, json.dumps(config))
-        cls._redis_client.hincrby(cls._VERSION_KEY, instance.id, 1)
-
-        raw_version = cls._redis_client.hget(cls._VERSION_KEY, instance.id)
-        if raw_version is not None:
-            # noinspection PyUnnecessaryCast
-            # This cast is necessary for mypy type validation.
-            version_value = cast(str | bytes | int, raw_version)
-            instance._config_version = int(
-                version_value.decode("utf-8")
-                if isinstance(version_value, bytes)
-                else version_value
-            )
-
-    def refresh_config(self) -> bool:
-        """Apply a newer persisted configuration from Redis when a version change is detected."""
-        raw_version = self.redis.hget(self.__class__._VERSION_KEY, self.id)
-        if raw_version is None:
-            return False
-
-        # noinspection PyUnnecessaryCast
-        # This cast is necessary for mypy type validation.
-        version_value = cast(str | bytes | int, raw_version)
-        remote_version = int(
-            version_value.decode("utf-8")
-            if isinstance(version_value, bytes)
-            else version_value
-        )
-        if remote_version <= self._config_version:
-            return False
-
-        raw_config = self.redis.hget(self.__class__._REGISTRY_KEY, self.id)
-        if raw_config is None:
-            return False
-
-        try:
-            config = json.loads(
-                raw_config.decode("utf-8")
-                if isinstance(raw_config, bytes)
-                else str(raw_config)
-            )
-        except (json.JSONDecodeError, TypeError) as error:
-            logger.warning(
-                "Config refresh skipped due to malformed persisted config: limiter=%s, error=%s.",
-                self.id,
-                error,
-            )
-            return False
-
-        new_window = config.get("window", self.window)
-        if new_window != self.window:
-            pause_duration = max(self.window, new_window)
-            self._paused_until = time.time() + pause_duration
-            self.window = new_window
-            logger.info(
-                "Window change detected via refresh for limiter %s: new_window=%g, paused_for_s=%g.",
-                self.id,
-                new_window,
-                pause_duration,
-            )
-
-        self.limit = config.get("limit", self.limit)
-        self.max_concurrency = config.get("max_concurrency", self.max_concurrency)
-        self.max_age = config.get("max_age", self.max_age)
-        self.lease_duration = config.get("lease_duration", self.lease_duration)
-        self._config_version = remote_version
-        logger.info(
-            "Config refreshed for limiter %s: version=%d, limit=%d, window=%g, max_concurrency=%d.",
-            self.id,
-            remote_version,
-            self.limit,
-            self.window,
-            self.max_concurrency,
-        )
-        return True

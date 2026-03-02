@@ -14,14 +14,16 @@ All rate limiting state is persisted in Redis and mutated exclusively through at
 | `{id}:dispatch_lock` | STRING | Drain mutex that ensures only one drainer operates at any given time. The value is a UUID token that identifies the lock holder; the compare-and-delete release script prevents the inadvertent deletion of locks created after a timeout. When contention-aware fairness is enabled, acquisition and release are performed via dedicated Lua scripts that additionally manage the cooldown and contention keys. | `limiters.py` (`DistributedLock.__enter__`) via `SET NX PX` (simple mode) or `_ACQUIRE_SCRIPT` (fairness mode) | `DistributedLock.__exit__()` via `_SIMPLE_RELEASE_SCRIPT` (simple mode) or `_RELEASE_SCRIPT` (fairness mode); `get_status()` via `EXISTS` | 5000ms (configurable via `timeout_ms` parameter) |
 | `{id}:dispatch_lock:cd:{worker_id}` | STRING | Per-worker cooldown marker. When contention is detected (i.e., other workers attempted to acquire the lock while it was held), the releasing worker sets this key to block its own re-acquisition for one token interval, giving competing workers a fair opportunity. The value is the string `"1"`. | `DistributedLock.__exit__()` via `_RELEASE_SCRIPT` (`SET PX`) | `DistributedLock.__enter__()` via `_ACQUIRE_SCRIPT` (`EXISTS`) | `min(window_ms / limit, 1000)` ms |
 | `{id}:dispatch_lock:contention` | STRING | Shared contention counter. Incremented by workers that fail to acquire the dispatch lock (because another worker holds it), allowing the lock holder to detect competition upon release. When the holder releases and finds a contention value greater than zero, it sets its own cooldown key and resets the counter. | `DistributedLock.__enter__()` via `_ACQUIRE_SCRIPT` (`INCR`) | `DistributedLock.__exit__()` via `_RELEASE_SCRIPT` (`GET`, `DEL`) | `timeout_ms` (same as the dispatch lock; set via `PEXPIRE`) |
-| `rl:registry:configs` | HASH | Configuration persistence for managed limiter instances. Each field is a limiter identifier and the corresponding value is a JSON-serialized configuration object containing `limit`, `window`, `max_concurrency`, `max_age`, and `lease_duration`. | `AbstractRedisManagedRateLimiter._persist_config()` via `HSET` | `AbstractRedisManagedRateLimiter.get()` and `refresh_config()` via `HGET` | None |
-| `rl:registry:versions` | HASH | Configuration version tracking for managed limiter instances. Each field is a limiter identifier and the corresponding value is a monotonically increasing integer that is incremented upon every configuration update. Workers compare the remote version against their local version to detect configuration changes. | `AbstractRedisManagedRateLimiter._persist_config()` via `HINCRBY` | `AbstractRedisManagedRateLimiter.get()` and `refresh_config()` via `HGET` | None |
+| `{id}:{identity}:{window_start_ms}` | STRING | ASGI per-identity window counter. The `{identity}` segment is the dynamic key extracted by the middleware's `key_func` (e.g., a client IP or API key). The suffix is the window start timestamp, computed identically to the task-oriented window counters. Each counter tracks the number of requests from a given identity within a single fixed window period. | `acquire.lua` via `INCR` | `acquire.lua` via `GET` | `2 * window_ms + 10000ms`, set via `PEXPIRE` on first increment |
+| `rl:registry:configs` | HASH | Configuration persistence for managed limiter instances. Each field is a limiter identifier and the corresponding value is a JSON-serialized configuration object. For task-oriented limiters, the object contains `limit`, `window`, `max_concurrency`, `max_age`, and `lease_duration`; for request-oriented limiters (ASGI), it contains `limit` and `window`. | `SyncManagedRateLimiter._persist_config()` or `AsyncManagedRateLimiter._persist_config()` via `HSET` | `.get()` and `.refresh_config()` via `HGET` | None |
+| `rl:registry:versions` | HASH | Configuration version tracking for managed limiter instances. Each field is a limiter identifier and the corresponding value is a monotonically increasing integer that is incremented upon every configuration update. Workers compare the remote version against their local version to detect configuration changes. | `SyncManagedRateLimiter._persist_config()` or `AsyncManagedRateLimiter._persist_config()` via `HINCRBY` | `.get()` and `.refresh_config()` via `HGET` | None |
 
 ## Key Lifecycle
 
 The following diagram illustrates how each key is created, read, updated, and deleted throughout the lifecycle of a task. Solid arrows represent write operations, and dashed arrows represent read operations.
 
 ```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 graph LR
     subgraph Schedule ["schedule_task()"]
         S1["SET NX inflight key"]
@@ -29,27 +31,27 @@ graph LR
     end
 
     subgraph Consume ["consume()"]
-        C1["ZREMRANGEBYSCORE concurrency\n(prune expired leases)"]
-        C2["GET window counters\n(current + previous)"]
-        C3["ZRANGE + ZREM buffer\n(pop task)"]
-        C4["INCR window counter\n+ PEXPIRE on first use"]
-        C5["ZADD concurrency\n(register lease)"]
-        C6["RPUSH dlq\n(if task expired)"]
-        C7["DEL inflight key\n(if task expired)"]
+        C1["ZREMRANGEBYSCORE concurrency<br>(prune expired leases)"]
+        C2["GET window counters<br>(current + previous)"]
+        C3["ZRANGE + ZREM buffer<br>(pop task)"]
+        C4["INCR window counter<br>+ PEXPIRE on first use"]
+        C5["ZADD concurrency<br>(register lease)"]
+        C6["RPUSH dlq<br>(if task expired)"]
+        C7["DEL inflight key<br>(if task expired)"]
     end
 
     subgraph Renew ["extend_lease()"]
-        R1["ZSCORE + ZADD concurrency\n(update lease expiry)"]
+        R1["ZSCORE + ZADD concurrency<br>(update lease expiry)"]
     end
 
     subgraph Complete ["TaskLifecycle.__exit__()"]
-        E1["ZREM concurrency\n(release slot)"]
-        E2["DEL inflight key\n(clear dedup marker)"]
+        E1["ZREM concurrency<br>(release slot)"]
+        E2["DEL inflight key<br>(clear dedup marker)"]
     end
 
     subgraph Drain ["drain()"]
-        D1["Acquire dispatch_lock:\ncheck cooldown key,\nSET NX lock,\nINCR contention on failure"]
-        D2["Release dispatch_lock:\nverify token, DEL lock,\ncheck contention counter,\nSET cooldown + DEL contention\nif contention > 0"]
+        D1["Acquire dispatch_lock:<br>check cooldown key,<br>SET NX lock,<br>INCR contention on failure"]
+        D2["Release dispatch_lock:<br>verify token, DEL lock,<br>check contention counter,<br>SET cooldown + DEL contention<br>if contention > 0"]
     end
 
     subgraph Registry ["create() / update()"]
@@ -74,7 +76,7 @@ graph LR
 
 ## Key Namespacing
 
-All per-limiter keys are prefixed with the limiter's unique identifier (`{id}:`), as constructed in the `AbstractDistributedRateLimiter.__init__()` method within [`limiters.py`](../../src/celery_rate_limiter/core/limiters.py). The key assignments are as follows:
+All per-limiter keys are prefixed with the limiter's unique identifier (`{id}:`), as constructed in the `DistributedRateLimiterMixin.__init__()` method within [`limiters.py`](../../src/celery_rate_limiter/core/limiters.py). The key assignments are as follows:
 
 ```python
 self.buffer_key = f"{self.id}:buffer"
@@ -103,6 +105,16 @@ Window counter keys are constructed within `consume.lua` and `health.lua` by app
 local current_key = base_key .. ':' .. current_window_start
 local previous_key = base_key .. ':' .. previous_window_start
 ```
+
+### ASGI per-identity keys
+
+The ASGI rate limiter constructs per-identity keys by combining the limiter identifier with the dynamic identity and the window start timestamp. The `acquire()` method in [`limiter.py`](../../src/celery_rate_limiter/backends/asgi/limiter.py) constructs the base key as follows:
+
+```python
+full_key = f"{self.id}:{key}"
+```
+
+The `acquire.lua` script then appends the window start timestamp to this base key, producing the final pattern `{id}:{identity}:{window_start_ms}`. For example, a limiter with `id="asgi_api"` and a client IP of `"192.168.1.1"` produces keys such as `asgi_api:192.168.1.1:1708123200000`.
 
 This namespacing convention ensures that multiple independent limiter instances can coexist on the same Redis server without key collisions. For example, a limiter with `id="rate_limit:api_v1"` and a limiter with `id="rate_limit:api_v2"` will produce entirely disjoint key sets, even when connected to the same Redis instance. The two global registry keys (`rl:registry:configs` and `rl:registry:versions`) are shared across all managed limiter instances, with each limiter occupying a distinct hash field keyed by its identifier.
 
@@ -139,7 +151,7 @@ Each component of the formula serves a distinct purpose:
 - **`max(1, lease_duration)`** covers the *execution period*, i.e., the maximum duration of a single concurrency lease. This ensures that the marker remains active while the task is being executed by a worker.
 - **`max(1, window)`** covers potential *cleanup delay*, i.e., the time required for the `TaskLifecycle.__exit__()` method to delete the inflight key after task completion. Under adverse conditions (e.g., a window reset occurring simultaneously with task completion), this additional buffer prevents premature key expiry.
 
-The `max(1, ...)` guard on each component ensures that the TTL is always at least three seconds, thereby preventing a zero-length TTL in the event that any parameter is set to zero. The final result is rounded up to the nearest integer via `math.ceil()`, as the Redis `EX` option requires an integer number of seconds.
+The `max(1, ...)` guard on each component ensures that the TTL is always at least three seconds, thereby preventing a zero-length TTL in the event that any parameter is set to zero. The final result is rounded up to the nearest integer via `math.ceil()`, as the Redis `EX` option requires an integer number of seconds. The invariants of this formula (lower bound of three seconds, monotonicity in each parameter, integer result) are verified by property-based tests in [test_inflight_ttl.py](../../tests/properties/test_inflight_ttl.py).
 
 ## References
 
@@ -147,5 +159,7 @@ The `max(1, ...)` guard on each component ensures that the TTL is always at leas
 - [schedule.lua](../../src/celery_rate_limiter/lua/schedule.lua): task scheduling script (buffer insertion).
 - [renew.lua](../../src/celery_rate_limiter/lua/renew.lua): lease renewal script (concurrency set update).
 - [health.lua](../../src/celery_rate_limiter/lua/health.lua): health check script (status reads).
-- [limiters.py](../../src/celery_rate_limiter/core/limiters.py): core implementation (key construction, TTL calculations, dispatch lock).
+- [acquire.lua](../../src/celery_rate_limiter/lua/acquire.lua): lightweight sliding window counter check for request-oriented rate limiting (ASGI).
+- [limiters.py](../../src/celery_rate_limiter/core/limiters.py): sync distributed rate limiter (key construction, TTL calculations, dispatch lock).
+- [async_limiters.py](../../src/celery_rate_limiter/core/async_limiters.py): async distributed rate limiter (asyncio counterpart of limiters.py).
 - [Sliding Window Algorithm](sliding-window.md): visual explanation of the window counter algorithm and TTL rationale.

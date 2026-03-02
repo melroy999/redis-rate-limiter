@@ -1,4 +1,10 @@
-"""Pytest fixtures for the Celery backend implementation tests."""
+"""Pytest fixtures for the Celery backend implementation tests.
+
+All fixtures are re-exported from ``tests.fixtures.celery_backend``.
+
+Fixture dependencies:
+    - ``redis_client``, ``limiter_id``: from ``tests/conftest.py``.
+"""
 
 from tests.fixtures import celery_backend as _celery_backend
 

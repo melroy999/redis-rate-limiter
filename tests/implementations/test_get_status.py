@@ -1,18 +1,37 @@
-"""Tests for ``get_status()`` on the generic rate limiter implementation."""
+"""Tests for ``get_status()`` on the generic rate limiter implementation.
 
-from unittest.mock import patch
+Tests are written once in async form. The sync implementation participates
+via the ``SyncToAsyncLimiterAdapter``; the async implementation runs natively.
+
+Fixture dependencies:
+    - ``generic_limiter``, ``async_generic_limiter``: from ``tests/implementations/conftest.py``.
+    - ``func_path``: from ``tests/conftest.py``.
+"""
+
+import inspect
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import redis
+
+from tests.helpers.adapters import SyncToAsyncLimiterAdapter
+
+# ---------------------------------------------------------------------------
+# Unified implementation tests
+# ---------------------------------------------------------------------------
 
 
-class TestGetStatus:
-    """Test suite for ``get_status()`` behavior on the AbstractDistributedRateLimiter."""
+class GetStatusTests:
+    """Unified test suite for ``get_status()`` behavior on both sync and async limiters.
 
-    def test_get_status_returns_expected_structure(self, generic_limiter):
+    Subclasses must provide a ``limiter`` fixture that returns either a
+    ``SyncToAsyncLimiterAdapter``-wrapped sync limiter or a native async limiter.
+    """
+
+    @staticmethod
+    async def test_get_status_returns_expected_structure(limiter):
         """Verify that ``get_status()`` returns the required sections and subsection keys."""
         # Act
-        status = generic_limiter.get_status()
+        status = await limiter.get_status()
 
         # Assert
         assert set(status.keys()) == {
@@ -41,104 +60,224 @@ class TestGetStatus:
             "dispatcher section should include is_locked"
         )
 
-    def test_get_status_reflects_scheduled_tasks(self, generic_limiter, func_path):
+    @staticmethod
+    async def test_get_status_reflects_scheduled_tasks(limiter, func_path):
         """Verify that the ``get_status()`` buffer count reflects the scheduled task count."""
         # Arrange
         for idx in range(3):
-            generic_limiter.schedule_task(func_path, {"idx": idx})
+            await limiter.schedule_task(func_path, {"idx": idx})
 
         # Act
-        status = generic_limiter.get_status()
+        status = await limiter.get_status()
 
         # Assert
         assert int(status["buffer"]["count"]) == 3, (
             "status buffer count should match scheduled tasks"
         )
 
-    def test_get_status_reflects_rate_limit_state(self, generic_limiter, func_path):
+    @staticmethod
+    async def test_get_status_reflects_rate_limit_state(limiter, func_path):
         """Verify that ``get_status()`` reflects the rate-limit telemetry after ``consume()`` is called."""
         # Arrange
-        generic_limiter.schedule_task(func_path, {"idx": 1})
-        consume_result = generic_limiter.consume()
+        await limiter.schedule_task(func_path, {"idx": 1})
+        consume_result = await limiter.consume()
 
         # Act
-        status = generic_limiter.get_status()
+        status = await limiter.get_status()
 
         # Assert
         assert consume_result["success"] is True, (
             "consume should succeed for scheduled task"
         )
-        assert status["rate_limit"]["limit"] == generic_limiter.limit, (
+        assert status["rate_limit"]["limit"] == limiter.limit, (
             "status should report configured rate limit"
         )
-        assert float(status["rate_limit"]["tokens_used"]) >= 1.0, (
-            "tokens_used should increase after a successful consume"
+        assert float(status["rate_limit"]["tokens_used"]) == pytest.approx(1.0), (
+            "tokens_used should be 1.0 after a single consume in the first window"
         )
 
-    def test_get_status_recovery_on_noscript_error(self, generic_limiter, redis_client):
-        """Verify that ``get_status()`` reloads the Lua script and retries on a ``NoScriptError``."""
+        # Verify individual result fields are not swapped.
+        # In the first window, val_previous is 0 and val_current is >= 1.
+        assert int(status["rate_limit"]["val_previous"]) == 0, (
+            "val_previous should be 0 in the first window"
+        )
+        assert int(status["rate_limit"]["val_current"]) == 1, (
+            "val_current should be 1 after a single consume in the first window"
+        )
+        # reset_in_ms is a positive number (time until window expires);
+        # buffer count is 0 after the consume drained the buffer.
+        assert int(status["rate_limit"]["reset_in_ms"]) > 0, (
+            "reset_in_ms should be a positive number within the current window"
+        )
+        assert int(status["buffer"]["count"]) == 0, (
+            "buffer count should be 0 after consume drained the buffer"
+        )
+
+    @staticmethod
+    async def test_get_status_clean_state_values(limiter):
+        """Verify that ``get_status()`` returns correct initial values for a fresh limiter."""
+        # Act
+        status = await limiter.get_status()
+
+        # Assert
+        assert status["limiter_id"] == limiter.id, (
+            "limiter_id should match the configured identifier"
+        )
+
+        assert int(status["concurrency"]["current"]) == 0, (
+            "concurrency current should be zero for a fresh limiter"
+        )
+        assert status["concurrency"]["max"] == limiter.max_concurrency, (
+            "concurrency max should match the configured max_concurrency"
+        )
+        assert status["concurrency"]["available"] == limiter.max_concurrency, (
+            "concurrency available should equal max when no tasks are active"
+        )
+
+        assert int(status["buffer"]["count"]) == 0, (
+            "buffer count should be zero for a fresh limiter"
+        )
+
+        assert float(status["rate_limit"]["tokens_used"]) == 0.0, (
+            "tokens_used should be zero for a fresh limiter"
+        )
+        assert status["rate_limit"]["limit"] == limiter.limit, (
+            "rate_limit limit should match the configured limit"
+        )
+        assert status["rate_limit"]["window"] == limiter.window, (
+            "rate_limit window should match the configured window"
+        )
+
+        assert status["dispatcher"]["is_locked"] == 0, (
+            "dispatcher should not be locked for a fresh limiter"
+        )
+
+    @staticmethod
+    async def test_get_status_available_is_zero_when_all_slots_used(limiter):
+        """Verify that ``available`` is exactly 0 when all concurrency slots are occupied."""
         # Arrange
-        real_evalsha = redis_client.evalsha
-        real_script_load = redis_client.script_load
-
-        def mocked_evalsha_func(*args, **kwargs):
-            if mocked_evalsha_func.call_count == 0:
-                mocked_evalsha_func.call_count += 1
-                raise redis.exceptions.NoScriptError("NOSCRIPT")
-            return real_evalsha(*args, **kwargs)
-
-        mocked_evalsha_func.call_count = 0
+        # Seed the concurrency sorted set with max_concurrency tasks.
+        # The ``zadd`` call may return a coroutine (async Redis) or an int (sync Redis).
+        for i in range(limiter.max_concurrency):
+            result = limiter.redis.zadd(
+                limiter.concurrency_key, {f"saturating_task_{i}": 9999999999.0}
+            )
+            if inspect.isawaitable(result):
+                await result
 
         # Act
-        with (
-            patch.object(
-                generic_limiter.redis, "evalsha", side_effect=mocked_evalsha_func
-            ) as mock_eval,
-            patch.object(
-                generic_limiter.redis, "script_load", side_effect=real_script_load
-            ) as mock_load,
-        ):
-            status = generic_limiter.get_status()
+        status = await limiter.get_status()
 
-            # Assert
-            assert status["limiter_id"] == generic_limiter.id, (
-                "status should still be returned after script recovery"
-            )
-            assert mock_eval.call_count == 2, (
-                "evalsha should be called twice (fail then retry)"
-            )
-            assert mock_load.call_count == 1, (
-                "script_load should be called once to recover"
-            )
+        # Assert
+        assert int(status["concurrency"]["current"]) == limiter.max_concurrency, (
+            "concurrency current should equal max_concurrency when all slots are used"
+        )
+        assert status["concurrency"]["available"] == 0, (
+            "concurrency available should be exactly 0 when all slots are occupied"
+        )
+        assert float(status["rate_limit"]["tokens_used"]) == 0.0, (
+            "tokens_used should remain 0 when only concurrency slots are seeded without consuming"
+        )
 
-    def test_get_status_connection_error_propagates(self, generic_limiter):
-        """Verify that a non-NoScript Redis error during ``get_status()`` propagates to the caller."""
+    @staticmethod
+    async def test_get_status_available_clamps_to_zero_when_over_capacity(limiter):
+        """Verify that ``available`` is clamped to 0 when concurrency exceeds ``max_concurrency``."""
         # Arrange
-        with patch.object(
-            generic_limiter.redis,
-            "evalsha",
-            side_effect=redis.exceptions.ConnectionError("redis unreachable"),
-        ):
-            # Act & Assert
-            with pytest.raises(
-                redis.exceptions.ConnectionError, match="redis unreachable"
-            ):
-                generic_limiter.get_status()
-
-    def test_get_status_permanent_failure_raises_error(self, generic_limiter):
-        """Verify that a permanent ``NoScriptError`` during ``get_status()`` raises a RuntimeError."""
-        # Arrange
-        with patch.object(
-            generic_limiter.redis,
-            "evalsha",
-            side_effect=redis.exceptions.NoScriptError("Permanent Failure"),
-        ) as mock_eval:
-            # Act & Assert
-            with pytest.raises(
-                RuntimeError, match="Redis failed to retain the Lua script"
-            ):
-                generic_limiter.get_status()
-
-            assert mock_eval.call_count == 2, (
-                "get_status should retry exactly once before failing"
+        # Seed one more task than max_concurrency so the raw subtraction is negative.
+        for i in range(limiter.max_concurrency + 1):
+            result = limiter.redis.zadd(
+                limiter.concurrency_key, {f"overflow_task_{i}": 9999999999.0}
             )
+            if inspect.isawaitable(result):
+                await result
+
+        # Act
+        status = await limiter.get_status()
+
+        # Assert
+        assert int(status["concurrency"]["current"]) == limiter.max_concurrency + 1, (
+            "concurrency current should exceed max_concurrency when over-seeded"
+        )
+        assert status["concurrency"]["available"] == 0, (
+            "concurrency available should be clamped to 0, not negative"
+        )
+
+    @staticmethod
+    async def test_get_status_reports_locked_dispatcher(limiter):
+        """Verify that ``is_locked`` is 1 when the dispatch lock key exists in Redis."""
+        # Arrange
+        lock_key = f"{limiter.id}:dispatch_lock"
+        result = limiter.redis.set(lock_key, "1", ex=10)
+        if inspect.isawaitable(result):
+            await result
+
+        # Act
+        status = await limiter.get_status()
+
+        # Assert
+        assert status["dispatcher"]["is_locked"] == 1, (
+            "dispatcher is_locked should be 1 when the dispatch lock key exists"
+        )
+
+    @staticmethod
+    async def test_get_status_val_current_uses_correct_result_index(limiter):
+        """Verify that ``get_status()`` maps each health.lua return index to the correct result field."""
+        # Arrange
+        # health.lua returns: [prev_count, curr_count, estimated_count, active_now, reset_in_ms, buffer_count]
+        # Each value is deliberately distinct to detect index swaps.
+        controlled_response = ["10", "5", "7.5", "2", "500", "3"]
+        actual_limiter = getattr(limiter, "_inner", limiter)
+        mock_cls = (
+            AsyncMock
+            if inspect.iscoroutinefunction(actual_limiter._eval_script)
+            else MagicMock
+        )
+
+        # Act
+        with patch.object(
+            actual_limiter, "_eval_script", mock_cls(return_value=controlled_response)
+        ):
+            status = await limiter.get_status()
+
+        # Assert
+        assert status["rate_limit"]["val_previous"] == "10", (
+            "val_previous should map to result[0] (previous_count)"
+        )
+        assert status["rate_limit"]["val_current"] == "5", (
+            "val_current should map to result[1] (current_count), not result[2] (estimated_count)"
+        )
+        assert float(status["rate_limit"]["tokens_used"]) == pytest.approx(7.5), (
+            "tokens_used should map to result[2] (estimated_count), not result[1] (current_count)"
+        )
+        assert int(status["concurrency"]["current"]) == 2, (
+            "concurrency current should map to result[3] (active_now)"
+        )
+        assert int(status["rate_limit"]["reset_in_ms"]) == 500, (
+            "reset_in_ms should map to result[4]"
+        )
+        assert int(status["buffer"]["count"]) == 3, (
+            "buffer count should map to result[5]"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Concrete test cases
+# ---------------------------------------------------------------------------
+
+
+class TestSyncGetStatus(GetStatusTests):
+    """Sync rate limiter ``get_status()`` exercised through the async adapter."""
+
+    @pytest.fixture
+    def limiter(self, generic_limiter):
+        """Wrap the sync generic limiter in an async adapter."""
+        return SyncToAsyncLimiterAdapter(generic_limiter)
+
+
+class TestAsyncGetStatus(GetStatusTests):
+    """Async rate limiter ``get_status()`` exercised natively."""
+
+    @pytest.fixture
+    def limiter(self, async_generic_limiter):
+        """Provide the async generic limiter directly."""
+        return async_generic_limiter

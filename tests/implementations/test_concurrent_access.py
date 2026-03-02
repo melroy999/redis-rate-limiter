@@ -7,6 +7,10 @@ multiple clients contend for the same limiter simultaneously.
 Multiple threads sharing a Redis connection accurately simulate distributed
 workers (e.g., Celery, thread pool) hitting the same Redis instance: the GIL
 is released during network I/O, hence Redis operations genuinely interleave.
+
+Fixture dependencies:
+    - ``redis_client``: from ``tests/conftest.py``.
+    - ``make_limiter_pool``: from ``tests/implementations/conftest.py``.
 """
 
 import threading
@@ -98,7 +102,8 @@ def complete_task(redis_client, limiter, task_id):
 class TestConcurrentScheduling:
     """Tests for multiple clients scheduling tasks simultaneously."""
 
-    def test_concurrent_unique_task_scheduling(self, make_limiter_pool, redis_client):
+    @staticmethod
+    def test_concurrent_unique_task_scheduling(make_limiter_pool, redis_client):
         """Verify that all unique tasks are scheduled without loss under concurrent access."""
         # Arrange
         tasks_per_worker = 10
@@ -135,8 +140,9 @@ class TestConcurrentScheduling:
             f"buffer should contain all {WORKERS * tasks_per_worker} tasks, got {buffer_size}"
         )
 
+    @staticmethod
     def test_concurrent_duplicate_scheduling_produces_single_entry(
-        self, make_limiter_pool, redis_client
+        make_limiter_pool, redis_client
     ):
         """Verify that SET NX ensures exactly one buffer entry for concurrent duplicate schedules.
 
@@ -180,8 +186,9 @@ class TestConcurrentConsumption:
     Lua script alone enforces correctness.
     """
 
+    @staticmethod
     def test_rate_limit_enforced_under_concurrent_consume(
-        self, make_limiter_pool, redis_client
+        make_limiter_pool, redis_client
     ):
         """Verify that the total number of successful consumes never exceeds the rate limit."""
         # Arrange
@@ -231,8 +238,9 @@ class TestConcurrentConsumption:
         total = sum(len(batch) for batch in all_consumed) + probe_consumed
         assert total == limit, f"expected exactly {limit} tasks consumed, got {total}"
 
+    @staticmethod
     def test_concurrency_limit_enforced_under_concurrent_consume(
-        self, make_limiter_pool, redis_client
+        make_limiter_pool, redis_client
     ):
         """Verify that active concurrency never exceeds the max_concurrency limit."""
         # Arrange
@@ -273,7 +281,8 @@ class TestConcurrentConsumption:
             f"exactly {max_conc} consumes should succeed, got {len(successful)}"
         )
 
-    def test_each_task_consumed_exactly_once(self, make_limiter_pool, redis_client):
+    @staticmethod
+    def test_each_task_consumed_exactly_once(make_limiter_pool, redis_client):
         """Verify that no task is consumed by more than one worker."""
         # Arrange
         num_tasks = 5
@@ -315,7 +324,8 @@ class TestConcurrentConsumption:
 class TestConcurrentDrain:
     """Tests for the full ``drain()`` path with the distributed lock under contention."""
 
-    def test_distributed_lock_serializes_drains(self, make_limiter_pool, redis_client):
+    @staticmethod
+    def test_distributed_lock_serializes_drains(make_limiter_pool, redis_client):
         """Verify that concurrent drainers produce a single dispatch in one contention wave.
 
         The lock critical section is intentionally held briefly so that all contenders
@@ -363,8 +373,9 @@ class TestConcurrentDrain:
             f"expected exactly 1 dispatch from a single contended drain wave, got {len(dispatched_ids)}"
         )
 
+    @staticmethod
     def test_all_tasks_eventually_consumed_under_contention(
-        self, make_limiter_pool, redis_client
+        make_limiter_pool, redis_client
     ):
         """Verify that repeated concurrent drain rounds eventually consume every task."""
         # Arrange
@@ -408,8 +419,9 @@ class TestConcurrentDrain:
             f"not all tasks consumed. missing: {scheduled_ids - consumed_ids}"
         )
 
+    @staticmethod
     def test_contention_aware_cooldown_distributes_drains(
-        self, make_limiter_pool, redis_client
+        make_limiter_pool, redis_client
     ):
         """Verify that contention-aware cooldown distributes drain opportunities across workers.
 
@@ -485,9 +497,8 @@ class TestConcurrentDrain:
 class TestConcurrentLifecycle:
     """Tests for ``TaskLifecycle`` cleanup under concurrent access."""
 
-    def test_concurrent_lifecycle_cleanup_frees_slots(
-        self, make_limiter_pool, redis_client
-    ):
+    @staticmethod
+    def test_concurrent_lifecycle_cleanup_frees_slots(make_limiter_pool, redis_client):
         """Verify that all concurrency slots are freed when multiple lifecycles exit concurrently."""
         # Arrange
         max_conc = 5
@@ -537,9 +548,8 @@ class TestConcurrentLifecycle:
 class TestConcurrentFullPipeline:
     """End-to-end distributed coordination test."""
 
-    def test_producers_and_consumers_under_contention(
-        self, make_limiter_pool, redis_client
-    ):
+    @staticmethod
+    def test_producers_and_consumers_under_contention(make_limiter_pool, redis_client):
         """Verify that no tasks are lost when producers and consumers operate concurrently.
 
         Producer threads schedule tasks while consumer threads drain. Completed

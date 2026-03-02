@@ -2,6 +2,8 @@
 
 These tests employ Hypothesis to verify the mathematical properties of the
 is_subset function with arbitrary nested dictionaries.
+
+No fixture dependencies (pure property-based tests).
 """
 
 from hypothesis import given

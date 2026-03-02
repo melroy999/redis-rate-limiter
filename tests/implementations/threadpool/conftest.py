@@ -1,4 +1,10 @@
-"""Pytest fixtures for the threading backend implementation tests."""
+"""Pytest fixtures for the threading backend implementation tests.
+
+All fixtures are re-exported from ``tests.fixtures.threadpool_backend``.
+
+Fixture dependencies:
+    - ``redis_client``, ``limiter_id``: from ``tests/conftest.py``.
+"""
 
 from tests.fixtures import threadpool_backend as _threadpool_backend
 

@@ -9,6 +9,10 @@ Rationale for maintaining both layers:
 
 Employing both approaches avoids flaky CI while still validating that the
 observed behavior is not an artifact of a single hand-picked random sequence.
+
+Fixture dependencies:
+    - ``property_redis_client``, ``module_limiter_id``: from ``tests/conftest.py``
+      (via ``tests/properties/conftest.py``).
 """
 
 from unittest.mock import patch
@@ -18,6 +22,10 @@ from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 from tests.implementations.conftest import MinimalRateLimiter
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 # Random values used by the jitter calculations.
 # `random.random()` yields values in [0.0, 1.0); hence, 1.0 is excluded.
@@ -35,18 +43,11 @@ random_stream_strategy = st.lists(
 
 
 @pytest.fixture(scope="module")
-def property_redis_client(_redis_connection):
-    """Provide a module-scoped Redis client for property-based tests."""
-    yield _redis_connection
-    _redis_connection.flushdb()
-
-
-@pytest.fixture(scope="module")
-def property_limiter(property_redis_client, default_module_limiter_id):
+def property_limiter(property_redis_client, module_limiter_id):
     """Provide a module-scoped rate limiter for jitter property tests."""
     return MinimalRateLimiter(
         redis_client=property_redis_client,
-        limiter_id=f"{default_module_limiter_id}_property_jitter",
+        limiter_id=f"{module_limiter_id}_property_jitter",
         limit=10,
         window=1,
         max_concurrency=5,
@@ -54,6 +55,11 @@ def property_limiter(property_redis_client, default_module_limiter_id):
         jitter_min_pct=0.02,
         jitter_max_pct=0.08,
     )
+
+
+# ---------------------------------------------------------------------------
+# Concrete test cases
+# ---------------------------------------------------------------------------
 
 
 class TestSmartJitterProperties:
@@ -65,11 +71,12 @@ class TestSmartJitterProperties:
       hold beyond those curated seeds.
     """
 
+    @staticmethod
     @given(random_stream=random_stream_strategy)
     @settings(
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
-    def test_load_pressure_is_monotonic(self, property_limiter, random_stream):
+    def test_load_pressure_is_monotonic(property_limiter, random_stream):
         """Property: paired random streams preserve the load-based jitter ordering."""
         # Arrange
         samples = len(random_stream)
@@ -141,6 +148,7 @@ class TestSmartJitterProperties:
             f"avg_low={avg_low:.4f}, avg_medium={avg_medium:.4f}, avg_high={avg_high:.4f}"
         )
 
+    @staticmethod
     @given(
         random_stream=random_stream_strategy,
         low_active=st.integers(min_value=0, max_value=4),
@@ -150,7 +158,7 @@ class TestSmartJitterProperties:
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
     def test_concurrency_pressure_is_monotonic(
-        self, property_limiter, random_stream, low_active, high_active
+        property_limiter, random_stream, low_active, high_active
     ):
         """Property: paired random streams preserve the concurrency-based jitter ordering."""
         # Arrange

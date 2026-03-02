@@ -2,6 +2,8 @@
 
 These tests employ Hypothesis to verify mathematical properties that hold
 for any valid input, without re-implementing the formula itself.
+
+No fixture dependencies (pure property-based tests).
 """
 
 import pytest
@@ -63,7 +65,7 @@ class TestSlidingWindowProperties:
         for i in range(len(estimates) - 1):
             assert estimates[i] >= estimates[i + 1], (
                 f"estimate should decrease over time, but estimates[{i}]={estimates[i]} "
-                f"< estimates[{i + 1}]={estimates[i + 1]}"
+                f"< estimates[{i + 1}]={estimates[i + 1]} "
                 f"(prev={previous_count}, curr={current_count}, window={window_ms}ms)"
             )
 
