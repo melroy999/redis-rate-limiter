@@ -202,7 +202,7 @@ jobs:
           image-ref: '${{ env.IMAGE_NAME }}:${{ env.TAG }}'
           format: 'table'
           severity: 'CRITICAL,HIGH'
-          version: 'v0.69.1'
+          version: 'v0.69.2'
 
           # Fail if there is a vulnerability with an update.
           ignore-unfixed: true
