@@ -7,9 +7,7 @@ on:
     branches: [ "master", "dev" ]
 
 permissions:
-  contents: write
-  packages: write
-  pull-requests: write
+  contents: read
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/celery-rate-limiter
@@ -22,13 +20,13 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Install Poetry
         run: pipx install poetry==2.3.1
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: '3.12'
           cache: 'poetry'
@@ -49,17 +47,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       # Ensure vm.overcommit_memory is set--not strictly necessary, but redis prefers it is on.
       - name: Configure Kernel for Redis
         run: sudo sysctl vm.overcommit_memory=1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Build Test Image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           target: test
@@ -87,7 +85,7 @@ jobs:
 
       - name: Upload Test Results
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: pytest-results
           path: |
@@ -122,7 +120,7 @@ jobs:
 
       - name: Update Coverage Badge
         if: ${{ github.ref_name == 'master' }}
-        uses: schneegans/dynamic-badges-action@v1.7.0
+        uses: schneegans/dynamic-badges-action@e9a478b16159b4d31420099ba146cdc50f134483 # v1.7.0
         with:
           auth: ${{ secrets.GIST_SECRET }}
           gistID: f3caa8f0af98bf11563b5b2031c1ef3e
@@ -135,7 +133,7 @@ jobs:
 
       - name: Update CI Badge (passing)
         if: ${{ github.ref_name == 'master' && success() }}
-        uses: schneegans/dynamic-badges-action@v1.7.0
+        uses: schneegans/dynamic-badges-action@e9a478b16159b4d31420099ba146cdc50f134483 # v1.7.0
         with:
           auth: ${{ secrets.GIST_SECRET }}
           gistID: f3caa8f0af98bf11563b5b2031c1ef3e
@@ -146,7 +144,7 @@ jobs:
 
       - name: Update CI Badge (failing)
         if: ${{ github.ref_name == 'master' && failure() }}
-        uses: schneegans/dynamic-badges-action@v1.7.0
+        uses: schneegans/dynamic-badges-action@e9a478b16159b4d31420099ba146cdc50f134483 # v1.7.0
         with:
           auth: ${{ secrets.GIST_SECRET }}
           gistID: f3caa8f0af98bf11563b5b2031c1ef3e
@@ -159,25 +157,29 @@ jobs:
   build-and-push:
     needs: test-and-report
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     # Run only iff test-and-report passed.
     if: success()
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        if: github.event_name == 'push'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       # Build the production image and verify that it is not tainted by dev artifacts.
       - name: Build Production Image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           target: production
@@ -197,7 +199,7 @@ jobs:
 
       - name: Run Trivy Security Scan
         id: trivy_scan
-        uses: aquasecurity/trivy-action@0.34.1
+        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # 0.34.1
         with:
           image-ref: '${{ env.IMAGE_NAME }}:${{ env.TAG }}'
           format: 'table'
@@ -209,17 +211,20 @@ jobs:
           exit-code: '1'
 
       - name: Push Production Image
+        if: github.event_name == 'push'
         run: docker push ${{ env.IMAGE_NAME }}:${{ env.TAG }}
 
   # Auto-cleanup files in the GHCR registry.
   cleanup-registry:
     needs: build-and-push
-    # Always run cleanup, even if previous steps failed.
-    if: always()
+    permissions:
+      packages: write
+    # Always run cleanup on push events, even if build-and-push failed.
+    if: always() && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Prune Old Images
-        uses: actions/delete-package-versions@v5
+        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5
         with:
           package-name: 'celery-rate-limiter'
           package-type: 'container'
