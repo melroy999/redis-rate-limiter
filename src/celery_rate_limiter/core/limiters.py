@@ -1437,7 +1437,7 @@ class AbstractDistributedRateLimiter(
             self, "_shutdown_called", False
         ):
             warnings.warn(
-                f"Limiter {self.id!r} was not shut down; "
+                f"limiter={self.id!r} was not shut down; "
                 "call shutdown() to stop background threads",
                 ResourceWarning,
                 stacklevel=1,
