@@ -25,7 +25,6 @@ import warnings
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Unified implementation tests
 # ---------------------------------------------------------------------------
@@ -68,8 +67,12 @@ class DestructorWarningTests:
             limiter.__del__()
 
         # Assert
-        resource_warnings = [w for w in caught if issubclass(w.category, ResourceWarning)]
-        assert len(resource_warnings) == 1, "exactly one ResourceWarning should be emitted"
+        resource_warnings = [
+            w for w in caught if issubclass(w.category, ResourceWarning)
+        ]
+        assert len(resource_warnings) == 1, (
+            "exactly one ResourceWarning should be emitted"
+        )
         message_text = str(resource_warnings[0].message)
         assert f"limiter={limiter.id!r}" in message_text, (
             "warning message should contain the limiter id in limiter=<id> format"
@@ -89,8 +92,12 @@ class DestructorWarningTests:
             limiter.__del__()
 
         # Assert
-        resource_warnings = [w for w in caught if issubclass(w.category, ResourceWarning)]
-        assert len(resource_warnings) == 1, "exactly one ResourceWarning should be emitted"
+        resource_warnings = [
+            w for w in caught if issubclass(w.category, ResourceWarning)
+        ]
+        assert len(resource_warnings) == 1, (
+            "exactly one ResourceWarning should be emitted"
+        )
         message_text = str(resource_warnings[0].message)
         assert shutdown_instruction in message_text, (
             "warning message should contain the shutdown instruction"
@@ -108,8 +115,12 @@ class DestructorWarningTests:
             limiter.__del__()
 
         # Assert
-        resource_warnings = [w for w in caught if issubclass(w.category, ResourceWarning)]
-        assert len(resource_warnings) == 1, "exactly one ResourceWarning should be emitted"
+        resource_warnings = [
+            w for w in caught if issubclass(w.category, ResourceWarning)
+        ]
+        assert len(resource_warnings) == 1, (
+            "exactly one ResourceWarning should be emitted"
+        )
         assert resource_warnings[0].category is ResourceWarning, (
             "warning category should be ResourceWarning, not a subclass"
         )
@@ -126,7 +137,9 @@ class DestructorWarningTests:
             limiter.__del__()
 
         # Assert
-        resource_warnings = [w for w in caught if issubclass(w.category, ResourceWarning)]
+        resource_warnings = [
+            w for w in caught if issubclass(w.category, ResourceWarning)
+        ]
         assert len(resource_warnings) == 0, (
             "no ResourceWarning should be emitted when drain is disabled"
         )
@@ -143,7 +156,9 @@ class DestructorWarningTests:
             limiter.__del__()
 
         # Assert
-        resource_warnings = [w for w in caught if issubclass(w.category, ResourceWarning)]
+        resource_warnings = [
+            w for w in caught if issubclass(w.category, ResourceWarning)
+        ]
         assert len(resource_warnings) == 0, (
             "no ResourceWarning should be emitted after shutdown"
         )
@@ -162,8 +177,12 @@ class DestructorWarningTests:
             limiter.__del__()
 
         # Assert
-        resource_warnings = [w for w in caught if issubclass(w.category, ResourceWarning)]
-        assert len(resource_warnings) == 1, "exactly one ResourceWarning should be emitted"
+        resource_warnings = [
+            w for w in caught if issubclass(w.category, ResourceWarning)
+        ]
+        assert len(resource_warnings) == 1, (
+            "exactly one ResourceWarning should be emitted"
+        )
         assert limiter_module_file in resource_warnings[0].filename, (
             f"warning should originate from {limiter_module_file}"
         )
@@ -230,7 +249,6 @@ class TestSyncDestructorWarning(DestructorWarningTests):
     def limiter_module_file(self):
         """Return the source module filename for the sync ``__del__``."""
         return "limiters.py"
-
 
 
 class TestAsyncDestructorWarning(DestructorWarningTests):

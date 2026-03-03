@@ -965,8 +965,9 @@ class TestUpdateObservability:
                 "AsyncManagedTestRateLimiter",
                 "updated",
                 f"limiter={limiter_id}",
+                "overrides={'limit': 50}",
             ],
-            message="should emit an info log with class name and limiter id on update",
+            message="should emit an info log with class name, limiter id, and overrides on update",
         )
 
 
