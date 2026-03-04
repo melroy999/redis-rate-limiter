@@ -96,6 +96,37 @@ success, task_id = limiter.schedule_task(
 limiter.shutdown()
 ```
 
+### Quick Start (Process Pool)
+
+```python
+import redis
+from concurrent.futures import ProcessPoolExecutor
+from redis_rate_limiter import ProcessPoolRateLimiter
+
+redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
+executor = ProcessPoolExecutor(max_workers=4)
+ProcessPoolRateLimiter.configure(redis_client, executor=executor)
+
+limiter = ProcessPoolRateLimiter.create(
+    limiter_id="api_calls",
+    limit=100,
+    window=60,
+    max_concurrency=10,
+    override=True,
+)
+
+success, task_id = limiter.schedule_task(
+    "myapp.services.call_external_api",
+    {"user_id": 42},
+)
+
+# Stop background threads when done.
+limiter.shutdown()
+executor.shutdown(wait=True)
+```
+
+Task functions and their payloads must be picklable (i.e., module-level functions, not closures or lambdas) because they are serialized and sent to child processes. The task lifecycle (heartbeat, lease management) is managed in the parent process.
+
 ### Quick Start (AsyncIO)
 
 ```python
@@ -182,7 +213,7 @@ All task-oriented backends compose `SyncManagedRateLimiter` (or `AsyncManagedRat
 | Threading        | `concurrent.futures.ThreadPoolExecutor`  | Done    |
 | AsyncIO          | `asyncio` event loop / task group        | Done    |
 | ASGI Middleware  | Starlette/FastAPI request handling       | Done    |
-| Multiprocessing  | `concurrent.futures.ProcessPoolExecutor` | Planned |
+| Multiprocessing  | `concurrent.futures.ProcessPoolExecutor` | Done    |
 | RQ (Redis Queue) | RQ job queue                             | Planned |
 | Dramatiq         | Dramatiq broker                          | Planned |
 
@@ -191,6 +222,7 @@ All task-oriented backends compose `SyncManagedRateLimiter` (or `AsyncManagedRat
 ```
 SyncManagedRateLimiter + AbstractDistributedRateLimiter     -- sync managed + distributed
     ├── CeleryRateLimiter                                   -- dispatches via Celery
+    ├── ProcessPoolRateLimiter                              -- dispatches to process pool
     └── ThreadPoolRateLimiter                               -- dispatches to thread pool
 
 AsyncManagedRateLimiter + AbstractAsyncDistributedRateLimiter -- async managed + distributed

@@ -41,6 +41,12 @@ ERROR_COUNT = (
 PRIORITY_SEED = 42  # seed value for reproducible random task priorities
 
 # ---------------------------------------------------------------------------
+# ProcessPool backend
+# ---------------------------------------------------------------------------
+
+PROCESSPOOL_MAX_WORKERS = 4  # number of workers in the process pool
+
+# ---------------------------------------------------------------------------
 # ThreadPool backend
 # ---------------------------------------------------------------------------
 

@@ -12,6 +12,7 @@ The class hierarchy is organized into four layers:
 Concrete backends compose these layers via multiple inheritance:
 
 - **`CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter)`**: dispatches tasks via `Celery.send_task()`.
+- **`ProcessPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter)`**: dispatches tasks to a `ProcessPoolExecutor`. Task functions and payloads must be picklable; the task lifecycle (heartbeat, lease management) is managed in the parent process via a `Future` done callback.
 - **`ThreadPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter)`**: dispatches tasks to a `ThreadPoolExecutor`.
 - **`AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLimiter)`**: dispatches tasks via `asyncio.create_task()`.
 - **`ASGIRateLimiter(AsyncManagedRateLimiter, AbstractAsyncRateLimiter)`**: provides a lightweight `acquire(key)` method for request-oriented rate limiting without task scheduling, buffer, or concurrency management.
@@ -129,6 +130,12 @@ classDiagram
         #_dispatch_task(func_path, payload, task_id) void
     }
 
+    class ProcessPoolRateLimiter {
+        +ProcessPoolExecutor executor
+        #_dispatch_task(func_path, payload, task_id) void
+        #_has_local_capacity() bool
+    }
+
     class ThreadPoolRateLimiter {
         +ThreadPoolExecutor executor
         #_dispatch_task(func_path, payload, task_id) void
@@ -161,6 +168,9 @@ classDiagram
 
     CeleryRateLimiter --|> SyncManagedRateLimiter : inherits
     CeleryRateLimiter --|> AbstractDistributedRateLimiter : inherits
+
+    ProcessPoolRateLimiter --|> SyncManagedRateLimiter : inherits
+    ProcessPoolRateLimiter --|> AbstractDistributedRateLimiter : inherits
 
     ThreadPoolRateLimiter --|> SyncManagedRateLimiter : inherits
     ThreadPoolRateLimiter --|> AbstractDistributedRateLimiter : inherits

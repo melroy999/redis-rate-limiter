@@ -1,6 +1,6 @@
 # Examples
 
-Self-contained demos that showcase the rate limiter with different backends. The task-oriented demos (ThreadPool, Celery, AsyncIO) run the same sequence: a **deduplication test**, an **error-recovery test** (tasks that raise exceptions to demonstrate that concurrency slots are released and processing continues) and a **burst test**, all displayed via a live terminal dashboard. The ASGI demo is a standalone FastAPI application that demonstrates per-client-IP request rate limiting via middleware.
+Self-contained demos that showcase the rate limiter with different backends. The task-oriented demos (ProcessPool, ThreadPool, Celery, AsyncIO) run the same sequence: a **deduplication test**, an **error-recovery test** (tasks that raise exceptions to demonstrate that concurrency slots are released and processing continues) and a **burst test**, all displayed via a live terminal dashboard. The ASGI demo is a standalone FastAPI application that demonstrates per-client-IP request rate limiting via middleware.
 
 ## Prerequisites
 
@@ -13,6 +13,18 @@ docker-compose up redis          # exposes Redis on port 6380
 Alternatively, a local Redis instance on the default port (6379) can be used.
 
 ## Running the Demos
+
+### ProcessPool Demo
+
+Runs everything in a single Python process using a `ProcessPoolExecutor`. Tasks are dispatched to child processes; the task lifecycle (heartbeat, lease management) is managed in the parent process. Task functions and payloads must be picklable.
+
+```bash
+# Local Redis (port 6379).
+poetry run python -m examples.processpool.demo
+
+# Docker Redis (port 6380).
+REDIS_HOST=localhost REDIS_PORT=6380 poetry run python -m examples.processpool.demo
+```
 
 ### ThreadPool Demo
 
@@ -96,6 +108,7 @@ All tuneable parameters are defined in [config.py](config.py):
 | `ERROR_COUNT`                       | Number of tasks that raise an exception (error-recovery test) |
 | `BURST_COUNT`                       | Number of unique tasks queued in the burst test |
 | `PRIORITY_SEED`                     | Seed for reproducible random task priorities |
+| `PROCESSPOOL_MAX_WORKERS`           | Process pool size                          |
 | `THREADPOOL_MAX_WORKERS`            | Thread pool size                           |
 | `CELERY_WORKER_CONCURRENCY`         | Number of Celery worker processes          |
 | `CELERY_WORKER_PREFETCH_MULTIPLIER` | Tasks fetched per Celery worker at a time  |
@@ -108,6 +121,7 @@ All tuneable parameters are defined in [config.py](config.py):
 | File | Purpose |
 |------|---------|
 | [config.py](config.py) | Central configuration for all demos |
+| [processpool/demo.py](processpool/demo.py) | ProcessPool backend demo entry point |
 | [threadpool/demo.py](threadpool/demo.py) | ThreadPool backend demo entry point |
 | [celery/demo.py](celery/demo.py) | Celery backend demo entry point |
 | [asyncio/demo.py](asyncio/demo.py) | AsyncIO backend demo entry point |

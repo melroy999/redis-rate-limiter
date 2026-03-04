@@ -162,7 +162,7 @@ class TestLocalCapacityGuard:
         """Verify that ``_has_local_capacity()`` returns ``False`` when the dispatch count equals ``max_workers``."""
         # Arrange
         # Simulate max_workers tasks dispatched.
-        limiter._local_dispatched = limiter.executor._max_workers
+        limiter._local_dispatched = limiter._local_max_workers
 
         # Act
         result = limiter._has_local_capacity()

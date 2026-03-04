@@ -17,6 +17,7 @@ __all__ = [
     "AsyncIOTaskLimiter",
     "CeleryRateLimiter",
     "DistributedLock",
+    "ProcessPoolRateLimiter",
     "PrometheusMetricsExporter",
     "RateLimitMiddleware",
     "TaskLifecycle",
@@ -39,6 +40,9 @@ from redis_rate_limiter.backends.asgi import ASGIRateLimiter, RateLimitMiddlewar
 
 # The asyncio backend relies solely on the standard library and redis.asyncio.
 from redis_rate_limiter.backends.asyncio import AsyncIOTaskLimiter
+
+# The process pool and thread pool backends rely solely on the standard library.
+from redis_rate_limiter.backends.processpool import ProcessPoolRateLimiter
 from redis_rate_limiter.backends.threading import ThreadPoolRateLimiter
 
 # The Prometheus integration is only available when the prometheus_client package is installed.

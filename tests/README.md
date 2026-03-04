@@ -14,6 +14,7 @@ The suite is structured around both test type and backend scope:
 The following backends are currently supported:
 
 - `tests/implementations/celery/...` for Celery-specific assertions.
+- `tests/implementations/processpool/...` for ProcessPool-specific assertions.
 - `tests/implementations/threadpool/...` for ThreadPool-specific assertions.
 - `tests/implementations/asyncio/...` for AsyncIO-specific assertions.
 - `tests/implementations/asgi/...` for ASGI-specific assertions.
@@ -56,6 +57,11 @@ tests/
 │   │   ├── test_celery_limiter.py      # Celery payload/dispatch behavior
 │   │   ├── test_rate_limiter_class_api.py  # Celery-only class API tests
 │   │   └── test_tasks.py              # Celery task helper tests
+│   ├── processpool/                   # ProcessPool-specific implementation tests
+│   │   ├── conftest.py                 # Imports ProcessPool backend fixtures
+│   │   ├── test_contracts.py           # Contract suite against real ProcessPoolRateLimiter
+│   │   ├── test_processpool_limiter.py # ProcessPool dispatch behavior
+│   │   └── test_rate_limiter_class_api.py  # ProcessPool-only class API tests
 │   ├── threadpool/                     # ThreadPool-specific implementation tests
 │   │   ├── conftest.py                 # Imports ThreadPool backend fixtures
 │   │   ├── test_contracts.py           # Contract suite against real ThreadPoolRateLimiter
@@ -99,6 +105,7 @@ tests/
 │
 ├── fixtures/                           # Shared backend fixture modules
 │   ├── celery_backend.py               # Celery backend fixture definitions
+│   ├── processpool_backend.py          # ProcessPool backend fixture definitions
 │   └── threadpool_backend.py           # ThreadPool backend fixture definitions
 │
 ├── helpers/                            # Shared test utilities and strategies
@@ -312,10 +319,13 @@ pytest tests/contracts/
 pytest tests/implementations/
 
 # Core implementation tests only (no backend-specific).
-pytest tests/implementations/ --ignore=tests/implementations/celery --ignore=tests/implementations/threadpool --ignore=tests/implementations/asyncio --ignore=tests/implementations/asgi
+pytest tests/implementations/ --ignore=tests/implementations/celery --ignore=tests/implementations/processpool --ignore=tests/implementations/threadpool --ignore=tests/implementations/asyncio --ignore=tests/implementations/asgi
 
 # Celery-specific implementation tests only.
 pytest tests/implementations/celery/
+
+# ProcessPool-specific implementation tests only.
+pytest tests/implementations/processpool/
 
 # ThreadPool-specific implementation tests only.
 pytest tests/implementations/threadpool/
@@ -671,6 +681,7 @@ Each backend conftest provides its limiter under the name `limiter`. Contract te
 Sync backend fixtures are centralized in `tests/fixtures/` and imported where needed:
 
 - `tests/fixtures/celery_backend.py` defines Celery fixtures (`celery_app`, `celery_config`, `limiter`, class-state reset fixture).
+- `tests/fixtures/processpool_backend.py` defines ProcessPool fixtures (`executor`, `limiter`, class-state reset fixture).
 - `tests/fixtures/threadpool_backend.py` defines ThreadPool fixtures (`executor`, `limiter`, class-state reset fixture).
 
 Async backend fixtures are defined directly in their backend-local conftests:
