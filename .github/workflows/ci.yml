@@ -14,36 +14,24 @@ env:
   TAG: ${{ github.ref_name == 'master' && 'latest' || 'dev' }}
 
 jobs:
-  # Check code quality.
-  lint-and-typecheck:
+  # Lint check; soft fail (i.e. warning) if not master branch.
+  lint:
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ github.ref_name != 'master' }}
+
+    steps:
+      - uses: ./.github/actions/setup-poetry
+
+      - name: Ruff Check (Lint)
+        run: poetry run ruff check .
+
+  # Type check.
+  typecheck:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: ./.github/actions/setup-poetry
 
-      - name: Install Poetry
-        run: pipx install poetry==2.3.1
-
-      - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-        with:
-          python-version: '3.12'
-          cache: 'poetry'
-
-      - name: Install Dependencies
-        run: poetry install
-
-      # Soft fail (i.e. warning) if not master branch.
-      - name: Ruff Check (Lint)
-        id: lint
-        continue-on-error: true
-        run: poetry run ruff check .
-
-      - name: Enforce lint result on master
-        if: steps.lint.outcome == 'failure' && github.ref_name == 'master'
-        run: exit 1
-      
       - name: Mypy (Types)
         run: poetry run mypy src
   # Run tests and report findings.

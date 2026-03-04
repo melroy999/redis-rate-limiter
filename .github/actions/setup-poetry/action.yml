@@ -1,0 +1,22 @@
+name: "Setup Poetry"
+description: "Checkout code, install Poetry, set up Python, and install dependencies."
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+    - name: Install Poetry
+      shell: bash
+      run: pipx install poetry==2.3.1
+
+    - name: Set up Python
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+      with:
+        python-version: '3.12'
+        cache: 'poetry'
+
+    - name: Install Dependencies
+      shell: bash
+      run: poetry install
