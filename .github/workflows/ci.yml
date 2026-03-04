@@ -36,12 +36,16 @@ jobs:
 
       # Soft fail (i.e. warning) if not master branch.
       - name: Ruff Check (Lint)
-        continue-on-error: ${{ github.ref_name != 'master' }}
+        id: lint
+        continue-on-error: true
         run: poetry run ruff check .
 
+      - name: Enforce lint result on master
+        if: steps.lint.outcome == 'failure' && github.ref_name == 'master'
+        run: exit 1
+      
       - name: Mypy (Types)
         run: poetry run mypy src
-
   # Run tests and report findings.
   test-and-report:
     runs-on: ubuntu-latest

@@ -392,6 +392,14 @@ mutmut v3 rewrites each function with a trampoline dispatcher that uses `object.
 2. **`async def` methods**: in released versions (up to 3.4.0), the trampoline dispatcher is a synchronous function wrapping `async def` methods, causing `TypeError: object dict can't be used in 'await' expression`. This was fixed on the mutmut main branch in commit `810d761` ("Preserve original signature, including async keyword"), which is why the dependency points at the git main branch rather than a PyPI release.
 3. **Default parameter values**: Python stores default parameter values in the function object's `__defaults__` tuple when the `def` statement executes at import time. mutmut's AST mutations only modify the code object inside forked children, but the `__defaults__` tuple inherited from the parent process is unchanged. This means any mutation to a default value (e.g., `delay: float = 0.0` to `delay: float = 1.0`) is invisible to the test suite, regardless of what tests exist. Use `inspect.signature` tests to verify default values independently: these catch real regressions in normal development, even though they cannot catch mutmut mutations. The classifier reports these as "fork-immune" false survivors.
 
+### Why Mutation Testing Runs Locally
+
+Mutation testing runs on a local machine rather than on CI. The CI environment (GitHub Actions private repository runners: 2 shared vCPUs, 8 GB RAM) produces a significantly lower mutation score than local runs, despite using the same test suite. The additional CI survivors are covered by existing tests that kill them locally; on CI, those tests fail to detect the mutations.
+
+Attempts to replicate the CI environment through local experimentation (resource-constrained Docker containers with CPU pinning, memory limits, and co-located Redis) led to discrepancies that could not be fully explained. One notable observation is that a considerable number of mutations end up as timeouts locally, while the same mutations survive on CI. Because the local environment consistently produces reliable and reproducible results, mutation testing is run locally instead of in CI.
+
+The mutation score badge is updated automatically when `mutmut-results/mutation-score.txt` is pushed to master (see `.github/workflows/mutation.yml`). The workflow retains a manual dispatch trigger for running mutation testing on CI directly, which may become viable when the repository is made public (upgrading the runner to 4 cores and 16 GB RAM).
+
 ## Adding a New Limiter Implementation
 
 When adding a new backend limiter implementation, the following steps should be taken:
