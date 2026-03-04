@@ -252,6 +252,7 @@ class TestResolveImportPath:
     @staticmethod
     def test_rejects_callable_that_fails_round_trip_verification():
         """Verify that a callable whose derived path resolves to a different object is rejected."""
+
         # Arrange
         # A callable that claims to live at ``json.loads`` but is not ``json.loads``.
         class Impostor:

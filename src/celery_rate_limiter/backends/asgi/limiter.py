@@ -98,7 +98,7 @@ class ASGIRateLimiter(AsyncManagedRateLimiter, AbstractAsyncRateLimiter):
         construction.
         """
         await super().start()
-        
+
         # Eagerly preload the Lua script so the first acquire() avoids a lazy registration round-trip.
         await self._register_script("acquire.lua")
         logger.info(
