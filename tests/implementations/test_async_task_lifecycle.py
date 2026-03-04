@@ -16,6 +16,7 @@ import inspect
 import logging
 import os
 import signal
+import time
 from typing import Literal
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -191,6 +192,36 @@ class TestAsyncTaskLifecycleImplementation:
         )
 
     @staticmethod
+    async def test_aexit_completes_within_timeout_bound(mock_limiter, task_id):
+        """Verify that ``__aexit__`` completes within the 1-second timeout bound when the heartbeat task is stuck.
+
+        The source code uses ``asyncio.wait_for(self._task, timeout=1.0)``.
+        Mutating the timeout to ``None`` would cause ``__aexit__`` to hang
+        indefinitely. This test measures wall-clock time to detect that mutation.
+        """
+        # Arrange
+        lifecycle = AsyncTaskLifecycle(mock_limiter, task_id)
+
+        async def _hang_forever():
+            await asyncio.Event().wait()
+
+        stuck_task = asyncio.create_task(_hang_forever())
+        lifecycle._task = stuck_task
+
+        # Act
+        start = time.monotonic()
+        await asyncio.wait_for(
+            lifecycle.__aexit__(None, None, None),
+            timeout=3.0,
+        )
+        elapsed = time.monotonic() - start
+
+        # Assert
+        assert elapsed < 2.0, (
+            f"__aexit__ should complete within the timeout bound, took {elapsed:.2f}s"
+        )
+
+    @staticmethod
     async def test_empty_task_id_skips_inflight_cleanup(async_redis_client):
         """Verify that an empty ``task_id`` skips inflight key deletion."""
         # Arrange
@@ -353,6 +384,28 @@ class TestAsyncTaskLifecycleObservability:
             level="DEBUG",
             required_fragments=["removed_inflight=False"],
             message="empty task_id should log removed_inflight=False",
+        )
+
+    @staticmethod
+    async def test_aexit_emits_lifecycle_exit_debug_log(mock_limiter, task_id, caplog):
+        """Verify that ``__aexit__`` emits a DEBUG log with the task id in the finally block."""
+        # Act
+        with caplog.at_level(
+            logging.DEBUG, logger="celery_rate_limiter.core.async_limiters"
+        ):
+            async with AsyncTaskLifecycle(mock_limiter, task_id):
+                pass
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            required_fragments=[
+                f"limiter={mock_limiter.id}",
+                f"task_id={task_id}",
+                "follow-up consume",
+            ],
+            message="should emit a debug log for lifecycle exit with limiter id and task id",
         )
 
 

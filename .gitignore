@@ -308,4 +308,4 @@ demo/scripts/.port-forward.log
 
 # Mutation testing (mutmut)
 .mutmut-cache/
-mutmut-results/
+mutmut-results/stats.json

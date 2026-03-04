@@ -129,6 +129,7 @@ class TestResolveImportPath:
     @staticmethod
     def test_rejects_nested_function():
         """Verify that nested (inner) functions are rejected with a ``ValueError``."""
+
         # Arrange
         def inner_function():
             pass
@@ -174,6 +175,7 @@ class TestResolveImportPath:
     @staticmethod
     def test_rejects_callable_without_module_attribute():
         """Verify that a callable missing ``__module__`` is rejected."""
+
         # Arrange
         # Simulate a callable lacking __module__ by wrapping a function and
         # stripping the attribute. Standard classes in CPython 3.12+ have
@@ -201,6 +203,7 @@ class TestResolveImportPath:
     @staticmethod
     def test_rejects_callable_without_qualname_attribute():
         """Verify that a callable missing ``__qualname__`` is rejected."""
+
         # Arrange
         # Simulate via a simple namespace-like callable that lacks __qualname__.
         class BareCallable:
@@ -217,6 +220,53 @@ class TestResolveImportPath:
         # Act & Assert
         with pytest.raises(ValueError, match="missing __module__ or __qualname__"):
             resolve_import_path(fn)
+
+    @staticmethod
+    def test_rejects_callable_with_absent_module_attribute():
+        """Verify that a callable whose ``__module__`` attribute is truly absent is rejected with ``ValueError``.
+
+        Mutation target: ``None`` default in ``getattr(fn, "__module__", None)`` in ``_resolve_import_path()``.
+        """
+
+        # Arrange
+        # CPython 3.12+ makes __module__ immutable on class objects, so
+        # ``del`` is not possible. Instead, override ``__getattribute__`` to
+        # make __module__ truly absent from getattr's perspective.
+        class NoModuleCallable:
+            """Callable that hides ``__module__`` via ``__getattribute__``."""
+
+            def __call__(self):
+                pass
+
+            def __getattribute__(self, name: str) -> object:
+                if name == "__module__":
+                    raise AttributeError(name)
+                return super().__getattribute__(name)
+
+        fn = NoModuleCallable()
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="missing __module__ or __qualname__"):
+            resolve_import_path(fn)
+
+    @staticmethod
+    def test_rejects_callable_that_fails_round_trip_verification():
+        """Verify that a callable whose derived path resolves to a different object is rejected."""
+
+        # Arrange
+        # A callable that claims to live at ``json.loads`` but is not ``json.loads``.
+        class Impostor:
+            """Callable that lies about its module and qualname."""
+
+            __module__ = "json"
+            __qualname__ = "loads"
+
+            def __call__(self):
+                pass
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="Round-trip verification failed"):
+            resolve_import_path(Impostor)
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +311,6 @@ class TestResolveImportPathObservability:
         assert_log_emitted(
             caplog.records,
             "DEBUG",
-            ["import_path=json.dumps"],
-            "should emit a debug log with the resolved import path",
+            ["callable=", "import_path=json.dumps"],
+            "should emit a debug log with the callable and resolved import path",
         )

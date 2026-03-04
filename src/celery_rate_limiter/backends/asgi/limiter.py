@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar
 
 import redis.asyncio
 import redis.exceptions
@@ -89,7 +89,6 @@ class ASGIRateLimiter(AsyncManagedRateLimiter, AbstractAsyncRateLimiter):
         and ``AbstractRateLimiter`` (i.e., ``limiter_id``, ``limit``, ``window``).
         """
         super().__init__(redis_client, _sentinel=_sentinel, **kwargs)
-        self._acquire_script_sha: Optional[str] = None
         self._last_refresh: float = 0.0
 
     async def start(self) -> None:
@@ -99,7 +98,9 @@ class ASGIRateLimiter(AsyncManagedRateLimiter, AbstractAsyncRateLimiter):
         construction.
         """
         await super().start()
-        self._acquire_script_sha = await self._register_script("acquire.lua")
+
+        # Eagerly preload the Lua script so the first acquire() avoids a lazy registration round-trip.
+        await self._register_script("acquire.lua")
         logger.info(
             "ASGI rate limiter initialized: id=%s, limit=%d, window_s=%g.",
             self.id,

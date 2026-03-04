@@ -1,0 +1,761 @@
+--- SURVIVED, UNTESTED, SUSPICIOUS, AND TIMEOUT MUTATION DIFFS ---
+=== celery_rate_limiter.backends.asgi.middleware.xǁRateLimitMiddlewareǁ__init____mutmut_2 ===
+# celery_rate_limiter.backends.asgi.middleware.xǁRateLimitMiddlewareǁ__init____mutmut_2: survived
+--- src/celery_rate_limiter/backends/asgi/middleware.py
++++ src/celery_rate_limiter/backends/asgi/middleware.py
+@@ -7,7 +7,7 @@
+     on_blocked: Optional[
+         Callable[[Scope, AcquireResult, Send], Awaitable[None]]
+     ] = None,
+-    on_error: Literal["fail_open", "fail_closed"] = "fail_open",
++    on_error: Literal["fail_open", "fail_closed"] = "FAIL_OPEN",
+ ) -> None:
+     """Initialize the rate limiting middleware.
+ 
+
+=== celery_rate_limiter.backends.asgi.middleware.xǁRateLimitMiddlewareǁ__call____mutmut_37 ===
+# celery_rate_limiter.backends.asgi.middleware.xǁRateLimitMiddlewareǁ__call____mutmut_37: survived
+--- src/celery_rate_limiter/backends/asgi/middleware.py
++++ src/celery_rate_limiter/backends/asgi/middleware.py
+@@ -24,7 +24,7 @@
+             await self._send_error(send)
+             return
+         # fail_open: proceed without rate limit headers.
+-        await self.app(scope, receive, send)
++        await self.app(None, receive, send)
+         return
+ 
+     if not result["allowed"]:
+
+=== celery_rate_limiter.backends.asgi.middleware.xǁRateLimitMiddlewareǁ__call____mutmut_48 ===
+# celery_rate_limiter.backends.asgi.middleware.xǁRateLimitMiddlewareǁ__call____mutmut_48: survived
+--- src/celery_rate_limiter/backends/asgi/middleware.py
++++ src/celery_rate_limiter/backends/asgi/middleware.py
+@@ -29,7 +29,7 @@
+ 
+     if not result["allowed"]:
+         if self.on_blocked is not None:
+-            await self.on_blocked(scope, result, send)
++            await self.on_blocked(scope, None, send)
+         else:
+             await self._send_blocked(send, result)
+         return
+
+=== celery_rate_limiter.backends.threading.limiter.xǁThreadPoolRateLimiterǁ_dispatch_task__mutmut_21 ===
+# celery_rate_limiter.backends.threading.limiter.xǁThreadPoolRateLimiterǁ_dispatch_task__mutmut_21: survived
+--- src/celery_rate_limiter/backends/threading/limiter.py
++++ src/celery_rate_limiter/backends/threading/limiter.py
+@@ -18,7 +18,7 @@
+ 
+     self.executor.submit(_run_task)
+     logger.debug(
+-        "Task submitted to thread pool: limiter=%s, task_id=%s, func_path=%s, local_dispatched=%d.",
++        "XXTask submitted to thread pool: limiter=%s, task_id=%s, func_path=%s, local_dispatched=%d.XX",
+         self.id,
+         task_id,
+         func_path,
+
+=== celery_rate_limiter.backends.threading.limiter.xǁThreadPoolRateLimiterǁ_dispatch_task__mutmut_22 ===
+# celery_rate_limiter.backends.threading.limiter.xǁThreadPoolRateLimiterǁ_dispatch_task__mutmut_22: survived
+--- src/celery_rate_limiter/backends/threading/limiter.py
++++ src/celery_rate_limiter/backends/threading/limiter.py
+@@ -18,7 +18,7 @@
+ 
+     self.executor.submit(_run_task)
+     logger.debug(
+-        "Task submitted to thread pool: limiter=%s, task_id=%s, func_path=%s, local_dispatched=%d.",
++        "task submitted to thread pool: limiter=%s, task_id=%s, func_path=%s, local_dispatched=%d.",
+         self.id,
+         task_id,
+         func_path,
+
+=== celery_rate_limiter.backends.celery.limiter.xǁCeleryRateLimiterǁ_configure_backend__mutmut_8 ===
+# celery_rate_limiter.backends.celery.limiter.xǁCeleryRateLimiterǁ_configure_backend__mutmut_8: survived
+--- src/celery_rate_limiter/backends/celery/limiter.py
++++ src/celery_rate_limiter/backends/celery/limiter.py
+@@ -7,7 +7,7 @@
+     celery_app = backend_context.get("celery_app")
+     if celery_app is None:
+         raise RuntimeError(
+-            "CeleryRateLimiter.configure(redis_client, celery_app) "
++            "celeryratelimiter.configure(redis_client, celery_app) "
+             "must be called before create() or get()."
+         )
+     cls._celery_app = celery_app
+
+=== celery_rate_limiter.backends.celery.limiter.xǁCeleryRateLimiterǁ_configure_backend__mutmut_11 ===
+# celery_rate_limiter.backends.celery.limiter.xǁCeleryRateLimiterǁ_configure_backend__mutmut_11: survived
+--- src/celery_rate_limiter/backends/celery/limiter.py
++++ src/celery_rate_limiter/backends/celery/limiter.py
+@@ -8,6 +8,6 @@
+     if celery_app is None:
+         raise RuntimeError(
+             "CeleryRateLimiter.configure(redis_client, celery_app) "
+-            "must be called before create() or get()."
++            "MUST BE CALLED BEFORE CREATE() OR GET()."
+         )
+     cls._celery_app = celery_app
+
+=== celery_rate_limiter.backends.celery.limiter.xǁCeleryRateLimiterǁ_dispatch_task__mutmut_44 ===
+# celery_rate_limiter.backends.celery.limiter.xǁCeleryRateLimiterǁ_dispatch_task__mutmut_44: survived
+--- src/celery_rate_limiter/backends/celery/limiter.py
++++ src/celery_rate_limiter/backends/celery/limiter.py
+@@ -15,7 +15,7 @@
+             },
+         )
+         logger.debug(
+-            "Celery task sent to generic worker: limiter=%s, task_id=%s, func_path=%s.",
++            "XXCelery task sent to generic worker: limiter=%s, task_id=%s, func_path=%s.XX",
+             self.id,
+             task_id,
+             func_path,
+
+=== celery_rate_limiter.backends.celery.limiter.xǁCeleryRateLimiterǁ_dispatch_task__mutmut_45 ===
+# celery_rate_limiter.backends.celery.limiter.xǁCeleryRateLimiterǁ_dispatch_task__mutmut_45: survived
+--- src/celery_rate_limiter/backends/celery/limiter.py
++++ src/celery_rate_limiter/backends/celery/limiter.py
+@@ -15,7 +15,7 @@
+             },
+         )
+         logger.debug(
+-            "Celery task sent to generic worker: limiter=%s, task_id=%s, func_path=%s.",
++            "celery task sent to generic worker: limiter=%s, task_id=%s, func_path=%s.",
+             self.id,
+             task_id,
+             func_path,
+
+=== celery_rate_limiter.backends.celery.limiter.xǁCeleryRateLimiterǁ_dispatch_task__mutmut_63 ===
+# celery_rate_limiter.backends.celery.limiter.xǁCeleryRateLimiterǁ_dispatch_task__mutmut_63: survived
+--- src/celery_rate_limiter/backends/celery/limiter.py
++++ src/celery_rate_limiter/backends/celery/limiter.py
+@@ -26,7 +26,7 @@
+             func_path, args=[data], kwargs={"_rate_limit_task_id": task_id}
+         )
+         logger.debug(
+-            "Celery task sent to custom worker: limiter=%s, task_id=%s, func_path=%s.",
++            "XXCelery task sent to custom worker: limiter=%s, task_id=%s, func_path=%s.XX",
+             self.id,
+             task_id,
+             func_path,
+
+=== celery_rate_limiter.backends.celery.limiter.xǁCeleryRateLimiterǁ_dispatch_task__mutmut_64 ===
+# celery_rate_limiter.backends.celery.limiter.xǁCeleryRateLimiterǁ_dispatch_task__mutmut_64: survived
+--- src/celery_rate_limiter/backends/celery/limiter.py
++++ src/celery_rate_limiter/backends/celery/limiter.py
+@@ -26,7 +26,7 @@
+             func_path, args=[data], kwargs={"_rate_limit_task_id": task_id}
+         )
+         logger.debug(
+-            "Celery task sent to custom worker: limiter=%s, task_id=%s, func_path=%s.",
++            "celery task sent to custom worker: limiter=%s, task_id=%s, func_path=%s.",
+             self.id,
+             task_id,
+             func_path,
+
+=== celery_rate_limiter.backends.celery.tasks.worker.x_generic_rate_limited_worker__mutmut_7 ===
+# celery_rate_limiter.backends.celery.tasks.worker.x_generic_rate_limited_worker__mutmut_7: survived
+--- src/celery_rate_limiter/backends/celery/tasks/worker.py
++++ src/celery_rate_limiter/backends/celery/tasks/worker.py
+@@ -11,7 +11,7 @@
+     """
+     # The limiter_id parameter must be present in the signature for routing purposes.
+     logger.debug(
+-        "Generic worker executing task: limiter=%s, func_path=%s.",
++        "XXGeneric worker executing task: limiter=%s, func_path=%s.XX",
+         limiter_id,
+         func_path,
+     )
+
+=== celery_rate_limiter.backends.celery.tasks.worker.x_generic_rate_limited_worker__mutmut_8 ===
+# celery_rate_limiter.backends.celery.tasks.worker.x_generic_rate_limited_worker__mutmut_8: survived
+--- src/celery_rate_limiter/backends/celery/tasks/worker.py
++++ src/celery_rate_limiter/backends/celery/tasks/worker.py
+@@ -11,7 +11,7 @@
+     """
+     # The limiter_id parameter must be present in the signature for routing purposes.
+     logger.debug(
+-        "Generic worker executing task: limiter=%s, func_path=%s.",
++        "generic worker executing task: limiter=%s, func_path=%s.",
+         limiter_id,
+         func_path,
+     )
+
+=== celery_rate_limiter.core.decorators.x_rate_limited__mutmut_8 ===
+# celery_rate_limiter.core.decorators.x_rate_limited__mutmut_8: survived
+--- src/celery_rate_limiter/core/decorators.py
++++ src/celery_rate_limiter/core/decorators.py
+@@ -23,7 +23,7 @@
+             _limiter_id = limiter_id or kwargs.get("limiter_id")
+             if _limiter_id is None:
+                 raise ValueError(
+-                    "Missing limiter id. Pass limiter_id to @rate_limited() "
++                    "XXMissing limiter id. Pass limiter_id to @rate_limited() XX"
+                     "or provide limiter_id in function kwargs."
+                 )
+ 
+
+=== celery_rate_limiter.core.decorators.x_rate_limited__mutmut_11 ===
+# celery_rate_limiter.core.decorators.x_rate_limited__mutmut_11: survived
+--- src/celery_rate_limiter/core/decorators.py
++++ src/celery_rate_limiter/core/decorators.py
+@@ -24,7 +24,7 @@
+             if _limiter_id is None:
+                 raise ValueError(
+                     "Missing limiter id. Pass limiter_id to @rate_limited() "
+-                    "or provide limiter_id in function kwargs."
++                    "XXor provide limiter_id in function kwargs.XX"
+                 )
+ 
+             # Retrieve the limiter instance and the associated task identifier.
+
+=== celery_rate_limiter.core.decorators.x_rate_limited__mutmut_12 ===
+# celery_rate_limiter.core.decorators.x_rate_limited__mutmut_12: survived
+--- src/celery_rate_limiter/core/decorators.py
++++ src/celery_rate_limiter/core/decorators.py
+@@ -24,7 +24,7 @@
+             if _limiter_id is None:
+                 raise ValueError(
+                     "Missing limiter id. Pass limiter_id to @rate_limited() "
+-                    "or provide limiter_id in function kwargs."
++                    "OR PROVIDE LIMITER_ID IN FUNCTION KWARGS."
+                 )
+ 
+             # Retrieve the limiter instance and the associated task identifier.
+
+=== celery_rate_limiter.core.decorators.x_rate_limited__mutmut_29 ===
+# celery_rate_limiter.core.decorators.x_rate_limited__mutmut_29: survived
+--- src/celery_rate_limiter/core/decorators.py
++++ src/celery_rate_limiter/core/decorators.py
+@@ -32,7 +32,7 @@
+             limiter = limiter_getter(_limiter_id)
+             task_id = kwargs.pop("_rate_limit_task_id")
+             logger.debug(
+-                "Rate-limited decorator entered: limiter=%s, task_id=%s, func=%s.",
++                "XXRate-limited decorator entered: limiter=%s, task_id=%s, func=%s.XX",
+                 _limiter_id,
+                 task_id,
+                 func.__qualname__,
+
+=== celery_rate_limiter.core.decorators.x_rate_limited__mutmut_30 ===
+# celery_rate_limiter.core.decorators.x_rate_limited__mutmut_30: survived
+--- src/celery_rate_limiter/core/decorators.py
++++ src/celery_rate_limiter/core/decorators.py
+@@ -32,7 +32,7 @@
+             limiter = limiter_getter(_limiter_id)
+             task_id = kwargs.pop("_rate_limit_task_id")
+             logger.debug(
+-                "Rate-limited decorator entered: limiter=%s, task_id=%s, func=%s.",
++                "rate-limited decorator entered: limiter=%s, task_id=%s, func=%s.",
+                 _limiter_id,
+                 task_id,
+                 func.__qualname__,
+
+=== celery_rate_limiter.core.decorators.x_rate_limited__mutmut_44 ===
+# celery_rate_limiter.core.decorators.x_rate_limited__mutmut_44: survived
+--- src/celery_rate_limiter/core/decorators.py
++++ src/celery_rate_limiter/core/decorators.py
+@@ -43,7 +43,7 @@
+                 result = func(*args, **kwargs)
+ 
+             logger.debug(
+-                "Task execution completed under rate-limited lifecycle: limiter=%s, task_id=%s, func=%s.",
++                "XXTask execution completed under rate-limited lifecycle: limiter=%s, task_id=%s, func=%s.XX",
+                 _limiter_id,
+                 task_id,
+                 func.__qualname__,
+
+=== celery_rate_limiter.core.decorators.x_rate_limited__mutmut_45 ===
+# celery_rate_limiter.core.decorators.x_rate_limited__mutmut_45: survived
+--- src/celery_rate_limiter/core/decorators.py
++++ src/celery_rate_limiter/core/decorators.py
+@@ -43,7 +43,7 @@
+                 result = func(*args, **kwargs)
+ 
+             logger.debug(
+-                "Task execution completed under rate-limited lifecycle: limiter=%s, task_id=%s, func=%s.",
++                "task execution completed under rate-limited lifecycle: limiter=%s, task_id=%s, func=%s.",
+                 _limiter_id,
+                 task_id,
+                 func.__qualname__,
+
+=== celery_rate_limiter.core.async_limiters.xǁAsyncTaskLifecycleǁ__init____mutmut_1 ===
+# celery_rate_limiter.core.async_limiters.xǁAsyncTaskLifecycleǁ__init____mutmut_1: survived
+--- src/celery_rate_limiter/core/async_limiters.py
++++ src/celery_rate_limiter/core/async_limiters.py
+@@ -2,7 +2,7 @@
+     self,
+     limiter: AbstractAsyncDistributedRateLimiter,
+     task_id: str,
+-    on_heartbeat_failure: Literal["warn", "kill"] = "warn",
++    on_heartbeat_failure: Literal["warn", "kill"] = "XXwarnXX",
+ ):
+     """Initialize an async lifecycle context manager.
+ 
+
+=== celery_rate_limiter.core.async_limiters.xǁAsyncDrainLoopǁ_wake_async__mutmut_4 ===
+# celery_rate_limiter.core.async_limiters.xǁAsyncDrainLoopǁ_wake_async__mutmut_4: survived
+--- src/celery_rate_limiter/core/async_limiters.py
++++ src/celery_rate_limiter/core/async_limiters.py
+@@ -3,6 +3,6 @@
+     async with self._condition:
+         if not self._shutdown:
+             self._ensure_started()
+-        if self._next_wake is None or target < self._next_wake:
++        if self._next_wake is None or target <= self._next_wake:
+             self._next_wake = target
+             self._condition.notify()
+
+=== celery_rate_limiter.core.async_limiters.xǁAbstractAsyncDistributedRateLimiterǁ_cleanup_inflight_key__mutmut_13 ===
+# celery_rate_limiter.core.async_limiters.xǁAbstractAsyncDistributedRateLimiterǁ_cleanup_inflight_key__mutmut_13: survived
+--- src/celery_rate_limiter/core/async_limiters.py
++++ src/celery_rate_limiter/core/async_limiters.py
+@@ -7,7 +7,7 @@
+     try:
+         removed = await self.redis.delete(inflight_key)
+         logger.debug(
+-            "Inflight cleanup attempted (async): limiter=%s, task_id=%s, inflight_key=%s, removed=%s.",
++            "XXInflight cleanup attempted (async): limiter=%s, task_id=%s, inflight_key=%s, removed=%s.XX",
+             self.id,
+             task_id,
+             inflight_key,
+
+=== celery_rate_limiter.core.async_limiters.xǁAbstractAsyncDistributedRateLimiterǁ_cleanup_inflight_key__mutmut_14 ===
+# celery_rate_limiter.core.async_limiters.xǁAbstractAsyncDistributedRateLimiterǁ_cleanup_inflight_key__mutmut_14: survived
+--- src/celery_rate_limiter/core/async_limiters.py
++++ src/celery_rate_limiter/core/async_limiters.py
+@@ -7,7 +7,7 @@
+     try:
+         removed = await self.redis.delete(inflight_key)
+         logger.debug(
+-            "Inflight cleanup attempted (async): limiter=%s, task_id=%s, inflight_key=%s, removed=%s.",
++            "inflight cleanup attempted (async): limiter=%s, task_id=%s, inflight_key=%s, removed=%s.",
+             self.id,
+             task_id,
+             inflight_key,
+
+=== celery_rate_limiter.core.async_limiters.xǁAbstractAsyncDistributedRateLimiterǁ_cleanup_inflight_key__mutmut_24 ===
+# celery_rate_limiter.core.async_limiters.xǁAbstractAsyncDistributedRateLimiterǁ_cleanup_inflight_key__mutmut_24: survived
+--- src/celery_rate_limiter/core/async_limiters.py
++++ src/celery_rate_limiter/core/async_limiters.py
+@@ -15,7 +15,7 @@
+         )
+     except Exception as cleanup_error:
+         logger.warning(
+-            "Failed to cleanup inflight key after schedule failure (async): limiter=%s, task_id=%s, error=%s.",
++            "XXFailed to cleanup inflight key after schedule failure (async): limiter=%s, task_id=%s, error=%s.XX",
+             self.id,
+             task_id,
+             cleanup_error,
+
+=== celery_rate_limiter.core.async_limiters.xǁAbstractAsyncDistributedRateLimiterǁextend_lease__mutmut_26 ===
+# celery_rate_limiter.core.async_limiters.xǁAbstractAsyncDistributedRateLimiterǁextend_lease__mutmut_26: survived
+--- src/celery_rate_limiter/core/async_limiters.py
++++ src/celery_rate_limiter/core/async_limiters.py
+@@ -21,7 +21,7 @@
+     # fmt: on
+ 
+     logger.debug(
+-        "Lease extension result (async): limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
++        "XXLease extension result (async): limiter=%s, task_id=%s, duration_s=%d, renewed=%s.XX",
+         self.id,
+         task_id,
+         duration,
+
+=== celery_rate_limiter.core.async_limiters.xǁAbstractAsyncDistributedRateLimiterǁextend_lease__mutmut_27 ===
+# celery_rate_limiter.core.async_limiters.xǁAbstractAsyncDistributedRateLimiterǁextend_lease__mutmut_27: survived
+--- src/celery_rate_limiter/core/async_limiters.py
++++ src/celery_rate_limiter/core/async_limiters.py
+@@ -21,7 +21,7 @@
+     # fmt: on
+ 
+     logger.debug(
+-        "Lease extension result (async): limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
++        "lease extension result (async): limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
+         self.id,
+         task_id,
+         duration,
+
+=== celery_rate_limiter.core.importing.x_resolve_import_path__mutmut_21 ===
+# celery_rate_limiter.core.importing.x_resolve_import_path__mutmut_21: survived
+--- src/celery_rate_limiter/core/importing.py
++++ src/celery_rate_limiter/core/importing.py
+@@ -26,7 +26,7 @@
+             f"Cannot resolve import path: {fn!r} is missing __module__ or __qualname__."
+         )
+ 
+-    if "<lambda>" in qualname:
++    if "XX<lambda>XX" in qualname:
+         raise ValueError(f"Cannot resolve import path for lambda: {fn!r}.")
+ 
+     if "<locals>" in qualname:
+
+=== celery_rate_limiter.core.importing.x_resolve_import_path__mutmut_22 ===
+# celery_rate_limiter.core.importing.x_resolve_import_path__mutmut_22: survived
+--- src/celery_rate_limiter/core/importing.py
++++ src/celery_rate_limiter/core/importing.py
+@@ -26,7 +26,7 @@
+             f"Cannot resolve import path: {fn!r} is missing __module__ or __qualname__."
+         )
+ 
+-    if "<lambda>" in qualname:
++    if "<LAMBDA>" in qualname:
+         raise ValueError(f"Cannot resolve import path for lambda: {fn!r}.")
+ 
+     if "<locals>" in qualname:
+
+=== celery_rate_limiter.core.importing.x_resolve_import_path__mutmut_38 ===
+# celery_rate_limiter.core.importing.x_resolve_import_path__mutmut_38: survived
+--- src/celery_rate_limiter/core/importing.py
++++ src/celery_rate_limiter/core/importing.py
+@@ -55,7 +55,7 @@
+ 
+     logger.debug(
+         "Callable resolved to import path: callable=%r, import_path=%s.",
+-        fn,
++        None,
+         import_path,
+     )
+ 
+
+=== celery_rate_limiter.core.importing.x_resolve_import_path__mutmut_39 ===
+# celery_rate_limiter.core.importing.x_resolve_import_path__mutmut_39: survived
+--- src/celery_rate_limiter/core/importing.py
++++ src/celery_rate_limiter/core/importing.py
+@@ -56,7 +56,7 @@
+     logger.debug(
+         "Callable resolved to import path: callable=%r, import_path=%s.",
+         fn,
+-        import_path,
++        None,
+     )
+ 
+     return import_path
+
+=== celery_rate_limiter.core.importing.x_resolve_import_path__mutmut_43 ===
+# celery_rate_limiter.core.importing.x_resolve_import_path__mutmut_43: survived
+--- src/celery_rate_limiter/core/importing.py
++++ src/celery_rate_limiter/core/importing.py
+@@ -54,7 +54,7 @@
+         )
+ 
+     logger.debug(
+-        "Callable resolved to import path: callable=%r, import_path=%s.",
++        "XXCallable resolved to import path: callable=%r, import_path=%s.XX",
+         fn,
+         import_path,
+     )
+
+=== celery_rate_limiter.core.importing.x_resolve_import_path__mutmut_44 ===
+# celery_rate_limiter.core.importing.x_resolve_import_path__mutmut_44: survived
+--- src/celery_rate_limiter/core/importing.py
++++ src/celery_rate_limiter/core/importing.py
+@@ -54,7 +54,7 @@
+         )
+ 
+     logger.debug(
+-        "Callable resolved to import path: callable=%r, import_path=%s.",
++        "callable resolved to import path: callable=%r, import_path=%s.",
+         fn,
+         import_path,
+     )
+
+=== celery_rate_limiter.core.managed.xǁSyncManagedRateLimiterǁget__mutmut_8 ===
+# celery_rate_limiter.core.managed.xǁSyncManagedRateLimiterǁget__mutmut_8: survived
+--- src/celery_rate_limiter/core/managed.py
++++ src/celery_rate_limiter/core/managed.py
+@@ -13,7 +13,7 @@
+         """
+     if limiter_id in cls._instances:
+         logger.debug(
+-            "%s resolved from local cache: limiter=%s.",
++            "XX%s resolved from local cache: limiter=%s.XX",
+             cls.__name__,
+             limiter_id,
+         )
+
+=== celery_rate_limiter.core.managed.xǁSyncManagedRateLimiterǁget__mutmut_37 ===
+# celery_rate_limiter.core.managed.xǁSyncManagedRateLimiterǁget__mutmut_37: survived
+--- src/celery_rate_limiter/core/managed.py
++++ src/celery_rate_limiter/core/managed.py
+@@ -46,7 +46,7 @@
+     if raw_version is not None:
+         instance._config_version = cls._parse_version(raw_version)
+ 
+-    cls._instances[limiter_id] = instance
++    cls._instances[limiter_id] = None
+     logger.debug(
+         "%s hydrated from Redis: limiter=%s.",
+         cls.__name__,
+
+=== celery_rate_limiter.core.managed.xǁSyncManagedRateLimiterǁupdate__mutmut_13 ===
+# celery_rate_limiter.core.managed.xǁSyncManagedRateLimiterǁupdate__mutmut_13: survived
+--- src/celery_rate_limiter/core/managed.py
++++ src/celery_rate_limiter/core/managed.py
+@@ -18,7 +18,7 @@
+     cls._persist_config(instance)
+ 
+     logger.info(
+-        "%s updated: limiter=%s, overrides=%s.",
++        "XX%s updated: limiter=%s, overrides=%s.XX",
+         cls.__name__,
+         limiter_id,
+         overrides,
+
+=== celery_rate_limiter.core.managed.xǁAsyncManagedRateLimiterǁupdate__mutmut_13 ===
+# celery_rate_limiter.core.managed.xǁAsyncManagedRateLimiterǁupdate__mutmut_13: survived
+--- src/celery_rate_limiter/core/managed.py
++++ src/celery_rate_limiter/core/managed.py
+@@ -17,7 +17,7 @@
+     await cls._persist_config(instance)
+ 
+     logger.info(
+-        "%s updated: limiter=%s, overrides=%s.",
++        "XX%s updated: limiter=%s, overrides=%s.XX",
+         cls.__name__,
+         limiter_id,
+         overrides,
+
+=== celery_rate_limiter.core.limiters.xǁDrainLoopǁwake__mutmut_1 ===
+# celery_rate_limiter.core.limiters.xǁDrainLoopǁwake__mutmut_1: survived
+--- src/celery_rate_limiter/core/limiters.py
++++ src/celery_rate_limiter/core/limiters.py
+@@ -1,4 +1,4 @@
+-def wake(self, delay: float = 0.0) -> None:
++def wake(self, delay: float = 1.0) -> None:
+     """Request that a drain be performed ``delay`` seconds from the current time.
+ 
+         If an earlier drain is already pending, this call is a no-op.
+
+=== celery_rate_limiter.core.limiters.xǁDrainLoopǁ_run__mutmut_8 ===
+# celery_rate_limiter.core.limiters.xǁDrainLoopǁ_run__mutmut_8: survived
+--- src/celery_rate_limiter/core/limiters.py
++++ src/celery_rate_limiter/core/limiters.py
+@@ -13,7 +13,7 @@
+                     continue
+             else:
+                 remaining = self._next_wake - time.monotonic()
+-                if remaining > 0:
++                if remaining >= 0:
+                     self._condition.wait(timeout=remaining)
+                     continue
+             self._next_wake = None
+
+=== celery_rate_limiter.core.limiters.xǁDrainSignalSubscriberǁ_run__mutmut_7 ===
+# celery_rate_limiter.core.limiters.xǁDrainSignalSubscriberǁ_run__mutmut_7: timeout
+--- src/celery_rate_limiter/core/limiters.py
++++ src/celery_rate_limiter/core/limiters.py
+@@ -3,7 +3,7 @@
+     while not self._shutdown:
+         try:
+             message = self._pubsub.get_message(timeout=0.5)
+-            if message is not None and message["type"] == "message":
++            if message is not None and message["XXtypeXX"] == "message":
+                 sender_id = message["data"]
+                 if sender_id != self._limiter._worker_id:
+                     self._limiter._schedule_drain()
+
+=== celery_rate_limiter.core.limiters.xǁDrainSignalSubscriberǁshutdown__mutmut_1 ===
+# celery_rate_limiter.core.limiters.xǁDrainSignalSubscriberǁshutdown__mutmut_1: timeout
+--- src/celery_rate_limiter/core/limiters.py
++++ src/celery_rate_limiter/core/limiters.py
+@@ -1,6 +1,6 @@
+ def shutdown(self) -> None:
+     """Stop the subscriber thread and release the Pub/Sub connection."""
+-    self._shutdown = True
++    self._shutdown = None
+     try:
+         self._pubsub.unsubscribe()
+         self._pubsub.close()
+
+=== celery_rate_limiter.core.limiters.xǁDrainSignalSubscriberǁshutdown__mutmut_2 ===
+# celery_rate_limiter.core.limiters.xǁDrainSignalSubscriberǁshutdown__mutmut_2: timeout
+--- src/celery_rate_limiter/core/limiters.py
++++ src/celery_rate_limiter/core/limiters.py
+@@ -1,6 +1,6 @@
+ def shutdown(self) -> None:
+     """Stop the subscriber thread and release the Pub/Sub connection."""
+-    self._shutdown = True
++    self._shutdown = False
+     try:
+         self._pubsub.unsubscribe()
+         self._pubsub.close()
+
+=== celery_rate_limiter.core.limiters.xǁDistributedRateLimiterMixinǁ_calculate_token_recovery_delay__mutmut_7 ===
+# celery_rate_limiter.core.limiters.xǁDistributedRateLimiterMixinǁ_calculate_token_recovery_delay__mutmut_7: survived
+--- src/celery_rate_limiter/core/limiters.py
++++ src/celery_rate_limiter/core/limiters.py
+@@ -35,7 +35,7 @@
+ 
+     # No previous window exists to decay, or the current window alone is at the limit.
+     # In either case, wait for the next window.
+-    if val_previous <= 0 or val_current >= self.limit:
++    if val_previous <= 0 or val_current > self.limit:
+         return reset_in_ms / 1000.0
+ 
+     # Determine the earliest point at which previous-window decay frees a token.
+
+=== celery_rate_limiter.core.limiters.xǁDistributedRateLimiterMixinǁ_calculate_token_recovery_delay__mutmut_20 ===
+# celery_rate_limiter.core.limiters.xǁDistributedRateLimiterMixinǁ_calculate_token_recovery_delay__mutmut_20: survived
+--- src/celery_rate_limiter/core/limiters.py
++++ src/celery_rate_limiter/core/limiters.py
+@@ -45,7 +45,7 @@
+     t_needed_ms = window_ms * (1.0 - (self.limit - val_current) / val_previous)
+     wait_ms = t_needed_ms - time_passed_ms
+ 
+-    if wait_ms <= 0:
++    if wait_ms < 0:
+         # Decay has already freed a token; no waiting is needed.
+         return 0.0
+ 
+
+=== celery_rate_limiter.core.limiters.xǁDistributedRateLimiterMixinǁ_calculate_smart_jitter__mutmut_35 ===
+# celery_rate_limiter.core.limiters.xǁDistributedRateLimiterMixinǁ_calculate_smart_jitter__mutmut_35: survived
+--- src/celery_rate_limiter/core/limiters.py
++++ src/celery_rate_limiter/core/limiters.py
+@@ -63,7 +63,7 @@
+ 
+     rounded_jitter = round(jitter, 3)
+     logger.debug(
+-        "Smart jitter calculated: limiter=%s, remaining_tasks=%d, remaining_tokens=%d, active_concurrency=%d, load_pressure=%.3f, concurrency_pressure=%.3f, jitter_s=%.3f.",
++        "XXSmart jitter calculated: limiter=%s, remaining_tasks=%d, remaining_tokens=%d, active_concurrency=%d, load_pressure=%.3f, concurrency_pressure=%.3f, jitter_s=%.3f.XX",
+         self.id,
+         remaining_tasks,
+         remaining_tokens,
+
+=== celery_rate_limiter.core.limiters.xǁDistributedRateLimiterMixinǁ_calculate_smart_jitter__mutmut_36 ===
+# celery_rate_limiter.core.limiters.xǁDistributedRateLimiterMixinǁ_calculate_smart_jitter__mutmut_36: survived
+--- src/celery_rate_limiter/core/limiters.py
++++ src/celery_rate_limiter/core/limiters.py
+@@ -63,7 +63,7 @@
+ 
+     rounded_jitter = round(jitter, 3)
+     logger.debug(
+-        "Smart jitter calculated: limiter=%s, remaining_tasks=%d, remaining_tokens=%d, active_concurrency=%d, load_pressure=%.3f, concurrency_pressure=%.3f, jitter_s=%.3f.",
++        "smart jitter calculated: limiter=%s, remaining_tasks=%d, remaining_tokens=%d, active_concurrency=%d, load_pressure=%.3f, concurrency_pressure=%.3f, jitter_s=%.3f.",
+         self.id,
+         remaining_tasks,
+         remaining_tokens,
+
+=== celery_rate_limiter.core.limiters.xǁAbstractDistributedRateLimiterǁ_cleanup_inflight_key__mutmut_13 ===
+# celery_rate_limiter.core.limiters.xǁAbstractDistributedRateLimiterǁ_cleanup_inflight_key__mutmut_13: survived
+--- src/celery_rate_limiter/core/limiters.py
++++ src/celery_rate_limiter/core/limiters.py
+@@ -7,7 +7,7 @@
+     try:
+         removed = self.redis.delete(inflight_key)
+         logger.debug(
+-            "Inflight cleanup attempted: limiter=%s, task_id=%s, inflight_key=%s, removed=%s.",
++            "XXInflight cleanup attempted: limiter=%s, task_id=%s, inflight_key=%s, removed=%s.XX",
+             self.id,
+             task_id,
+             inflight_key,
+
+=== celery_rate_limiter.core.limiters.xǁAbstractDistributedRateLimiterǁ_cleanup_inflight_key__mutmut_14 ===
+# celery_rate_limiter.core.limiters.xǁAbstractDistributedRateLimiterǁ_cleanup_inflight_key__mutmut_14: survived
+--- src/celery_rate_limiter/core/limiters.py
++++ src/celery_rate_limiter/core/limiters.py
+@@ -7,7 +7,7 @@
+     try:
+         removed = self.redis.delete(inflight_key)
+         logger.debug(
+-            "Inflight cleanup attempted: limiter=%s, task_id=%s, inflight_key=%s, removed=%s.",
++            "inflight cleanup attempted: limiter=%s, task_id=%s, inflight_key=%s, removed=%s.",
+             self.id,
+             task_id,
+             inflight_key,
+
+=== celery_rate_limiter.core.limiters.xǁAbstractDistributedRateLimiterǁ_cleanup_inflight_key__mutmut_26 ===
+# celery_rate_limiter.core.limiters.xǁAbstractDistributedRateLimiterǁ_cleanup_inflight_key__mutmut_26: survived
+--- src/celery_rate_limiter/core/limiters.py
++++ src/celery_rate_limiter/core/limiters.py
+@@ -15,7 +15,7 @@
+         )
+     except Exception as cleanup_error:
+         logger.warning(
+-            "Failed to cleanup inflight key after schedule failure: limiter=%s, task_id=%s, inflight_key=%s, error=%s.",
++            "XXFailed to cleanup inflight key after schedule failure: limiter=%s, task_id=%s, inflight_key=%s, error=%s.XX",
+             self.id,
+             task_id,
+             inflight_key,
+
+=== celery_rate_limiter.core.limiters.xǁAbstractDistributedRateLimiterǁ_cleanup_inflight_key__mutmut_27 ===
+# celery_rate_limiter.core.limiters.xǁAbstractDistributedRateLimiterǁ_cleanup_inflight_key__mutmut_27: survived
+--- src/celery_rate_limiter/core/limiters.py
++++ src/celery_rate_limiter/core/limiters.py
+@@ -15,7 +15,7 @@
+         )
+     except Exception as cleanup_error:
+         logger.warning(
+-            "Failed to cleanup inflight key after schedule failure: limiter=%s, task_id=%s, inflight_key=%s, error=%s.",
++            "failed to cleanup inflight key after schedule failure: limiter=%s, task_id=%s, inflight_key=%s, error=%s.",
+             self.id,
+             task_id,
+             inflight_key,
+
+=== celery_rate_limiter.core.limiters.xǁAbstractDistributedRateLimiterǁextend_lease__mutmut_26 ===
+# celery_rate_limiter.core.limiters.xǁAbstractDistributedRateLimiterǁextend_lease__mutmut_26: survived
+--- src/celery_rate_limiter/core/limiters.py
++++ src/celery_rate_limiter/core/limiters.py
+@@ -34,7 +34,7 @@
+     # fmt: on
+ 
+     logger.debug(
+-        "Lease extension result: limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
++        "XXLease extension result: limiter=%s, task_id=%s, duration_s=%d, renewed=%s.XX",
+         self.id,
+         task_id,
+         duration,
+
+=== celery_rate_limiter.core.limiters.xǁAbstractDistributedRateLimiterǁextend_lease__mutmut_27 ===
+# celery_rate_limiter.core.limiters.xǁAbstractDistributedRateLimiterǁextend_lease__mutmut_27: survived
+--- src/celery_rate_limiter/core/limiters.py
++++ src/celery_rate_limiter/core/limiters.py
+@@ -34,7 +34,7 @@
+     # fmt: on
+ 
+     logger.debug(
+-        "Lease extension result: limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
++        "lease extension result: limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
+         self.id,
+         task_id,
+         duration,
+
+=== celery_rate_limiter.core.limiters.xǁAbstractDistributedRateLimiterǁ_schedule_drain__mutmut_1 ===
+# celery_rate_limiter.core.limiters.xǁAbstractDistributedRateLimiterǁ_schedule_drain__mutmut_1: survived
+--- src/celery_rate_limiter/core/limiters.py
++++ src/celery_rate_limiter/core/limiters.py
+@@ -1,4 +1,4 @@
+-def _schedule_drain(self, delay: float = 0.0) -> None:
++def _schedule_drain(self, delay: float = 1.0) -> None:
+     """Schedule the drain method to execute again after ``delay`` seconds.
+ 
+         The default implementation wakes the ``DrainLoop``. Subclasses used in
+
+=== celery_rate_limiter.integrations.prometheus.xǁPrometheusMetricsExporterǁ__call____mutmut_15 ===
+# celery_rate_limiter.integrations.prometheus.xǁPrometheusMetricsExporterǁ__call____mutmut_15: survived
+--- src/celery_rate_limiter/integrations/prometheus.py
++++ src/celery_rate_limiter/integrations/prometheus.py
+@@ -18,7 +18,7 @@
+         self._handle_schedule(data)
+     else:
+         logger.debug(
+-            "Ignoring unknown metrics event: limiter=%s, event=%s.",
++            "XXIgnoring unknown metrics event: limiter=%s, event=%s.XX",
+             self._limiter_id,
+             event,
+         )
+
+=== celery_rate_limiter.integrations.prometheus.xǁPrometheusMetricsExporterǁ__call____mutmut_16 ===
+# celery_rate_limiter.integrations.prometheus.xǁPrometheusMetricsExporterǁ__call____mutmut_16: survived
+--- src/celery_rate_limiter/integrations/prometheus.py
++++ src/celery_rate_limiter/integrations/prometheus.py
+@@ -18,7 +18,7 @@
+         self._handle_schedule(data)
+     else:
+         logger.debug(
+-            "Ignoring unknown metrics event: limiter=%s, event=%s.",
++            "ignoring unknown metrics event: limiter=%s, event=%s.",
+             self._limiter_id,
+             event,
+         )
+

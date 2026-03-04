@@ -956,7 +956,7 @@ class AbstractAsyncDistributedRateLimiter(
             self, "_shutdown_called", False
         ):
             warnings.warn(
-                f"Async limiter {self.id!r} was not shut down; "
+                f"limiter={self.id!r} was not shut down; "
                 "call await shutdown() to stop background tasks",
                 ResourceWarning,
                 stacklevel=1,

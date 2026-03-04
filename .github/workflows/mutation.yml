@@ -1,28 +1,55 @@
 name: Mutation Testing
 
 on:
-  workflow_dispatch:
-  workflow_run:
-    workflows: ["CI Pipeline"]
-    types: [completed]
+  # Update the badge when mutation results are pushed to master.
+  push:
     branches: [master]
+    paths:
+      - "mutmut-results/mutation-score.txt"
+  # Manual trigger: run mutation testing on CI (for future use when the
+  # repository is public and runners have sufficient resources).
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  mutate:
+  # Update the badge from committed local mutation testing results.
+  update-badge:
     runs-on: ubuntu-latest
-    # Run only if manually dispatched or CI succeeded on master.
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'push'
 
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Read Mutation Score
+        id: score
+        run: |
+          SCORE=$(cat mutmut-results/mutation-score.txt)
+          echo "score=$SCORE" >> "$GITHUB_OUTPUT"
+          echo "Mutation score: ${SCORE}%"
+
+      - name: Update Mutation Score Badge
+        uses: schneegans/dynamic-badges-action@e9a478b16159b4d31420099ba146cdc50f134483 # v1.7.0
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          auth: ${{ secrets.GIST_SECRET }}
+          gistID: f3caa8f0af98bf11563b5b2031c1ef3e
+          filename: celery-rate-limiter-mutation-score.json
+          label: Mutation Score
+          message: ${{ steps.score.outputs.score }}%
+          valColorRange: ${{ steps.score.outputs.score }}
+          maxColorRange: 100
+          minColorRange: 0
+
+  # Run mutation testing on CI (manual trigger only).
+  mutate:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Configure Kernel for Redis
         run: sudo sysctl vm.overcommit_memory=1

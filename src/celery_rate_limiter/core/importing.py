@@ -58,9 +58,7 @@ def resolve_import_path(fn: Callable[..., Any]) -> str:
         )
 
     if "<lambda>" in qualname:
-        raise ValueError(
-            f"Cannot resolve import path for lambda: {fn!r}."
-        )
+        raise ValueError(f"Cannot resolve import path for lambda: {fn!r}.")
 
     if "<locals>" in qualname:
         raise ValueError(
