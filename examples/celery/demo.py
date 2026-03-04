@@ -22,7 +22,6 @@ import redis
 from celery import Celery
 from celery.signals import worker_init
 
-from celery_rate_limiter import CeleryRateLimiter
 from examples.config import (
     CELERY_WORKER_CONCURRENCY,
     CELERY_WORKER_PREFETCH_MULTIPLIER,
@@ -38,6 +37,7 @@ from examples.runner import (
     run_demo,
     setup_logging,
 )
+from redis_rate_limiter import CeleryRateLimiter
 
 logger = logging.getLogger("examples.celery.demo")
 
@@ -57,7 +57,7 @@ REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
 celery_app = Celery("celery_demo", broker=REDIS_URL)
 celery_app.conf.worker_prefetch_multiplier = CELERY_WORKER_PREFETCH_MULTIPLIER
 celery_app.conf.imports = [
-    "celery_rate_limiter.backends.celery.tasks.worker",
+    "redis_rate_limiter.backends.celery.tasks.worker",
 ]
 
 

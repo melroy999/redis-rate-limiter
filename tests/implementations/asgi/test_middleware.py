@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from celery_rate_limiter.backends.asgi import RateLimitMiddleware, by_client_ip
+from redis_rate_limiter.backends.asgi import RateLimitMiddleware, by_client_ip
 from tests.helpers.utils import assert_log_emitted
 
 # ---------------------------------------------------------------------------
@@ -578,7 +578,7 @@ class TestMiddlewareObservability:
 
         # Act
         with caplog.at_level(
-            logging.ERROR, logger="celery_rate_limiter.backends.asgi.middleware"
+            logging.ERROR, logger="redis_rate_limiter.backends.asgi.middleware"
         ):
             await _capture_response(middleware, _make_scope())
 

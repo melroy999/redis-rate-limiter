@@ -24,7 +24,7 @@ import time
 
 import pytest
 
-from celery_rate_limiter import AbstractDistributedRateLimiter
+from redis_rate_limiter import AbstractDistributedRateLimiter
 from tests.implementations.conftest import MinimalRateLimiter, TrackingRateLimiter
 from tests.integration.conftest import consume_and_complete, precise_sleep
 

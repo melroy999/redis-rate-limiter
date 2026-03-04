@@ -6,7 +6,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: prometheus
-  namespace: celery-rate-limiter-demo
+  namespace: redis-rate-limiter-demo
   labels:
     app: prometheus
 spec:
@@ -38,7 +38,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: prometheus
-  namespace: celery-rate-limiter-demo
+  namespace: redis-rate-limiter-demo
 spec:
   selector:
     app: prometheus

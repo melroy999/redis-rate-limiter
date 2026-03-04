@@ -25,7 +25,7 @@ class TestThreadPoolRateLimiter:
         # Act
         with (
             patch(
-                "celery_rate_limiter.backends.threading.limiter.import_string",
+                "redis_rate_limiter.backends.threading.limiter.import_string",
                 return_value=MagicMock(),
             ),
             patch.object(limiter.executor, "submit") as mock_submit,
@@ -44,7 +44,7 @@ class TestThreadPoolRateLimiter:
         with (
             patch.object(limiter.executor, "submit"),
             patch(
-                "celery_rate_limiter.backends.threading.limiter.import_string"
+                "redis_rate_limiter.backends.threading.limiter.import_string"
             ) as mock_import,
         ):
             mock_import.return_value = MagicMock()
@@ -65,7 +65,7 @@ class TestThreadPoolRateLimiter:
                 limiter, "task_lifecycle", return_value=mock_lifecycle
             ) as mock_tl,
             patch(
-                "celery_rate_limiter.backends.threading.limiter.import_string"
+                "redis_rate_limiter.backends.threading.limiter.import_string"
             ) as mock_import,
             patch.object(limiter.executor, "submit") as mock_submit,
         ):
@@ -88,7 +88,7 @@ class TestThreadPoolRateLimiter:
         """Verify that an ``import_string()`` failure propagates from ``_dispatch_task()``."""
         # Act & Assert
         with patch(
-            "celery_rate_limiter.backends.threading.limiter.import_string",
+            "redis_rate_limiter.backends.threading.limiter.import_string",
             side_effect=ModuleNotFoundError("No module named 'nonexistent'"),
         ):
             with pytest.raises(
@@ -114,7 +114,7 @@ class TestThreadPoolRateLimiter:
         # Act
         with (
             patch(
-                "celery_rate_limiter.backends.threading.limiter.import_string",
+                "redis_rate_limiter.backends.threading.limiter.import_string",
                 return_value=tracking_func,
             ),
             patch.object(limiter, "task_lifecycle") as mock_lifecycle,
@@ -187,7 +187,7 @@ class TestLocalCapacityGuard:
         # Dispatch a task that blocks until we release it.
         with (
             patch(
-                "celery_rate_limiter.backends.threading.limiter.import_string",
+                "redis_rate_limiter.backends.threading.limiter.import_string",
                 return_value=blocking_task,
             ),
             patch.object(limiter, "task_lifecycle") as mock_lifecycle,
@@ -243,7 +243,7 @@ class TestLocalCapacityGuard:
         # Dispatch two tasks concurrently and check the counter reaches 2.
         with (
             patch(
-                "celery_rate_limiter.backends.threading.limiter.import_string",
+                "redis_rate_limiter.backends.threading.limiter.import_string",
                 side_effect=import_side_effect,
             ),
             patch.object(limiter, "task_lifecycle") as mock_lifecycle,
@@ -290,11 +290,11 @@ class TestThreadPoolDispatchObservability:
         """Verify that ``_dispatch_task`` emits a DEBUG log with limiter id, task id, func path, and local dispatch count."""
         # Act
         with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.backends.threading.limiter"
+            logging.DEBUG, logger="redis_rate_limiter.backends.threading.limiter"
         ):
             with (
                 patch(
-                    "celery_rate_limiter.backends.threading.limiter.import_string",
+                    "redis_rate_limiter.backends.threading.limiter.import_string",
                     return_value=MagicMock(),
                 ),
                 patch.object(limiter.executor, "submit"),

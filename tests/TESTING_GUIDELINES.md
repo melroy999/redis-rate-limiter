@@ -335,7 +335,7 @@ assert_log_emitted(
 
 All new observability tests must use this helper. Existing tests may be migrated opportunistically.
 
-**Logger-specific capture**: when testing logs from the rate limiter, use `caplog.at_level(logging.LEVEL, logger="celery_rate_limiter")` to filter out noise from third-party libraries. Always specify the logger name to ensure the test captures only relevant records.
+**Logger-specific capture**: when testing logs from the rate limiter, use `caplog.at_level(logging.LEVEL, logger="redis_rate_limiter")` to filter out noise from third-party libraries. Always specify the logger name to ensure the test captures only relevant records.
 
 **Negative log assertions**: to verify that a log is NOT emitted (e.g., verifying that a code path does not produce a spurious warning), assert the absence explicitly:
 

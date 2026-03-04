@@ -8,7 +8,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: prometheus-config
-  namespace: celery-rate-limiter-demo
+  namespace: redis-rate-limiter-demo
 data:
   prometheus.yml: |
     global:
@@ -16,12 +16,12 @@ data:
       evaluation_interval: 1s
 
     scrape_configs:
-      - job_name: celery-rate-limiter
+      - job_name: redis-rate-limiter
         kubernetes_sd_configs:
           - role: pod
             namespaces:
               names:
-                - celery-rate-limiter-demo
+                - redis-rate-limiter-demo
         relabel_configs:
           # Only scrape pods with the prometheus.io/scrape annotation.
           - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]

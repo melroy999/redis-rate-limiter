@@ -1,7 +1,7 @@
 # Demo image for the K8s/Docker Compose rate limiter demonstration.
 #
 # Build context must be the project root:
-#   docker build -f demo/Dockerfile -t celery-rate-limiter-demo .
+#   docker build -f demo/Dockerfile -t redis-rate-limiter-demo .
 
 ARG PYTHON_VERSION=3.12
 ARG POETRY_VERSION=2.3.1

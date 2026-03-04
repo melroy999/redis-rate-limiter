@@ -6,7 +6,7 @@ Fixture dependencies:
 
 import pytest
 
-from celery_rate_limiter.backends.asyncio import AsyncIOTaskLimiter
+from redis_rate_limiter.backends.asyncio import AsyncIOTaskLimiter
 
 
 @pytest.fixture(autouse=True)

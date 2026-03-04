@@ -15,11 +15,11 @@ from unittest.mock import patch
 import pytest
 import redis
 
-from celery_rate_limiter.core.base import (
+from redis_rate_limiter.core.base import (
     AbstractAsyncRateLimiter,
     AbstractSyncRateLimiter,
 )
-from celery_rate_limiter.core.scripts import DEFAULT_RESOURCE_PACKAGES, load_lua_script
+from redis_rate_limiter.core.scripts import DEFAULT_RESOURCE_PACKAGES, load_lua_script
 from tests.helpers.utils import assert_log_emitted
 
 # ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ class TestScriptRegistration:
 
         # Act
         # Mock the resource loader to track the number of invocations.
-        with patch("celery_rate_limiter.core.scripts.resources.files") as mock_files:
+        with patch("redis_rate_limiter.core.scripts.resources.files") as mock_files:
             generic_limiter._register_script(lua_script)
 
             # Assert
@@ -71,7 +71,7 @@ class TestScriptRegistration:
         # Act & Assert
         # Mock the resource loader to simulate a file system error.
         with patch(
-            "celery_rate_limiter.core.scripts.resources.files",
+            "redis_rate_limiter.core.scripts.resources.files",
             side_effect=FileNotFoundError("File system error"),
         ) as mock_files:
             with pytest.raises(ImportError, match=f"Could not load {lua_script}"):
@@ -106,7 +106,7 @@ class TestScriptLoaderFallback:
 
         # Act
         with patch(
-            "celery_rate_limiter.core.scripts.resources.files",
+            "redis_rate_limiter.core.scripts.resources.files",
             side_effect=selective_files,
         ):
             generic_limiter._register_script("schedule.lua")
@@ -368,7 +368,7 @@ class TestScriptLoaderFallbackObservability:
     def test_load_lua_script_logs_resource_package_on_success(caplog):
         """Verify that the debug log includes the resolved resource package name."""
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.scripts"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.scripts"):
             load_lua_script("schedule.lua")
 
         # Assert
@@ -420,7 +420,7 @@ class TestSyncEvalScriptObservability:
         fail_once.calls = 0
 
         # Act
-        with caplog.at_level(logging.WARNING, logger="celery_rate_limiter.core.base"):
+        with caplog.at_level(logging.WARNING, logger="redis_rate_limiter.core.base"):
             with (
                 patch.object(limiter.redis, "evalsha", side_effect=fail_once),
                 patch.object(
@@ -478,7 +478,7 @@ class TestAsyncEvalScriptObservability:
         fail_once.calls = 0
 
         # Act
-        with caplog.at_level(logging.WARNING, logger="celery_rate_limiter.core.base"):
+        with caplog.at_level(logging.WARNING, logger="redis_rate_limiter.core.base"):
             with (
                 patch.object(limiter.redis, "evalsha", side_effect=fail_once),
                 patch.object(

@@ -99,10 +99,10 @@ These three mechanisms operate independently and do not require coordination. Th
 
 ## References
 
-- [limiters.py](../../src/celery_rate_limiter/core/limiters.py): sync core implementation (scheduling, consumption, lifecycle management).
-- [async_limiters.py](../../src/celery_rate_limiter/core/async_limiters.py): async core implementation (async scheduling, consumption, lifecycle management).
-- [consume.lua](../../src/celery_rate_limiter/lua/consume.lua): atomic consumption script (state transitions within Redis).
-- [schedule.lua](../../src/celery_rate_limiter/lua/schedule.lua): task scheduling script (buffer insertion).
+- [limiters.py](../../src/redis_rate_limiter/core/limiters.py): sync core implementation (scheduling, consumption, lifecycle management).
+- [async_limiters.py](../../src/redis_rate_limiter/core/async_limiters.py): async core implementation (async scheduling, consumption, lifecycle management).
+- [consume.lua](../../src/redis_rate_limiter/lua/consume.lua): atomic consumption script (state transitions within Redis).
+- [schedule.lua](../../src/redis_rate_limiter/lua/schedule.lua): task scheduling script (buffer insertion).
 - [Task Lifecycle Sequence](task-lifecycle.md): detailed sequence diagram of the nominal task flow.
 - [Redis Key Map](redis-keys.md): key patterns, TTLs, and self-healing mechanisms.
 - [Drain Loop Flow](drain-flow.md): the three-layer drain control loop and feedback entry points.

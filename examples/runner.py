@@ -66,8 +66,8 @@ def setup_logging(log_dir: str) -> None:
     )
     limiter_handler.setLevel(logging.DEBUG)
     limiter_handler.setFormatter(fmt)
-    logging.getLogger("celery_rate_limiter").addHandler(limiter_handler)
-    logging.getLogger("celery_rate_limiter").setLevel(logging.DEBUG)
+    logging.getLogger("redis_rate_limiter").addHandler(limiter_handler)
+    logging.getLogger("redis_rate_limiter").setLevel(logging.DEBUG)
 
 
 def flush_stale_keys(redis_client: redis.Redis, limiter_id: str) -> None:

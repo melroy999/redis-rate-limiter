@@ -1,6 +1,6 @@
-[![CI](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/melroy999/f3caa8f0af98bf11563b5b2031c1ef3e/raw/celery-rate-limiter-ci.json)](https://github.com/melroy999/celery-rate-limiter/actions/workflows/ci.yml) [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/melroy999/f3caa8f0af98bf11563b5b2031c1ef3e/raw/celery-rate-limiter-coverage.json)](https://github.com/melroy999/celery-rate-limiter/actions/workflows/ci.yml) [![Mutation Score](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/melroy999/f3caa8f0af98bf11563b5b2031c1ef3e/raw/celery-rate-limiter-mutation-score.json)](https://github.com/melroy999/celery-rate-limiter/actions/workflows/mutation.yml) [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff) [![mypy](https://img.shields.io/badge/type%20checking-mypy%20strict-blue)](http://mypy-lang.org/)
+[![CI](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/melroy999/f3caa8f0af98bf11563b5b2031c1ef3e/raw/redis-rate-limiter-ci.json)](https://github.com/melroy999/redis-rate-limiter/actions/workflows/ci.yml) [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/melroy999/f3caa8f0af98bf11563b5b2031c1ef3e/raw/redis-rate-limiter-coverage.json)](https://github.com/melroy999/redis-rate-limiter/actions/workflows/ci.yml) [![Mutation Score](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/melroy999/f3caa8f0af98bf11563b5b2031c1ef3e/raw/redis-rate-limiter-mutation-score.json)](https://github.com/melroy999/redis-rate-limiter/actions/workflows/mutation.yml) [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff) [![mypy](https://img.shields.io/badge/type%20checking-mypy%20strict-blue)](http://mypy-lang.org/)
 
-# celery-rate-limiter
+# redis-rate-limiter
 
 A distributed rate limiter for Python with pluggable task backends. Rate limiting state is stored in Redis, which means that multiple processes and machines sharing the same limiter ID are collectively rate-limited, regardless of how tasks are dispatched.
 
@@ -23,13 +23,13 @@ The core algorithm is a sliding window counter implemented as atomic Lua scripts
 
 ```bash
 # Core (Redis only, no task backend).
-pip install celery-rate-limiter
+pip install redis-rate-limiter
 
 # With the Celery backend.
-pip install celery-rate-limiter[celery]
+pip install redis-rate-limiter[celery]
 
 # With the ASGI middleware backend (FastAPI/Starlette).
-pip install celery-rate-limiter[asgi]
+pip install redis-rate-limiter[asgi]
 ```
 
 The project requires Python 3.12+ and a single Redis instance (not Redis Cluster, see the class docstring for details).
@@ -39,7 +39,7 @@ The project requires Python 3.12+ and a single Redis instance (not Redis Cluster
 ```python
 import redis
 from celery import Celery
-from celery_rate_limiter import CeleryRateLimiter
+from redis_rate_limiter import CeleryRateLimiter
 
 # One-time setup.
 redis_client = redis.Redis(host="localhost", port=6379)
@@ -73,7 +73,7 @@ limiter.shutdown()
 ```python
 import redis
 from concurrent.futures import ThreadPoolExecutor
-from celery_rate_limiter import ThreadPoolRateLimiter
+from redis_rate_limiter import ThreadPoolRateLimiter
 
 redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
 executor = ThreadPoolExecutor(max_workers=4)
@@ -100,7 +100,7 @@ limiter.shutdown()
 
 ```python
 import redis.asyncio
-from celery_rate_limiter import AsyncIOTaskLimiter
+from redis_rate_limiter import AsyncIOTaskLimiter
 
 redis_client = redis.asyncio.Redis(host="localhost", port=6379, decode_responses=True)
 AsyncIOTaskLimiter.configure(redis_client, max_tasks=10)
@@ -129,7 +129,7 @@ import redis.asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from celery_rate_limiter.backends.asgi import ASGIRateLimiter, by_client_ip
+from redis_rate_limiter.backends.asgi import ASGIRateLimiter, by_client_ip
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -250,5 +250,5 @@ poetry run ruff check .
 poetry run mypy src
 
 # Coverage report.
-poetry run pytest tests/ --cov=celery_rate_limiter --cov-report=html
+poetry run pytest tests/ --cov=redis_rate_limiter --cov-report=html
 ```

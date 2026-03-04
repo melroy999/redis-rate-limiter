@@ -18,10 +18,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from celery_rate_limiter.core.async_limiters import (
+from redis_rate_limiter.core.async_limiters import (
     AbstractAsyncDistributedRateLimiter,
 )
-from celery_rate_limiter.core.limiters import AbstractDistributedRateLimiter
+from redis_rate_limiter.core.limiters import AbstractDistributedRateLimiter
 
 
 class _BareSyncLimiter(AbstractDistributedRateLimiter):

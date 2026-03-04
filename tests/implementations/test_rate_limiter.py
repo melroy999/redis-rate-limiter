@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import redis
 
-from celery_rate_limiter.core.limiters import AbstractDistributedRateLimiter
+from redis_rate_limiter.core.limiters import AbstractDistributedRateLimiter
 from tests.contracts.test_rate_limiter import RateLimiterContractTest
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 from tests.helpers.utils import assert_log_emitted, is_subset
@@ -680,7 +680,7 @@ class RateLimiterObservabilityTests:
     ):
         """Verify that scheduling a single task emits the expected debug and info logs."""
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
             _, task_id = await limiter.schedule_task(func_path, payload)
 
         # Assert
@@ -711,7 +711,7 @@ class RateLimiterObservabilityTests:
         await limiter.schedule_task(func_path, payload)
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
             _, task_id = await limiter.schedule_task(func_path, payload)
 
         # Assert

@@ -231,7 +231,7 @@ gantt
 
 **Reading the diagram:** Window N is at steady state (10 requests evenly spread). Partway through Window N+1, a processing hiccup pauses consumption for 4 seconds (grey gap). Only 6 of the expected 10 requests are consumed, leaving the window under-saturated. When Window N+2 begins, the previous-window count is only 6 rather than the expected 10, so the weighted estimate at the start of the window is `6 × 1.0 + 0 = 6`, well below the limit of 10. The algorithm immediately admits 4 burst requests (red bar) before the estimate catches up to the limit. The red bar at the bottom shows that a 10-second measurement window placed across the hiccup boundary captures 12 requests (2 from the trickle resume plus all 10 from Window N+2), exceeding the configured limit of 10.
 
-Crucially, no individual fixed window counter ever exceeds the limit: Window N+1 has 6 and Window N+2 has 10. The per-fixed-window invariant holds. It is only the *sliding measurement window*, a real-time span that does not align with the fixed window boundaries, that observes the elevated rate. This distinction is why the property was difficult to assert reliably in integration tests, and why the corresponding parameterised test was [removed](https://github.com/melroy999/celery-rate-limiter/commit/0b7b138) in favour of the provable per-fixed-window and 2x burst bounds.
+Crucially, no individual fixed window counter ever exceeds the limit: Window N+1 has 6 and Window N+2 has 10. The per-fixed-window invariant holds. It is only the *sliding measurement window*, a real-time span that does not align with the fixed window boundaries, that observes the elevated rate. This distinction is why the property was difficult to assert reliably in integration tests, and why the corresponding parameterised test was [removed](https://github.com/melroy999/redis-rate-limiter/commit/0b7b138) in favour of the provable per-fixed-window and 2x burst bounds.
 
 ## Window Counter Expiry
 
@@ -250,7 +250,7 @@ For the full inventory of Redis keys, their data types, and their TTL strategies
 
 ## References
 
-- [consume.lua](../../src/celery_rate_limiter/lua/consume.lua): the Lua script that implements the sliding window check.
+- [consume.lua](../../src/redis_rate_limiter/lua/consume.lua): the Lua script that implements the sliding window check.
 - [sliding_window_counter.py](../../tests/algorithms/sliding_window_counter.py): the Python reference implementation.
 - [test_sliding_window_counter.py](../../tests/properties/test_sliding_window_counter.py): property-based tests that verify the 2x burst bound.
 - [test_token_recovery.py](../../tests/properties/test_token_recovery.py): property-based tests that verify the token recovery delay calculation invariants.

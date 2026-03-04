@@ -14,9 +14,9 @@ import logging
 
 import pytest
 
-from celery_rate_limiter import DistributedLock
-from celery_rate_limiter.core import AsyncDistributedLock
-from celery_rate_limiter.core.limiters import AbstractDistributedRateLimiter
+from redis_rate_limiter import DistributedLock
+from redis_rate_limiter.core import AsyncDistributedLock
+from redis_rate_limiter.core.limiters import AbstractDistributedRateLimiter
 from tests.contracts.test_distributed_lock import DistributedLockContractTest
 from tests.helpers.adapters import SyncToAsyncLockAdapter
 from tests.helpers.utils import assert_log_emitted, wait_for_key_expiry
@@ -112,7 +112,7 @@ class DistributedLockObservabilityTests:
         lock = create_lock(lock_key, timeout_ms=1000)
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
             async with lock:
                 pass
 
@@ -138,7 +138,7 @@ class DistributedLockObservabilityTests:
         lock = create_lock(lock_key, timeout_ms=1000)
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
             async with lock:
                 pass
 
@@ -160,7 +160,7 @@ class DistributedLockObservabilityTests:
         lock_contender = create_lock(lock_key, timeout_ms=5000)
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
             async with lock_holder as acquired_holder:
                 assert acquired_holder is True, "holder should acquire successfully"
 
@@ -187,7 +187,7 @@ class DistributedLockObservabilityTests:
         lock = create_lock(lock_key, timeout_ms=500)
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
             async with lock as acquired:
                 assert acquired is True, "lock should be acquired successfully"
                 # Wait for the lock key to expire in Redis.

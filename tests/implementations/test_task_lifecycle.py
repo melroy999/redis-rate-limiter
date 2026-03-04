@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from celery_rate_limiter import TaskLifecycle
+from redis_rate_limiter import TaskLifecycle
 from tests.contracts.test_task_lifecycle import TaskLifecycleContractTest
 from tests.helpers.utils import assert_log_emitted
 from tests.implementations.conftest import MinimalRateLimiter
@@ -237,7 +237,7 @@ class TestTaskLifecycleObservability:
         redis_client.set(inflight_key, "1")
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.limiters"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
             with patch("threading.Thread"):
                 with TaskLifecycle(mock_limiter, task_id):
                     pass
@@ -267,7 +267,7 @@ class TestTaskLifecycleObservability:
         limiter.extend_lease.return_value = None
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.limiters"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
             with patch("threading.Thread"):
                 with TaskLifecycle(limiter, task_id=""):
                     pass
@@ -419,7 +419,7 @@ class TestHeartbeatLoopObservability:
     def test_lifecycle_entry_emits_debug_log(mock_limiter, task_id, caplog):
         """Verify that lifecycle entry emits a DEBUG log with limiter id, task id, and heartbeat interval."""
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.limiters"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
             with TaskLifecycle(mock_limiter, task_id):
                 time.sleep(0.75 * mock_limiter.lease_duration)
 
@@ -439,7 +439,7 @@ class TestHeartbeatLoopObservability:
     def test_heartbeat_recovery_emits_info_log(mock_limiter, task_id, caplog):
         """Verify that heartbeat recovery emits an INFO log with task id and limiter id."""
         # Act
-        with caplog.at_level(logging.INFO, logger="celery_rate_limiter.core.limiters"):
+        with caplog.at_level(logging.INFO, logger="redis_rate_limiter.core.limiters"):
             with TaskLifecycle(mock_limiter, task_id) as lifecycle:
                 lifecycle.is_healthy = False
                 time.sleep(0.75 * mock_limiter.lease_duration)
@@ -466,7 +466,7 @@ class TestHeartbeatLoopObservability:
 
         # Act
         with caplog.at_level(
-            logging.CRITICAL, logger="celery_rate_limiter.core.limiters"
+            logging.CRITICAL, logger="redis_rate_limiter.core.limiters"
         ):
             with TaskLifecycle(mock_limiter, task_id, on_heartbeat_failure="warn"):
                 time.sleep(0.75 * mock_limiter.lease_duration)
@@ -493,7 +493,7 @@ class TestHeartbeatLoopObservability:
 
         # Act
         with caplog.at_level(
-            logging.CRITICAL, logger="celery_rate_limiter.core.limiters"
+            logging.CRITICAL, logger="redis_rate_limiter.core.limiters"
         ):
             with patch("os.kill"):
                 with TaskLifecycle(mock_limiter, task_id, on_heartbeat_failure="kill"):
@@ -581,7 +581,7 @@ class TestExtendLeaseObservability:
     def test_extend_lease_unknown_task_emits_debug_log(generic_limiter, caplog):
         """Verify that ``extend_lease()`` emits a DEBUG log with ``renewed=False`` for unknown tasks."""
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.limiters"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
             with pytest.raises(KeyError, match="not found in the concurrency set"):
                 generic_limiter.extend_lease("nonexistent", 30)
 
@@ -607,7 +607,7 @@ class TestExtendLeaseObservability:
         redis_client.zadd(generic_limiter.concurrency_key, {task_id: 1000.0})
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.limiters"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
             generic_limiter.extend_lease(task_id, 30)
 
         # Assert

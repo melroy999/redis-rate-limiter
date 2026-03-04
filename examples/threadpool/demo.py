@@ -13,7 +13,6 @@ Usage (local Redis on 6379):
 import os
 from concurrent.futures import ThreadPoolExecutor
 
-from celery_rate_limiter import ThreadPoolRateLimiter
 from examples.config import LIMIT, MAX_CONCURRENCY, THREADPOOL_MAX_WORKERS, WINDOW
 from examples.runner import (
     connect_redis,
@@ -21,6 +20,7 @@ from examples.runner import (
     run_demo,
     setup_logging,
 )
+from redis_rate_limiter import ThreadPoolRateLimiter
 
 # ---------------------------------------------------------------------------
 # Configuration

@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from celery_rate_limiter.core.async_limiters import (
+from redis_rate_limiter.core.async_limiters import (
     AsyncDrainLoop,
     AsyncDrainSignalSubscriber,
 )
@@ -602,7 +602,7 @@ class TestAsyncDrainLoopObservability:
 
         # Act
         with caplog.at_level(
-            logging.ERROR, logger="celery_rate_limiter.core.async_limiters"
+            logging.ERROR, logger="redis_rate_limiter.core.async_limiters"
         ):
             loop.wake(0)
             await asyncio.sleep(0.1)
@@ -658,7 +658,7 @@ class TestAsyncDrainSignalSubscriberObservability:
         safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
         safety_timer.start()
         with caplog.at_level(
-            logging.ERROR, logger="celery_rate_limiter.core.async_limiters"
+            logging.ERROR, logger="redis_rate_limiter.core.async_limiters"
         ):
             await subscriber._run()
         safety_timer.cancel()

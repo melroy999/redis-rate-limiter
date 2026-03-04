@@ -1,5 +1,5 @@
 [project]
-name = "celery-rate-limiter"
+name = "redis-rate-limiter"
 version = "0.2.0"
 description = ""
 authors = [
@@ -25,14 +25,14 @@ hypothesis = "^6.151.9"
 mutmut = {version = "^3.5.0", python = "<4.0"}
 
 [tool.poetry]
-packages = [{include = "celery_rate_limiter", from = "src"}]
+packages = [{include = "redis_rate_limiter", from = "src"}]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.coverage.run]
-source = ["src/celery_rate_limiter"]
+source = ["src/redis_rate_limiter"]
 concurrency = ["thread"]
 
 [tool.pytest.ini_options]
@@ -44,7 +44,7 @@ markers = [
 ]
 
 [tool.mutmut]
-paths_to_mutate = ["src/celery_rate_limiter/"]
+paths_to_mutate = ["src/redis_rate_limiter/"]
 pytest_add_cli_args_test_selection = ["tests/"]
 pytest_add_cli_args = [
     "-x", "--tb=short", "-q",

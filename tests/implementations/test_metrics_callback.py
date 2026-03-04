@@ -272,7 +272,7 @@ class MetricsCallbackObservabilityTests:
     async def test_consume_emits_attempt_and_result_debug_logs(limiter, caplog):
         """Verify that consume emits debug logs for the attempt start and result."""
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
             await limiter.consume()
 
         # Assert
@@ -298,7 +298,7 @@ class MetricsCallbackObservabilityTests:
         callback.side_effect = RuntimeError("callback failure")
 
         # Act
-        with caplog.at_level(logging.WARNING, logger="celery_rate_limiter"):
+        with caplog.at_level(logging.WARNING, logger="redis_rate_limiter"):
             await limiter.consume()
 
         # Assert
@@ -322,7 +322,7 @@ class MetricsCallbackObservabilityTests:
         callback.side_effect = RuntimeError("callback failure")
 
         # Act
-        with caplog.at_level(logging.WARNING, logger="celery_rate_limiter"):
+        with caplog.at_level(logging.WARNING, logger="redis_rate_limiter"):
             await limiter.schedule_task(func_path, {"key": "value"})
 
         # Assert

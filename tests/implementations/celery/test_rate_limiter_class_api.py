@@ -10,7 +10,7 @@ Fixture dependencies:
 
 import pytest
 
-from celery_rate_limiter import CeleryRateLimiter
+from redis_rate_limiter import CeleryRateLimiter
 
 
 class TestCeleryRateLimiterClassApi:

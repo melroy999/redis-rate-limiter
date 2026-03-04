@@ -23,8 +23,8 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from celery_rate_limiter.backends.asgi import ASGIRateLimiter, by_client_ip
 from examples.config import ASGI_LIMIT, ASGI_WINDOW, REDIS_HOST, REDIS_PORT
+from redis_rate_limiter.backends.asgi import ASGIRateLimiter, by_client_ip
 
 logger = logging.getLogger("examples.asgi_demo")
 
@@ -68,8 +68,8 @@ def setup_logging() -> None:
     )
     limiter_handler.setLevel(logging.DEBUG)
     limiter_handler.setFormatter(fmt)
-    logging.getLogger("celery_rate_limiter").addHandler(limiter_handler)
-    logging.getLogger("celery_rate_limiter").setLevel(logging.DEBUG)
+    logging.getLogger("redis_rate_limiter").addHandler(limiter_handler)
+    logging.getLogger("redis_rate_limiter").setLevel(logging.DEBUG)
 
 
 # ---------------------------------------------------------------------------

@@ -76,7 +76,7 @@ graph LR
 
 ## Key Namespacing
 
-All per-limiter keys are prefixed with the limiter's unique identifier (`{id}:`), as constructed in the `DistributedRateLimiterMixin.__init__()` method within [`limiters.py`](../../src/celery_rate_limiter/core/limiters.py). The key assignments are as follows:
+All per-limiter keys are prefixed with the limiter's unique identifier (`{id}:`), as constructed in the `DistributedRateLimiterMixin.__init__()` method within [`limiters.py`](../../src/redis_rate_limiter/core/limiters.py). The key assignments are as follows:
 
 ```python
 self.buffer_key = f"{self.id}:buffer"
@@ -108,7 +108,7 @@ local previous_key = base_key .. ':' .. previous_window_start
 
 ### ASGI per-identity keys
 
-The ASGI rate limiter constructs per-identity keys by combining the limiter identifier with the dynamic identity and the window start timestamp. The `acquire()` method in [`limiter.py`](../../src/celery_rate_limiter/backends/asgi/limiter.py) constructs the base key as follows:
+The ASGI rate limiter constructs per-identity keys by combining the limiter identifier with the dynamic identity and the window start timestamp. The `acquire()` method in [`limiter.py`](../../src/redis_rate_limiter/backends/asgi/limiter.py) constructs the base key as follows:
 
 ```python
 full_key = f"{self.id}:{key}"
@@ -134,7 +134,7 @@ This operation removes all entries from the concurrency ZSET whose scores (i.e.,
 
 ## Inflight Key TTL Formula
 
-The TTL for inflight deduplication keys is computed in the `_get_inflight_ttl()` method within [`limiters.py`](../../src/celery_rate_limiter/core/limiters.py) as follows:
+The TTL for inflight deduplication keys is computed in the `_get_inflight_ttl()` method within [`limiters.py`](../../src/redis_rate_limiter/core/limiters.py) as follows:
 
 ```python
 ttl_seconds = (
@@ -155,11 +155,11 @@ The `max(1, ...)` guard on each component ensures that the TTL is always at leas
 
 ## References
 
-- [consume.lua](../../src/celery_rate_limiter/lua/consume.lua): atomic consumption script (window check, buffer pop, lease registration).
-- [schedule.lua](../../src/celery_rate_limiter/lua/schedule.lua): task scheduling script (buffer insertion).
-- [renew.lua](../../src/celery_rate_limiter/lua/renew.lua): lease renewal script (concurrency set update).
-- [health.lua](../../src/celery_rate_limiter/lua/health.lua): health check script (status reads).
-- [acquire.lua](../../src/celery_rate_limiter/lua/acquire.lua): lightweight sliding window counter check for request-oriented rate limiting (ASGI).
-- [limiters.py](../../src/celery_rate_limiter/core/limiters.py): sync distributed rate limiter (key construction, TTL calculations, dispatch lock).
-- [async_limiters.py](../../src/celery_rate_limiter/core/async_limiters.py): async distributed rate limiter (asyncio counterpart of limiters.py).
+- [consume.lua](../../src/redis_rate_limiter/lua/consume.lua): atomic consumption script (window check, buffer pop, lease registration).
+- [schedule.lua](../../src/redis_rate_limiter/lua/schedule.lua): task scheduling script (buffer insertion).
+- [renew.lua](../../src/redis_rate_limiter/lua/renew.lua): lease renewal script (concurrency set update).
+- [health.lua](../../src/redis_rate_limiter/lua/health.lua): health check script (status reads).
+- [acquire.lua](../../src/redis_rate_limiter/lua/acquire.lua): lightweight sliding window counter check for request-oriented rate limiting (ASGI).
+- [limiters.py](../../src/redis_rate_limiter/core/limiters.py): sync distributed rate limiter (key construction, TTL calculations, dispatch lock).
+- [async_limiters.py](../../src/redis_rate_limiter/core/async_limiters.py): async distributed rate limiter (asyncio counterpart of limiters.py).
 - [Sliding Window Algorithm](sliding-window.md): visual explanation of the window counter algorithm and TTL rationale.

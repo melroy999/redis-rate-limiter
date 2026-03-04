@@ -9,9 +9,9 @@
 set -euo pipefail
 
 GRAFANA_PORT="${GRAFANA_PORT:-3001}"
-CLUSTER_NAME="celery-rate-limiter-demo"
-IMAGE_NAME="celery-rate-limiter-demo:latest"
-NAMESPACE="celery-rate-limiter-demo"
+CLUSTER_NAME="redis-rate-limiter-demo"
+IMAGE_NAME="redis-rate-limiter-demo:latest"
+NAMESPACE="redis-rate-limiter-demo"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 K8S_DIR="$SCRIPT_DIR/../k8s"

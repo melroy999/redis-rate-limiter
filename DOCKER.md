@@ -1,6 +1,6 @@
 # Docker and Docker Compose Guide
 
-This document describes how to use Docker and Docker Compose with the celery-rate-limiter project.
+This document describes how to use Docker and Docker Compose with the redis-rate-limiter project.
 
 ## Quick Start
 

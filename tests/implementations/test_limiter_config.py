@@ -17,7 +17,7 @@ import logging
 
 import pytest
 
-from celery_rate_limiter.core.limiters import DistributedRateLimiterMixin
+from redis_rate_limiter.core.limiters import DistributedRateLimiterMixin
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 from tests.helpers.utils import assert_log_emitted
 
@@ -77,7 +77,7 @@ class WindowChangeObservabilityTests:
         new_window = old_window * 2
 
         # Act
-        with caplog.at_level(logging.INFO, logger="celery_rate_limiter.core.base"):
+        with caplog.at_level(logging.INFO, logger="redis_rate_limiter.core.base"):
             limiter._apply_config_overrides({"window": new_window})
 
         # Assert
@@ -111,7 +111,7 @@ class EmitMetricObservabilityTests:
 
         # Act
         with caplog.at_level(
-            logging.WARNING, logger="celery_rate_limiter.core.limiters"
+            logging.WARNING, logger="redis_rate_limiter.core.limiters"
         ):
             limiter._emit_metric("consume", {"success": True})
 

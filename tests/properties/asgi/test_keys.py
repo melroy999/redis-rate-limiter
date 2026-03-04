@@ -9,7 +9,7 @@ No fixture dependencies (pure property-based tests).
 from hypothesis import given
 from hypothesis import strategies as st
 
-from celery_rate_limiter.backends.asgi.keys import by_client_ip, by_header
+from redis_rate_limiter.backends.asgi.keys import by_client_ip, by_header
 
 # ---------------------------------------------------------------------------
 # Strategies

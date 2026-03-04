@@ -15,11 +15,11 @@ Fixture dependencies:
 
 import pytest
 
-from celery_rate_limiter.backends.asgi.limiter import ASGIRateLimiter
-from celery_rate_limiter.backends.asyncio.limiter import AsyncIOTaskLimiter
-from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
-from celery_rate_limiter.backends.threading.limiter import ThreadPoolRateLimiter
-from celery_rate_limiter.core.managed import ManagedRateLimiterMixin
+from redis_rate_limiter.backends.asgi.limiter import ASGIRateLimiter
+from redis_rate_limiter.backends.asyncio.limiter import AsyncIOTaskLimiter
+from redis_rate_limiter.backends.celery.limiter import CeleryRateLimiter
+from redis_rate_limiter.backends.threading.limiter import ThreadPoolRateLimiter
+from redis_rate_limiter.core.managed import ManagedRateLimiterMixin
 
 
 class _BareMixin(ManagedRateLimiterMixin):

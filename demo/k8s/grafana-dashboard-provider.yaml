@@ -6,7 +6,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-dashboard-provider
-  namespace: celery-rate-limiter-demo
+  namespace: redis-rate-limiter-demo
 data:
   default.yaml: |
     apiVersion: 1

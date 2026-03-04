@@ -71,25 +71,25 @@
       },
       "targets": [
         {
-          "expr": "celery_rate_limiter_demo_offered_rate{limiter_id=\"$limiter_id\"}",
+          "expr": "redis_rate_limiter_demo_offered_rate{limiter_id=\"$limiter_id\"}",
           "legendFormat": "Offered Rate",
           "interval": "1s",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(celery_rate_limiter_demo_tasks_scheduled_total{limiter_id=\"$limiter_id\"}[2s]))",
+          "expr": "sum(rate(redis_rate_limiter_demo_tasks_scheduled_total{limiter_id=\"$limiter_id\"}[2s]))",
           "legendFormat": "Actual Offered Rate",
           "interval": "1s",
           "refId": "B"
         },
         {
-          "expr": "sum(rate(celery_rate_limiter_consume_total{limiter_id=\"$limiter_id\", outcome=\"success\"}[2s]))",
+          "expr": "sum(rate(redis_rate_limiter_consume_total{limiter_id=\"$limiter_id\", outcome=\"success\"}[2s]))",
           "legendFormat": "Consumed Rate",
           "interval": "1s",
           "refId": "C"
         },
         {
-          "expr": "max(celery_rate_limiter_demo_effective_rate{limiter_id=\"$limiter_id\"})",
+          "expr": "max(redis_rate_limiter_demo_effective_rate{limiter_id=\"$limiter_id\"})",
           "legendFormat": "Rate Limit",
           "interval": "1s",
           "refId": "D"
@@ -125,7 +125,7 @@
       },
       "targets": [
         {
-          "expr": "max(celery_rate_limiter_buffer_depth{limiter_id=\"$limiter_id\"})",
+          "expr": "max(redis_rate_limiter_buffer_depth{limiter_id=\"$limiter_id\"})",
           "legendFormat": "Buffer Depth",
           "interval": "1s",
           "refId": "A"
@@ -161,7 +161,7 @@
       },
       "targets": [
         {
-          "expr": "rate(celery_rate_limiter_demo_tasks_executed_total{limiter_id=\"$limiter_id\"}[2s])",
+          "expr": "rate(redis_rate_limiter_demo_tasks_executed_total{limiter_id=\"$limiter_id\"}[2s])",
           "legendFormat": "{{instance}}",
           "interval": "1s",
           "refId": "A"
@@ -197,7 +197,7 @@
       },
       "targets": [
         {
-          "expr": "min(celery_rate_limiter_remaining_tokens{limiter_id=\"$limiter_id\"})",
+          "expr": "min(redis_rate_limiter_remaining_tokens{limiter_id=\"$limiter_id\"})",
           "legendFormat": "Remaining Tokens",
           "interval": "1s",
           "refId": "A"
@@ -250,7 +250,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (outcome) (rate(celery_rate_limiter_consume_total{limiter_id=\"$limiter_id\"}[2s]))",
+          "expr": "sum by (outcome) (rate(redis_rate_limiter_consume_total{limiter_id=\"$limiter_id\"}[2s]))",
           "legendFormat": "{{outcome}}",
           "interval": "1s",
           "refId": "A"
@@ -294,6 +294,6 @@
   "timepicker": {},
   "timezone": "browser",
   "title": "Distributed Rate Limiter Demo",
-  "uid": "celery-rate-limiter-demo",
+  "uid": "redis-rate-limiter-demo",
   "version": 1
 }

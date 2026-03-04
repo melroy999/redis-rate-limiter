@@ -20,9 +20,9 @@ from concurrent.futures import ThreadPoolExecutor
 import redis
 from prometheus_client import Counter, Gauge, start_http_server
 
-from celery_rate_limiter import PrometheusMetricsExporter, ThreadPoolRateLimiter
 from demo import config
 from demo.tasks import FUNC_PATH
+from redis_rate_limiter import PrometheusMetricsExporter, ThreadPoolRateLimiter
 
 logger = logging.getLogger("demo")
 
@@ -43,7 +43,7 @@ def _setup_logging() -> None:
     )
     logging.getLogger().addHandler(handler)
     logging.getLogger().setLevel(logging.INFO)
-    logging.getLogger("celery_rate_limiter").setLevel(logging.WARNING)
+    logging.getLogger("redis_rate_limiter").setLevel(logging.WARNING)
 
 
 def _connect_redis() -> redis.Redis:
@@ -99,7 +99,7 @@ def _run_traffic_generator(limiter: ThreadPoolRateLimiter) -> None:
     between 2.5 and 35, with an average of 18.75 (well below the 25/sec limit).
     """
     offered_rate_gauge = Gauge(
-        "celery_rate_limiter_demo_offered_rate",
+        "redis_rate_limiter_demo_offered_rate",
         "Current offered traffic rate in tasks per second.",
         ["limiter_id"],
     )
@@ -108,7 +108,7 @@ def _run_traffic_generator(limiter: ThreadPoolRateLimiter) -> None:
     # Grafana gives the real production rate, which may lag behind the
     # theoretical offered rate due to Redis round-trip latency.
     tasks_scheduled_counter = Counter(
-        "celery_rate_limiter_demo_tasks_scheduled_total",
+        "redis_rate_limiter_demo_tasks_scheduled_total",
         "Total number of tasks scheduled by the traffic generator.",
         ["limiter_id"],
     )
@@ -173,7 +173,7 @@ def main() -> None:
     # Expose the configured rate limit as a Prometheus gauge so the Grafana
     # dashboard can draw a dynamic threshold line.
     effective_rate_gauge = Gauge(
-        "celery_rate_limiter_demo_effective_rate",
+        "redis_rate_limiter_demo_effective_rate",
         "Configured rate limit in tasks per second (limit / window).",
         ["limiter_id"],
     )

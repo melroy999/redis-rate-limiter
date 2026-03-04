@@ -63,7 +63,7 @@ class SmartJitterTests:
         # Multiple samples are taken to test statistical properties.
         limiter.window = 1
         with patch(
-            "celery_rate_limiter.core.limiters.random.random",
+            "redis_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             short_jitters = [
@@ -74,7 +74,7 @@ class SmartJitterTests:
             ]
         limiter.window = 60
         with patch(
-            "celery_rate_limiter.core.limiters.random.random",
+            "redis_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             long_jitters = [
@@ -103,7 +103,7 @@ class SmartJitterTests:
         # Act
         # Multiple samples are taken at each load level.
         with patch(
-            "celery_rate_limiter.core.limiters.random.random",
+            "redis_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             low_load_jitters = [
@@ -115,7 +115,7 @@ class SmartJitterTests:
                 for _ in range(samples)
             ]
         with patch(
-            "celery_rate_limiter.core.limiters.random.random",
+            "redis_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             medium_load_jitters = [
@@ -127,7 +127,7 @@ class SmartJitterTests:
                 for _ in range(samples)
             ]
         with patch(
-            "celery_rate_limiter.core.limiters.random.random",
+            "redis_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             high_load_jitters = [
@@ -172,7 +172,7 @@ class SmartJitterTests:
         samples = 100
         random_values = self._seeded_random_values(samples, seed=20260209)
         with patch(
-            "celery_rate_limiter.core.limiters.random.random",
+            "redis_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             jitters = [
@@ -215,7 +215,7 @@ class SmartJitterTests:
         # combined=0.7*1.0 + 0.3*0.6=0.88, scale=0.3+0.88*0.7=0.916
         # range=0.4*0.916=0.3664, jitter=0.1+0.3664*0.5=0.2832, round=0.283
         with patch(
-            "celery_rate_limiter.core.limiters.random.random",
+            "redis_rate_limiter.core.limiters.random.random",
             return_value=0.5,
         ):
             jitter = limiter._calculate_smart_jitter(
@@ -243,7 +243,7 @@ class SmartJitterTests:
         # The exact same random values are reused for both levels so that any
         # difference arises from concurrency pressure, not random chance.
         with patch(
-            "celery_rate_limiter.core.limiters.random.random",
+            "redis_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             low_concurrency_jitters = [
@@ -255,7 +255,7 @@ class SmartJitterTests:
                 for _ in range(samples)
             ]
         with patch(
-            "celery_rate_limiter.core.limiters.random.random",
+            "redis_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
             high_concurrency_jitters = [
@@ -299,7 +299,7 @@ class SmartJitterTests:
         # load_pressure=0.0, concurrency_pressure=0/5=0.0
         # combined=0.0, scale=0.3, range=0.4*0.3=0.12, jitter=0.1+0.12*0.5=0.16
         with patch(
-            "celery_rate_limiter.core.limiters.random.random",
+            "redis_rate_limiter.core.limiters.random.random",
             return_value=0.5,
         ):
             jitter = limiter._calculate_smart_jitter(
@@ -351,9 +351,9 @@ class SmartJitterObservabilityTests:
 
         # Act
         with (
-            caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.limiters"),
+            caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"),
             patch(
-                "celery_rate_limiter.core.limiters.random.random",
+                "redis_rate_limiter.core.limiters.random.random",
                 return_value=0.5,
             ),
         ):

@@ -11,8 +11,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from celery_rate_limiter import rate_limited
-from celery_rate_limiter.core.decorators import _get_default_limiter
+from redis_rate_limiter import rate_limited
+from redis_rate_limiter.core.decorators import _get_default_limiter
 from tests.helpers.utils import assert_log_emitted
 
 # ---------------------------------------------------------------------------
@@ -54,7 +54,7 @@ class TestRateLimitedDecorator:
 
         # Act
         with patch(
-            "celery_rate_limiter.core.decorators._get_default_limiter",
+            "redis_rate_limiter.core.decorators._get_default_limiter",
             return_value=limiter,
         ):
             result = wrapped_function(4, _rate_limit_task_id=task_id)
@@ -81,7 +81,7 @@ class TestRateLimitedDecorator:
 
         # Act
         with patch(
-            "celery_rate_limiter.core.decorators._get_default_limiter",
+            "redis_rate_limiter.core.decorators._get_default_limiter",
             return_value=limiter,
         ):
             result = wrapped_function(alpha=1, _rate_limit_task_id=task_id)
@@ -109,7 +109,7 @@ class TestRateLimitedDecorator:
 
         # Act
         with patch(
-            "celery_rate_limiter.core.decorators._get_default_limiter",
+            "redis_rate_limiter.core.decorators._get_default_limiter",
             return_value=limiter,
         ):
             wrapped_function(
@@ -139,7 +139,7 @@ class TestRateLimitedDecorator:
 
         # Act
         with patch(
-            "celery_rate_limiter.core.decorators._get_default_limiter",
+            "redis_rate_limiter.core.decorators._get_default_limiter",
             return_value=limiter,
         ) as mock_get:
             wrapped_function(
@@ -165,7 +165,7 @@ class TestRateLimitedDecorator:
 
         # Act
         with patch(
-            "celery_rate_limiter.core.decorators._get_default_limiter",
+            "redis_rate_limiter.core.decorators._get_default_limiter",
             return_value=limiter,
         ) as mock_get:
             wrapped_function(
@@ -191,7 +191,7 @@ class TestRateLimitedDecorator:
 
         # Act & Assert
         with patch(
-            "celery_rate_limiter.core.decorators._get_default_limiter",
+            "redis_rate_limiter.core.decorators._get_default_limiter",
             return_value=limiter,
         ):
             with pytest.raises(RuntimeError, match="wrapped function failed"):
@@ -212,7 +212,7 @@ class TestRateLimitedDecorator:
 
         # Act & Assert
         with patch(
-            "celery_rate_limiter.core.decorators._get_default_limiter",
+            "redis_rate_limiter.core.decorators._get_default_limiter",
             return_value=limiter,
         ) as mock_get:
             with pytest.raises(KeyError, match="_rate_limit_task_id"):
@@ -278,7 +278,7 @@ class TestRateLimitedDecorator:
 
         # Act & Assert
         with patch(
-            "celery_rate_limiter.core.decorators._get_default_limiter",
+            "redis_rate_limiter.core.decorators._get_default_limiter",
             return_value=limiter,
         ):
             with pytest.raises(ValueError, match="Missing limiter id"):
@@ -296,7 +296,7 @@ class TestRateLimitedDecorator:
 
         # Act
         with patch(
-            "celery_rate_limiter.backends.threading.ThreadPoolRateLimiter.get",
+            "redis_rate_limiter.backends.threading.ThreadPoolRateLimiter.get",
             return_value=limiter,
         ) as mock_get:
             result = wrapped_function(7, _rate_limit_task_id=task_id)
@@ -369,10 +369,10 @@ class TestRateLimitedDecoratorObservability:
 
         # Act
         with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.core.decorators"
+            logging.DEBUG, logger="redis_rate_limiter.core.decorators"
         ):
             with patch(
-                "celery_rate_limiter.core.decorators._get_default_limiter",
+                "redis_rate_limiter.core.decorators._get_default_limiter",
                 return_value=limiter,
             ):
                 wrapped_function(4, _rate_limit_task_id=task_id)
@@ -412,7 +412,7 @@ class TestGetDefaultLimiter:
         """Verify that ``_get_default_limiter`` passes the limiter_id argument to ``ThreadPoolRateLimiter.get``."""
         # Act
         with patch(
-            "celery_rate_limiter.backends.threading.ThreadPoolRateLimiter.get",
+            "redis_rate_limiter.backends.threading.ThreadPoolRateLimiter.get",
             return_value=MagicMock(),
         ) as mock_get:
             _get_default_limiter(limiter_id)

@@ -6,7 +6,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-datasource
-  namespace: celery-rate-limiter-demo
+  namespace: redis-rate-limiter-demo
 data:
   prometheus.yaml: |
     apiVersion: 1

@@ -327,8 +327,8 @@ When the token recovery calculation cannot determine an exact delay via previous
 
 ## References
 
-- [limiters.py](../../src/celery_rate_limiter/core/limiters.py): sync core implementation (DrainLoop, DrainSignalSubscriber, drain, _drain_inner, delay calculations).
-- [async_limiters.py](../../src/celery_rate_limiter/core/async_limiters.py): async core implementation (AsyncDrainLoop, AsyncDrainSignalSubscriber, and async counterparts of drain and delay calculations).
+- [limiters.py](../../src/redis_rate_limiter/core/limiters.py): sync core implementation (DrainLoop, DrainSignalSubscriber, drain, _drain_inner, delay calculations).
+- [async_limiters.py](../../src/redis_rate_limiter/core/async_limiters.py): async core implementation (AsyncDrainLoop, AsyncDrainSignalSubscriber, and async counterparts of drain and delay calculations).
 - [Smart Jitter](../smart-jitter.md): adaptive thundering herd prevention strategy for retry delays.
 - [Task State Diagram](task-states.md): all possible task states and their transitions.
 - [Component Diagram](components.md): high-level component overview showing the DrainLoop's position in the architecture.

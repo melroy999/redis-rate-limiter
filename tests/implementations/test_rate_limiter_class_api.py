@@ -19,7 +19,7 @@ from typing import Any, ClassVar, Optional
 
 import pytest
 
-from celery_rate_limiter.core import (
+from redis_rate_limiter.core import (
     AbstractDistributedRateLimiter,
     SyncManagedRateLimiter,
 )
@@ -874,7 +874,7 @@ class TestConfigureObservability:
         ManagedTestRateLimiter._reset()
 
         # Act
-        with caplog.at_level(logging.INFO, logger="celery_rate_limiter.core.managed"):
+        with caplog.at_level(logging.INFO, logger="redis_rate_limiter.core.managed"):
             ManagedTestRateLimiter.configure(redis_client, backend_label="test")
 
         # Assert
@@ -893,7 +893,7 @@ class TestCreateObservability:
     def test_create_emits_info_log(limiter_id, caplog):
         """Verify that ``create()`` emits an INFO log with the limiter id and persist flag."""
         # Act
-        with caplog.at_level(logging.INFO, logger="celery_rate_limiter.core.managed"):
+        with caplog.at_level(logging.INFO, logger="redis_rate_limiter.core.managed"):
             create_test_limiter(limiter_id)
 
         # Assert
@@ -920,7 +920,7 @@ class TestGetObservability:
         create_test_limiter(limiter_id)
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.managed"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.managed"):
             ManagedTestRateLimiter.get(limiter_id)
 
         # Assert
@@ -943,7 +943,7 @@ class TestGetObservability:
         ManagedTestRateLimiter._instances.clear()
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.managed"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.managed"):
             ManagedTestRateLimiter.get(limiter_id)
 
         # Assert
@@ -969,7 +969,7 @@ class TestUpdateObservability:
         create_test_limiter(limiter_id)
 
         # Act
-        with caplog.at_level(logging.INFO, logger="celery_rate_limiter.core.managed"):
+        with caplog.at_level(logging.INFO, logger="redis_rate_limiter.core.managed"):
             ManagedTestRateLimiter.update(limiter_id, limit=50)
 
         # Assert
@@ -1009,7 +1009,7 @@ class TestRefreshConfigObservability:
         redis_client.hincrby(ManagedTestRateLimiter._VERSION_KEY, limiter_id, 1)
 
         # Act
-        with caplog.at_level(logging.INFO, logger="celery_rate_limiter.core.managed"):
+        with caplog.at_level(logging.INFO, logger="redis_rate_limiter.core.managed"):
             limiter.refresh_config()
 
         # Assert
@@ -1033,9 +1033,7 @@ class TestRefreshConfigObservability:
         redis_client.hincrby(ManagedTestRateLimiter._VERSION_KEY, limiter_id, 1)
 
         # Act
-        with caplog.at_level(
-            logging.WARNING, logger="celery_rate_limiter.core.managed"
-        ):
+        with caplog.at_level(logging.WARNING, logger="redis_rate_limiter.core.managed"):
             limiter.refresh_config()
 
         # Assert

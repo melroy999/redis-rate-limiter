@@ -13,7 +13,7 @@ import inspect
 import logging
 from unittest.mock import patch
 
-from celery_rate_limiter.core.limiters import DistributedRateLimiterMixin
+from redis_rate_limiter.core.limiters import DistributedRateLimiterMixin
 from tests.helpers.utils import assert_log_emitted
 
 # ---------------------------------------------------------------------------
@@ -96,7 +96,7 @@ class TestCleanupInflightKey:
 
         # Act & Assert
         with caplog.at_level(
-            logging.WARNING, logger="celery_rate_limiter.core.limiters"
+            logging.WARNING, logger="redis_rate_limiter.core.limiters"
         ):
             with patch.object(
                 generic_limiter.redis,
@@ -164,7 +164,7 @@ class TestAsyncCleanupInflightKey:
 
         # Act & Assert
         with caplog.at_level(
-            logging.WARNING, logger="celery_rate_limiter.core.async_limiters"
+            logging.WARNING, logger="redis_rate_limiter.core.async_limiters"
         ):
             with patch.object(
                 async_generic_limiter.redis,
@@ -239,7 +239,7 @@ class TestCleanupInflightKeyObservability:
         redis_client.set(inflight_key, "1")
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter.core.limiters"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
             generic_limiter._cleanup_inflight_key(inflight_key, "cleanup-del")
 
         # Assert
@@ -270,7 +270,7 @@ class TestAsyncCleanupInflightKeyObservability:
 
         # Act
         with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.core.async_limiters"
+            logging.DEBUG, logger="redis_rate_limiter.core.async_limiters"
         ):
             await async_generic_limiter._cleanup_inflight_key(
                 inflight_key, "cleanup-del"

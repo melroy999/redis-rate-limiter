@@ -15,7 +15,7 @@ from uuid import uuid4
 
 import pytest
 
-from celery_rate_limiter import (
+from redis_rate_limiter import (
     AbstractAsyncDistributedRateLimiter,
     AbstractDistributedRateLimiter,
 )

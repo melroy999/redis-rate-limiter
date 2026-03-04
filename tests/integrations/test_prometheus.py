@@ -13,7 +13,7 @@ import logging
 import pytest
 from prometheus_client import CollectorRegistry
 
-from celery_rate_limiter.integrations.prometheus import PrometheusMetricsExporter
+from redis_rate_limiter.integrations.prometheus import PrometheusMetricsExporter
 
 
 @pytest.fixture
@@ -49,7 +49,7 @@ class TestConsumeCounters:
 
         # Assert
         value = registry.get_sample_value(
-            "celery_rate_limiter_consume_total",
+            "redis_rate_limiter_consume_total",
             {"limiter_id": limiter_id, "outcome": "success"},
         )
         assert value == 1.0, "success counter should be incremented to 1"
@@ -72,7 +72,7 @@ class TestConsumeCounters:
 
         # Assert
         value = registry.get_sample_value(
-            "celery_rate_limiter_consume_total",
+            "redis_rate_limiter_consume_total",
             {"limiter_id": limiter_id, "outcome": "rejected"},
         )
         assert value == 1.0, "rejected counter should be incremented to 1"
@@ -95,7 +95,7 @@ class TestConsumeCounters:
 
         # Assert
         value = registry.get_sample_value(
-            "celery_rate_limiter_consume_total",
+            "redis_rate_limiter_consume_total",
             {"limiter_id": limiter_id, "outcome": "expired"},
         )
         assert value == 1.0, "expired counter should be incremented to 1"
@@ -119,7 +119,7 @@ class TestConsumeCounters:
 
         # Assert
         value = registry.get_sample_value(
-            "celery_rate_limiter_consume_total",
+            "redis_rate_limiter_consume_total",
             {"limiter_id": limiter_id, "outcome": "success"},
         )
         assert value == 5.0, "success counter should accumulate to 5"
@@ -147,7 +147,7 @@ class TestConsumeGauges:
         # Assert
         assert (
             registry.get_sample_value(
-                "celery_rate_limiter_remaining_tokens",
+                "redis_rate_limiter_remaining_tokens",
                 {"limiter_id": limiter_id},
             )
             == 18.0
@@ -155,7 +155,7 @@ class TestConsumeGauges:
 
         assert (
             registry.get_sample_value(
-                "celery_rate_limiter_active_concurrency",
+                "redis_rate_limiter_active_concurrency",
                 {"limiter_id": limiter_id},
             )
             == 3.0
@@ -163,7 +163,7 @@ class TestConsumeGauges:
 
         assert (
             registry.get_sample_value(
-                "celery_rate_limiter_buffer_depth",
+                "redis_rate_limiter_buffer_depth",
                 {"limiter_id": limiter_id},
             )
             == 7.0
@@ -201,7 +201,7 @@ class TestConsumeGauges:
         # Assert
         assert (
             registry.get_sample_value(
-                "celery_rate_limiter_remaining_tokens",
+                "redis_rate_limiter_remaining_tokens",
                 {"limiter_id": limiter_id},
             )
             == 5.0
@@ -209,7 +209,7 @@ class TestConsumeGauges:
 
         assert (
             registry.get_sample_value(
-                "celery_rate_limiter_active_concurrency",
+                "redis_rate_limiter_active_concurrency",
                 {"limiter_id": limiter_id},
             )
             == 3.0
@@ -217,7 +217,7 @@ class TestConsumeGauges:
 
         assert (
             registry.get_sample_value(
-                "celery_rate_limiter_buffer_depth",
+                "redis_rate_limiter_buffer_depth",
                 {"limiter_id": limiter_id},
             )
             == 2.0
@@ -235,7 +235,7 @@ class TestScheduleCounter:
 
         # Assert
         value = registry.get_sample_value(
-            "celery_rate_limiter_schedule_total",
+            "redis_rate_limiter_schedule_total",
             {"limiter_id": limiter_id, "scheduled": "true"},
         )
         assert value == 1.0, "scheduled=true counter should be incremented to 1"
@@ -248,7 +248,7 @@ class TestScheduleCounter:
 
         # Assert
         value = registry.get_sample_value(
-            "celery_rate_limiter_schedule_total",
+            "redis_rate_limiter_schedule_total",
             {"limiter_id": limiter_id, "scheduled": "false"},
         )
         assert value == 1.0, "scheduled=false counter should be incremented to 1"
@@ -265,11 +265,11 @@ class TestMetricRegistration:
 
         # Assert
         expected = {
-            "celery_rate_limiter_consume",
-            "celery_rate_limiter_schedule",
-            "celery_rate_limiter_remaining_tokens",
-            "celery_rate_limiter_active_concurrency",
-            "celery_rate_limiter_buffer_depth",
+            "redis_rate_limiter_consume",
+            "redis_rate_limiter_schedule",
+            "redis_rate_limiter_remaining_tokens",
+            "redis_rate_limiter_active_concurrency",
+            "redis_rate_limiter_buffer_depth",
         }
         assert expected.issubset(metric_names), (
             f"missing metrics from registry: {expected - metric_names}"
@@ -282,19 +282,19 @@ class TestMetricRegistration:
         metrics = {m.name: m for m in registry.collect()}
 
         # Assert
-        assert metrics["celery_rate_limiter_consume"].documentation == (
+        assert metrics["redis_rate_limiter_consume"].documentation == (
             "Total consume operations performed by the rate limiter."
         ), "consume counter should have the correct description"
-        assert metrics["celery_rate_limiter_schedule"].documentation == (
+        assert metrics["redis_rate_limiter_schedule"].documentation == (
             "Total schedule operations performed by the rate limiter."
         ), "schedule counter should have the correct description"
-        assert metrics["celery_rate_limiter_remaining_tokens"].documentation == (
+        assert metrics["redis_rate_limiter_remaining_tokens"].documentation == (
             "Number of rate limit tokens remaining in the current window."
         ), "remaining tokens gauge should have the correct description"
-        assert metrics["celery_rate_limiter_active_concurrency"].documentation == (
+        assert metrics["redis_rate_limiter_active_concurrency"].documentation == (
             "Number of tasks currently executing."
         ), "active concurrency gauge should have the correct description"
-        assert metrics["celery_rate_limiter_buffer_depth"].documentation == (
+        assert metrics["redis_rate_limiter_buffer_depth"].documentation == (
             "Number of tasks waiting in the buffer."
         ), "buffer depth gauge should have the correct description"
 
@@ -318,7 +318,7 @@ class TestMetricRegistration:
         # Act
         label_names = set()
         for metric_family in registry.collect():
-            if metric_family.name == "celery_rate_limiter_consume":
+            if metric_family.name == "redis_rate_limiter_consume":
                 for sample in metric_family.samples:
                     label_names = set(sample.labels.keys())
                     break
@@ -337,7 +337,7 @@ class TestMetricRegistration:
         # Act
         label_names = set()
         for metric_family in registry.collect():
-            if metric_family.name == "celery_rate_limiter_schedule":
+            if metric_family.name == "redis_rate_limiter_schedule":
                 for sample in metric_family.samples:
                     label_names = set(sample.labels.keys())
                     break
@@ -365,9 +365,9 @@ class TestMetricRegistration:
 
         # Act & Assert
         gauge_names = [
-            "celery_rate_limiter_remaining_tokens",
-            "celery_rate_limiter_active_concurrency",
-            "celery_rate_limiter_buffer_depth",
+            "redis_rate_limiter_remaining_tokens",
+            "redis_rate_limiter_active_concurrency",
+            "redis_rate_limiter_buffer_depth",
         ]
         for gauge_name in gauge_names:
             for metric_family in registry.collect():
@@ -387,7 +387,7 @@ class TestEdgeCases:
         """Verify that unknown event names do not raise exceptions and emit a debug log."""
         # Act
         with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.integrations.prometheus"
+            logging.DEBUG, logger="redis_rate_limiter.integrations.prometheus"
         ):
             # This invocation must not raise.
             exporter("unknown_event", {"key": "value"})
@@ -428,7 +428,7 @@ class TestEdgeCases:
         # Assert
         assert (
             registry_a.get_sample_value(
-                "celery_rate_limiter_consume_total",
+                "redis_rate_limiter_consume_total",
                 {"limiter_id": "a", "outcome": "success"},
             )
             == 1.0
@@ -436,7 +436,7 @@ class TestEdgeCases:
 
         assert (
             registry_b.get_sample_value(
-                "celery_rate_limiter_consume_total",
+                "redis_rate_limiter_consume_total",
                 {"limiter_id": "a", "outcome": "success"},
             )
             is None

@@ -24,10 +24,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import redis.asyncio
 
-from celery_rate_limiter.core.async_limiters import (
+from redis_rate_limiter.core.async_limiters import (
     AbstractAsyncDistributedRateLimiter,
 )
-from celery_rate_limiter.core.limiters import AbstractDistributedRateLimiter
+from redis_rate_limiter.core.limiters import AbstractDistributedRateLimiter
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 from tests.helpers.utils import assert_log_emitted
 from tests.implementations.conftest import (
@@ -748,7 +748,7 @@ class DrainObservabilityTests:
         mock_target._paused_until = time.time() + 0.2
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
             with patch.object(mock_target, "consume", MagicMock()):
                 await limiter.drain()
 
@@ -765,7 +765,7 @@ class DrainObservabilityTests:
     ):
         """Verify that ``drain()`` emits a debug log when the dispatch lock is contended."""
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
             with (
                 patch.object(
                     mock_target,
@@ -804,7 +804,7 @@ class DrainObservabilityTests:
         }
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
             with (
                 patch.object(
                     mock_target,
@@ -838,7 +838,7 @@ class DrainObservabilityTests:
     ):
         """Verify that a consume exception emits an error log with the attempt number."""
         # Act
-        with caplog.at_level(logging.ERROR, logger="celery_rate_limiter"):
+        with caplog.at_level(logging.ERROR, logger="redis_rate_limiter"):
             with (
                 patch.object(
                     mock_target,
@@ -866,7 +866,7 @@ class DrainObservabilityTests:
     ):
         """Verify that ``drain()`` emits a CRITICAL log when both consume and recovery scheduling fail."""
         # Act
-        with caplog.at_level(logging.CRITICAL, logger="celery_rate_limiter"):
+        with caplog.at_level(logging.CRITICAL, logger="redis_rate_limiter"):
             with (
                 patch.object(
                     mock_target,
@@ -913,7 +913,7 @@ class DrainObservabilityTests:
         }
 
         # Act
-        with caplog.at_level(logging.WARNING, logger="celery_rate_limiter"):
+        with caplog.at_level(logging.WARNING, logger="redis_rate_limiter"):
             with (
                 patch.object(
                     mock_target,
@@ -948,7 +948,7 @@ class DrainObservabilityTests:
         }
 
         # Act
-        with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
             with (
                 patch.object(
                     mock_target,
@@ -989,7 +989,7 @@ class DrainObservabilityTests:
         }
 
         # Act
-        with caplog.at_level(logging.INFO, logger="celery_rate_limiter"):
+        with caplog.at_level(logging.INFO, logger="redis_rate_limiter"):
             with (
                 patch.object(
                     mock_target,
@@ -1027,7 +1027,7 @@ class DrainObservabilityTests:
             mock_target.redis, "publish", side_effect=Exception("publish boom")
         ):
             # Act
-            with caplog.at_level(logging.DEBUG, logger="celery_rate_limiter"):
+            with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
                 await limiter.trigger_consume()
 
         # Assert

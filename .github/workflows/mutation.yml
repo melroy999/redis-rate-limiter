@@ -35,7 +35,7 @@ jobs:
         with:
           auth: ${{ secrets.GIST_SECRET }}
           gistID: f3caa8f0af98bf11563b5b2031c1ef3e
-          filename: celery-rate-limiter-mutation-score.json
+          filename: redis-rate-limiter-mutation-score.json
           label: Mutation Score
           message: ${{ steps.score.outputs.score }}%
           valColorRange: ${{ steps.score.outputs.score }}
@@ -85,7 +85,7 @@ jobs:
         with:
           auth: ${{ secrets.GIST_SECRET }}
           gistID: f3caa8f0af98bf11563b5b2031c1ef3e
-          filename: celery-rate-limiter-mutation-score.json
+          filename: redis-rate-limiter-mutation-score.json
           label: Mutation Score
           message: ${{ steps.mutation_score.outputs.score }}%
           valColorRange: ${{ steps.mutation_score.outputs.score }}

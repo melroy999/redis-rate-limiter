@@ -1,6 +1,6 @@
 """Tests for the ASGI key extraction functions."""
 
-from celery_rate_limiter.backends.asgi.keys import by_client_ip, by_header
+from redis_rate_limiter.backends.asgi.keys import by_client_ip, by_header
 
 
 class TestByClientIp:

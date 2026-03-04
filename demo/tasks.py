@@ -14,7 +14,7 @@ from demo.config import LIMITER_ID, TASK_DURATION
 FUNC_PATH = "demo.tasks.mock_work"
 
 _tasks_executed = Counter(
-    "celery_rate_limiter_demo_tasks_executed_total",
+    "redis_rate_limiter_demo_tasks_executed_total",
     "Total tasks executed by this worker pod.",
     ["limiter_id"],
 )

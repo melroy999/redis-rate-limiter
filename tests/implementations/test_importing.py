@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from celery_rate_limiter import import_string, resolve_import_path
+from redis_rate_limiter import import_string, resolve_import_path
 from tests.helpers.utils import assert_log_emitted
 
 
@@ -281,9 +281,7 @@ class TestImportStringObservability:
     def test_import_string_emits_debug_log_for_resolved_import(caplog):
         """Verify that ``import_string()`` emits a debug log with the import path, module, and callable."""
         # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.core.importing"
-        ):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.importing"):
             import_string("json.dumps")
 
         # Assert
@@ -302,9 +300,7 @@ class TestResolveImportPathObservability:
     def test_emits_debug_log_on_success(caplog):
         """Verify that ``resolve_import_path()`` emits a debug log with the resolved path."""
         # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.core.importing"
-        ):
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.importing"):
             resolve_import_path(json.dumps)
 
         # Assert

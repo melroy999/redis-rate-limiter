@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-CLUSTER_NAME="celery-rate-limiter-demo"
+CLUSTER_NAME="redis-rate-limiter-demo"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_FILE="$SCRIPT_DIR/.demo-state"
 

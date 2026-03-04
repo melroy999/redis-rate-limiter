@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
-from celery_rate_limiter import CeleryRateLimiter
+from redis_rate_limiter import CeleryRateLimiter
 from tests.helpers.utils import assert_log_emitted
 
 
@@ -86,7 +86,7 @@ class TestCeleryRateLimiter:
 
         # Assert
         mock_send_task.assert_called_once_with(
-            "celery_rate_limiter.generic_worker",
+            "redis_rate_limiter.generic_worker",
             kwargs={
                 "limiter_id": limiter.id,
                 "func_path": "myapp.tasks.process",
@@ -169,7 +169,7 @@ class TestCeleryRateLimiter:
         # Assert
         mock_send_task.assert_called_once()
         call_args = mock_send_task.call_args
-        assert call_args[0][0] == "celery_rate_limiter.generic_worker", (
+        assert call_args[0][0] == "redis_rate_limiter.generic_worker", (
             "missing meta should default to the generic worker task name"
         )
 
@@ -255,7 +255,7 @@ class TestCeleryDispatchObservability:
 
         # Act
         with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.backends.celery.limiter"
+            logging.DEBUG, logger="redis_rate_limiter.backends.celery.limiter"
         ):
             with patch.object(limiter.app, "send_task"):
                 limiter._dispatch_task("myapp.tasks.process", enhanced_payload, task_id)
@@ -281,7 +281,7 @@ class TestCeleryDispatchObservability:
 
         # Act
         with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.backends.celery.limiter"
+            logging.DEBUG, logger="redis_rate_limiter.backends.celery.limiter"
         ):
             with patch.object(limiter.app, "send_task"):
                 limiter._dispatch_task(func_path, enhanced_payload, task_id)

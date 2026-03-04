@@ -1,6 +1,6 @@
 # Test Suite Documentation
 
-This directory contains the test suite for the `celery-rate-limiter` project, organized using **contract-based**, **property-based**, **algorithm/spec** and **integration** testing patterns.
+This directory contains the test suite for the `redis-rate-limiter` project, organized using **contract-based**, **property-based**, **algorithm/spec** and **integration** testing patterns.
 
 All test categories assume that a real Redis instance is available, given that the core limiter logic is implemented in Redis Lua scripts.
 
@@ -338,7 +338,7 @@ pytest tests/integration/
 
 ### Run with Coverage
 ```bash
-pytest tests/ --cov=celery_rate_limiter --cov-report=html
+pytest tests/ --cov=redis_rate_limiter --cov-report=html
 ```
 
 ### Run Property Tests with More Examples
@@ -368,7 +368,7 @@ The output ends with a progress line and a list of unresolved mutants:
 
 ```
 1912/1912  🎉 1906 🫥 0  ⏰ 5  🤔 0  🙁 1  🔇 0
-    celery_rate_limiter.core.limiters.xǁSomeClassǁsome_method__mutmut_6: survived
+    redis_rate_limiter.core.limiters.xǁSomeClassǁsome_method__mutmut_6: survived
 ```
 
 mutmut processes one mutant at a time. For each mutant, it applies the mutation, runs the mapped tests, classifies the outcome, and advances the progress counter. The progress line reads as `processed/total` followed by six cumulative outcome counts (i.e., the running totals across all mutants processed so far, summing to `processed`):
@@ -741,7 +741,7 @@ pytest tests/properties/ --hypothesis-max-examples=10
 
 Ensure that pytest is run from the project root:
 ```bash
-cd /path/to/celery-rate-limiter
+cd /path/to/redis-rate-limiter
 pytest tests/
 ```
 

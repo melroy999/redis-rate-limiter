@@ -8,7 +8,7 @@ global:
   evaluation_interval: 1s
 
 scrape_configs:
-  - job_name: celery-rate-limiter
+  - job_name: redis-rate-limiter
     static_configs:
       - targets:
           - generator:8000

@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from celery_rate_limiter import CeleryRateLimiter
+from redis_rate_limiter import CeleryRateLimiter
 
 # Redis configuration is derived from environment variables.
 # The default values target localhost:6379, but may be overridden for Docker Compose.

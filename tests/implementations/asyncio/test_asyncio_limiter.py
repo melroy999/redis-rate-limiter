@@ -171,7 +171,7 @@ class TestAsyncIODispatchObservability:
         """Verify that ``_dispatch_task`` emits a DEBUG log with limiter id, task id, func path, and active count."""
         # Act
         with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.backends.asyncio.limiter"
+            logging.DEBUG, logger="redis_rate_limiter.backends.asyncio.limiter"
         ):
             await limiter._dispatch_task(
                 "tests.helpers.tasks.async_noop_task", {}, "test-task-id"
@@ -195,7 +195,7 @@ class TestAsyncIODispatchObservability:
         """Verify that ``_dispatch_task`` emits an ERROR log when the dispatched task raises an exception."""
         # Act
         with caplog.at_level(
-            logging.ERROR, logger="celery_rate_limiter.backends.asyncio.limiter"
+            logging.ERROR, logger="redis_rate_limiter.backends.asyncio.limiter"
         ):
             await limiter._dispatch_task(
                 "tests.helpers.tasks.noop_task", {}, "sync-err-task"
@@ -228,7 +228,7 @@ class TestAsyncIODispatchObservability:
 
         # Act
         with caplog.at_level(
-            logging.INFO, logger="celery_rate_limiter.backends.asyncio.limiter"
+            logging.INFO, logger="redis_rate_limiter.backends.asyncio.limiter"
         ):
             await limiter.shutdown()
 
@@ -250,7 +250,7 @@ class TestAsyncIODispatchObservability:
         """Verify that ``_dispatch_task`` does not emit error logs when the target function executes successfully."""
         # Act
         with caplog.at_level(
-            logging.ERROR, logger="celery_rate_limiter.backends.asyncio.limiter"
+            logging.ERROR, logger="redis_rate_limiter.backends.asyncio.limiter"
         ):
             await limiter._dispatch_task(
                 "tests.helpers.tasks.async_noop_task", {}, "exec-task-id"

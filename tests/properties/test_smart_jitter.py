@@ -85,7 +85,7 @@ class TestSmartJitterProperties:
         # The exact same random values are used in each scenario to isolate
         # only the pressure change as the source of output differences.
         with patch(
-            "celery_rate_limiter.core.limiters.random.random",
+            "redis_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_stream),
         ):
             low_load_jitters = [
@@ -98,7 +98,7 @@ class TestSmartJitterProperties:
             ]
 
         with patch(
-            "celery_rate_limiter.core.limiters.random.random",
+            "redis_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_stream),
         ):
             medium_load_jitters = [
@@ -111,7 +111,7 @@ class TestSmartJitterProperties:
             ]
 
         with patch(
-            "celery_rate_limiter.core.limiters.random.random",
+            "redis_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_stream),
         ):
             high_load_jitters = [
@@ -167,7 +167,7 @@ class TestSmartJitterProperties:
 
         # Act
         with patch(
-            "celery_rate_limiter.core.limiters.random.random",
+            "redis_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_stream),
         ):
             low_concurrency_jitters = [
@@ -180,7 +180,7 @@ class TestSmartJitterProperties:
             ]
 
         with patch(
-            "celery_rate_limiter.core.limiters.random.random",
+            "redis_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_stream),
         ):
             high_concurrency_jitters = [

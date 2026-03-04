@@ -7,8 +7,8 @@ Fixture dependencies:
 import logging
 from unittest.mock import MagicMock, patch
 
-from celery_rate_limiter.backends.celery.limiter import CeleryRateLimiter
-from celery_rate_limiter.backends.celery.tasks.worker import generic_rate_limited_worker
+from redis_rate_limiter.backends.celery.limiter import CeleryRateLimiter
+from redis_rate_limiter.backends.celery.tasks.worker import generic_rate_limited_worker
 from tests.helpers.utils import assert_log_emitted
 
 
@@ -34,7 +34,7 @@ class TestGenericWorkerTask:
         # directly into the managed class instance cache instead.
         with patch.dict(CeleryRateLimiter._instances, {"worker_limiter": limiter}):
             with patch(
-                "celery_rate_limiter.backends.celery.tasks.worker.import_string",
+                "redis_rate_limiter.backends.celery.tasks.worker.import_string",
                 return_value=target_func,
             ) as mock_import:
                 result = generic_rate_limited_worker.run(
@@ -74,10 +74,10 @@ class TestGenericWorkerTaskObservability:
         with patch.dict(CeleryRateLimiter._instances, {"worker_limiter": limiter}):
             with caplog.at_level(
                 logging.DEBUG,
-                logger="celery_rate_limiter.backends.celery.tasks.worker",
+                logger="redis_rate_limiter.backends.celery.tasks.worker",
             ):
                 with patch(
-                    "celery_rate_limiter.backends.celery.tasks.worker.import_string",
+                    "redis_rate_limiter.backends.celery.tasks.worker.import_string",
                     return_value=target_func,
                 ):
                     generic_rate_limited_worker.run(

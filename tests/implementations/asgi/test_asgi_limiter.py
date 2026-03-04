@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from celery_rate_limiter.backends.asgi import ASGIRateLimiter
+from redis_rate_limiter.backends.asgi import ASGIRateLimiter
 from tests.helpers.utils import assert_log_emitted
 
 
@@ -105,7 +105,7 @@ class TestASGIRateLimiter:
 
         # Act
         with patch(
-            "celery_rate_limiter.backends.asgi.limiter.time.monotonic",
+            "redis_rate_limiter.backends.asgi.limiter.time.monotonic",
             return_value=fixed_now,
         ):
             with patch.object(
@@ -127,7 +127,7 @@ class TestASGIRateLimiter:
 
         # Act
         with patch(
-            "celery_rate_limiter.backends.asgi.limiter.time.monotonic",
+            "redis_rate_limiter.backends.asgi.limiter.time.monotonic",
             return_value=fixed_now,
         ):
             with patch.object(
@@ -164,7 +164,7 @@ class TestASGIStartObservability:
         """Verify that ``start()`` emits an INFO log with the limiter id, limit, and window."""
         # Arrange & Act
         with caplog.at_level(
-            logging.INFO, logger="celery_rate_limiter.backends.asgi.limiter"
+            logging.INFO, logger="redis_rate_limiter.backends.asgi.limiter"
         ):
             instance = await ASGIRateLimiter.create(
                 limiter_id=f"{limiter_id}_start_log",
@@ -194,7 +194,7 @@ class TestASGIAcquireObservability:
         """Verify that ``acquire`` emits an ERROR log with limiter id and key on script failure."""
         # Act
         with caplog.at_level(
-            logging.ERROR, logger="celery_rate_limiter.backends.asgi.limiter"
+            logging.ERROR, logger="redis_rate_limiter.backends.asgi.limiter"
         ):
             with patch.object(
                 limiter, "_eval_script", side_effect=RuntimeError("script failed")

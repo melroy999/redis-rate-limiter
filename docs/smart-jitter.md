@@ -311,8 +311,8 @@ The smart jitter calculation is defined in `DistributedRateLimiterMixin._calcula
 
 ## References
 
-- Implementation: `src/celery_rate_limiter/core/limiters.py` (`DistributedRateLimiterMixin._calculate_smart_jitter`)
-- Sync caller: `src/celery_rate_limiter/core/limiters.py` (`_drain_inner`)
-- Async caller: `src/celery_rate_limiter/core/async_limiters.py` (`_drain_inner`)
+- Implementation: `src/redis_rate_limiter/core/limiters.py` (`DistributedRateLimiterMixin._calculate_smart_jitter`)
+- Sync caller: `src/redis_rate_limiter/core/limiters.py` (`_drain_inner`)
+- Async caller: `src/redis_rate_limiter/core/async_limiters.py` (`_drain_inner`)
 - Tests: `tests/implementations/test_smart_jitter.py`
 - Integration: `tests/integration/test_rate_limiting.py` (timing tests)

@@ -8,7 +8,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: workers
-  namespace: celery-rate-limiter-demo
+  namespace: redis-rate-limiter-demo
   labels:
     app: workers
 spec:
@@ -31,7 +31,7 @@ spec:
           command: ["sh", "-c", "until nc -z redis 6379; do sleep 1; done"]
       containers:
         - name: worker
-          image: celery-rate-limiter-demo:latest
+          image: redis-rate-limiter-demo:latest
           imagePullPolicy: Never
           ports:
             - containerPort: 8000

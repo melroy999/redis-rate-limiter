@@ -10,7 +10,7 @@ Fixture dependencies:
 
 import pytest
 
-from celery_rate_limiter import ThreadPoolRateLimiter
+from redis_rate_limiter import ThreadPoolRateLimiter
 
 
 class TestThreadPoolRateLimiterClassApi:

@@ -11,7 +11,7 @@ Fixture dependencies:
 
 import pytest
 
-from celery_rate_limiter.core import AsyncDistributedLock
+from redis_rate_limiter.core import AsyncDistributedLock
 from tests.contracts.test_distributed_lock import DistributedLockContractTest
 
 

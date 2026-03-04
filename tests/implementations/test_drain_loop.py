@@ -14,7 +14,7 @@ import time
 from threading import Event, Timer
 from unittest.mock import MagicMock
 
-from celery_rate_limiter.core.limiters import DrainLoop, DrainSignalSubscriber
+from redis_rate_limiter.core.limiters import DrainLoop, DrainSignalSubscriber
 from tests.helpers.utils import assert_log_emitted
 
 
@@ -537,7 +537,7 @@ class TestDrainLoopObservability:
         loop = DrainLoop(limiter, watchdog_interval=60.0)
 
         # Act
-        with caplog.at_level(logging.ERROR, logger="celery_rate_limiter.core.limiters"):
+        with caplog.at_level(logging.ERROR, logger="redis_rate_limiter.core.limiters"):
             loop.wake(0)
             time.sleep(0.1)
             loop.wake(0)
@@ -588,7 +588,7 @@ class TestDrainSignalSubscriberObservability:
         # Act
         safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
         safety_timer.start()
-        with caplog.at_level(logging.ERROR, logger="celery_rate_limiter.core.limiters"):
+        with caplog.at_level(logging.ERROR, logger="redis_rate_limiter.core.limiters"):
             subscriber._run()
         safety_timer.cancel()
 

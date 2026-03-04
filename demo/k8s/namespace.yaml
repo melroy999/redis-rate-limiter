@@ -4,4 +4,4 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: celery-rate-limiter-demo
+  name: redis-rate-limiter-demo

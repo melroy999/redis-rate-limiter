@@ -22,7 +22,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from celery_rate_limiter.core import AsyncTaskLifecycle
+from redis_rate_limiter.core import AsyncTaskLifecycle
 from tests.contracts.test_task_lifecycle import TaskLifecycleContractTest
 from tests.helpers.utils import assert_log_emitted
 from tests.implementations.conftest import MinimalAsyncRateLimiter
@@ -339,7 +339,7 @@ class TestAsyncTaskLifecycleObservability:
 
         # Act
         with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.core.async_limiters"
+            logging.DEBUG, logger="redis_rate_limiter.core.async_limiters"
         ):
             async with AsyncTaskLifecycle(mock_limiter, task_id):
                 pass
@@ -373,7 +373,7 @@ class TestAsyncTaskLifecycleObservability:
 
         # Act
         with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.core.async_limiters"
+            logging.DEBUG, logger="redis_rate_limiter.core.async_limiters"
         ):
             async with AsyncTaskLifecycle(limiter, task_id=""):
                 pass
@@ -391,7 +391,7 @@ class TestAsyncTaskLifecycleObservability:
         """Verify that ``__aexit__`` emits a DEBUG log with the task id in the finally block."""
         # Act
         with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.core.async_limiters"
+            logging.DEBUG, logger="redis_rate_limiter.core.async_limiters"
         ):
             async with AsyncTaskLifecycle(mock_limiter, task_id):
                 pass
@@ -579,7 +579,7 @@ class TestAsyncHeartbeatLoopObservability:
         """Verify that lifecycle entry emits a DEBUG log with limiter id, task id, and heartbeat interval."""
         # Act
         with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.core.async_limiters"
+            logging.DEBUG, logger="redis_rate_limiter.core.async_limiters"
         ):
             async with AsyncTaskLifecycle(mock_limiter, task_id):
                 await asyncio.sleep(0.75 * mock_limiter.lease_duration)
@@ -601,7 +601,7 @@ class TestAsyncHeartbeatLoopObservability:
         """Verify that heartbeat recovery emits an INFO log with task id and limiter id."""
         # Act
         with caplog.at_level(
-            logging.INFO, logger="celery_rate_limiter.core.async_limiters"
+            logging.INFO, logger="redis_rate_limiter.core.async_limiters"
         ):
             async with AsyncTaskLifecycle(mock_limiter, task_id) as lifecycle:
                 lifecycle.is_healthy = False
@@ -631,7 +631,7 @@ class TestAsyncHeartbeatLoopObservability:
 
         # Act
         with caplog.at_level(
-            logging.CRITICAL, logger="celery_rate_limiter.core.async_limiters"
+            logging.CRITICAL, logger="redis_rate_limiter.core.async_limiters"
         ):
             async with AsyncTaskLifecycle(
                 mock_limiter, task_id, on_heartbeat_failure="warn"
@@ -662,7 +662,7 @@ class TestAsyncHeartbeatLoopObservability:
 
         # Act
         with caplog.at_level(
-            logging.CRITICAL, logger="celery_rate_limiter.core.async_limiters"
+            logging.CRITICAL, logger="redis_rate_limiter.core.async_limiters"
         ):
             with patch("os.kill"):
                 async with AsyncTaskLifecycle(
@@ -765,7 +765,7 @@ class TestAsyncExtendLeaseObservability:
         """Verify that ``extend_lease()`` emits a DEBUG log with ``renewed=False`` for unknown tasks."""
         # Act
         with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.core.async_limiters"
+            logging.DEBUG, logger="redis_rate_limiter.core.async_limiters"
         ):
             with pytest.raises(KeyError, match="not found in the concurrency set"):
                 await async_generic_limiter.extend_lease("nonexistent", 30)
@@ -795,7 +795,7 @@ class TestAsyncExtendLeaseObservability:
 
         # Act
         with caplog.at_level(
-            logging.DEBUG, logger="celery_rate_limiter.core.async_limiters"
+            logging.DEBUG, logger="redis_rate_limiter.core.async_limiters"
         ):
             await async_generic_limiter.extend_lease(task_id, 30)
 

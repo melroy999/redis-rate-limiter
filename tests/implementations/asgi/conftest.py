@@ -6,7 +6,7 @@ Fixture dependencies:
 
 import pytest
 
-from celery_rate_limiter.backends.asgi import ASGIRateLimiter
+from redis_rate_limiter.backends.asgi import ASGIRateLimiter
 
 
 @pytest.fixture(autouse=True)

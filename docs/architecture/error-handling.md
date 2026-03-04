@@ -89,15 +89,15 @@ flowchart TD
 
 All Lua script operations (`schedule_task`, `consume`, `extend_lease`, `get_status`, and the ASGI `acquire`) share a centralized two-phase retry implemented in `_eval_script()`. The first attempt uses `EVALSHA`; if Redis returns a `NoScriptError` (indicating that the script cache was flushed, e.g., after a `SCRIPT FLUSH` or Redis restart), the method reloads the SHA via `script_load` and retries with `retry=False`. If the second attempt also fails with `NoScriptError`, a `RuntimeError` is raised. This pattern tolerates transient script cache losses while preventing infinite retry loops.
 
-- [base.py:128-165](../../src/celery_rate_limiter/core/base.py): `AbstractSyncRateLimiter._eval_script()` (sync two-phase retry).
-- [base.py:205-246](../../src/celery_rate_limiter/core/base.py): `AbstractAsyncRateLimiter._eval_script()` (async two-phase retry).
+- [base.py:128-165](../../src/redis_rate_limiter/core/base.py): `AbstractSyncRateLimiter._eval_script()` (sync two-phase retry).
+- [base.py:205-246](../../src/redis_rate_limiter/core/base.py): `AbstractAsyncRateLimiter._eval_script()` (async two-phase retry).
 
 ### Inflight Key Cleanup on Any Schedule Failure
 
 `schedule_task()` acquires the inflight key via `SET NX` before calling the Lua script. If the Lua call fails for any reason (NoScriptError, ConnectionError, or any other exception), the inflight key is cleaned up via `_cleanup_inflight_key()` to prevent orphaned deduplication locks that would permanently block resubmission. The cleanup method itself suppresses all exceptions and logs a warning, such that a secondary Redis failure during cleanup does not mask the original error.
 
-- [limiters.py:941-959](../../src/celery_rate_limiter/core/limiters.py): `_cleanup_inflight_key()`.
-- [limiters.py:1032-1036](../../src/celery_rate_limiter/core/limiters.py): cleanup calls on generic exceptions.
+- [limiters.py:941-959](../../src/redis_rate_limiter/core/limiters.py): `_cleanup_inflight_key()`.
+- [limiters.py:1032-1036](../../src/redis_rate_limiter/core/limiters.py): cleanup calls on generic exceptions.
 
 ## Consumption and Dispatch Layer
 
@@ -143,7 +143,7 @@ flowchart TD
 
 `_emit_metric()` wraps the user-provided callback in a `try/except` that catches and logs all exceptions, thereby preventing a buggy callback from disrupting the limiter. This isolation boundary ensures that observability integrations cannot introduce cascading failures into the rate limiting logic.
 
-- [limiters.py:747-768](../../src/celery_rate_limiter/core/limiters.py): `_emit_metric()` with exception suppression.
+- [limiters.py:747-768](../../src/redis_rate_limiter/core/limiters.py): `_emit_metric()` with exception suppression.
 
 ## Drain Control Layer
 
@@ -182,7 +182,7 @@ flowchart TD
 
 `drain()` wraps `_drain_inner()` in a `try/except` that catches all exceptions, increments `_consecutive_drain_failures`, and schedules a recovery drain with `delay = min(window, 0.1 * 2^(n-1))`. The backoff starts at 100ms for the first failure and doubles on each consecutive failure, capped at the window duration. On the first successful drain, the error counter resets to 0. If the recovery scheduling itself also fails, the system logs a critical error and relies on the next external trigger (a `trigger_consume()` call from `schedule_task()` or `TaskLifecycle.__exit__()`, or a watchdog timeout) to resume the drain loop.
 
-- [limiters.py:1180-1228](../../src/celery_rate_limiter/core/limiters.py): drain exception handling and backoff calculation.
+- [limiters.py:1180-1228](../../src/redis_rate_limiter/core/limiters.py): drain exception handling and backoff calculation.
 
 ## Execution Layer
 
@@ -239,13 +239,13 @@ flowchart TD
 
 `TaskLifecycle.__exit__()` performs cleanup (ZREM on the concurrency set, DEL on the inflight key) in a `try` block, with `trigger_consume()` in the `finally` block. This guarantees that the feedback loop continues even if the Redis cleanup operations fail, such that a freed concurrency slot is always followed by a consumption attempt.
 
-- [limiters.py:320-358](../../src/celery_rate_limiter/core/limiters.py): `TaskLifecycle.__exit__()` with try/finally.
+- [limiters.py:320-358](../../src/redis_rate_limiter/core/limiters.py): `TaskLifecycle.__exit__()` with try/finally.
 
 ### Heartbeat Failure Strategies
 
 The heartbeat loop catches all exceptions from `extend_lease()`. In `"warn"` mode, it sets `is_healthy = False` and logs a critical message, allowing the task to continue running at the risk of the concurrency slot lease expiring. In `"kill"` mode, it sends `SIGTERM` to the worker process, ensuring that the task is terminated and the concurrency slot self-heals via lease expiry. The choice between strategies is configured per `TaskLifecycle` instance.
 
-- [limiters.py:272-305](../../src/celery_rate_limiter/core/limiters.py): `_heartbeat_loop()` exception handling.
+- [limiters.py:272-305](../../src/redis_rate_limiter/core/limiters.py): `_heartbeat_loop()` exception handling.
 
 ## ASGI Layer
 
@@ -341,15 +341,15 @@ The following table enumerates every identified failure mode, its handling strat
 
 ## References
 
-- [base.py](../../src/celery_rate_limiter/core/base.py): centralized `_eval_script()` two-phase NoScriptError retry (sync and async).
-- [scripts.py](../../src/celery_rate_limiter/core/scripts.py): `load_lua_script()` resource loading with fallback.
-- [limiters.py](../../src/celery_rate_limiter/core/limiters.py): sync core implementation (scheduling, consumption, lifecycle, drain error handling).
-- [async_limiters.py](../../src/celery_rate_limiter/core/async_limiters.py): async core implementation (async drain, dispatch, lifecycle).
-- [decorators.py](../../src/celery_rate_limiter/core/decorators.py): `@rate_limited` decorator error paths.
-- [celery/limiter.py](../../src/celery_rate_limiter/backends/celery/limiter.py): Celery backend dispatch (`send_task`) error propagation.
-- [threading/limiter.py](../../src/celery_rate_limiter/backends/threading/limiter.py): ThreadPool backend dispatch (`import_string`) error propagation.
-- [asyncio/limiter.py](../../src/celery_rate_limiter/backends/asyncio/limiter.py): AsyncIO backend dispatch (`create_task`) error propagation and sync function guard.
-- [asgi/limiter.py](../../src/celery_rate_limiter/backends/asgi/limiter.py): ASGI `acquire()` error logging and re-raise.
-- [asgi/middleware.py](../../src/celery_rate_limiter/backends/asgi/middleware.py): ASGI middleware fail_open/fail_closed error strategy.
+- [base.py](../../src/redis_rate_limiter/core/base.py): centralized `_eval_script()` two-phase NoScriptError retry (sync and async).
+- [scripts.py](../../src/redis_rate_limiter/core/scripts.py): `load_lua_script()` resource loading with fallback.
+- [limiters.py](../../src/redis_rate_limiter/core/limiters.py): sync core implementation (scheduling, consumption, lifecycle, drain error handling).
+- [async_limiters.py](../../src/redis_rate_limiter/core/async_limiters.py): async core implementation (async drain, dispatch, lifecycle).
+- [decorators.py](../../src/redis_rate_limiter/core/decorators.py): `@rate_limited` decorator error paths.
+- [celery/limiter.py](../../src/redis_rate_limiter/backends/celery/limiter.py): Celery backend dispatch (`send_task`) error propagation.
+- [threading/limiter.py](../../src/redis_rate_limiter/backends/threading/limiter.py): ThreadPool backend dispatch (`import_string`) error propagation.
+- [asyncio/limiter.py](../../src/redis_rate_limiter/backends/asyncio/limiter.py): AsyncIO backend dispatch (`create_task`) error propagation and sync function guard.
+- [asgi/limiter.py](../../src/redis_rate_limiter/backends/asgi/limiter.py): ASGI `acquire()` error logging and re-raise.
+- [asgi/middleware.py](../../src/redis_rate_limiter/backends/asgi/middleware.py): ASGI middleware fail_open/fail_closed error strategy.
 - [Drain Loop Flow](drain-flow.md): the three-layer drain control loop and feedback entry points.
 - [Task State Diagram](task-states.md): all possible task states, including crash recovery mechanisms.

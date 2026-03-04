@@ -2,7 +2,7 @@
 
 Calls ``redis.eval()`` directly with controlled Redis state to verify
 the lock acquisition, contention-aware release, and simple release
-scripts defined in ``celery_rate_limiter.core.limiters``.
+scripts defined in ``redis_rate_limiter.core.limiters``.
 
 Fixture dependencies:
     - ``redis_client``, ``lock_key``: from ``tests/conftest.py``.

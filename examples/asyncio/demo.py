@@ -19,7 +19,6 @@ import time
 
 import redis.asyncio
 
-from celery_rate_limiter import AsyncIOTaskLimiter
 from examples.config import (
     ASYNCIO_MAX_TASKS,
     BURST_COUNT,
@@ -34,6 +33,7 @@ from examples.config import (
 )
 from examples.dashboard import Dashboard
 from examples.tasks import ASYNC_FAILING_FUNC_PATH, ASYNC_FUNC_PATH
+from redis_rate_limiter import AsyncIOTaskLimiter
 
 logger = logging.getLogger("examples.asyncio_demo")
 
@@ -74,8 +74,8 @@ def setup_logging() -> None:
     )
     limiter_handler.setLevel(logging.DEBUG)
     limiter_handler.setFormatter(fmt)
-    logging.getLogger("celery_rate_limiter").addHandler(limiter_handler)
-    logging.getLogger("celery_rate_limiter").setLevel(logging.DEBUG)
+    logging.getLogger("redis_rate_limiter").addHandler(limiter_handler)
+    logging.getLogger("redis_rate_limiter").setLevel(logging.DEBUG)
 
 
 async def connect_redis() -> redis.asyncio.Redis:
