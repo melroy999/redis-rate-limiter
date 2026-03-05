@@ -9,7 +9,7 @@ Fixture dependencies:
 import inspect
 import json
 import logging
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -247,6 +247,48 @@ class TestRQRateLimiter:
         )
         assert call_kwargs["args"][0] == payload, (
             "args should contain the original payload data"
+        )
+
+    @staticmethod
+    def test_check_backend_health_returns_true_when_workers_exist(limiter):
+        """Verify that ``_check_backend_health`` returns ``True`` when an RQ worker is listening on the queue."""
+        # Arrange
+        mock_worker = MagicMock()
+        mock_worker.queue_names.return_value = [limiter.queue.name]
+
+        # Act
+        with patch("rq.Worker.all", return_value=[mock_worker]):
+            result = limiter._check_backend_health()
+
+        # Assert
+        assert result is True, (
+            "health check should return true when a worker is listening on the queue"
+        )
+
+    @staticmethod
+    def test_check_backend_health_returns_false_when_no_workers(limiter):
+        """Verify that ``_check_backend_health`` returns ``False`` when no RQ workers exist."""
+        # Act
+        with patch("rq.Worker.all", return_value=[]):
+            result = limiter._check_backend_health()
+
+        # Assert
+        assert result is False, "health check should return false when no workers exist"
+
+    @staticmethod
+    def test_check_backend_health_returns_false_when_queue_mismatch(limiter):
+        """Verify that ``_check_backend_health`` returns ``False`` when workers listen on a different queue."""
+        # Arrange
+        mock_worker = MagicMock()
+        mock_worker.queue_names.return_value = ["other_queue"]
+
+        # Act
+        with patch("rq.Worker.all", return_value=[mock_worker]):
+            result = limiter._check_backend_health()
+
+        # Assert
+        assert result is False, (
+            "health check should return false when no worker listens on the configured queue"
         )
 
 

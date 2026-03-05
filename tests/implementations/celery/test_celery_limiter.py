@@ -238,6 +238,47 @@ class TestCeleryRateLimiter:
             "args should contain the original payload data"
         )
 
+    @staticmethod
+    def test_check_backend_health_returns_true_when_workers_respond(limiter):
+        """Verify that ``_check_backend_health`` returns ``True`` when Celery workers respond to ping."""
+        # Arrange
+        mock_response = [{"worker1": {"ok": "pong"}}]
+
+        # Act
+        with patch.object(limiter.app.control, "ping", return_value=mock_response):
+            result = limiter._check_backend_health()
+
+        # Assert
+        assert result is True, (
+            "health check should return true when workers respond to ping"
+        )
+
+    @staticmethod
+    def test_check_backend_health_returns_false_when_no_response(limiter):
+        """Verify that ``_check_backend_health`` returns ``False`` when no Celery workers respond."""
+        # Act
+        with patch.object(limiter.app.control, "ping", return_value=[]):
+            result = limiter._check_backend_health()
+
+        # Assert
+        assert result is False, (
+            "health check should return false when no workers respond"
+        )
+
+    @staticmethod
+    def test_check_backend_health_returns_false_on_exception(limiter):
+        """Verify that ``_check_backend_health`` returns ``False`` when ping raises an exception."""
+        # Act
+        with patch.object(
+            limiter.app.control, "ping", side_effect=ConnectionError("broker down")
+        ):
+            result = limiter._check_backend_health()
+
+        # Assert
+        assert result is False, (
+            "health check should return false when ping raises an exception"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Observability tests

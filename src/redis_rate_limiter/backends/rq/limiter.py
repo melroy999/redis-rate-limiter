@@ -101,6 +101,17 @@ class RQRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
         self.queue = queue
 
     # ---------------------------------------------------------------------------
+    # Backend health check
+    # ---------------------------------------------------------------------------
+
+    def _check_backend_health(self) -> bool:
+        """Check whether at least one RQ worker is listening on the configured queue."""
+        from rq import Worker
+
+        workers = Worker.all(connection=self.queue.connection)
+        return any(self.queue.name in w.queue_names() for w in workers)
+
+    # ---------------------------------------------------------------------------
     # Backend dispatch
     # ---------------------------------------------------------------------------
 

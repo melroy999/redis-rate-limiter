@@ -101,6 +101,18 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
         self.app = celery_app
 
     # ---------------------------------------------------------------------------
+    # Backend health check
+    # ---------------------------------------------------------------------------
+
+    def _check_backend_health(self) -> bool:
+        """Check whether at least one Celery worker is responding to pings."""
+        try:
+            response = self.app.control.ping(timeout=1.0)
+            return len(response) > 0
+        except Exception:
+            return False
+
+    # ---------------------------------------------------------------------------
     # Backend dispatch
     # ---------------------------------------------------------------------------
 

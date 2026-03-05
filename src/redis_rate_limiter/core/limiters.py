@@ -497,6 +497,77 @@ class DrainSignalSubscriber:
             self._thread.join(timeout=5.0)
 
 
+class BackendHealthMonitor:
+    """Periodically checks whether the execution backend is operational.
+
+    This monitor runs as a daemon background thread and calls
+    ``_check_backend_health()`` on the limiter at a configurable interval.
+    It uses state-transition logging: a WARNING is emitted when the backend
+    transitions from healthy to unhealthy, and an INFO is emitted on
+    recovery. Consecutive unhealthy states do not produce repeated warnings.
+    """
+
+    def __init__(
+        self,
+        limiter: AbstractDistributedRateLimiter,
+        interval: float,
+    ) -> None:
+        self._limiter = limiter
+        self._interval = interval
+        self._healthy = True
+        self._shutdown_event = Event()
+        self._thread: Thread | None = None
+
+    @property
+    def is_healthy(self) -> bool:
+        """Return the current health state of the backend."""
+        return self._healthy
+
+    def start(self) -> None:
+        """Launch the health check daemon thread."""
+        self._thread = Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        """Execute the health check loop until shutdown is requested."""
+        while not self._shutdown_event.wait(timeout=self._interval):
+            self._run_once()
+
+    def _run_once(self) -> None:
+        """Execute a single health check iteration and log state transitions."""
+        try:
+            healthy = self._limiter._check_backend_health()
+        except Exception:
+            logger.debug(
+                "Backend health check raised an exception: limiter=%s.",
+                self._limiter.id,
+                exc_info=True,
+            )
+            healthy = False
+
+        if self._healthy and not healthy:
+            logger.warning(
+                "Backend health check failed: limiter=%s. "
+                "Workers may be unavailable; dispatched tasks will not "
+                "complete until the backend recovers.",
+                self._limiter.id,
+            )
+        elif not self._healthy and healthy:
+            logger.info(
+                "Backend health check recovered: limiter=%s. "
+                "Workers are available again.",
+                self._limiter.id,
+            )
+
+        self._healthy = healthy
+
+    def shutdown(self) -> None:
+        """Signal the health check thread to terminate and wait for it to complete."""
+        self._shutdown_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=5.0)
+
+
 class DistributedRateLimiterMixin(AbstractRateLimiter):
     """Shared domain logic for distributed rate limiters (sync and async).
 
@@ -556,6 +627,20 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
         self.contention_key = f"{self.id}:dispatch_lock:contention"
         self.dlq_key = f"{self.id}:dlq"
         self._drain_signal_channel = f"{self.id}:drain_signal"
+
+    # ---------------------------------------------------------------------------
+    # Backend health check
+    # ---------------------------------------------------------------------------
+
+    def _check_backend_health(self) -> bool:
+        """Check whether the execution backend is operational.
+
+        The base implementation returns ``True`` (always healthy), which is
+        correct for in-process backends. Distributed backends (e.g., Celery,
+        RQ) should override this method to verify that remote workers are
+        available.
+        """
+        return True
 
     # ---------------------------------------------------------------------------
     # Task data helpers
@@ -912,6 +997,20 @@ class AbstractDistributedRateLimiter(
             self._drain_loop = None
             self._drain_signal_subscriber = None
 
+        # Start the backend health monitor when the concrete subclass provides
+        # a custom health check (i.e., overrides the default no-op).
+        if (
+            drain_enabled
+            and type(self)._check_backend_health
+            is not DistributedRateLimiterMixin._check_backend_health
+        ):
+            self._backend_health_monitor: BackendHealthMonitor | None = (
+                BackendHealthMonitor(self, interval=float(self.lease_duration))
+            )
+            self._backend_health_monitor.start()
+        else:
+            self._backend_health_monitor = None
+
         # Register Lua scripts with the Redis server.
         self._register_script("consume.lua")
         self._register_script("schedule.lua")
@@ -919,7 +1018,7 @@ class AbstractDistributedRateLimiter(
         self._register_script("renew.lua")
 
         logger.info(
-            "Rate limiter initialized: id=%s, limit=%d, window_s=%g, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s, drain_enabled=%s.",
+            "Rate limiter initialized: id=%s, limit=%d, window_s=%g, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s, drain_enabled=%s, backend_health_monitor=%s.",
             self.id,
             self.limit,
             self.window,
@@ -932,6 +1031,7 @@ class AbstractDistributedRateLimiter(
             self.jitter_max_pct,
             "enabled" if self.metrics_callback else "disabled",
             self.drain_enabled,
+            "enabled" if self._backend_health_monitor else "disabled",
         )
 
     # ---------------------------------------------------------------------------
@@ -1415,10 +1515,14 @@ class AbstractDistributedRateLimiter(
 
         This method must be called when a limiter instance is no longer needed.
         Each limiter created with ``drain_enabled=True`` (the default) runs
-        background threads for the drain loop and the Redis Pub/Sub signal
-        subscriber. Failing to call ``shutdown()`` will leak these threads.
+        background threads for the drain loop, the Redis Pub/Sub signal
+        subscriber, and (when the backend overrides ``_check_backend_health``)
+        the backend health monitor. Failing to call ``shutdown()`` will leak
+        these threads.
         """
         self._shutdown_called = True
+        if self._backend_health_monitor is not None:
+            self._backend_health_monitor.shutdown()
         if self._drain_loop is not None:
             self._drain_loop.shutdown()
         if self._drain_signal_subscriber is not None:

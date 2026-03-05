@@ -436,6 +436,85 @@ class AsyncDrainSignalSubscriber:
                 pass
 
 
+class AsyncBackendHealthMonitor:
+    """Periodically checks whether the execution backend is operational (async).
+
+    Mirrors ``BackendHealthMonitor`` from ``limiters.py`` using
+    ``asyncio.create_task()`` and ``asyncio.Event``.
+    """
+
+    def __init__(
+        self,
+        limiter: AbstractAsyncDistributedRateLimiter,
+        interval: float,
+    ) -> None:
+        self._limiter = limiter
+        self._interval = interval
+        self._healthy = True
+        self._shutdown_event = asyncio.Event()
+        self._task: asyncio.Task[None] | None = None
+
+    @property
+    def is_healthy(self) -> bool:
+        """Return the current health state of the backend."""
+        return self._healthy
+
+    def start(self) -> None:
+        """Launch the health check as an asyncio task."""
+        self._task = asyncio.create_task(self._run())
+
+    async def _run(self) -> None:
+        """Execute the health check loop until shutdown is requested."""
+        while not self._shutdown_event.is_set():
+            try:
+                await asyncio.wait_for(
+                    self._shutdown_event.wait(), timeout=self._interval
+                )
+            except asyncio.TimeoutError:
+                pass
+            if self._shutdown_event.is_set():
+                return
+            await self._run_once()
+
+    async def _run_once(self) -> None:
+        """Execute a single health check iteration and log state transitions."""
+        try:
+            healthy = await self._limiter._check_backend_health()
+        except Exception:
+            logger.debug(
+                "Backend health check raised an exception (async): limiter=%s.",
+                self._limiter.id,
+                exc_info=True,
+            )
+            healthy = False
+
+        if self._healthy and not healthy:
+            logger.warning(
+                "Backend health check failed (async): limiter=%s. "
+                "Workers may be unavailable; dispatched tasks will not "
+                "complete until the backend recovers.",
+                self._limiter.id,
+            )
+        elif not self._healthy and healthy:
+            logger.info(
+                "Backend health check recovered (async): limiter=%s. "
+                "Workers are available again.",
+                self._limiter.id,
+            )
+
+        self._healthy = healthy
+
+    async def shutdown(self) -> None:
+        """Signal the health check task to terminate and wait for it to complete."""
+        self._shutdown_event.set()
+        if self._task is not None and not self._task.done():
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+
+
 # noinspection PyUnnecessaryCast
 class AbstractAsyncDistributedRateLimiter(
     DistributedRateLimiterMixin, AbstractAsyncRateLimiter
@@ -511,11 +590,33 @@ class AbstractAsyncDistributedRateLimiter(
             self._drain_loop = None
             self._drain_signal_subscriber = None
 
+        # Backend health monitor (created eagerly, started in start()).
+        if (
+            drain_enabled
+            and type(self)._check_backend_health
+            is not AbstractAsyncDistributedRateLimiter._check_backend_health
+        ):
+            self._backend_health_monitor: AsyncBackendHealthMonitor | None = (
+                AsyncBackendHealthMonitor(self, interval=float(self.lease_duration))
+            )
+        else:
+            self._backend_health_monitor = None
+
+    async def _check_backend_health(self) -> bool:
+        """Check whether the execution backend is operational (async).
+
+        The base implementation returns ``True`` (always healthy), which is
+        correct for in-process backends. Distributed backends should override
+        this method to verify that remote workers are available.
+        """
+        return True
+
     async def start(self) -> None:
         """Perform async initialization that cannot occur in ``__init__``.
 
         Registers Lua scripts with the Redis server and starts the drain
-        signal subscriber. Must be called after construction.
+        signal subscriber and backend health monitor. Must be called after
+        construction.
         """
         await super().start()
 
@@ -528,8 +629,11 @@ class AbstractAsyncDistributedRateLimiter(
         if self._drain_signal_subscriber is not None:
             await self._drain_signal_subscriber.start()
 
+        if self._backend_health_monitor is not None:
+            self._backend_health_monitor.start()
+
         logger.info(
-            "Async rate limiter initialized: id=%s, limit=%d, window_s=%g, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s, drain_enabled=%s.",
+            "Async rate limiter initialized: id=%s, limit=%d, window_s=%g, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s, drain_enabled=%s, backend_health_monitor=%s.",
             self.id,
             self.limit,
             self.window,
@@ -542,6 +646,7 @@ class AbstractAsyncDistributedRateLimiter(
             self.jitter_max_pct,
             "enabled" if self.metrics_callback else "disabled",
             self.drain_enabled,
+            "enabled" if self._backend_health_monitor else "disabled",
         )
 
     # ---------------------------------------------------------------------------
@@ -933,14 +1038,18 @@ class AbstractAsyncDistributedRateLimiter(
     # ---------------------------------------------------------------------------
 
     async def shutdown(self) -> None:
-        """Stop the drain loop and signal subscriber.
+        """Stop the drain loop, signal subscriber, and backend health monitor.
 
         This method must be called when a limiter instance is no longer needed.
         Each limiter created with ``drain_enabled=True`` (the default) runs
-        background asyncio tasks for the drain loop and the Redis Pub/Sub signal
-        subscriber. Failing to call ``shutdown()`` will leak these tasks.
+        background asyncio tasks for the drain loop, the Redis Pub/Sub signal
+        subscriber, and (when the backend overrides ``_check_backend_health``)
+        the backend health monitor. Failing to call ``shutdown()`` will leak
+        these tasks.
         """
         self._shutdown_called = True
+        if self._backend_health_monitor is not None:
+            await self._backend_health_monitor.shutdown()
         if self._drain_loop is not None:
             await self._drain_loop.shutdown()
         if self._drain_signal_subscriber is not None:
