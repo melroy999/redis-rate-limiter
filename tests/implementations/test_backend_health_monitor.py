@@ -146,11 +146,12 @@ class TestBackendHealthMonitor:
             limiter.shutdown()
 
     @staticmethod
-    def test_monitor_uses_default_healthy_hook():
+    def test_monitor_uses_default_healthy_hook(generic_limiter):
         """Verify that the base mixin ``_check_backend_health`` returns ``True``."""
         # Arrange
-        # Instantiate the mixin method directly to verify the default.
-        result = DistributedRateLimiterMixin._check_backend_health(MagicMock())
+        # Use a real limiter instance; MagicMock is incompatible with the
+        # mutmut trampoline (object.__getattribute__ bypasses mock __getattr__).
+        result = DistributedRateLimiterMixin._check_backend_health(generic_limiter)
 
         # Assert
         assert result is True, "base mixin health check should always return true"

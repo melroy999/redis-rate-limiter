@@ -1,0 +1,381 @@
+Mutation Testing Report
+============================================================
+Score: 96.91% (4075/4205 killed)
+
+  Killed:      4075
+  Survived:      73
+  Timeout:        0
+  Suspicious:     0
+  No tests:      57
+
+Classification (non-killed mutants)
+------------------------------------------------------------
+  Score 0 (cosmetic):   87
+  Score 1 (argument):   13
+  Score 2 (logic):   27
+  Score 3 (fork-immune):    0
+  Known benign:           3
+
+--- SCORE 2: LOGIC (needs tests) (5) ---
+  limiter.CeleryRateLimiter._check_backend_health__mutmut_2
+    1.0  ->  None
+
+  limiter.CeleryRateLimiter._check_backend_health__mutmut_3
+    1.0  ->  2.0
+
+  limiter.CeleryRateLimiter.schedule_task__mutmut_1
+    100  ->  101
+
+  limiter.RQRateLimiter._check_backend_health__mutmut_2
+    self.queue.connection  ->  None
+
+  limiter.RQRateLimiter.schedule_task__mutmut_2
+    True  ->  False
+
+--- SCORE 1: ARGUMENT (3) ---
+  limiters.BackendHealthMonitor._run_once__mutmut_5
+    removed "Backend health check raised an exception: limiter=%s." argument
+
+  limiters.BackendHealthMonitor._run_once__mutmut_6
+    removed self._limiter.id argument
+
+  limiters.BackendHealthMonitor._run_once__mutmut_7
+    removed exc_info=True argument
+
+--- SCORE 0: COSMETIC (62) ---
+  [sync/async mirror] DistributedRateLimiter._cleanup_inflight_key__mutmut_14
+    async_limiters.AbstractAsyncDistributedRateLimiter._cleanup_inflight_key__mutmut_14
+    limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_14
+    lowercase on logger.debug format string
+
+  async_limiters.AbstractAsyncDistributedRateLimiter._cleanup_inflight_key__mutmut_24
+    xx wrap on logger.warning format string
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.extend_lease__mutmut_26
+    xx wrap on logger.debug format string
+
+  limiter.ASGIRateLimiter.start__mutmut_13
+    lowercase on logger.info format string
+
+  limiter.CeleryRateLimiter._dispatch_task__mutmut_44
+    xx wrap on logger.debug format string
+
+  limiter.CeleryRateLimiter._dispatch_task__mutmut_45
+    lowercase on logger.debug format string
+
+  limiter.CeleryRateLimiter._dispatch_task__mutmut_63
+    xx wrap on logger.debug format string
+
+  limiter.CeleryRateLimiter._dispatch_task__mutmut_64
+    lowercase on logger.debug format string
+
+  limiter.ProcessPoolRateLimiter._dispatch_task__mutmut_29
+    xx wrap on logger.debug format string
+
+  limiter.ProcessPoolRateLimiter._dispatch_task__mutmut_30
+    lowercase on logger.debug format string
+
+  limiter.RQRateLimiter._configure_backend__mutmut_8
+    lowercase on error message
+
+  limiter.RQRateLimiter._dispatch_task__mutmut_42
+    xx wrap on logger.debug format string
+
+  limiter.RQRateLimiter._dispatch_task__mutmut_43
+    lowercase on logger.debug format string
+
+  limiter.RQRateLimiter._dispatch_task__mutmut_61
+    xx wrap on logger.debug format string
+
+  limiter.RQRateLimiter._dispatch_task__mutmut_62
+    lowercase on logger.debug format string
+
+  limiter.ThreadPoolRateLimiter._dispatch_task__mutmut_21
+    xx wrap on logger.debug format string
+
+  limiter.ThreadPoolRateLimiter._dispatch_task__mutmut_22
+    lowercase on logger.debug format string
+
+  limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_13
+    xx wrap on logger.debug format string
+
+  limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_27
+    lowercase on logger.warning format string
+
+  limiters.BackendHealthMonitor._run_once__mutmut_10
+    uppercase on logger.debug format string
+
+  limiters.BackendHealthMonitor._run_once__mutmut_11
+    exc_info boolean swap (cosmetic)
+
+  limiters.BackendHealthMonitor._run_once__mutmut_2
+    format string  ->  None on logger.debug
+
+  limiters.BackendHealthMonitor._run_once__mutmut_20
+    xx wrap on logger.warning format string
+
+  limiters.BackendHealthMonitor._run_once__mutmut_21
+    lowercase on logger.warning format string
+
+  limiters.BackendHealthMonitor._run_once__mutmut_23
+    xx wrap on logger.warning format string
+
+  limiters.BackendHealthMonitor._run_once__mutmut_24
+    lowercase on logger.warning format string
+
+  limiters.BackendHealthMonitor._run_once__mutmut_25
+    uppercase on logger.warning format string
+
+  limiters.BackendHealthMonitor._run_once__mutmut_26
+    xx wrap on logger.warning format string
+
+  limiters.BackendHealthMonitor._run_once__mutmut_27
+    uppercase on logger.warning format string
+
+  limiters.BackendHealthMonitor._run_once__mutmut_3
+    format string  ->  None on logger.debug
+
+  limiters.BackendHealthMonitor._run_once__mutmut_34
+    xx wrap on logger.info format string
+
+  limiters.BackendHealthMonitor._run_once__mutmut_35
+    lowercase on logger.info format string
+
+  limiters.BackendHealthMonitor._run_once__mutmut_37
+    xx wrap on logger.info format string
+
+  limiters.BackendHealthMonitor._run_once__mutmut_38
+    lowercase on logger.info format string
+
+  limiters.BackendHealthMonitor._run_once__mutmut_39
+    uppercase on logger.info format string
+
+  limiters.BackendHealthMonitor._run_once__mutmut_4
+    format string  ->  None on logger.debug
+
+  limiters.BackendHealthMonitor._run_once__mutmut_8
+    xx wrap on logger.debug format string
+
+  limiters.BackendHealthMonitor._run_once__mutmut_9
+    lowercase on logger.debug format string
+
+  limiters.DistributedRateLimiterMixin._calculate_smart_jitter__mutmut_35
+    xx wrap on logger.debug format string
+
+  limiters.DistributedRateLimiterMixin._calculate_smart_jitter__mutmut_36
+    lowercase on logger.debug format string
+
+  managed.AsyncManagedRateLimiter.get__mutmut_8
+    xx wrap on logger.debug format string
+
+  managed.SyncManagedRateLimiter.update__mutmut_13
+    xx wrap on logger.info format string
+
+  prometheus.PrometheusMetricsExporter.__call____mutmut_15
+    xx wrap on logger.debug format string
+
+  prometheus.PrometheusMetricsExporter.__call____mutmut_16
+    lowercase on logger.debug format string
+
+  x_generic_rate_limited_worker__mutmut_7
+    xx wrap on logger.debug format string
+
+  x_generic_rate_limited_worker__mutmut_7
+    xx wrap on logger.debug format string
+
+  x_generic_rate_limited_worker__mutmut_8
+    lowercase on logger.debug format string
+
+  x_generic_rate_limited_worker__mutmut_8
+    lowercase on logger.debug format string
+
+  x_rate_limited__mutmut_11
+    xx wrap on error message
+
+  x_rate_limited__mutmut_12
+    uppercase on error message
+
+  x_rate_limited__mutmut_29
+    xx wrap on logger.debug format string
+
+  x_rate_limited__mutmut_30
+    lowercase on logger.debug format string
+
+  x_rate_limited__mutmut_44
+    xx wrap on logger.debug format string
+
+  x_rate_limited__mutmut_45
+    lowercase on logger.debug format string
+
+  x_rate_limited__mutmut_8
+    xx wrap on error message
+
+  x_resolve_import_path__mutmut_21
+    xx wrap on error message
+
+  x_resolve_import_path__mutmut_22
+    uppercase on error message
+
+  x_resolve_import_path__mutmut_38
+    format string  ->  None on logger.debug
+
+  x_resolve_import_path__mutmut_39
+    format string  ->  None on logger.debug
+
+  x_resolve_import_path__mutmut_43
+    xx wrap on logger.debug format string
+
+  x_resolve_import_path__mutmut_44
+    lowercase on logger.debug format string
+
+--- NO TESTS (57) ---
+  async_limiters.AsyncBackendHealthMonitor.__init____mutmut_1
+  async_limiters.AsyncBackendHealthMonitor.__init____mutmut_2
+  async_limiters.AsyncBackendHealthMonitor.__init____mutmut_3
+  async_limiters.AsyncBackendHealthMonitor.__init____mutmut_4
+  async_limiters.AsyncBackendHealthMonitor.__init____mutmut_5
+  async_limiters.AsyncBackendHealthMonitor.__init____mutmut_6
+  async_limiters.AsyncBackendHealthMonitor.start__mutmut_1
+  async_limiters.AsyncBackendHealthMonitor.start__mutmut_2
+  async_limiters.AsyncBackendHealthMonitor._run__mutmut_1
+  async_limiters.AsyncBackendHealthMonitor._run__mutmut_2
+  async_limiters.AsyncBackendHealthMonitor._run__mutmut_3
+  async_limiters.AsyncBackendHealthMonitor._run__mutmut_4
+  async_limiters.AsyncBackendHealthMonitor._run__mutmut_5
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_1
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_2
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_3
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_4
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_5
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_6
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_7
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_8
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_9
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_10
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_11
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_12
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_13
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_14
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_15
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_16
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_17
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_18
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_19
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_20
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_21
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_22
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_23
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_24
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_25
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_26
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_27
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_28
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_29
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_30
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_31
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_32
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_33
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_34
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_35
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_36
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_37
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_38
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_39
+  async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_40
+  async_limiters.AsyncBackendHealthMonitor.shutdown__mutmut_1
+  async_limiters.AsyncBackendHealthMonitor.shutdown__mutmut_2
+  async_limiters.AsyncBackendHealthMonitor.shutdown__mutmut_3
+  async_limiters.AbstractAsyncDistributedRateLimiter._check_backend_health__mutmut_1
+
+--- KNOWN BENIGN (3) ---
+  limiters.DistributedRateLimiterMixin._calculate_token_recovery_delay__mutmut_7
+    >=  ->  >
+    reason: when val_current equals limit, the primary decay formula computes reset_in_ms / 1000.0, identical to the fallback return value
+
+  limiters.DistributedRateLimiterMixin._calculate_token_recovery_delay__mutmut_20
+    <=  ->  <
+    reason: when wait_ms equals zero, the fallthrough path returns 0 / 1000.0 = 0.0, identical to the early return of 0.0
+
+  limiter.CeleryRateLimiter.schedule_task__mutmut_2
+    True  ->  False
+    reason: fork-immune: default parameter value (use_executor=True) is tested by test_schedule_task_use_executor_default_is_true (signature inspection)
+
+Killed-By Summary
+------------------------------------------------------------
+  Mutants with kill data: 3912
+  Killing tests:         425
+  Zero-kill tests:       375 of 800
+
+  Top 20 killing tests:
+     139 kills (139 unique)  tests/integration/test_rate_limiting.py::TestRateLimitingIntegration::test_per_task_max_age_stored_in_buffer
+     103 kills (103 unique)  tests/implementations/asyncio/test_contracts.py::TestAsyncIOContracts::test_consume_result_fields_have_distinct_values
+      84 kills ( 84 unique)  tests/implementations/test_rate_limiter_class_api.py::TestCreate::test_create_persist_writes_registry_config
+      79 kills ( 79 unique)  tests/implementations/asyncio/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_applies_remote_change
+      72 kills ( 72 unique)  tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_wrap_send_handles_missing_headers_key
+      69 kills ( 69 unique)  tests/implementations/test_rate_limiter.py::TestSyncRateLimiterImplementation::test_consume_result_index_mapping_is_correct
+      63 kills ( 63 unique)  tests/implementations/test_concurrent_access.py::TestConcurrentDrain::test_all_tasks_eventually_consumed_under_contention
+      59 kills ( 59 unique)  tests/implementations/test_async_task_lifecycle.py::TestAsyncTaskLifecycle::test_lifecycle_removes_task_from_concurrency_set
+      57 kills ( 57 unique)  tests/integrations/test_prometheus.py::TestMetricRegistration::test_metric_descriptions_match_expected_text
+      56 kills ( 56 unique)  tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterImplementation::test_consume_expired_result_sets_correct_flags
+      51 kills ( 51 unique)  tests/implementations/test_drain.py::TestSyncDrain::test_drain_rate_limited_emits_info_log
+      50 kills ( 50 unique)  tests/implementations/test_task_lifecycle.py::TestTaskLifecycleObservability::test_lifecycle_cleanup_emits_debug_log
+      48 kills ( 48 unique)  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_window_change_sets_pause_until
+      45 kills ( 45 unique)  tests/implementations/rq/test_rq_limiter.py::TestRQRateLimiter::test_schedule_task_with_use_executor_false_stores_meta
+      42 kills ( 42 unique)  tests/implementations/test_distributed_lock.py::TestSyncDistributedLockObservability::test_lock_release_emits_debug_log
+      38 kills ( 38 unique)  tests/implementations/test_drain.py::TestAsyncDrain::test_drain_schedules_delayed_retry_when_rate_limited
+      37 kills ( 37 unique)  tests/implementations/test_rate_limiter.py::TestSyncRateLimiterImplementation::test_schedule_duplicate_task_emits_debug_log
+      37 kills ( 37 unique)  tests/implementations/test_importing.py::TestResolveImportPath::test_round_trip_with_import_string
+      37 kills ( 37 unique)  tests/integrations/test_prometheus.py::TestEdgeCases::test_custom_registry_isolation
+      37 kills ( 37 unique)  tests/implementations/asgi/test_middleware.py::TestSendBlockedResponse::test_send_blocked_response_structure
+
+Test Effectiveness (kills per second of test runtime)
+------------------------------------------------------------
+  Top 10 most efficient:
+    214980.0 k/s    37 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPath::test_round_trip_with_import_string
+    173527.6 k/s    57 kills  0.000s  tests/integrations/test_prometheus.py::TestMetricRegistration::test_metric_descriptions_match_expected_text
+    99622.5 k/s    37 kills  0.000s  tests/integrations/test_prometheus.py::TestEdgeCases::test_custom_registry_isolation
+    51094.4 k/s   139 kills  0.003s  tests/integration/test_rate_limiting.py::TestRateLimitingIntegration::test_per_task_max_age_stored_in_buffer
+    38465.2 k/s    25 kills  0.001s  tests/implementations/test_async_drain_loop.py::TestAsyncDrainLoop::test_shutdown_is_idempotent
+    34242.2 k/s    11 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPathObservability::test_emits_debug_log_on_success
+    33997.6 k/s    12 kills  0.000s  tests/integrations/test_prometheus.py::TestMetricRegistration::test_schedule_counter_label_names
+    30884.3 k/s    84 kills  0.003s  tests/implementations/test_rate_limiter_class_api.py::TestCreate::test_create_persist_writes_registry_config
+    26512.8 k/s    10 kills  0.000s  tests/implementations/test_lua_script_infrastructure.py::TestScriptLoaderFallbackObservability::test_load_lua_script_logs_resource_package_on_success
+    23456.8 k/s     4 kills  0.000s  tests/contracts/test_managed_mixin.py::TestAbstractBackendHooks::test_configure_hint_raises_not_implemented
+
+Per-File Survival Rates
+------------------------------------------------------------
+    2.0%   29 survived    0 no tests  1440 total  src/redis_rate_limiter/core/limiters.py
+    4.9%    3 survived   57 no tests  1227 total  src/redis_rate_limiter/core/async_limiters.py
+    0.5%    2 survived    0 no tests   372 total  src/redis_rate_limiter/core/managed.py
+    1.4%    2 survived    0 no tests   148 total  src/redis_rate_limiter/integrations/prometheus.py
+    6.6%    8 survived    0 no tests   121 total  src/redis_rate_limiter/backends/celery/limiter.py
+    6.0%    7 survived    0 no tests   117 total  src/redis_rate_limiter/backends/rq/limiter.py
+    1.3%    1 survived    0 no tests    75 total  src/redis_rate_limiter/backends/asgi/limiter.py
+    8.1%    6 survived    0 no tests    74 total  src/redis_rate_limiter/core/importing.py
+    2.9%    2 survived    0 no tests    68 total  src/redis_rate_limiter/backends/processpool/limiter.py
+    3.3%    2 survived    0 no tests    60 total  src/redis_rate_limiter/backends/threading/limiter.py
+   14.9%    7 survived    0 no tests    47 total  src/redis_rate_limiter/core/decorators.py
+   18.2%    2 survived    0 no tests    11 total  src/redis_rate_limiter/backends/celery/tasks/worker.py
+   18.2%    2 survived    0 no tests    11 total  src/redis_rate_limiter/backends/rq/tasks/worker.py
+
+Mutation Type Distribution (non-killed)
+------------------------------------------------------------
+    33 total   27 survived  string_xx_wrap
+    28 total   23 survived  string_lowercase
+    23 total    7 survived  value_to_none
+    13 total    3 survived  argument_removal
+    12 total    6 survived  string_uppercase
+     7 total    2 survived  boolean_swap
+     6 total    0 survived  operator_swap
+     3 total    0 survived  unknown
+     3 total    0 survived  unary_removal
+     2 total    2 survived  numeric_increment
+
+Uncovered Functions (6 with zero test coverage)
+------------------------------------------------------------
+  async_limiters.AbstractAsyncDistributedRateLimiter._check_backend_health
+  async_limiters.AsyncBackendHealthMonitor.__init__
+  async_limiters.AsyncBackendHealthMonitor._run
+  async_limiters.AsyncBackendHealthMonitor._run_once
+  async_limiters.AsyncBackendHealthMonitor.shutdown
+  async_limiters.AsyncBackendHealthMonitor.start

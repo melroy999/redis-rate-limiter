@@ -1,9 +1,13 @@
 """Classify mutmut survivors by relevancy to prioritize remediation effort.
 
-Parses ``mutmut-results/results.txt`` and ``mutmut-results/diffs.txt``, then
-assigns each surviving mutation a relevancy score (0 to 3) based on the type
-of change. Mutations are grouped by score with the most actionable items
-printed first. Sync/async mirror pairs are collapsed into a single entry.
+Assigns each surviving mutation a relevancy score (0 to 3) based on the type
+of change. Sync/async mirror pairs are collapsed into a single entry.
+
+This module is imported as a library by ``generate_mutmut_report.py``, which
+calls ``_classify``, ``_find_mirrors``, ``_match_known_benign``, and related
+helpers directly. The ``main`` entry point and ``_format_report`` function are
+retained for standalone use with pre-generated ``diffs.txt`` / ``results.txt``
+files.
 
 Relevancy scores:
 
@@ -26,9 +30,9 @@ Relevancy scores:
 Additionally, a **known benign** allowlist (``_KNOWN_BENIGN``) holds mutations
 that have been manually verified as producing identical behavior. Each entry
 specifies a method pattern, the expected diff description, and a reason. These
-are separated from scored mutations and printed in their own report section.
+are separated from scored mutations and listed in their own report section.
 
-Usage::
+Usage (standalone)::
 
     python scripts/classify_mutants.py
     python scripts/classify_mutants.py mutmut-results/diffs.txt
@@ -747,9 +751,10 @@ def _shorten_name(mutation_id: str) -> str:
     """
     # Strip the common package prefix.
     name = mutation_id
-    prefix = "celery_rate_limiter."
-    if name.startswith(prefix):
-        name = name[len(prefix) :]
+    for prefix in ("redis_rate_limiter.", "celery_rate_limiter."):
+        if name.startswith(prefix):
+            name = name[len(prefix) :]
+            break
 
     # Strip intermediate subpackage segments (keep last module before xǁ).
     xsep = ".\x01"  # placeholder

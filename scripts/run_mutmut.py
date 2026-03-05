@@ -1,4 +1,5 @@
-"""Wrapper that patches mutmut 3.5.0 to support mutation of decorated functions.
+"""Wrapper that patches mutmut 3.5.0 to support mutation of decorated functions
+and killed-by test tracking.
 
 mutmut unconditionally skips all decorated functions/methods (issue #387).
 This script patches the relevant functions at runtime before invoking the
@@ -18,12 +19,22 @@ Patches applied:
    ``@staticmethod`` (uses ``ClassName.attr`` lookups, no self_arg).
 4. ``trampoline_impl``: adds ``orig_is_unbound`` parameter so the
    trampoline prepends ``cls`` to ``orig()`` calls for classmethods.
+5. ``PytestRunner.run_tests`` and ``SourceFileMutationData.register_result``:
+   tracks which tests killed each mutant via a pytest plugin and temp-file
+   IPC between forked children and the parent process. By default, runs
+   with ``-x`` (first-killer mode) for fast runs; configurable via the
+   ``_USE_FAIL_FAST`` module-level flag. Killed-by data is accumulated in
+   memory and flushed to ``/tmp/mutmut_killed_by_results.json`` at exit.
 """
 
 from __future__ import annotations
 
+import atexit
+import json
+import os
 import sys
 from collections.abc import Iterable, Sequence
+from datetime import datetime
 from typing import Union
 
 import libcst as cst
@@ -407,6 +418,150 @@ def _mutmut_trampoline(orig, mutants, call_args, call_kwargs, self_arg=None, ori
 
 
 # ---------------------------------------------------------------------------
+# Patch 5: killed-by test tracking
+# ---------------------------------------------------------------------------
+
+# Per-child temp directory for IPC and aggregated results file written by
+# the parent. Both use absolute paths so they are independent of cwd.
+_KILLED_BY_DIR = "/tmp/mutmut_killed_by"
+_KILLED_BY_RESULTS = "/tmp/mutmut_killed_by_results.json"
+
+# When True (default), ``-x`` is prepended to pytest args so that each
+# mutant run stops at the first failing test (fast, captures first killer
+# only). When False, all tests run for each mutant (slow, captures full
+# kill matrix but causes many timeouts under CPU time limits).
+_USE_FAIL_FAST: bool = True
+
+# In-memory accumulator for killed-by data; written to disk once at exit.
+# Values are dicts with "killed_by" (list[str]) and "tests_run" (int).
+_killed_by_data: dict[str, dict[str, list[str] | int]] = {}
+
+
+class KilledByCollector:
+    """Pytest plugin that captures the nodeids of failing tests.
+
+    Records every test that fails during a mutant run. When
+    ``_USE_FAIL_FAST`` is True, only one failure is captured (pytest
+    exits after the first); when False, all failures are captured.
+
+    Also counts the total number of tests that ran before the kill,
+    which is a proxy for how sensitive the mutant is to test ordering.
+    """
+
+    def __init__(self) -> None:
+        self.killed_by: list[str] = []
+        self.tests_run: int = 0
+
+    def pytest_runtest_makereport(self, item, call) -> None:  # type: ignore[no-untyped-def]
+        if call.when == "call":
+            self.tests_run += 1
+            if call.excinfo is not None:
+                self.killed_by.append(item.nodeid)
+
+
+def _patched_run_tests(self, *, mutant_name, tests):  # type: ignore[no-untyped-def]
+    """Replacement for ``PytestRunner.run_tests`` that injects the
+    ``KilledByCollector`` plugin and writes killed-by data to a temp file.
+
+    When ``_USE_FAIL_FAST`` is True, runs with ``-x`` so that pytest
+    stops at the first failure (fast, captures the first killer only).
+    When False, runs without ``-x`` to capture all failing tests (full
+    kill matrix, but significantly slower with many timeouts).
+    """
+    from mutmut.__main__ import change_cwd
+
+    collector = KilledByCollector()
+    pytest_args = ["-q", "-p", "no:randomly", "-p", "no:random-order"]
+    if _USE_FAIL_FAST:
+        pytest_args.insert(0, "-x")
+    if tests:
+        pytest_args += list(tests)
+    else:
+        pytest_args += self._pytest_add_cli_args_test_selection
+    with change_cwd("mutants"):
+        result = int(self.execute_pytest(pytest_args, plugins=[collector]))
+
+    # Write killed-by data for the parent process (only for actual mutant
+    # runs, not the clean test run where mutant_name is None).
+    if mutant_name is not None and result != 0 and collector.killed_by:
+        os.makedirs(_KILLED_BY_DIR, exist_ok=True)
+        path = os.path.join(_KILLED_BY_DIR, f"{os.getpid()}.json")
+        with open(path, "w") as f:
+            json.dump(
+                {
+                    "mutant_name": mutant_name,
+                    "killed_by": collector.killed_by,
+                    "tests_run": collector.tests_run,
+                },
+                f,
+            )
+
+    return result
+
+
+def _append_killed_by(
+    mutant_name: str, test_nodeids: list[str], tests_run: int = 0
+) -> None:
+    """Accumulate a killed-by entry in memory.
+
+    Called in the parent process after reading the child's temp file.
+    Data is written to disk once at exit via ``_flush_killed_by``.
+    """
+    _killed_by_data[mutant_name] = {
+        "killed_by": test_nodeids,
+        "tests_run": tests_run,
+    }
+
+
+def _flush_killed_by() -> None:
+    """Write all accumulated killed-by data to disk in a single pass.
+
+    Registered as an ``atexit`` handler so the JSON is written even if
+    mutmut exits via ``SystemExit`` (which Click raises on completion).
+    """
+    if _killed_by_data:
+        with open(_KILLED_BY_RESULTS, "w") as f:
+            json.dump(_killed_by_data, f, indent=4)
+
+
+def _patched_sfmd_register_result(self, *, pid, exit_code):  # type: ignore[no-untyped-def]
+    """Replacement for ``SourceFileMutationData.register_result`` that reads
+    the killed-by temp file (if present) and appends to the aggregated
+    results file at ``_KILLED_BY_RESULTS``."""
+    from mutmut.__main__ import START_TIMES_BY_PID_LOCK
+
+    # Read killed-by data from the child process temp file.
+    key = self.key_by_pid[pid]
+    killed_by_path = os.path.join(_KILLED_BY_DIR, f"{pid}.json")
+    if os.path.exists(killed_by_path):
+        try:
+            with open(killed_by_path) as f:
+                data = json.load(f)
+            killed_by = data.get("killed_by", [])
+            tests_run = data.get("tests_run", 0)
+            if killed_by:
+                _append_killed_by(key, killed_by, tests_run)
+        except (json.JSONDecodeError, OSError):
+            pass
+        finally:
+            try:
+                os.unlink(killed_by_path)
+            except OSError:
+                pass
+
+    # Reproduce the original register_result logic.
+    assert self.key_by_pid[pid] in self.exit_code_by_key
+    self.exit_code_by_key[key] = exit_code
+    self.durations_by_key[key] = (
+        datetime.now() - self.start_time_by_pid[pid]
+    ).total_seconds()
+    del self.key_by_pid[pid]
+    with START_TIMES_BY_PID_LOCK:
+        del self.start_time_by_pid[pid]
+    self.save()
+
+
+# ---------------------------------------------------------------------------
 # Apply all patches
 # ---------------------------------------------------------------------------
 
@@ -436,6 +591,13 @@ def _apply_patches() -> None:
         leading_lines=[cst.EmptyLine(), cst.EmptyLine()]
     )
     file_mutation.trampoline_impl_cst = new_cst  # type: ignore[attr-defined]
+
+    # Patch 5: killed-by test tracking via temp-file IPC.
+    from mutmut.__main__ import PytestRunner, SourceFileMutationData
+
+    SourceFileMutationData.register_result = _patched_sfmd_register_result  # type: ignore[assignment]
+    PytestRunner.run_tests = _patched_run_tests  # type: ignore[assignment]
+    atexit.register(_flush_killed_by)
 
 
 # ---------------------------------------------------------------------------

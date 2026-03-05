@@ -1,8 +1,10 @@
 """Extract the mutation score from captured mutmut run output.
 
 Parses the final progress line printed by ``mutmut run`` to extract the
-total and killed counts, then writes the mutation score percentage to
-a plain text file for use in CI badge updates.
+total and killed counts, then computes the mutation score percentage.
+
+The ``extract_score`` function is imported by ``generate_mutmut_report.py``
+as a library. The ``main`` entry point is retained for standalone use.
 
 The progress line format (mutmut 3.x) is::
 
@@ -10,7 +12,7 @@ The progress line format (mutmut 3.x) is::
 
 Usage::
 
-    python scripts/extract_mutation_score.py /tmp/mutmut-run.log /app/mutation-output/mutation-score.txt
+    python scripts/extract_mutation_score.py <log_file> <output_file>
 """
 
 from __future__ import annotations
