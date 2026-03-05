@@ -52,6 +52,20 @@ REDIS_HOST=localhost REDIS_PORT=6380 poetry run python -m examples.celery.demo
 
 Note that the worker takes approximately 3 seconds to connect before the demo begins.
 
+### RQ Demo
+
+Spawns an RQ worker subprocess automatically and coordinates tasks over Redis. This demonstrates distributed rate limiting with the RQ task queue, architecturally similar to the Celery demo.
+
+```bash
+# Local Redis (port 6379).
+poetry run python -m examples.rq.demo
+
+# Docker Redis (port 6380).
+REDIS_HOST=localhost REDIS_PORT=6380 poetry run python -m examples.rq.demo
+```
+
+Note that the worker takes a few seconds to connect before the demo begins.
+
 ### AsyncIO Demo
 
 Runs everything in a single Python process and a single event loop using `asyncio.create_task()`. This demonstrates that the full distributed rate limiting machinery (drain loop, Pub/Sub subscriber, task lifecycle heartbeat) can operate within a single-threaded event loop.
@@ -112,6 +126,7 @@ All tuneable parameters are defined in [config.py](config.py):
 | `THREADPOOL_MAX_WORKERS`            | Thread pool size                           |
 | `CELERY_WORKER_CONCURRENCY`         | Number of Celery worker processes          |
 | `CELERY_WORKER_PREFETCH_MULTIPLIER` | Tasks fetched per Celery worker at a time  |
+| `RQ_WORKER_COUNT`                   | Number of RQ worker processes              |
 | `ASYNCIO_MAX_TASKS`                 | Maximum concurrent asyncio tasks           |
 | `ASGI_LIMIT`                        | Requests allowed per window (ASGI demo)    |
 | `ASGI_WINDOW`                       | Window duration in seconds (ASGI demo)     |
@@ -124,6 +139,8 @@ All tuneable parameters are defined in [config.py](config.py):
 | [processpool/demo.py](processpool/demo.py) | ProcessPool backend demo entry point |
 | [threadpool/demo.py](threadpool/demo.py) | ThreadPool backend demo entry point |
 | [celery/demo.py](celery/demo.py) | Celery backend demo entry point |
+| [rq/demo.py](rq/demo.py) | RQ backend demo entry point |
+| [rq/worker.py](rq/worker.py) | RQ worker subprocess entry point |
 | [asyncio/demo.py](asyncio/demo.py) | AsyncIO backend demo entry point |
 | [asgi/demo.py](asgi/demo.py) | ASGI/FastAPI middleware demo |
 | [runner.py](runner.py) | Shared demo sequence (dedup, burst, monitoring, cleanup) |

@@ -53,6 +53,12 @@ PROCESSPOOL_MAX_WORKERS = 4  # number of workers in the process pool
 THREADPOOL_MAX_WORKERS = 4  # number of workers in the thread pool
 
 # ---------------------------------------------------------------------------
+# RQ backend
+# ---------------------------------------------------------------------------
+
+RQ_WORKER_COUNT = 4  # number of RQ worker processes
+
+# ---------------------------------------------------------------------------
 # Celery backend
 # ---------------------------------------------------------------------------
 

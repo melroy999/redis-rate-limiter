@@ -28,8 +28,14 @@ pip install redis-rate-limiter
 # With the Celery backend.
 pip install redis-rate-limiter[celery]
 
+# With the RQ backend.
+pip install redis-rate-limiter[rq]
+
 # With the ASGI middleware backend (FastAPI/Starlette).
 pip install redis-rate-limiter[asgi]
+
+# All optional dependencies.
+pip install redis-rate-limiter[celery,rq,asgi,prometheus]
 ```
 
 The project requires Python 3.12+ and a single Redis instance (not Redis Cluster, see the class docstring for details).
@@ -127,6 +133,36 @@ executor.shutdown(wait=True)
 
 Task functions and their payloads must be picklable (i.e., module-level functions, not closures or lambdas) because they are serialized and sent to child processes. The task lifecycle (heartbeat, lease management) is managed in the parent process.
 
+### Quick Start (RQ)
+
+```python
+import redis
+from rq import Queue
+from redis_rate_limiter import RQRateLimiter
+
+redis_client = redis.Redis(host="localhost", port=6379)
+queue = Queue(connection=redis_client)
+RQRateLimiter.configure(redis_client, queue=queue)
+
+limiter = RQRateLimiter.create(
+    limiter_id="api_calls",
+    limit=100,
+    window=60,
+    max_concurrency=10,
+    override=True,
+)
+
+success, task_id = limiter.schedule_task(
+    "myapp.services.call_external_api",
+    {"user_id": 42},
+)
+
+# Stop background threads when done.
+limiter.shutdown()
+```
+
+The RQ worker process must have `RQRateLimiter` configured before processing jobs, so that the `@rate_limited` decorator can resolve the limiter via `RQRateLimiter.get()`. See [examples/rq/demo.py](examples/rq/demo.py) for a complete working example.
+
 ### Quick Start (AsyncIO)
 
 ```python
@@ -214,7 +250,7 @@ All task-oriented backends compose `SyncManagedRateLimiter` (or `AsyncManagedRat
 | AsyncIO          | `asyncio` event loop / task group        | Done    |
 | ASGI Middleware  | Starlette/FastAPI request handling       | Done    |
 | Multiprocessing  | `concurrent.futures.ProcessPoolExecutor` | Done    |
-| RQ (Redis Queue) | RQ job queue                             | Planned |
+| RQ (Redis Queue) | RQ job queue (`queue.enqueue`)           | Done    |
 | Dramatiq         | Dramatiq broker                          | Planned |
 
 ### Class Hierarchy
@@ -223,6 +259,7 @@ All task-oriented backends compose `SyncManagedRateLimiter` (or `AsyncManagedRat
 SyncManagedRateLimiter + AbstractDistributedRateLimiter     -- sync managed + distributed
     ├── CeleryRateLimiter                                   -- dispatches via Celery
     ├── ProcessPoolRateLimiter                              -- dispatches to process pool
+    ├── RQRateLimiter                                       -- dispatches via RQ
     └── ThreadPoolRateLimiter                               -- dispatches to thread pool
 
 AsyncManagedRateLimiter + AbstractAsyncDistributedRateLimiter -- async managed + distributed

@@ -9,9 +9,10 @@ The class hierarchy is organized into four layers:
 3. **`AbstractDistributedRateLimiter`** (sync) and **`AbstractAsyncDistributedRateLimiter`** (async) combine the mixin with their respective Redis base class and add drain orchestration, task scheduling and consumption, lease management, and the threading/asyncio helpers (`DrainLoop`, `DrainSignalSubscriber`, `DistributedLock`, `TaskLifecycle`).
 4. **`ManagedRateLimiterMixin`** provides the singleton-style class API (`configure`, `create`, `get`, `update`, `refresh_config`) with Redis-backed configuration persistence. `SyncManagedRateLimiter` and `AsyncManagedRateLimiter` implement the Redis I/O for this pattern using blocking and non-blocking clients respectively.
 
-Concrete backends compose these layers via multiple inheritance:
+Six concrete backends compose these layers via multiple inheritance:
 
 - **`CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter)`**: dispatches tasks via `Celery.send_task()`.
+- **`RQRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter)`**: dispatches tasks via `Queue.enqueue()`.
 - **`ProcessPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter)`**: dispatches tasks to a `ProcessPoolExecutor`. Task functions and payloads must be picklable; the task lifecycle (heartbeat, lease management) is managed in the parent process via a `Future` done callback.
 - **`ThreadPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter)`**: dispatches tasks to a `ThreadPoolExecutor`.
 - **`AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLimiter)`**: dispatches tasks via `asyncio.create_task()`.
@@ -130,6 +131,11 @@ classDiagram
         #_dispatch_task(func_path, payload, task_id) void
     }
 
+    class RQRateLimiter {
+        +Queue queue
+        #_dispatch_task(func_path, payload, task_id) void
+    }
+
     class ProcessPoolRateLimiter {
         +ProcessPoolExecutor executor
         #_dispatch_task(func_path, payload, task_id) void
@@ -168,6 +174,9 @@ classDiagram
 
     CeleryRateLimiter --|> SyncManagedRateLimiter : inherits
     CeleryRateLimiter --|> AbstractDistributedRateLimiter : inherits
+
+    RQRateLimiter --|> SyncManagedRateLimiter : inherits
+    RQRateLimiter --|> AbstractDistributedRateLimiter : inherits
 
     ProcessPoolRateLimiter --|> SyncManagedRateLimiter : inherits
     ProcessPoolRateLimiter --|> AbstractDistributedRateLimiter : inherits

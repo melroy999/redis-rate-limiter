@@ -14,6 +14,7 @@ The suite is structured around both test type and backend scope:
 The following backends are currently supported:
 
 - `tests/implementations/celery/...` for Celery-specific assertions.
+- `tests/implementations/rq/...` for RQ-specific assertions.
 - `tests/implementations/processpool/...` for ProcessPool-specific assertions.
 - `tests/implementations/threadpool/...` for ThreadPool-specific assertions.
 - `tests/implementations/asyncio/...` for AsyncIO-specific assertions.
@@ -57,6 +58,12 @@ tests/
 │   │   ├── test_celery_limiter.py      # Celery payload/dispatch behavior
 │   │   ├── test_rate_limiter_class_api.py  # Celery-only class API tests
 │   │   └── test_tasks.py              # Celery task helper tests
+│   ├── rq/                             # RQ-specific implementation tests
+│   │   ├── conftest.py                 # Imports RQ backend fixtures
+│   │   ├── test_contracts.py           # Contract suite against real RQRateLimiter
+│   │   ├── test_rq_limiter.py          # RQ payload/dispatch behavior
+│   │   ├── test_rate_limiter_class_api.py  # RQ-only class API tests
+│   │   └── test_tasks.py              # RQ task helper tests
 │   ├── processpool/                   # ProcessPool-specific implementation tests
 │   │   ├── conftest.py                 # Imports ProcessPool backend fixtures
 │   │   ├── test_contracts.py           # Contract suite against real ProcessPoolRateLimiter

@@ -1,12 +1,20 @@
+    redis_rate_limiter.backends.asgi.middleware.xǁRateLimitMiddlewareǁ__init____mutmut_2: survived
+    redis_rate_limiter.backends.asgi.middleware.xǁRateLimitMiddlewareǁ__call____mutmut_23: survived
+    redis_rate_limiter.backends.asgi.middleware.xǁRateLimitMiddlewareǁ__call____mutmut_37: survived
     redis_rate_limiter.backends.asgi.limiter.xǁASGIRateLimiterǁacquire__mutmut_48: survived
-    redis_rate_limiter.backends.processpool.limiter.xǁProcessPoolRateLimiterǁ_configure_backend__mutmut_8: survived
     redis_rate_limiter.backends.processpool.limiter.xǁProcessPoolRateLimiterǁ_dispatch_task__mutmut_29: survived
     redis_rate_limiter.backends.processpool.limiter.xǁProcessPoolRateLimiterǁ_dispatch_task__mutmut_30: survived
     redis_rate_limiter.backends.asyncio.limiter.xǁAsyncIOTaskLimiterǁ_dispatch_task__mutmut_39: survived
-    redis_rate_limiter.backends.threading.limiter.xǁThreadPoolRateLimiterǁ_configure_backend__mutmut_8: survived
+    redis_rate_limiter.backends.rq.limiter.xǁRQRateLimiterǁ_dispatch_task__mutmut_42: survived
+    redis_rate_limiter.backends.rq.limiter.xǁRQRateLimiterǁ_dispatch_task__mutmut_43: survived
+    redis_rate_limiter.backends.rq.limiter.xǁRQRateLimiterǁ_dispatch_task__mutmut_61: survived
+    redis_rate_limiter.backends.rq.limiter.xǁRQRateLimiterǁ_dispatch_task__mutmut_62: survived
+    redis_rate_limiter.backends.rq.tasks.worker.x_generic_rate_limited_worker__mutmut_7: survived
+    redis_rate_limiter.backends.rq.tasks.worker.x_generic_rate_limited_worker__mutmut_8: survived
+    redis_rate_limiter.backends.threading.limiter.xǁThreadPoolRateLimiterǁ_configure_backend__mutmut_10: survived
     redis_rate_limiter.backends.threading.limiter.xǁThreadPoolRateLimiterǁ_dispatch_task__mutmut_21: survived
     redis_rate_limiter.backends.threading.limiter.xǁThreadPoolRateLimiterǁ_dispatch_task__mutmut_22: survived
-    redis_rate_limiter.backends.celery.limiter.xǁCeleryRateLimiterǁschedule_task__mutmut_2: survived
+    redis_rate_limiter.backends.celery.limiter.xǁCeleryRateLimiterǁ_configure_backend__mutmut_10: survived
     redis_rate_limiter.backends.celery.limiter.xǁCeleryRateLimiterǁ_dispatch_task__mutmut_44: survived
     redis_rate_limiter.backends.celery.limiter.xǁCeleryRateLimiterǁ_dispatch_task__mutmut_45: survived
     redis_rate_limiter.backends.celery.limiter.xǁCeleryRateLimiterǁ_dispatch_task__mutmut_63: survived
@@ -20,26 +28,25 @@
     redis_rate_limiter.core.decorators.x_rate_limited__mutmut_30: survived
     redis_rate_limiter.core.decorators.x_rate_limited__mutmut_44: survived
     redis_rate_limiter.core.decorators.x_rate_limited__mutmut_45: survived
-    redis_rate_limiter.core.async_limiters.xǁAsyncTaskLifecycleǁ__init____mutmut_1: survived
-    redis_rate_limiter.core.async_limiters.xǁAsyncTaskLifecycleǁ__aenter____mutmut_12: survived
     redis_rate_limiter.core.async_limiters.xǁAsyncTaskLifecycleǁ__aexit____mutmut_29: survived
-    redis_rate_limiter.core.async_limiters.xǁAsyncDrainLoopǁ_wake_async__mutmut_4: survived
     redis_rate_limiter.core.async_limiters.xǁAbstractAsyncDistributedRateLimiterǁ_cleanup_inflight_key__mutmut_14: survived
     redis_rate_limiter.core.async_limiters.xǁAbstractAsyncDistributedRateLimiterǁ_cleanup_inflight_key__mutmut_24: survived
     redis_rate_limiter.core.async_limiters.xǁAbstractAsyncDistributedRateLimiterǁ_cleanup_inflight_key__mutmut_25: survived
+    redis_rate_limiter.core.async_limiters.xǁAbstractAsyncDistributedRateLimiterǁconsume__mutmut_74: survived
     redis_rate_limiter.core.async_limiters.xǁAbstractAsyncDistributedRateLimiterǁextend_lease__mutmut_26: survived
-    redis_rate_limiter.core.async_limiters.xǁAbstractAsyncDistributedRateLimiterǁextend_lease__mutmut_27: survived
     redis_rate_limiter.core.importing.x_resolve_import_path__mutmut_21: survived
     redis_rate_limiter.core.importing.x_resolve_import_path__mutmut_22: survived
     redis_rate_limiter.core.importing.x_resolve_import_path__mutmut_38: survived
     redis_rate_limiter.core.importing.x_resolve_import_path__mutmut_39: survived
     redis_rate_limiter.core.importing.x_resolve_import_path__mutmut_43: survived
     redis_rate_limiter.core.importing.x_resolve_import_path__mutmut_44: survived
+    redis_rate_limiter.core.managed.xǁSyncManagedRateLimiterǁget__mutmut_8: survived
+    redis_rate_limiter.core.managed.xǁSyncManagedRateLimiterǁget__mutmut_44: survived
     redis_rate_limiter.core.managed.xǁSyncManagedRateLimiterǁupdate__mutmut_13: survived
-    redis_rate_limiter.core.managed.xǁAsyncManagedRateLimiterǁget__mutmut_26: survived
-    redis_rate_limiter.core.managed.xǁAsyncManagedRateLimiterǁupdate__mutmut_13: survived
+    redis_rate_limiter.core.managed.xǁAsyncManagedRateLimiterǁget__mutmut_8: survived
     redis_rate_limiter.core.limiters.xǁDrainLoopǁwake__mutmut_6: survived
     redis_rate_limiter.core.limiters.xǁDrainSignalSubscriberǁ_run__mutmut_7: timeout
+    redis_rate_limiter.core.limiters.xǁDrainSignalSubscriberǁ_run__mutmut_8: timeout
     redis_rate_limiter.core.limiters.xǁDistributedRateLimiterMixinǁ_calculate_token_recovery_delay__mutmut_7: survived
     redis_rate_limiter.core.limiters.xǁDistributedRateLimiterMixinǁ_calculate_token_recovery_delay__mutmut_20: survived
     redis_rate_limiter.core.limiters.xǁDistributedRateLimiterMixinǁ_calculate_smart_jitter__mutmut_35: survived

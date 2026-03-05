@@ -1,17 +1,20 @@
 Mutant Classification Report
 ========================================
-Total: 47 survived, 6 benign, 1 timeout
+Total: 55 survived, 4 benign, 2 timeout
 
   Score 3 (fork-immune):    0
-  Score 2 (logic):    0
-  Score 1 (argument):    1
-  Score 0 (cosmetic):   46
+  Score 2 (logic):    2
+  Score 1 (argument):    0
+  Score 0 (cosmetic):   53
 
---- SCORE 1: ARGUMENT (1) ---
-  managed.AsyncManagedRateLimiter.get__mutmut_26
-    removed **cls._get_instance_context() argument
+--- SCORE 2: LOGIC (needs tests) (2) ---
+  async_limiters.AbstractAsyncDistributedRateLimiter.consume__mutmut_74
+    task_id = consume_result["task"]["id"] if consume_result["task"] else None  ->  task_id = None
 
---- SCORE 0: COSMETIC (46) ---
+  middleware.RateLimitMiddleware.__call____mutmut_37
+    scope  ->  None
+
+--- SCORE 0: COSMETIC (53) ---
   [sync/async mirror] DistributedRateLimiter._cleanup_inflight_key__mutmut_14
     async_limiters.AbstractAsyncDistributedRateLimiter._cleanup_inflight_key__mutmut_14
     limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_14
@@ -22,19 +25,11 @@ Total: 47 survived, 6 benign, 1 timeout
     limiters.AbstractDistributedRateLimiter.extend_lease__mutmut_26
     xx wrap on logger.debug format string
 
-  [sync/async mirror] DistributedRateLimiter.extend_lease__mutmut_27
-    async_limiters.AbstractAsyncDistributedRateLimiter.extend_lease__mutmut_27
-    limiters.AbstractDistributedRateLimiter.extend_lease__mutmut_27
-    lowercase on logger.debug format string
-
   async_limiters.AbstractAsyncDistributedRateLimiter._cleanup_inflight_key__mutmut_24
     xx wrap on logger.warning format string
 
   async_limiters.AbstractAsyncDistributedRateLimiter._cleanup_inflight_key__mutmut_25
     lowercase on logger.warning format string
-
-  async_limiters.AsyncTaskLifecycle.__aenter____mutmut_12
-    lowercase on logger.debug format string
 
   async_limiters.AsyncTaskLifecycle.__aexit____mutmut_29
     xx wrap on logger.debug format string
@@ -44,6 +39,9 @@ Total: 47 survived, 6 benign, 1 timeout
 
   limiter.AsyncIOTaskLimiter._dispatch_task__mutmut_39
     lowercase on logger.debug format string
+
+  limiter.CeleryRateLimiter._configure_backend__mutmut_10
+    xx wrap on error message
 
   limiter.CeleryRateLimiter._dispatch_task__mutmut_44
     xx wrap on logger.debug format string
@@ -57,17 +55,26 @@ Total: 47 survived, 6 benign, 1 timeout
   limiter.CeleryRateLimiter._dispatch_task__mutmut_64
     lowercase on logger.debug format string
 
-  limiter.ProcessPoolRateLimiter._configure_backend__mutmut_8
-    lowercase on error message
-
   limiter.ProcessPoolRateLimiter._dispatch_task__mutmut_29
     xx wrap on logger.debug format string
 
   limiter.ProcessPoolRateLimiter._dispatch_task__mutmut_30
     lowercase on logger.debug format string
 
-  limiter.ThreadPoolRateLimiter._configure_backend__mutmut_8
-    lowercase on error message
+  limiter.RQRateLimiter._dispatch_task__mutmut_42
+    xx wrap on logger.debug format string
+
+  limiter.RQRateLimiter._dispatch_task__mutmut_43
+    lowercase on logger.debug format string
+
+  limiter.RQRateLimiter._dispatch_task__mutmut_61
+    xx wrap on logger.debug format string
+
+  limiter.RQRateLimiter._dispatch_task__mutmut_62
+    lowercase on logger.debug format string
+
+  limiter.ThreadPoolRateLimiter._configure_backend__mutmut_10
+    xx wrap on error message
 
   limiter.ThreadPoolRateLimiter._dispatch_task__mutmut_21
     xx wrap on logger.debug format string
@@ -84,17 +91,29 @@ Total: 47 survived, 6 benign, 1 timeout
   limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_27
     lowercase on logger.warning format string
 
+  limiters.AbstractDistributedRateLimiter.extend_lease__mutmut_27
+    lowercase on logger.debug format string
+
   limiters.DistributedRateLimiterMixin._calculate_smart_jitter__mutmut_35
     xx wrap on logger.debug format string
 
   limiters.DistributedRateLimiterMixin._calculate_smart_jitter__mutmut_36
     lowercase on logger.debug format string
 
-  managed.AsyncManagedRateLimiter.update__mutmut_13
-    xx wrap on logger.info format string
+  managed.AsyncManagedRateLimiter.get__mutmut_8
+    xx wrap on logger.debug format string
+
+  managed.SyncManagedRateLimiter.get__mutmut_44
+    xx wrap on logger.debug format string
+
+  managed.SyncManagedRateLimiter.get__mutmut_8
+    xx wrap on logger.debug format string
 
   managed.SyncManagedRateLimiter.update__mutmut_13
     xx wrap on logger.info format string
+
+  middleware.RateLimitMiddleware.__call____mutmut_23
+    format string  ->  None on logger.exception
 
   prometheus.PrometheusMetricsExporter.__call____mutmut_15
     xx wrap on logger.debug format string
@@ -104,6 +123,12 @@ Total: 47 survived, 6 benign, 1 timeout
 
   x_generic_rate_limited_worker__mutmut_7
     xx wrap on logger.debug format string
+
+  x_generic_rate_limited_worker__mutmut_7
+    xx wrap on logger.debug format string
+
+  x_generic_rate_limited_worker__mutmut_8
+    lowercase on logger.debug format string
 
   x_generic_rate_limited_worker__mutmut_8
     lowercase on logger.debug format string
@@ -147,21 +172,14 @@ Total: 47 survived, 6 benign, 1 timeout
   x_resolve_import_path__mutmut_44
     lowercase on logger.debug format string
 
---- TIMEOUTS (1) ---
+--- TIMEOUTS (2) ---
   limiters.DrainSignalSubscriber._run__mutmut_7
+  limiters.DrainSignalSubscriber._run__mutmut_8
 
---- KNOWN BENIGN (6) ---
-  limiter.CeleryRateLimiter.schedule_task__mutmut_2
-    True  ->  False
-    reason: fork-immune: default parameter value (use_executor=True) is tested by test_schedule_task_use_executor_default_is_true (signature inspection)
-
-  async_limiters.AsyncTaskLifecycle.__init____mutmut_1
-    on_heartbeat_failure: Literal["warn", "kill"] = "warn",  ->  on_heartbeat_failure: Literal["warn", "kill"] = "XXwarnXX",
-    reason: fork-immune: default parameter value is tested by test_default_on_heartbeat_failure_is_warn (signature inspection)
-
-  async_limiters.AsyncDrainLoop._wake_async__mutmut_4
-    <  ->  <=
-    reason: when target equals _next_wake, the assignment writes the same value back; the wake time does not change
+--- KNOWN BENIGN (4) ---
+  middleware.RateLimitMiddleware.__init____mutmut_2
+    on_error: Literal["fail_open", "fail_closed"] = "fail_open",  ->  on_error: Literal["fail_open", "fail_closed"] = "FAIL_OPEN",
+    reason: fork-immune: default parameter value is tested by test_default_on_error_is_fail_open (signature inspection); .lower() normalization makes uppercase equivalent at runtime
 
   limiters.DrainLoop.wake__mutmut_6
     <  ->  <=

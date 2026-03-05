@@ -112,7 +112,7 @@ flowchart TD
     C_RETRY_FAIL{"2nd attempt<br>also fails?"}
     C_RUNTIME["RuntimeError:<br>script not retained"]
     C_PROPAGATE["Non-NoScript exception<br>propagates to drain()"]
-    C_DISPATCH["_dispatch_task() calls<br>backend (send_task / executor)"]
+    C_DISPATCH["_dispatch_task() calls<br>backend (send_task / queue.enqueue / executor)"]
     C_DISPATCH_FAIL["Backend exception<br>propagates to drain()"]
 
     C_EVAL --> C_NOSCRIPT
@@ -135,6 +135,7 @@ flowchart TD
 | Consume NoScript → retry fails | Permanent failure raises RuntimeError | `implementations/test_rate_limiter::test_consume_lua_script_permanent_failure_raises_error` |
 | Consume non-NoScript → propagate | ConnectionError propagates to drain() | `implementations/test_rate_limiter::test_consume_connection_error_propagates` |
 | Dispatch Celery failure → propagate | send_task() exception propagates to drain() | `implementations/celery/test_celery_limiter::test_dispatch_task_send_task_failure_propagates` |
+| Dispatch RQ failure → propagate | queue.enqueue() exception propagates to drain() | `implementations/rq/test_rq_limiter::test_dispatch_task_enqueue_failure_propagates` |
 | Dispatch ThreadPool failure → propagate | import_string() exception propagates to drain() | `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_import_failure_propagates` |
 | Dispatch AsyncIO sync function → TypeError | Sync function passed to async dispatch raises TypeError | `implementations/asyncio/test_asyncio_limiter::test_dispatch_sync_function_raises_type_error` |
 | Metrics callback exception during consume | Does not disrupt consumption | `implementations/test_metrics_callback::test_callback_exception_does_not_break_consume` |
@@ -330,14 +331,15 @@ The following table enumerates every identified failure mode, its handling strat
 | 25 | Lua script not found on disk | `load_lua_script()` | `ImportError` | Propagates (fatal at initialization) | `implementations/test_lua_script_infrastructure::test_register_script_raises_import_error_on_missing_source` | No |
 | 26 | Inflight key cleanup fails during scheduling error | `_cleanup_inflight_key()` | Any `Exception` | Suppressed, log warning | `implementations/test_task_data_helpers::test_cleanup_inflight_key_suppresses_redis_failure` | No |
 | 27 | Celery `send_task()` fails during dispatch | `_dispatch_task()` (Celery) | `Exception` | Propagates to `drain()` backoff | `implementations/celery/test_celery_limiter::test_dispatch_task_send_task_failure_propagates` | No |
-| 28 | `import_string()` fails during dispatch | `_dispatch_task()` (ThreadPool) | `ModuleNotFoundError` | Propagates to `drain()` backoff | `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_import_failure_propagates` | No |
-| 29 | Metrics callback raises exception | `_emit_metric()` | Any `Exception` | Caught, logged, does not disrupt limiter | `implementations/test_metrics_callback::test_callback_exception_does_not_break_consume` | No |
-| 30 | Missing backend context during `configure()` | `_configure_backend()` | `RuntimeError` | Propagates to caller | `test_rate_limiter_class_api` (per backend) | No |
-| 31 | Sync function dispatched to async backend | `_dispatch_task()` (AsyncIO) | `TypeError` | Caught by `_run_task()` exception handler; task set cleaned up | `implementations/asyncio/test_asyncio_limiter::test_dispatch_sync_function_raises_type_error` | No |
-| 32 | Lua script first package unavailable | `load_lua_script()` | `ModuleNotFoundError` | Falls back to second package in `resource_packages` | `implementations/test_lua_script_infrastructure::test_load_lua_script_falls_back_to_second_package` | No |
-| 33 | ASGI `acquire()` script failure | `ASGIRateLimiter.acquire()` | Any `Exception` | Logged, re-raised to middleware | `implementations/asgi/test_asgi_limiter::test_acquire_logs_exception_on_script_failure` | No |
-| 34 | ASGI middleware error, fail_open | `RateLimitMiddleware.__call__()` | Any `Exception` | Request proceeds without rate limit headers | `implementations/asgi/test_middleware::test_fail_open_allows_on_error` | No |
-| 35 | ASGI middleware error, fail_closed | `RateLimitMiddleware.__call__()` | Any `Exception` | Returns 503 Service Unavailable | `implementations/asgi/test_middleware::test_fail_closed_returns_503_on_error` | No |
+| 28 | RQ `queue.enqueue()` fails during dispatch | `_dispatch_task()` (RQ) | `Exception` | Propagates to `drain()` backoff | `implementations/rq/test_rq_limiter::test_dispatch_task_enqueue_failure_propagates` | No |
+| 29 | `import_string()` fails during dispatch | `_dispatch_task()` (ThreadPool) | `ModuleNotFoundError` | Propagates to `drain()` backoff | `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_import_failure_propagates` | No |
+| 30 | Metrics callback raises exception | `_emit_metric()` | Any `Exception` | Caught, logged, does not disrupt limiter | `implementations/test_metrics_callback::test_callback_exception_does_not_break_consume` | No |
+| 31 | Missing backend context during `configure()` | `_configure_backend()` | `RuntimeError` | Propagates to caller | `test_rate_limiter_class_api` (per backend) | No |
+| 32 | Sync function dispatched to async backend | `_dispatch_task()` (AsyncIO) | `TypeError` | Caught by `_run_task()` exception handler; task set cleaned up | `implementations/asyncio/test_asyncio_limiter::test_dispatch_sync_function_raises_type_error` | No |
+| 33 | Lua script first package unavailable | `load_lua_script()` | `ModuleNotFoundError` | Falls back to second package in `resource_packages` | `implementations/test_lua_script_infrastructure::test_load_lua_script_falls_back_to_second_package` | No |
+| 34 | ASGI `acquire()` script failure | `ASGIRateLimiter.acquire()` | Any `Exception` | Logged, re-raised to middleware | `implementations/asgi/test_asgi_limiter::test_acquire_logs_exception_on_script_failure` | No |
+| 35 | ASGI middleware error, fail_open | `RateLimitMiddleware.__call__()` | Any `Exception` | Request proceeds without rate limit headers | `implementations/asgi/test_middleware::test_fail_open_allows_on_error` | No |
+| 36 | ASGI middleware error, fail_closed | `RateLimitMiddleware.__call__()` | Any `Exception` | Returns 503 Service Unavailable | `implementations/asgi/test_middleware::test_fail_closed_returns_503_on_error` | No |
 
 ## References
 
@@ -347,6 +349,7 @@ The following table enumerates every identified failure mode, its handling strat
 - [async_limiters.py](../../src/redis_rate_limiter/core/async_limiters.py): async core implementation (async drain, dispatch, lifecycle).
 - [decorators.py](../../src/redis_rate_limiter/core/decorators.py): `@rate_limited` decorator error paths.
 - [celery/limiter.py](../../src/redis_rate_limiter/backends/celery/limiter.py): Celery backend dispatch (`send_task`) error propagation.
+- [rq/limiter.py](../../src/redis_rate_limiter/backends/rq/limiter.py): RQ backend dispatch (`queue.enqueue`) error propagation.
 - [threading/limiter.py](../../src/redis_rate_limiter/backends/threading/limiter.py): ThreadPool backend dispatch (`import_string`) error propagation.
 - [asyncio/limiter.py](../../src/redis_rate_limiter/backends/asyncio/limiter.py): AsyncIO backend dispatch (`create_task`) error propagation and sync function guard.
 - [asgi/limiter.py](../../src/redis_rate_limiter/backends/asgi/limiter.py): ASGI `acquire()` error logging and re-raise.

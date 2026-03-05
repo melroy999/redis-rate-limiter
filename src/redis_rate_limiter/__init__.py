@@ -20,6 +20,7 @@ __all__ = [
     "ProcessPoolRateLimiter",
     "PrometheusMetricsExporter",
     "RateLimitMiddleware",
+    "RQRateLimiter",
     "TaskLifecycle",
     "ThreadPoolRateLimiter",
     "import_string",
@@ -30,6 +31,12 @@ __all__ = [
 # The Celery backend is only available when the celery package is installed.
 try:
     from redis_rate_limiter.backends.celery import CeleryRateLimiter
+except ImportError:
+    pass
+
+# The RQ backend is only available when the rq package is installed.
+try:
+    from redis_rate_limiter.backends.rq import RQRateLimiter
 except ImportError:
     pass
 
