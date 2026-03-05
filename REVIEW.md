@@ -171,21 +171,16 @@ consistency:
 
 ## E. Session Hygiene for Multi-Session Development
 
-These are not code fixes but workflow improvements for working with
-context-limited LLM sessions:
+The main risk with context-limited sessions is cross-file consistency.
+The most token-efficient mitigation is encoding rules in `CLAUDE.md` so
+every session starts with the right knowledge automatically.
 
-1. **Before modifying core logic**, start the session with:
-   "Read both `limiters.py` and `async_limiters.py` before making changes."
-
-2. **After completing a feature**, run a cross-check session:
-   "Compare sync and async implementations for drift. Report differences only."
-
-3. **Periodic full-context review** (monthly or after major features):
-   "Review the entire codebase for cross-file inconsistencies."
-
-4. **Use CLAUDE.md invariants** as the primary mechanism for encoding
-   lessons learned from past sessions. They're cheap to maintain and
-   directly compensate for context limits.
+Don't waste tokens loading files "just in case." Instead, put specific
+rules in `CLAUDE.md` (section D above) and let Claude apply them when
+it naturally encounters the relevant files. For example, adding
+`limiters.py and async_limiters.py are mirrors; change one, change both`
+means Claude will know to check the async file when it opens the sync
+file — without being told upfront every session.
 
 ---
 
