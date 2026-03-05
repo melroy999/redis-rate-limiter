@@ -138,6 +138,38 @@ class TestAsyncIOTaskLimiter:
         assert len(limiter._active_tasks) == 1, "active tasks set should have one entry"
 
     @staticmethod
+    async def test_dispatch_sync_function_raises_type_error_with_message(
+        limiter, caplog
+    ):
+        """Verify that dispatching a synchronous function produces a TypeError with an informative message."""
+        # Act
+        with caplog.at_level(
+            logging.ERROR, logger="redis_rate_limiter.backends.asyncio.limiter"
+        ):
+            await limiter._dispatch_task(
+                "tests.helpers.tasks.noop_task", {}, "sync-type-err"
+            )
+            # Allow the created task to fully complete (TypeError from sync function).
+            await asyncio.gather(*list(limiter._active_tasks), return_exceptions=True)
+
+        # Assert
+        error_records = [
+            r
+            for r in caplog.records
+            if r.levelname == "ERROR" and r.exc_info and r.exc_info[1]
+        ]
+        assert len(error_records) >= 1, (
+            "at least one error record with exc_info should be present"
+        )
+        exception = error_records[0].exc_info[1]
+        assert isinstance(exception, TypeError), (
+            "the caught exception should be a TypeError"
+        )
+        assert "requires coroutine functions" in str(exception), (
+            "the TypeError message should mention that coroutine functions are required"
+        )
+
+    @staticmethod
     async def test_shutdown_cancels_active_tasks(limiter):
         """Verify that ``shutdown`` cancels all active asyncio tasks."""
         # Arrange

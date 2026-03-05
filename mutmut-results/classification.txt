@@ -1,25 +1,17 @@
 Mutant Classification Report
 ========================================
-Total: 44 survived, 8 benign, 3 timeout
+Total: 47 survived, 6 benign, 1 timeout
 
   Score 3 (fork-immune):    0
-  Score 2 (logic):    2
-  Score 1 (argument):    0
-  Score 0 (cosmetic):   42
+  Score 2 (logic):    0
+  Score 1 (argument):    1
+  Score 0 (cosmetic):   46
 
---- SCORE 2: LOGIC (needs tests) (2) ---
-  middleware.RateLimitMiddleware.__call____mutmut_37
-    scope  ->  None
+--- SCORE 1: ARGUMENT (1) ---
+  managed.AsyncManagedRateLimiter.get__mutmut_26
+    removed **cls._get_instance_context() argument
 
-  middleware.RateLimitMiddleware.__call____mutmut_48
-    result  ->  None
-
---- SCORE 0: COSMETIC (42) ---
-  [sync/async mirror] DistributedRateLimiter._cleanup_inflight_key__mutmut_13
-    async_limiters.AbstractAsyncDistributedRateLimiter._cleanup_inflight_key__mutmut_13
-    limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_13
-    xx wrap on logger.debug format string
-
+--- SCORE 0: COSMETIC (46) ---
   [sync/async mirror] DistributedRateLimiter._cleanup_inflight_key__mutmut_14
     async_limiters.AbstractAsyncDistributedRateLimiter._cleanup_inflight_key__mutmut_14
     limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_14
@@ -38,11 +30,20 @@ Total: 44 survived, 8 benign, 3 timeout
   async_limiters.AbstractAsyncDistributedRateLimiter._cleanup_inflight_key__mutmut_24
     xx wrap on logger.warning format string
 
-  limiter.CeleryRateLimiter._configure_backend__mutmut_11
-    uppercase on error message
+  async_limiters.AbstractAsyncDistributedRateLimiter._cleanup_inflight_key__mutmut_25
+    lowercase on logger.warning format string
 
-  limiter.CeleryRateLimiter._configure_backend__mutmut_8
-    lowercase on error message
+  async_limiters.AsyncTaskLifecycle.__aenter____mutmut_12
+    lowercase on logger.debug format string
+
+  async_limiters.AsyncTaskLifecycle.__aexit____mutmut_29
+    xx wrap on logger.debug format string
+
+  limiter.ASGIRateLimiter.acquire__mutmut_48
+    xx wrap on logger.exception format string
+
+  limiter.AsyncIOTaskLimiter._dispatch_task__mutmut_39
+    lowercase on logger.debug format string
 
   limiter.CeleryRateLimiter._dispatch_task__mutmut_44
     xx wrap on logger.debug format string
@@ -56,11 +57,26 @@ Total: 44 survived, 8 benign, 3 timeout
   limiter.CeleryRateLimiter._dispatch_task__mutmut_64
     lowercase on logger.debug format string
 
+  limiter.ProcessPoolRateLimiter._configure_backend__mutmut_8
+    lowercase on error message
+
+  limiter.ProcessPoolRateLimiter._dispatch_task__mutmut_29
+    xx wrap on logger.debug format string
+
+  limiter.ProcessPoolRateLimiter._dispatch_task__mutmut_30
+    lowercase on logger.debug format string
+
+  limiter.ThreadPoolRateLimiter._configure_backend__mutmut_8
+    lowercase on error message
+
   limiter.ThreadPoolRateLimiter._dispatch_task__mutmut_21
     xx wrap on logger.debug format string
 
   limiter.ThreadPoolRateLimiter._dispatch_task__mutmut_22
     lowercase on logger.debug format string
+
+  limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_13
+    xx wrap on logger.debug format string
 
   limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_26
     xx wrap on logger.warning format string
@@ -76,12 +92,6 @@ Total: 44 survived, 8 benign, 3 timeout
 
   managed.AsyncManagedRateLimiter.update__mutmut_13
     xx wrap on logger.info format string
-
-  managed.SyncManagedRateLimiter.get__mutmut_37
-    format string  ->  None on logger.debug
-
-  managed.SyncManagedRateLimiter.get__mutmut_8
-    xx wrap on logger.debug format string
 
   managed.SyncManagedRateLimiter.update__mutmut_13
     xx wrap on logger.info format string
@@ -137,15 +147,13 @@ Total: 44 survived, 8 benign, 3 timeout
   x_resolve_import_path__mutmut_44
     lowercase on logger.debug format string
 
---- TIMEOUTS (3) ---
+--- TIMEOUTS (1) ---
   limiters.DrainSignalSubscriber._run__mutmut_7
-  limiters.DrainSignalSubscriber.shutdown__mutmut_1
-  limiters.DrainSignalSubscriber.shutdown__mutmut_2
 
---- KNOWN BENIGN (8) ---
-  middleware.RateLimitMiddleware.__init____mutmut_2
-    on_error: Literal["fail_open", "fail_closed"] = "fail_open",  ->  on_error: Literal["fail_open", "fail_closed"] = "FAIL_OPEN",
-    reason: fork-immune: default parameter value is tested by test_default_on_error_is_fail_open (signature inspection); .lower() normalization makes uppercase equivalent at runtime
+--- KNOWN BENIGN (6) ---
+  limiter.CeleryRateLimiter.schedule_task__mutmut_2
+    True  ->  False
+    reason: fork-immune: default parameter value (use_executor=True) is tested by test_schedule_task_use_executor_default_is_true (signature inspection)
 
   async_limiters.AsyncTaskLifecycle.__init____mutmut_1
     on_heartbeat_failure: Literal["warn", "kill"] = "warn",  ->  on_heartbeat_failure: Literal["warn", "kill"] = "XXwarnXX",
@@ -155,13 +163,9 @@ Total: 44 survived, 8 benign, 3 timeout
     <  ->  <=
     reason: when target equals _next_wake, the assignment writes the same value back; the wake time does not change
 
-  limiters.DrainLoop.wake__mutmut_1
-    def wake(self, delay: float = 0.0) -> None:  ->  def wake(self, delay: float = 1.0) -> None:
-    reason: fork-immune: default parameter value is tested by test_wake_default_delay_is_zero (signature inspection) and test_wake_default_delay_fires_immediately (behavioral)
-
-  limiters.DrainLoop._run__mutmut_8
-    >  ->  >=
-    reason: when remaining equals zero, wait(timeout=0) returns immediately and the next iteration falls through to drain unchanged
+  limiters.DrainLoop.wake__mutmut_6
+    <  ->  <=
+    reason: when target equals _next_wake, the assignment writes the same value back; the wake time does not change
 
   limiters.DistributedRateLimiterMixin._calculate_token_recovery_delay__mutmut_7
     >=  ->  >
@@ -170,8 +174,4 @@ Total: 44 survived, 8 benign, 3 timeout
   limiters.DistributedRateLimiterMixin._calculate_token_recovery_delay__mutmut_20
     <=  ->  <
     reason: when wait_ms equals zero, the fallthrough path returns 0 / 1000.0 = 0.0, identical to the early return of 0.0
-
-  limiters.AbstractDistributedRateLimiter._schedule_drain__mutmut_1
-    def _schedule_drain(self, delay: float = 0.0) -> None:  ->  def _schedule_drain(self, delay: float = 1.0) -> None:
-    reason: fork-immune: default parameter value is tested by test_async_schedule_drain_default_delay_is_zero and test_sync_schedule_drain_default_delay_is_zero (signature inspection)
 

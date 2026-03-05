@@ -500,6 +500,7 @@ The following categories of equivalent mutants have been identified in the codeb
 |---|---|---|---|
 | `cast()` calls | `cast()` is a no-op at runtime; any mutation produces equivalent behavior | `limiters.py`, `async_limiters.py`, `base.py`, `decorators.py`, `importing.py`, `celery/limiter.py` | The mutation does not change observable behavior |
 | `"latin-1"` encoding | Encoding mutations on ASCII data produce identical bytes | `backends/asgi/keys.py` | ASCII subset is identical across common encodings |
+| `"utf-8"` encoding case | `"utf-8"` and `"UTF-8"` resolve to the same codec via `codecs.lookup()` | `core/managed.py:_parse_raw_config` | Python normalizes encoding names case-insensitively |
 | `__init_subclass__` body | Previously required `# pragma: no mutate` due to a mutmut trampoline bug; resolved by adding an explicit `@classmethod` decorator ([mutmut#366](https://github.com/boxed/mutmut/issues/366)). Mutmut may still skip mutating this method entirely. | `managed.py` | No longer pragmaed; kept for reference |
 
 ## 7. Pitfalls and Checklist
@@ -528,6 +529,7 @@ When adding a new backend, create the following:
 2. `tests/implementations/<backend>/conftest.py`: imports the fixtures from the fixture module.
 3. `tests/implementations/<backend>/test_contracts.py`: concrete subclass of `RateLimiterContractTest` (and `DistributedLockContractTest`, `TaskLifecycleContractTest` if applicable) with a `limiter` fixture providing the backend-specific limiter instance.
 4. `tests/implementations/<backend>/test_<backend>_limiter.py`: backend-specific tests for dispatch logic, payload handling, and other behavior unique to the backend.
+5. Add the backend class to the `TestConfigureHintCompliance` parametrize list in `tests/contracts/test_managed_mixin.py`.
 
 ### 7.5 Redis Cleanup Guarantees
 

@@ -47,7 +47,7 @@ def mock_limiter(redis_client, task_id):
     limiter.redis = redis_client
     limiter.concurrency_key = "test:concurrency"
     limiter.id = "test_limiter"
-    limiter.get_inflight_key.side_effect = lambda _: f"test:inflight:{task_id}"
+    limiter.get_inflight_key.side_effect = lambda tid: f"test:inflight:{tid}"
 
     # A short duration is used for fast test execution.
     limiter.lease_duration = 0.2

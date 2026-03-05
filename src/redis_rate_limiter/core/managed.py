@@ -143,7 +143,7 @@ class ManagedRateLimiterMixin:
         """
         return dict(
             json.loads(
-                raw_config.decode("utf-8")
+                raw_config.decode("utf-8")  # pragma: no mutate
                 if isinstance(raw_config, bytes)
                 else str(raw_config)
             )
