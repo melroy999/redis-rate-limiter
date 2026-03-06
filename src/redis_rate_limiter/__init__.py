@@ -15,12 +15,9 @@ __all__ = [
     "AbstractDistributedRateLimiter",
     "ASGIRateLimiter",
     "AsyncIOTaskLimiter",
-    "CeleryRateLimiter",
     "DistributedLock",
     "ProcessPoolRateLimiter",
-    "PrometheusMetricsExporter",
     "RateLimitMiddleware",
-    "RQRateLimiter",
     "TaskLifecycle",
     "ThreadPoolRateLimiter",
     "import_string",
@@ -31,12 +28,16 @@ __all__ = [
 # The Celery backend is only available when the celery package is installed.
 try:
     from redis_rate_limiter.backends.celery import CeleryRateLimiter
+
+    __all__.append("CeleryRateLimiter")
 except ImportError:
     pass
 
 # The RQ backend is only available when the rq package is installed.
 try:
     from redis_rate_limiter.backends.rq import RQRateLimiter
+
+    __all__.append("RQRateLimiter")
 except ImportError:
     pass
 
@@ -55,5 +56,7 @@ from redis_rate_limiter.backends.threading import ThreadPoolRateLimiter
 # The Prometheus integration is only available when the prometheus_client package is installed.
 try:
     from redis_rate_limiter.integrations.prometheus import PrometheusMetricsExporter
+
+    __all__.append("PrometheusMetricsExporter")
 except ImportError:
     pass
