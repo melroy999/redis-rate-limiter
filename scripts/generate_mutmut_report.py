@@ -12,7 +12,8 @@ as libraries.
 
 Output files (written to ``--output-dir``):
 
-- ``report.json``: structured data for programmatic consumption
+- ``report.json``: structured summary for programmatic consumption
+- ``report-detail.json``: large diagnostic data (killed-by mappings, test effectiveness)
 - ``report.txt``: human-readable summary (also printed to stdout)
 - ``mutation-score.txt``: score percentage for CI badge consumption
 - ``stats.json``: copy of ``mutmut-stats.json`` (test mapping, durations)
@@ -806,21 +807,25 @@ def _format_text_report(report: UnifiedReport) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _serialize_report(report: UnifiedReport, include_killed: bool = False) -> dict:
-    """Serialize the report to a JSON-compatible dict.
+def _serialize_report(
+    report: UnifiedReport, include_killed: bool = False
+) -> tuple[dict, dict]:
+    """Serialize the report into a summary dict and a detail dict.
 
-    By default, killed mutants are excluded from the ``mutants`` list to
-    keep the JSON manageable. Set ``include_killed=True`` to include them.
+    The summary dict (written to ``report.json``) contains scores,
+    per-file stats, classification, mutation type distribution, uncovered
+    functions, and non-killed mutant records. The detail dict (written to
+    ``report-detail.json``) contains the large diagnostic sections:
+    ``killed_by_detail`` and ``test_effectiveness``.
 
-    Killed-by and tests-run data is always included in a separate
-    ``killed_by_detail`` mapping so it is not lost when killed mutants are
-    filtered from the ``mutants`` list.
+    By default, killed mutants are excluded from the ``mutants`` list in
+    the summary to keep the JSON manageable. Set ``include_killed=True``
+    to include them.
     """
     d = asdict(report)
 
-    # Extract killed-by / tests-run into a compact top-level mapping before
-    # potentially dropping killed mutant records.
-    detail: dict[str, dict] = {}
+    # Extract killed-by / tests-run into a compact mapping.
+    killed_by_detail: dict[str, dict] = {}
     for m in d["mutants"]:
         if m["killed_by"] or m["tests_run"] is not None:
             entry: dict = {}
@@ -828,18 +833,26 @@ def _serialize_report(report: UnifiedReport, include_killed: bool = False) -> di
                 entry["killed_by"] = m["killed_by"]
             if m["tests_run"] is not None:
                 entry["tests_run"] = m["tests_run"]
-            detail[m["name"]] = entry
-    d["killed_by_detail"] = detail
+            killed_by_detail[m["name"]] = entry
 
     if not include_killed:
         d["mutants"] = [m for m in d["mutants"] if m["status"] != "killed"]
 
     # Replace inf values in test_effectiveness (JSON does not support inf).
-    if d.get("test_effectiveness"):
-        for te in d["test_effectiveness"]:
+    test_effectiveness = d.pop("test_effectiveness", None)
+    if test_effectiveness:
+        for te in test_effectiveness:
             if te["kills_per_second"] == float("inf"):
                 te["kills_per_second"] = -1  # sentinel for "instant kill"
-    return d
+
+    # Detail dict: large diagnostic data split into a separate file.
+    detail = {
+        "mutation_score": d["mutation_score"],
+        "killed_by_detail": killed_by_detail,
+        "test_effectiveness": test_effectiveness,
+    }
+
+    return d, detail
 
 
 # ---------------------------------------------------------------------------
@@ -937,10 +950,17 @@ def main() -> None:
     )
 
     # Write output files.
+    summary, detail = _serialize_report(report, include_killed=args.include_killed)
+
     json_path = output_dir / "report.json"
     with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(_serialize_report(report, include_killed=args.include_killed), f, indent=2)
+        json.dump(summary, f, indent=2)
     print(f"  JSON report written to {json_path}", flush=True)
+
+    detail_path = output_dir / "report-detail.json"
+    with open(detail_path, "w", encoding="utf-8") as f:
+        json.dump(detail, f, indent=2)
+    print(f"  Detail report written to {detail_path}", flush=True)
 
     score_path = output_dir / "mutation-score.txt"
     score_path.write_text(f"{score:.2f}", encoding="utf-8")
