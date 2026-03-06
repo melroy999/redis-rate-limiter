@@ -57,23 +57,19 @@ class RQRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
 
     @classmethod
     def _has_backend_context(cls) -> bool:
-        """Determine whether the RQ queue context has been configured."""
         return cls._queue is not None
 
     @classmethod
     def _get_instance_context(cls) -> dict[str, Any]:
-        """Provide the constructor context required for concrete instance creation."""
         assert cls._queue is not None
         return {"queue": cls._queue}
 
     @classmethod
     def _reset_backend_context(cls) -> None:
-        """Clear the RQ queue context held at the class level."""
         cls._queue = None
 
     @classmethod
     def _configure_hint(cls) -> str:
-        """Return the ``configure`` usage hint to be included in runtime error messages."""
         return "RQRateLimiter.configure(redis_client, queue=queue)"
 
     # ---------------------------------------------------------------------------
@@ -136,10 +132,8 @@ class RQRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
         max_age: Optional[int] = None,
         use_executor: bool = True,
     ) -> tuple[bool, str]:
-        # Augment the payload with the executor flag.
         enhanced_payload = self._get_enhanced_payload(payload, use_executor)
 
-        # Delegate to the parent scheduler.
         # fmt: off
         return cast(  # pragma: no mutate
             tuple[bool, str],
@@ -148,7 +142,6 @@ class RQRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
         # fmt: on
 
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
-        # Determine whether the built-in generic worker should be used.
         use_executor = payload.get("meta", {}).get("use_executor", True)
         data = payload.get("data", {})
 
@@ -157,7 +150,6 @@ class RQRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
                 generic_rate_limited_worker,
             )
 
-            # Dispatch the task to the generic worker function.
             self.queue.enqueue(
                 generic_rate_limited_worker,
                 kwargs={
@@ -174,7 +166,6 @@ class RQRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
                 func_path,
             )
         else:
-            # Dispatch to the user-defined custom job function.
             self.queue.enqueue(
                 func_path, args=[data], kwargs={"_rate_limit_task_id": task_id}
             )

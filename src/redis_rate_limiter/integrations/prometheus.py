@@ -154,7 +154,6 @@ class PrometheusMetricsExporter:
         """Process a consume event, updating counters and gauges."""
         lid = self._limiter_id
 
-        # Determine the outcome label.
         if data.get("expired"):
             outcome = "expired"
         elif data.get("success"):
@@ -164,7 +163,6 @@ class PrometheusMetricsExporter:
 
         self._consume_total.labels(limiter_id=lid, outcome=outcome).inc()
 
-        # Update point-in-time gauges.
         self._remaining_tokens.labels(limiter_id=lid).set(data["remaining_tokens"])
         self._active_concurrency.labels(limiter_id=lid).set(data["active_concurrency"])
         self._buffer_depth.labels(limiter_id=lid).set(data["remaining_tasks"])

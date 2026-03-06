@@ -456,15 +456,12 @@ class AsyncBackendHealthMonitor:
 
     @property
     def is_healthy(self) -> bool:
-        """Return the current health state of the backend."""
         return self._healthy
 
     def start(self) -> None:
-        """Launch the health check as an asyncio task."""
         self._task = asyncio.create_task(self._run())
 
     async def _run(self) -> None:
-        """Execute the health check loop until shutdown is requested."""
         while not self._shutdown_event.is_set():
             try:
                 await asyncio.wait_for(
@@ -477,7 +474,6 @@ class AsyncBackendHealthMonitor:
             await self._run_once()
 
     async def _run_once(self) -> None:
-        """Execute a single health check iteration and log state transitions."""
         try:
             healthy = await self._limiter._check_backend_health()
         except Exception:

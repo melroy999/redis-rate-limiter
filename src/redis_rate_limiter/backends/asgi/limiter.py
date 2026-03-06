@@ -50,22 +50,18 @@ class ASGIRateLimiter(AsyncManagedRateLimiter, AbstractAsyncRateLimiter):
 
     @classmethod
     def _has_backend_context(cls) -> bool:
-        """Return ``True``; the ASGI limiter does not require backend context."""
         return True
 
     @classmethod
     def _get_instance_context(cls) -> dict[str, Any]:
-        """Return an empty context dictionary."""
         return {}
 
     @classmethod
     def _reset_backend_context(cls) -> None:
-        """No backend context to clear."""
         pass
 
     @classmethod
     def _configure_hint(cls) -> str:
-        """Return the ``configure`` usage hint for runtime error messages."""
         return "ASGIRateLimiter.configure(redis_client)"
 
     # ---------------------------------------------------------------------------

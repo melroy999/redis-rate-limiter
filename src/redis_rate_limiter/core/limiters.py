@@ -261,11 +261,8 @@ class TaskLifecycle:
         self.task_id = task_id
         self.interval = self.limiter.lease_duration / 2
 
-        # Threading controls for the heartbeat loop.
         self._stop_event: Event = Event()
         self._thread: Optional[Thread] = None
-
-        # Health monitoring controls.
         self.on_failure_action = on_heartbeat_failure.lower()
         self.is_healthy = True
 
@@ -273,10 +270,8 @@ class TaskLifecycle:
         """Background task that periodically renews the lease on a concurrency slot."""
         while not self._stop_event.wait(timeout=self.interval):
             try:
-                # Extend the lease.
                 self.limiter.extend_lease(self.task_id, self.limiter.lease_duration)
 
-                # Indicate that the worker has restored proper functioning.
                 if not self.is_healthy:
                     logger.info(
                         "Heartbeat connection restored for task %s on limiter %s.",
@@ -285,11 +280,9 @@ class TaskLifecycle:
                     )
                     self.is_healthy = True
             except Exception as e:
-                # Mark the lifecycle as unhealthy to signal to the worker that an error has occurred.
                 self.is_healthy = False
 
                 if self.on_failure_action == "kill":
-                    # Terminate the worker process and halt the heartbeat thread.
                     logger.critical(
                         "Heartbeat failed for task %s: %s - terminating worker.",
                         self.task_id,
@@ -306,7 +299,6 @@ class TaskLifecycle:
 
     def __enter__(self) -> TaskLifecycle:
         """Start the heartbeat thread that periodically renews the concurrency lease."""
-        # Start the keep-alive thread.
         self._thread = Thread(target=self._heartbeat_loop, daemon=True)
         self._thread.start()
         logger.debug(
@@ -323,14 +315,11 @@ class TaskLifecycle:
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=1.0)
 
-        # Perform resource cleanup.
         try:
-            # Release the concurrency slot.
             removed_concurrency = self.limiter.redis.zrem(
                 self.limiter.concurrency_key, self.task_id
             )
 
-            # Clear the in-flight marker associated with the task.
             inflight_removed = 0
             if self.task_id:
                 inflight_key = self.limiter.get_inflight_key(self.task_id)
@@ -354,7 +343,6 @@ class TaskLifecycle:
                 self.limiter.id,
                 self.task_id,
             )
-            # Re-trigger the dispatcher to fill the newly vacated slot.
             self.limiter.trigger_consume()
 
 
@@ -520,21 +508,17 @@ class BackendHealthMonitor:
 
     @property
     def is_healthy(self) -> bool:
-        """Return the current health state of the backend."""
         return self._healthy
 
     def start(self) -> None:
-        """Launch the health check daemon thread."""
         self._thread = Thread(target=self._run, daemon=True)
         self._thread.start()
 
     def _run(self) -> None:
-        """Execute the health check loop until shutdown is requested."""
         while not self._shutdown_event.wait(timeout=self._interval):
             self._run_once()
 
     def _run_once(self) -> None:
-        """Execute a single health check iteration and log state transitions."""
         try:
             healthy = self._limiter._check_backend_health()
         except Exception:
@@ -616,11 +600,10 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
         self.metrics_callback = metrics_callback
         self.drain_enabled = drain_enabled
 
-        # Internal state.
         self._worker_id: str = str(uuid.uuid4())
         self._consecutive_drain_failures: int = 0
 
-        # Redis key construction (self.id is set by AbstractRateLimiter in the MRO).
+        # self.id is set by AbstractRateLimiter in the MRO.
         self.buffer_key = f"{self.id}:buffer"
         self.concurrency_key = f"{self.id}:concurrency"
         self.lock_key = f"{self.id}:dispatch_lock"
@@ -648,11 +631,9 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
 
     @staticmethod
     def _get_task_signature_str(func_path: str, payload: dict) -> str:
-        """Return the signature of a task as a deterministic JSON string."""
         return json.dumps({"path": func_path, "payload": payload}, sort_keys=True)
 
     def _get_task_data(self, task_id: str, func_path: str, payload: dict) -> dict:
-        """Return the structured data dictionary for a task."""
         task_data = {
             "id": task_id,
             "func_path": func_path,
@@ -662,7 +643,6 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
         return task_data
 
     def _get_task_data_str(self, task_id: str, func_path: str, payload: dict) -> str:
-        """Return the structured data of a task as a JSON string."""
         return json.dumps(
             self._get_task_data(task_id, func_path, payload), sort_keys=True
         )
@@ -891,7 +871,6 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
     # ---------------------------------------------------------------------------
 
     def _build_persist_config(self) -> dict[str, Any]:
-        """Return the configuration dictionary for Redis persistence."""
         config: dict[str, Any] = super()._build_persist_config()
         config.update(
             {
@@ -903,7 +882,6 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
         return config
 
     def _apply_config_overrides(self, overrides: dict[str, Any]) -> None:
-        """Apply configuration overrides for distributed-specific fields."""
         super()._apply_config_overrides(overrides)
         if "max_concurrency" in overrides:
             self.max_concurrency = overrides["max_concurrency"]
@@ -1080,7 +1058,6 @@ class AbstractDistributedRateLimiter(
         Raises:
             RuntimeError: If the required Lua scripts cannot be (re)loaded.
         """
-        # Generate a unique identifier derived from the task name and payload.
         task_signature = self._get_task_signature_str(func_path, payload)
         task_id = hashlib.md5(task_signature.encode()).hexdigest()
         logger.debug(
@@ -1107,11 +1084,9 @@ class AbstractDistributedRateLimiter(
             self._emit_metric("schedule", {"scheduled": False, "task_id": task_id})
             return False, task_id
 
-        # Serialize the task data with the assigned priority for priority queue behavior.
         full_data = self._get_task_data_str(task_id, func_path, payload)
 
         try:
-            # Attempt to schedule the task via the Lua script.
             self._eval_script(
                 "schedule.lua",
                 1,
@@ -1135,7 +1110,6 @@ class AbstractDistributedRateLimiter(
             self._cleanup_inflight_key(inflight_key, task_id)
             raise
 
-        # Attempt to consume a task from the buffer.
         self.trigger_consume()
         self._emit_metric("schedule", {"scheduled": True, "task_id": task_id})
         return True, task_id
@@ -1155,7 +1129,6 @@ class AbstractDistributedRateLimiter(
         """
         logger.debug("Consume attempt started: limiter=%s.", self.id)
 
-        # Execute the consume Lua script and obtain the result.
         # fmt: off
         result = cast(  # pragma: no mutate
             list[str],
@@ -1177,7 +1150,6 @@ class AbstractDistributedRateLimiter(
         )
         # fmt: on
 
-        # Parse and structure the result.
         consume_result: ConsumeResult = {
             "success": int(result[0]) == 1,
             "expired": int(result[0]) == -1,
@@ -1364,22 +1336,18 @@ class AbstractDistributedRateLimiter(
                 self._schedule_backup_drain()
                 return
 
-            # Attempt to consume a task from the buffer.
             result = self.consume()
 
-            # Check whether the task has expired.
             if result["expired"]:
                 logger.warning(
                     "Expired task moved to DLQ during consume: limiter=%s.",
                     self.id,
                 )
 
-            # Dispatch the task if the consumption was successful.
             if result["success"] and result["task"]:
                 task = result["task"]
                 task_id = task.get("id", "")
 
-                # Dispatch the consumed task to the execution backend.
                 self._dispatch_task(
                     func_path=task["func_path"],
                     payload=task["payload"],
@@ -1627,7 +1595,6 @@ class AbstractDistributedRateLimiter(
         )
         # fmt: on
 
-        # Map the result list to a structured dictionary.
         return {
             "limiter_id": self.id,
             "concurrency": {

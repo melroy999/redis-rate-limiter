@@ -43,7 +43,6 @@ def rate_limited(
     def decorator(func: T) -> T:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            # Resolve the limiter identifier.
             _limiter_id = limiter_id or kwargs.get("limiter_id")
             if _limiter_id is None:
                 raise ValueError(
@@ -51,7 +50,6 @@ def rate_limited(
                     "or provide limiter_id in function kwargs."
                 )
 
-            # Retrieve the limiter instance and the associated task identifier.
             limiter_getter = get_limiter or _get_default_limiter
             limiter = limiter_getter(_limiter_id)
             task_id = kwargs.pop("_rate_limit_task_id")
@@ -62,7 +60,6 @@ def rate_limited(
                 func.__qualname__,
             )
 
-            # Execute the task within the rate limiter's lifecycle context manager.
             with limiter.task_lifecycle(task_id):
                 result = func(*args, **kwargs)
 

@@ -51,23 +51,19 @@ class ProcessPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimi
 
     @classmethod
     def _has_backend_context(cls) -> bool:
-        """Determine whether the executor context has been configured."""
         return cls._executor is not None
 
     @classmethod
     def _get_instance_context(cls) -> dict[str, Any]:
-        """Provide the constructor context required for concrete instance creation."""
         assert cls._executor is not None
         return {"executor": cls._executor}
 
     @classmethod
     def _reset_backend_context(cls) -> None:
-        """Clear the executor context held at the class level."""
         cls._executor = None
 
     @classmethod
     def _configure_hint(cls) -> str:
-        """Return the ``configure`` usage hint to be included in runtime error messages."""
         return "ProcessPoolRateLimiter.configure(redis_client, executor=executor)"
 
     # ---------------------------------------------------------------------------

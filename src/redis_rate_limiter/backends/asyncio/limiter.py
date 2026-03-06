@@ -50,23 +50,19 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
 
     @classmethod
     def _has_backend_context(cls) -> bool:
-        """Determine whether the max_tasks context has been configured."""
         return cls._max_tasks is not None
 
     @classmethod
     def _get_instance_context(cls) -> dict[str, Any]:
-        """Provide the constructor context required for concrete instance creation."""
         assert cls._max_tasks is not None
         return {"max_tasks": cls._max_tasks}
 
     @classmethod
     def _reset_backend_context(cls) -> None:
-        """Clear the max_tasks context held at the class level."""
         cls._max_tasks = None
 
     @classmethod
     def _configure_hint(cls) -> str:
-        """Return the ``configure`` usage hint for runtime error messages."""
         return "AsyncIOTaskLimiter.configure(redis_client, max_tasks=N)"
 
     # ---------------------------------------------------------------------------
