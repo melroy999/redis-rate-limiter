@@ -100,22 +100,6 @@ services:
     profiles:
       - mutate
 
-  # Per-test coverage collection for superfluity analysis.
-  coverage-context:
-    <<: *test-base
-    container_name: redis-rate-limiter-coverage-context
-    volumes:
-      - ./src:/app/src:ro
-      - ./tests:/app/tests:ro
-      - ./mutmut-results:/app/mutation-output
-    command: >-
-      bash -c "
-        poetry run pytest --cov --cov-context=test tests/ -v -s --override-ini='addopts=--import-mode=importlib' --ignore=tests/properties/ &&
-        poetry run coverage json --show-contexts -o /app/mutation-output/coverage-contexts.json
-      "
-    profiles:
-      - coverage-context
-
   # Optional: Redis Commander (web UI for debugging).
   redis-commander:
     image: rediscommander/redis-commander:latest

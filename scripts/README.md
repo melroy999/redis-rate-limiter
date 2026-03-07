@@ -65,63 +65,6 @@ The classifier applies detectors in a fixed priority order, returning at the fir
 - **Sync/async mirror detection**: mutations that appear identically in both the sync and async implementation (e.g., `limiters.py` and `async_limiters.py`) are grouped together. The mirror key is derived by stripping module prefixes and `Abstract`/`Async` class name prefixes, then matching on score and mutation type.
 - **Known-benign allowlist**: a list of `(method_pattern, description, reason)` tuples for mutations that have been manually verified as producing identical behavior (e.g., boundary condition equivalences where both branches compute the same value). These are separated from scored mutations and listed in their own report section.
 
-### Test superfluity analysis (`analyze_test_superfluity.py`)
-
-Identifies tests whose removal would not reduce path coverage or mutation coverage, i.e., tests that are strict subsets of other test collections. The analysis is a graduated-confidence funnel: function-level analysis identifies candidates, line-level analysis confirms or refutes most of them, and full certainty would require branch coverage and a complete kill matrix (no `-x`). No single tier produces a definitive verdict on its own.
-
-#### Classification and confidence
-
-The analysis classifies tests into categories based on available evidence. Tiers are classification labels, not an ordered confidence scale; confidence comes from combining evidence layers (function mapping, killed-by data, line coverage), not from the tier number.
-
-| Category | Required data | Meaning | Definitive? |
-|---|---|---|---|
-| **Not superfluous** (tier 0) | Killed-by data | Test killed at least one mutant under `-x` ordering. Demonstrably catches mutations. | Yes (proves non-superfluity) |
-| **Not superfluous** (tier 1) | Function mapping | Test exercises code outside the mutated source tree (algorithms, Lua, properties). Categorically not superfluous. | Yes (proves non-superfluity) |
-| **Candidate** (tier 2) | Function mapping | Zero-kill test whose set of exercised functions is a strict subset of some killing test's function set. Plausible candidate, but two tests may exercise the same function and cover different branches within it. | No |
-| **Candidate + line-superfluous** (tier 2 + line data) | Function mapping + per-test line coverage | Tier 2 candidate where every source line it covers is also covered by at least one other test. Strongest available signal, but does not account for branch-level differences within a single line or `-x` kill credit bias. | No (near-definitive) |
-| **Unknown** (tier 3) | Function mapping | Zero-kill test whose function set is not a subset of any single killing test. Could be superfluous or not; insufficient data to classify in either direction. Not necessarily lower or higher confidence than tier 2. | No |
-
-#### Function-level analysis (always available)
-
-Uses `tests_by_mangled_function_name` from `stats.json` to build a per-test function coverage matrix. This is the coarsest analysis: it can definitively prove a test is *not* superfluous (tiers 0 and 1), but can only nominate candidates (tier 2) or mark tests as unknown (tier 3). It cannot confirm superfluity because function-level granularity does not distinguish which branches within a function each test covers.
-
-#### Line-level analysis (when `coverage-contexts.json` is present)
-
-Uses per-test line coverage from `coverage.py --show-contexts` to perform precise set-cover analysis. The algorithm is O(n * avg_coverage_size): for each source line, count how many tests cover it; a test is line-superfluous if every line it covers has a coverage count of at least 2 (i.e., at least one other test also covers it). Tests that are both tier 2 function-subset candidates and line-superfluous are the highest-confidence superfluous tests.
-
-Even at this level, two residual uncertainties remain:
-
-1. **Branch coverage gap**: two tests can cover the same line but take different branches on that line (e.g., an `if/else` on a single line). Only `branch = True` in coverage.py would close this gap (future enhancement).
-2. **`-x` kill credit bias**: a "zero-kill" test may be the only test capable of killing certain mutants, but it never ran first due to test ordering. A complete kill matrix (running without `-x`) would eliminate this uncertainty, at the cost of significantly longer mutation testing runs.
-
-#### Additional warnings
-
-- **Contract tests** (`tests/contracts/`): even if coverage-redundant, contract tests enforce interface guarantees that all backends must satisfy. The analysis flags them but does not recommend removal.
-- **Out-of-scope tests**: algorithm tests, Lua tests, and property tests exercise code outside the mutation scope. They are not superfluous by definition and are excluded from superfluity candidates.
-
-#### Invocation
-
-```bash
-# Function-level analysis only (uses existing mutmut results):
-python scripts/analyze_test_superfluity.py mutmut-results/
-
-# Collect per-test coverage first, then run full analysis:
-docker compose --profile coverage-context up \
-    --abort-on-container-exit --exit-code-from coverage-context
-python scripts/analyze_test_superfluity.py mutmut-results/
-# Auto-detects coverage-contexts.json and upgrades to line-level analysis.
-
-# Explicit coverage file path:
-python scripts/analyze_test_superfluity.py mutmut-results/ \
-    --coverage mutmut-results/coverage-contexts.json
-```
-
-Output files are written to the input directory: `superfluity-report.json` (structured summary with candidate list) and `superfluity-report.txt` (human-readable summary, also printed to stdout).
-
-### Per-test coverage collection (`collect_per_test_coverage.py`)
-
-Wrapper script that runs pytest with `--cov --cov-context=test` and exports the coverage database to `coverage-contexts.json`. This file records which test executed each source line, enabling the line-level superfluity analysis described above. Can be run via the `coverage-context` Docker Compose service or directly on the host if Redis is available.
-
 ### Score extraction (`extract_mutation_score.py`)
 
 Parses the final progress line from `mutmut run` output to extract the mutation score. Used as a library by the report generator and retained for standalone use.
@@ -132,7 +75,5 @@ Mutation testing scripts are invoked automatically by `docker compose --profile 
 
 1. `python scripts/run_mutmut.py run` (patched mutmut with killed-by tracking)
 2. `python scripts/generate_mutmut_report.py` (unified report generation)
-
-Per-test coverage collection is a separate step via `docker compose --profile coverage-context up --abort-on-container-exit --exit-code-from coverage-context`. Superfluity analysis (`analyze_test_superfluity.py`) runs on the host against the output directory and does not require Docker.
 
 All results are written to `./mutmut-results/` on the host via a bind mount.

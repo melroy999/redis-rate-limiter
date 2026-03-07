@@ -219,5 +219,3 @@ demo/scripts/.port-forward.log
 .mutmut-cache/
 mutmut-results/stats.json
 mutmut-results/report-detail.json
-mutmut-results/superfluity-report.json
-mutmut-results/coverage-contexts.json
