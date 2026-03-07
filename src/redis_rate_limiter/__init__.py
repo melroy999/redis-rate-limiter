@@ -34,11 +34,13 @@ except ImportError:
     pass
 
 # The RQ backend is only available when the rq package is installed.
+# ValueError is caught because rq calls get_context("fork") at import time,
+# which raises ValueError on Windows (no fork support).
 try:
     from redis_rate_limiter.backends.rq import RQRateLimiter
 
     __all__.append("RQRateLimiter")
-except ImportError:
+except (ImportError, ValueError):
     pass
 
 # The threading backend relies solely on the standard library and does not require

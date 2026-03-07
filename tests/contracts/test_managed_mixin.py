@@ -13,15 +13,21 @@ Fixture dependencies:
     None. All tests are self-contained.
 """
 
+import sys
+
 import pytest
 
 from redis_rate_limiter.backends.asgi.limiter import ASGIRateLimiter
 from redis_rate_limiter.backends.asyncio.limiter import AsyncIOTaskLimiter
 from redis_rate_limiter.backends.celery.limiter import CeleryRateLimiter
 from redis_rate_limiter.backends.processpool.limiter import ProcessPoolRateLimiter
-from redis_rate_limiter.backends.rq.limiter import RQRateLimiter
 from redis_rate_limiter.backends.threading.limiter import ThreadPoolRateLimiter
 from redis_rate_limiter.core.managed import ManagedRateLimiterMixin
+
+# RQ calls get_context("fork") at import time, which raises ValueError on Windows.
+_RQRateLimiter = None
+if sys.platform != "win32":
+    from redis_rate_limiter.backends.rq.limiter import RQRateLimiter as _RQRateLimiter
 
 
 class _BareMixin(ManagedRateLimiterMixin):
@@ -78,12 +84,16 @@ class TestConfigureHintCompliance:
     @pytest.mark.parametrize(
         "backend_cls",
         [
-            ASGIRateLimiter,
-            AsyncIOTaskLimiter,
-            CeleryRateLimiter,
-            ProcessPoolRateLimiter,
-            RQRateLimiter,
-            ThreadPoolRateLimiter,
+            cls
+            for cls in [
+                ASGIRateLimiter,
+                AsyncIOTaskLimiter,
+                CeleryRateLimiter,
+                ProcessPoolRateLimiter,
+                _RQRateLimiter,
+                ThreadPoolRateLimiter,
+            ]
+            if cls is not None
         ],
         ids=lambda cls: cls.__name__,
     )
