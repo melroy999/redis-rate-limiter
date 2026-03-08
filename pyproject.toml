@@ -24,6 +24,7 @@ ruff = "^0.15.4"
 mypy = "^1.19.1"
 hypothesis = "^6.151.9"
 mutmut = {version = "^3.5.0", python = "<4.0"}
+pytest-timeout = ">=2.3.0"
 
 [tool.poetry]
 packages = [{include = "redis_rate_limiter", from = "src"}]
@@ -49,7 +50,7 @@ markers = [
 paths_to_mutate = ["src/redis_rate_limiter/"]
 pytest_add_cli_args_test_selection = ["tests/"]
 pytest_add_cli_args = [
-    "-x", "--tb=short", "-q",
+    "--tb=short", "-q",
     "--ignore=tests/properties/",
     "--deselect=tests/integration/test_rate_limiting.py::TestSlidingWindowBehavior",
     "--deselect=tests/integration/test_distributed_rate_limiting.py::TestDistributedRateLimiting",

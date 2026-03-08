@@ -76,6 +76,8 @@ class MutantRecord:
     diff: str | None = None
     line_number: int | None = None
     killed_by: list[str] = field(default_factory=list)
+    timed_out_tests: list[str] = field(default_factory=list)
+    partial_data: bool = False
     tests_run: int | None = None
     classification_score: int | None = None
     mutation_type: str | None = None
@@ -200,29 +202,31 @@ def _load_killed_by_raw(path: Path) -> dict:
 
 def _parse_killed_by(
     raw: dict,
-) -> tuple[dict[str, list[str]], dict[str, int]]:
+) -> tuple[dict[str, list[str]], dict[str, int], dict[str, list[str]], dict[str, bool]]:
     """Parse the killed-by data into separate mappings.
 
-    Handles both legacy format (``{name: [tests]}``) and new format
-    (``{name: {"killed_by": [tests], "tests_run": N}}``).
+    Handles legacy format (``{name: [tests]}``), v2 format
+    (``{name: {"killed_by": [tests], "tests_run": N}}``), and v3 format
+    (v2 plus ``"timed_out": [tests]`` and ``"partial": bool``).
 
-    Returns ``(killed_by, tests_run_data)`` where:
-    - ``killed_by``: ``{mutant_name: [test_nodeids]}``
-    - ``tests_run_data``: ``{mutant_name: tests_run_count}``
+    Returns ``(killed_by, tests_run_data, timed_out_data, partial_data)``.
     """
     killed_by: dict[str, list[str]] = {}
     tests_run_data: dict[str, int] = {}
+    timed_out_data: dict[str, list[str]] = {}
+    partial_data: dict[str, bool] = {}
 
     for name, value in raw.items():
         if isinstance(value, list):
             # Legacy format: value is directly the list of test nodeids.
             killed_by[name] = value
         elif isinstance(value, dict):
-            # New format: value is {"killed_by": [...], "tests_run": N}.
             killed_by[name] = value.get("killed_by", [])
             tests_run_data[name] = value.get("tests_run", 0)
+            timed_out_data[name] = value.get("timed_out", [])
+            partial_data[name] = value.get("partial", False)
 
-    return killed_by, tests_run_data
+    return killed_by, tests_run_data, timed_out_data, partial_data
 
 
 def _load_all_test_nodeids(stats_path: Path) -> set[str]:
@@ -317,10 +321,14 @@ def _build_records(
     diffs: dict[str, tuple[str, list[str], list[str], list[str]]],
     killed_by: dict[str, list[str]],
     tests_run_data: dict[str, int] | None = None,
+    timed_out_data: dict[str, list[str]] | None = None,
+    partial_data: dict[str, bool] | None = None,
 ) -> list[MutantRecord]:
     """Build a ``MutantRecord`` for every mutant."""
     records: list[MutantRecord] = []
     tests_run_data = tests_run_data or {}
+    timed_out_data = timed_out_data or {}
+    partial_data = partial_data or {}
 
     for name, (status, duration, source_path) in all_meta.items():
         short_name = _shorten_name(name)
@@ -331,6 +339,8 @@ def _build_records(
             source_file=source_path,
             duration_seconds=duration,
             killed_by=killed_by.get(name, []),
+            timed_out_tests=timed_out_data.get(name, []),
+            partial_data=partial_data.get(name, False),
             tests_run=tests_run_data.get(name),
         )
 
@@ -748,6 +758,35 @@ def _format_text_report(report: UnifiedReport) -> str:
                 lines.append(f"    {count:4d} kills ({unique:3d} unique)  {test_nodeid}")
             lines.append("")
 
+    # Timeout-only kills and partial data.
+    timeout_only_kills = [
+        r for r in report.mutants
+        if r.status == "killed" and not r.killed_by and r.timed_out_tests
+    ]
+    partial_records = [r for r in report.mutants if r.partial_data]
+    if timeout_only_kills or partial_records:
+        lines.append("Per-Test Timeout Details")
+        lines.append("-" * 60)
+        if timeout_only_kills:
+            lines.append(
+                f"  Timeout-only kills: {len(timeout_only_kills)}"
+                "  (killed by pytest-timeout, no assertion failure)"
+            )
+            for r in timeout_only_kills[:10]:
+                lines.append(f"    {r.short_name}  ({len(r.timed_out_tests)} timed-out tests)")
+            if len(timeout_only_kills) > 10:
+                lines.append(f"    ... and {len(timeout_only_kills) - 10} more")
+        if partial_records:
+            lines.append(
+                f"  Partial data (SIGXCPU): {len(partial_records)}"
+                "  (process killed before all tests completed)"
+            )
+            for r in partial_records[:10]:
+                lines.append(f"    {r.short_name}")
+            if len(partial_records) > 10:
+                lines.append(f"    ... and {len(partial_records) - 10} more")
+        lines.append("")
+
     # Test effectiveness.
     if report.test_effectiveness:
         lines.append("Test Effectiveness (kills per second of test runtime)")
@@ -827,12 +866,21 @@ def _serialize_report(
     # Extract killed-by / tests-run into a compact mapping.
     killed_by_detail: dict[str, dict] = {}
     for m in d["mutants"]:
-        if m["killed_by"] or m["tests_run"] is not None:
+        has_data = (
+            m["killed_by"]
+            or m["timed_out_tests"]
+            or m["tests_run"] is not None
+        )
+        if has_data:
             entry: dict = {}
             if m["killed_by"]:
                 entry["killed_by"] = m["killed_by"]
+            if m["timed_out_tests"]:
+                entry["timed_out"] = m["timed_out_tests"]
             if m["tests_run"] is not None:
                 entry["tests_run"] = m["tests_run"]
+            if m["partial_data"]:
+                entry["partial"] = True
             killed_by_detail[m["name"]] = entry
 
     if not include_killed:
@@ -903,8 +951,16 @@ def main() -> None:
 
     # Load killed-by data.
     killed_by_raw = _load_killed_by_raw(Path(args.killed_by))
-    killed_by, tests_run_data = _parse_killed_by(killed_by_raw)
+    killed_by, tests_run_data, timed_out_data, partial_data = _parse_killed_by(
+        killed_by_raw
+    )
+    timed_out_count = sum(1 for v in timed_out_data.values() if v)
+    partial_count = sum(1 for v in partial_data.values() if v)
     print(f"  {len(killed_by)} mutants with killed-by data.", flush=True)
+    if timed_out_count:
+        print(f"  {timed_out_count} mutants with timed-out tests.", flush=True)
+    if partial_count:
+        print(f"  {partial_count} mutants with partial data (SIGXCPU).", flush=True)
 
     # Load mutmut-stats.json for test mapping and durations.
     stats_path = Path("mutants/mutmut-stats.json")
@@ -929,6 +985,21 @@ def main() -> None:
         killed_count = sum(1 for s, _, _ in all_meta.values() if s == "killed")
         score = killed_count / total_count * 100 if total_count else 0.0
 
+    # Reclassify timeout mutants that have killed-by data as "killed".
+    # When running without -x, the process-level SIGXCPU limit may fire
+    # before all tests complete, but the incremental flush preserves
+    # killed-by data. These mutants are effectively killed.
+    reclassified = 0
+    for name in list(all_meta):
+        status, duration, source_path = all_meta[name]
+        if status == "timeout" and name in killed_by and killed_by[name]:
+            all_meta[name] = ("killed", duration, source_path)
+            reclassified += 1
+    if reclassified:
+        killed_count += reclassified
+        score = killed_count / total_count * 100 if total_count else 0.0
+        print(f"  Reclassified {reclassified} timeout mutants as killed (had killed-by data).", flush=True)
+
     # Generate diffs for non-killed mutants.
     non_killed = {
         name
@@ -940,7 +1011,10 @@ def main() -> None:
     print(f"  {len(diffs)} diffs generated.", flush=True)
 
     # Build records and attach mirror keys.
-    records = _build_records(all_meta, diffs, killed_by, tests_run_data or None)
+    records = _build_records(
+        all_meta, diffs, killed_by, tests_run_data or None,
+        timed_out_data or None, partial_data or None,
+    )
     _attach_mirror_keys(records)
 
     # Build unified report.
