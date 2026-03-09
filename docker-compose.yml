@@ -100,6 +100,22 @@ services:
     profiles:
       - mutate
 
+  # Superfluity analysis service (runs per-file mutation testing without -x).
+  superfluity:
+    <<: *test-base
+    container_name: redis-rate-limiter-superfluity
+    volumes:
+      - ./mutmut-results:/app/mutation-output
+    deploy:
+      resources:
+        limits:
+          memory: 6g
+          cpus: "12"
+    command: >-
+      python scripts/analyze_superfluity.py --all --output-dir /app/mutation-output
+    profiles:
+      - superfluity
+
   # Optional: Redis Commander (web UI for debugging).
   redis-commander:
     image: rediscommander/redis-commander:latest
