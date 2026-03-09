@@ -2,6 +2,8 @@
 
 This directory contains scripts that wrap and extend [mutmut 3.x](https://github.com/boxed/mutmut) for this project. The scripts are invoked by the `mutate` service in `docker-compose.yml` and are not intended for direct use on the host (mutmut requires `fork()`, which is unavailable on Windows).
 
+> **Note**: all mutmut runs prior to the `flushdb()` removal on `backends-mutmut` suffered from cross-process Redis contamination: forked mutmut children called `flushdb()` in test fixtures, destroying sibling forks' in-progress Redis state. This caused non-deterministic false kills and false survivals. As a consequence, all previously reported mutation scores, survivor classifications, known-benign designations, killed-by mappings, and remediation claims (e.g., score improvements, specific survivor counts) are unreliable and should not be cited. The classification engine, detection pipeline, and reporting infrastructure described below are structurally sound; only the observed results from prior runs are invalidated. A clean baseline run is pending.
+
 ## Changes Compared to Vanilla mutmut
 
 ### Runtime patches (`run_mutmut.py`)
@@ -23,12 +25,12 @@ Vanilla mutmut is patched at import time before the CLI runs. Five patches are a
 Vanilla mutmut provides `mutmut results` (a list of surviving mutant names) and `mutmut show <name>` (individual diffs). There is no built-in report aggregation, classification, or JSON export. This script replaces all vanilla post-processing with a single-pass pipeline:
 
 - Reads mutmut's `.meta` files directly (via `SourceFileMutationData`) to load status and duration for every mutant.
-- Parses each trampolined source file once via libcst to extract diffs for all non-killed mutants in that file, replacing the vanilla approach of spawning a separate `mutmut show` process per mutant (which took approximately 44 minutes for 3,200 mutants).
+- Parses each trampolined source file once via libcst to extract diffs for all mutants in that file, replacing the vanilla approach of spawning a separate `mutmut show` process per mutant (which took approximately 44 minutes for 3,200 mutants). Diffs are generated for every mutant (killed, survived, timeout, no tests), not just non-killed ones, so that the output files are self-contained and can be analyzed without access to mutmut's working directory.
 - Classifies each surviving mutation by relevancy score (0 = cosmetic, 1 = argument removal, 2 = logic, 3 = fork-immune) using `classify_mutants.py`.
 - Detects sync/async mirror pairs (identical mutations on `limiters.py` and `async_limiters.py`) and collapses them in the text report.
 - Matches mutations against a manually verified known-benign allowlist.
 - Computes per-file survival rates, mutation type distribution, test effectiveness metrics (kills per second), and uncovered function detection from `mutmut-stats.json`.
-- Writes four output files: `report.json`, `report.txt`, `mutation-score.txt`, and `stats.json`.
+- Writes five output files: `report.json` (non-killed mutants only), `report-detail.json` (killed-by mappings, test effectiveness), `all-mutations.json` (every mutant with diffs, gitignored), `report.txt`, `mutation-score.txt`, and `stats.json`.
 
 ### Classification (`classify_mutants.py`)
 
@@ -76,4 +78,4 @@ Mutation testing scripts are invoked automatically by `docker compose --profile 
 1. `python scripts/run_mutmut.py run` (patched mutmut with killed-by tracking)
 2. `python scripts/generate_mutmut_report.py` (unified report generation)
 
-All results are written to `./mutmut-results/` on the host via a bind mount.
+All results are written to `./mutmut-results/` on the host via a bind mount. The `all-mutations.json` file contains every mutant (killed, survived, timeout, no tests) with diffs, classification, and killed-by data; it replaces the need for `mutmut show` commands and is gitignored due to its size. The `report.json` file contains only non-killed mutants and is checked into version control for tracking regressions.

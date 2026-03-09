@@ -14,6 +14,7 @@ Output files (written to ``--output-dir``):
 
 - ``report.json``: structured summary for programmatic consumption
 - ``report-detail.json``: large diagnostic data (killed-by mappings, test effectiveness)
+- ``all-mutations.json``: every mutant with diffs (gitignored; for offline analysis)
 - ``report.txt``: human-readable summary (also printed to stdout)
 - ``mutation-score.txt``: score percentage for CI badge consumption
 - ``stats.json``: copy of ``mutmut-stats.json`` (test mapping, durations)
@@ -990,14 +991,11 @@ def main() -> None:
         killed_count = sum(1 for s, _, _ in all_meta.values() if s == "killed")
         score = killed_count / total_count * 100 if total_count else 0.0
 
-    # Generate diffs for non-killed mutants.
-    non_killed = {
-        name
-        for name, (status, _, _) in all_meta.items()
-        if status != "killed"
-    }
-    print(f"  {len(non_killed)} non-killed mutants; generating diffs...", flush=True)
-    diffs = _generate_all_diffs(non_killed, all_meta)
+    # Generate diffs for all mutants (enables full analysis from the output
+    # files alone, without access to the mutmut working directory).
+    all_names = set(all_meta.keys())
+    print(f"  {len(all_names)} mutants; generating diffs...", flush=True)
+    diffs = _generate_all_diffs(all_names, all_meta)
     print(f"  {len(diffs)} diffs generated.", flush=True)
 
     # Build records and attach mirror keys.
@@ -1031,6 +1029,13 @@ def main() -> None:
 
     if stats_data is not None:
         shutil.copy2(stats_path, output_dir / "stats.json")
+
+    # Write all-mutations.json: every mutant with diffs, for offline analysis.
+    all_mutations_summary, _ = _serialize_report(report, include_killed=True)
+    all_mutations_path = output_dir / "all-mutations.json"
+    with open(all_mutations_path, "w", encoding="utf-8") as f:
+        json.dump(all_mutations_summary, f, indent=2)
+    print(f"  All mutations written to {all_mutations_path}", flush=True)
 
     text = _format_text_report(report)
     text_path = output_dir / "report.txt"

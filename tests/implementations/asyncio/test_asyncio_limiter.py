@@ -70,12 +70,9 @@ class TestAsyncIOTaskLimiter:
     @staticmethod
     async def test_get_buffer_count_reflects_scheduled_tasks(limiter):
         """Verify that ``get_buffer_count`` returns the correct count after scheduling.
-
-        Because the async drain loop runs cooperatively in the same event loop,
-        tasks may be consumed between schedule calls. The assertion checks that
-        the combined count of buffered and dispatched tasks equals the expected total.
         """
         # Arrange
+        limiter._paused_until = 5_000_000_000.0
         await limiter.schedule_task("tests.helpers.tasks.async_noop_task", {"key": "a"})
         await limiter.schedule_task(
             "tests.helpers.tasks.async_noop_task_2", {"key": "b"}
@@ -83,12 +80,10 @@ class TestAsyncIOTaskLimiter:
 
         # Act
         count = await limiter.get_buffer_count()
-        total = count + limiter._active_count
 
         # Assert
-        assert total == 2, (
-            f"buffer ({count}) + active ({limiter._active_count}) "
-            f"should equal 2 scheduled tasks"
+        assert count == 2, (
+            f"buffer count should equal 2 scheduled tasks, got {count}"
         )
 
     @staticmethod
