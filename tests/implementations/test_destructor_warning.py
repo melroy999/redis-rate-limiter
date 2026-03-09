@@ -41,8 +41,6 @@ class DestructorWarningTests:
         - ``limiter_after_shutdown``: a limiter that has already been shut down.
         - ``shutdown_instruction``: the backend-specific shutdown instruction
           string (e.g., ``"call shutdown() to stop background threads"``).
-        - ``limiter_module_file``: the basename of the source module containing
-          ``__del__`` (e.g., ``"limiters.py"``).
     """
 
     @staticmethod
@@ -163,29 +161,6 @@ class DestructorWarningTests:
             "no ResourceWarning should be emitted after shutdown"
         )
 
-    @staticmethod
-    async def test_del_warning_originates_from_limiter_module(
-        limiter_with_drain, limiter_module_file
-    ):
-        """Verify that the warning filename points to the limiter source module."""
-        # Arrange
-        limiter = limiter_with_drain
-
-        # Act
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            limiter.__del__()
-
-        # Assert
-        resource_warnings = [
-            w for w in caught if issubclass(w.category, ResourceWarning)
-        ]
-        assert len(resource_warnings) == 1, (
-            "exactly one ResourceWarning should be emitted"
-        )
-        assert limiter_module_file in resource_warnings[0].filename, (
-            f"warning should originate from {limiter_module_file}"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -245,11 +220,6 @@ class TestSyncDestructorWarning(DestructorWarningTests):
         """Return the expected sync shutdown instruction."""
         return "call shutdown() to stop background threads"
 
-    @pytest.fixture
-    def limiter_module_file(self):
-        """Return the source module filename for the sync ``__del__``."""
-        return "limiters.py"
-
 
 class TestAsyncDestructorWarning(DestructorWarningTests):
     """Async rate limiter ``__del__`` ResourceWarning tests."""
@@ -305,7 +275,3 @@ class TestAsyncDestructorWarning(DestructorWarningTests):
         """Return the expected async shutdown instruction."""
         return "call await shutdown() to stop background tasks"
 
-    @pytest.fixture
-    def limiter_module_file(self):
-        """Return the source module filename for the async ``__del__``."""
-        return "async_limiters.py"

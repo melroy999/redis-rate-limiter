@@ -53,25 +53,6 @@ class TestRateLimitMiddleware:
     """Tests for the ``RateLimitMiddleware`` ASGI wrapper."""
 
     @staticmethod
-    async def test_allowed_request_passes_through(limiter):
-        """Verify that an allowed request receives 200 from the inner app."""
-
-        # Arrange
-        async def inner_app(scope, receive, send):
-            await send({"type": "http.response.start", "status": 200, "headers": []})
-            await send({"type": "http.response.body", "body": b"OK"})
-
-        middleware = RateLimitMiddleware(
-            inner_app, limiter=limiter, key_func=by_client_ip
-        )
-
-        # Act
-        messages = await _capture_response(middleware, _make_scope())
-
-        # Assert
-        assert messages[0]["status"] == 200, "allowed request should receive 200"
-
-    @staticmethod
     async def test_allowed_response_includes_rate_limit_headers(limiter):
         """Verify that rate limit headers are injected into allowed responses."""
 

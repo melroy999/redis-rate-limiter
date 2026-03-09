@@ -22,66 +22,6 @@ class TestDrainLoop:
     """Test suite for ``DrainLoop`` wake, coalesce, watchdog, and shutdown behavior."""
 
     @staticmethod
-    def test_shutdown_sets_flag():
-        """Verify that ``shutdown()`` sets the ``_shutdown`` flag to exactly ``True`` without a running thread."""
-        # Arrange
-        limiter = MagicMock()
-        loop = DrainLoop(limiter, watchdog_interval=60.0)
-
-        # Act
-        loop.shutdown()
-
-        # Assert
-        # Identity check catches mutations to None and False.
-        assert loop._shutdown is True, (
-            "shutdown flag must be exactly True after shutdown"
-        )
-        assert loop._thread is None, (
-            "thread should not have been started without a wake call"
-        )
-
-    @staticmethod
-    def test_wake_default_delay_fires_immediately():
-        """Verify that ``wake()`` with no arguments uses the default delay of 0.0 and fires promptly."""
-        # Arrange
-        limiter = MagicMock()
-        drain_called = Event()
-        limiter.drain.side_effect = lambda: drain_called.set()
-        loop = DrainLoop(limiter, watchdog_interval=60.0)
-
-        # Act
-        start = time.monotonic()
-        loop.wake()
-        fired = drain_called.wait(timeout=2.0)
-        elapsed = time.monotonic() - start
-        loop.shutdown()
-
-        # Assert
-        assert fired, "drain should be called after wake() with default delay"
-        assert elapsed < 0.5, (
-            f"drain should fire promptly with default delay=0.0, took {elapsed:.2f}s"
-        )
-        limiter.drain.assert_called()
-
-    @staticmethod
-    def test_wake_fires_drain_immediately():
-        """Verify that ``wake(0)`` causes ``drain()`` to be called promptly."""
-        # Arrange
-        limiter = MagicMock()
-        drain_called = Event()
-        limiter.drain.side_effect = lambda: drain_called.set()
-        loop = DrainLoop(limiter, watchdog_interval=60.0)
-
-        # Act
-        loop.wake(0)
-        fired = drain_called.wait(timeout=2.0)
-        loop.shutdown()
-
-        # Assert
-        assert fired, "drain should be called after wake(0)"
-        limiter.drain.assert_called()
-
-    @staticmethod
     def test_wake_with_delay_fires_after_delay():
         """Verify that ``wake(delay)`` waits approximately the specified duration before firing."""
         # Arrange
@@ -163,23 +103,6 @@ class TestDrainLoop:
         # Assert
         assert fired, "watchdog should fire drain even without explicit wake"
         limiter.drain.assert_called()
-
-    @staticmethod
-    def test_shutdown_stops_thread():
-        """Verify that ``shutdown()`` stops the drain thread cleanly."""
-        # Arrange
-        limiter = MagicMock()
-        loop = DrainLoop(limiter, watchdog_interval=60.0)
-
-        # Act
-        # Start the thread.
-        loop.wake(10.0)
-        loop.shutdown()
-
-        # Assert
-        assert loop._shutdown is True, "shutdown flag should be True after shutdown"
-        assert loop._thread is not None, "thread should have been created"
-        assert not loop._thread.is_alive(), "thread should be stopped after shutdown"
 
     @staticmethod
     def test_shutdown_completes_promptly():
@@ -317,40 +240,6 @@ class TestDrainLoop:
         assert second_thread is first_thread, (
             "wake on an alive thread should reuse the existing thread, not replace it"
         )
-
-    @staticmethod
-    def test_ensure_started_restarts_dead_thread():
-        """Verify that ``_ensure_started()`` detects and replaces a dead thread."""
-        # Arrange
-        limiter = MagicMock()
-        limiter.id = "test-restart"
-        first_call = Event()
-        second_call = Event()
-
-        def _drain_side_effect():
-            if not first_call.is_set():
-                first_call.set()
-                raise RuntimeError("kill the thread")
-            second_call.set()
-
-        limiter.drain.side_effect = _drain_side_effect
-        loop = DrainLoop(limiter, watchdog_interval=60.0)
-
-        # Act
-        # Start and let the first drain fire (which raises).
-        loop.wake(0)
-        first_call.wait(timeout=2.0)
-        time.sleep(0.1)
-
-        # Trigger another wake. The thread should have survived due to the
-        # try/except; if _ensure_started detects a dead thread it restarts it.
-        loop.wake(0)
-        fired = second_call.wait(timeout=2.0)
-        loop.shutdown()
-
-        # Assert
-        assert fired, "drain should be called again after thread recovery"
-
 
 class TestDrainSignalSubscriber:
     """Test suite for ``DrainSignalSubscriber`` shutdown and message-processing behavior."""

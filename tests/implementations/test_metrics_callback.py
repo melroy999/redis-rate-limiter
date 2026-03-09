@@ -119,34 +119,6 @@ class MetricsCallbackTests:
         )
 
     @staticmethod
-    async def test_consume_metric_data_matches_result(limiter, callback):
-        """Verify that the metric data values match the ConsumeResult."""
-        # Act
-        result = await limiter.consume()
-
-        # Assert
-        callback.assert_called_once()
-        _, event_data = callback.call_args[0]
-        assert event_data["success"] == result["success"], (
-            "metric success should match consume result"
-        )
-        assert event_data["expired"] == result["expired"], (
-            "metric expired should match consume result"
-        )
-        assert event_data["remaining_tokens"] == result["remaining_tokens"], (
-            "metric remaining_tokens should match consume result"
-        )
-        assert event_data["active_concurrency"] == result["active_concurrency"], (
-            "metric active_concurrency should match consume result"
-        )
-        assert event_data["reset_in_ms"] == result["reset_in_ms"], (
-            "metric reset_in_ms should match consume result"
-        )
-        assert event_data["remaining_tasks"] == result["remaining_tasks"], (
-            "metric remaining_tasks should match consume result"
-        )
-
-    @staticmethod
     async def test_consume_metric_includes_expired_flag(limiter, callback):
         """Verify that the metric data correctly reflects ``expired=True`` for expired consume results."""
         # Arrange

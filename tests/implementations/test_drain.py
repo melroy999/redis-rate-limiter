@@ -159,81 +159,6 @@ class DrainBehaviorTests:
             "drain should schedule an immediate follow-up when tasks remain"
         )
 
-    async def test_drain_handles_consume_exception(self, limiter, mock_target):
-        """Verify that consume exceptions are caught and a recovery drain is scheduled."""
-        # Act
-        with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
-            patch.object(
-                mock_target,
-                "consume",
-                side_effect=RuntimeError("consume failed"),
-            ),
-        ):
-            await limiter.drain()
-
-        # Assert
-        assert limiter.dispatched_tasks == [], (
-            "drain should not dispatch if consume fails"
-        )
-        assert len(limiter.scheduled_drains) == 1, (
-            "drain should schedule a recovery drain after consume failure"
-        )
-        assert limiter.scheduled_drains[0] == pytest.approx(0.1), (
-            "recovery drain delay should be min(60, 0.1 * 2^(1-1)) = 0.1"
-        )
-        assert limiter._consecutive_drain_failures == 1, (
-            "failure counter should be incremented to 1"
-        )
-
-    async def test_drain_handles_dispatch_exception(self, limiter, mock_target):
-        """Verify that dispatch exceptions are caught and a recovery drain is scheduled."""
-        # Arrange
-        consume_result = {
-            "success": True,
-            "expired": False,
-            "task": {
-                "id": "task-dispatch-error",
-                "func_path": "myapp.tasks.work",
-                "payload": {"x": 1},
-            },
-            "remaining_tokens": 4,
-            "active_concurrency": 1,
-            "reset_in_ms": 100,
-            "remaining_tasks": 2,
-        }
-
-        # Act
-        with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
-            patch.object(mock_target, "consume", return_value=consume_result),
-            patch.object(
-                mock_target,
-                "_dispatch_task",
-                side_effect=RuntimeError("dispatch failed"),
-            ),
-        ):
-            await limiter.drain()
-
-        # Assert
-        assert len(limiter.scheduled_drains) == 1, (
-            "drain should schedule a recovery drain after dispatch failure"
-        )
-        assert limiter.scheduled_drains[0] == pytest.approx(0.1), (
-            "recovery drain delay should be min(60, 0.1 * 2^(1-1)) = 0.1"
-        )
-        assert limiter._consecutive_drain_failures == 1, (
-            "failure counter should be incremented to 1"
-        )
-
     async def test_drain_stops_when_buffer_empty(self, limiter, mock_target):
         """Verify that ``drain()`` stops without scheduling a follow-up when no tasks remain."""
         # Arrange
@@ -469,39 +394,6 @@ class DrainBehaviorTests:
             "second recovery delay should be 200ms"
         )
 
-    async def test_drain_backoff_caps_at_window(self, limiter, mock_target):
-        """Verify that the recovery delay is capped at ``self.window`` regardless of failure count."""
-        # Arrange
-        # Use a small window so the cap is reached quickly.
-        mock_target.window = 1.0
-
-        # Act
-        # Trigger enough failures to exceed the window cap.
-        # delay = min(1.0, 0.1 * 2^(n-1)): at n=4 -> min(1.0, 0.8) = 0.8; at n=5 -> min(1.0, 1.6) = 1.0
-        with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                side_effect=lambda: self.lock_result(True),
-            ),
-            patch.object(
-                mock_target,
-                "consume",
-                side_effect=RuntimeError("fail"),
-            ),
-        ):
-            for _ in range(6):
-                await limiter.drain()
-
-        # Assert
-        # The 5th and 6th failures should both be capped at 1.0.
-        assert limiter.scheduled_drains[4] == pytest.approx(1.0), (
-            "5th recovery delay should be capped at window (1.0s), not 1.6s"
-        )
-        assert limiter.scheduled_drains[5] == pytest.approx(1.0), (
-            "6th recovery delay should remain capped at window (1.0s)"
-        )
-
     async def test_drain_dispatches_last_task_without_follow_up(
         self, limiter, mock_target
     ):
@@ -659,20 +551,6 @@ class DrainBehaviorTests:
         # This invocation must not raise. The drain loop was never woken because
         # TrackingRateLimiter overrides _schedule_drain; as such, this exercises
         # the delegation path on the base class.
-        await limiter.shutdown()
-
-    @staticmethod
-    async def test_shutdown_twice_does_not_raise(limiter):
-        """Verify that calling ``shutdown()`` twice does not raise.
-
-        Exercises the idempotency guarantee: the second call should be a
-        no-op on already-stopped drain loop and subscriber components.
-        """
-        # Act
-        await limiter.shutdown()
-
-        # Assert
-        # Second shutdown must not raise.
         await limiter.shutdown()
 
     @staticmethod

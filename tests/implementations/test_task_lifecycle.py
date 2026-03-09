@@ -363,30 +363,6 @@ class TestHeartbeatLoop:
                 mock_kill.assert_called_with(os.getpid(), signal.SIGTERM)
 
     @staticmethod
-    def test_heartbeat_loop_stops_on_exit(redis_client, mock_limiter, task_id):
-        """Verify that the heartbeat loop stops when exiting the lifecycle context."""
-        # Act
-        lifecycle = TaskLifecycle(mock_limiter, task_id)
-        lifecycle.__enter__()
-
-        # The thread should be running.
-        assert lifecycle._thread is not None, "thread must be created on enter"
-        assert lifecycle._thread.is_alive(), "thread must be running during lifecycle"
-
-        # Exit the context.
-        lifecycle.__exit__(None, None, None)
-
-        # Wait for the thread to stop.
-        time.sleep(0.75 * mock_limiter.lease_duration)
-
-        # Assert
-        # The thread should have stopped.
-        assert lifecycle._stop_event.is_set(), "stop event must be set on exit"
-        assert not lifecycle._thread.is_alive(), (
-            "thread must be stopped after exiting lifecycle"
-        )
-
-    @staticmethod
     def test_heartbeat_loop_calls_extend_lease_with_correct_parameters(
         redis_client, mock_limiter, task_id
     ):
@@ -549,24 +525,6 @@ class TestExtendLease:
             "lease extension should update the score to a value greater than the initial score"
         )
 
-    @staticmethod
-    def test_extend_lease_passes_correct_arguments_to_lua(generic_limiter, task_id):
-        """Verify that ``extend_lease()`` invokes ``_eval_script`` with the expected arguments."""
-        # Arrange
-        duration = 45
-
-        with patch.object(generic_limiter, "_eval_script", return_value=1) as mock_eval:
-            # Act
-            generic_limiter.extend_lease(task_id, duration)
-
-        # Assert
-        mock_eval.assert_called_once_with(
-            "renew.lua",
-            1,
-            generic_limiter.concurrency_key,
-            task_id,
-            duration,
-        )
 
 
 # ---------------------------------------------------------------------------

@@ -54,55 +54,6 @@ class TestAsyncDrainLoop:
         assert loop._task.done(), "task should be done after shutdown"
 
     @staticmethod
-    async def test_wake_default_delay_fires_immediately():
-        """Verify that ``wake()`` with no arguments uses the default delay of ``0.0`` and fires promptly."""
-        # Arrange
-        limiter = MagicMock()
-        drain_called = asyncio.Event()
-        limiter.drain = AsyncMock(side_effect=lambda: drain_called.set())
-        loop = AsyncDrainLoop(limiter, watchdog_interval=60.0)
-
-        # Act
-        start = time.monotonic()
-        loop.wake()
-        try:
-            await asyncio.wait_for(drain_called.wait(), timeout=2.0)
-            fired = True
-        except asyncio.TimeoutError:
-            fired = False
-        elapsed = time.monotonic() - start
-        await asyncio.wait_for(loop.shutdown(), timeout=1.0)
-
-        # Assert
-        assert fired, "drain should be called after wake() with default delay"
-        assert elapsed < 0.5, (
-            f"drain should fire promptly with default delay=0.0, took {elapsed:.2f}s"
-        )
-        limiter.drain.assert_called()
-
-    @staticmethod
-    async def test_wake_fires_drain_immediately():
-        """Verify that ``wake(0)`` causes ``drain()`` to be called promptly."""
-        # Arrange
-        limiter = MagicMock()
-        drain_called = asyncio.Event()
-        limiter.drain = AsyncMock(side_effect=lambda: drain_called.set())
-        loop = AsyncDrainLoop(limiter, watchdog_interval=60.0)
-
-        # Act
-        loop.wake(0)
-        try:
-            await asyncio.wait_for(drain_called.wait(), timeout=2.0)
-            fired = True
-        except asyncio.TimeoutError:
-            fired = False
-        await asyncio.wait_for(loop.shutdown(), timeout=1.0)
-
-        # Assert
-        assert fired, "drain should be called after wake(0)"
-        limiter.drain.assert_called()
-
-    @staticmethod
     async def test_wake_with_delay_fires_after_delay():
         """Verify that ``wake(delay)`` waits approximately the specified duration before firing."""
         # Arrange

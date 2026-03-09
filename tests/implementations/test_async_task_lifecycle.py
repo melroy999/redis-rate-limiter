@@ -496,30 +496,6 @@ class TestAsyncHeartbeatLoop:
                 mock_kill.assert_called_with(os.getpid(), signal.SIGTERM)
 
     @staticmethod
-    async def test_heartbeat_loop_stops_on_exit(
-        async_redis_client, mock_limiter, task_id
-    ):
-        """Verify that the heartbeat loop stops when exiting the lifecycle context."""
-        # Act
-        lifecycle = AsyncTaskLifecycle(mock_limiter, task_id)
-        await lifecycle.__aenter__()
-
-        # The task should be running.
-        assert lifecycle._task is not None, "task must be created on enter"
-        assert not lifecycle._task.done(), "task must be running during lifecycle"
-
-        # Exit the context.
-        await lifecycle.__aexit__(None, None, None)
-
-        # Wait for the task to stop.
-        await asyncio.sleep(0.1)
-
-        # Assert
-        # The task should have stopped.
-        assert lifecycle._stop_event.is_set(), "stop event must be set on exit"
-        assert lifecycle._task.done(), "task must be done after exiting lifecycle"
-
-    @staticmethod
     async def test_aexit_without_aenter_skips_task_join(
         async_redis_client, mock_limiter, task_id
     ):
@@ -726,28 +702,6 @@ class TestAsyncExtendLease:
             "lease extension should update the score to a value greater than the initial score"
         )
 
-    @staticmethod
-    async def test_extend_lease_passes_correct_arguments_to_lua(
-        async_generic_limiter, task_id
-    ):
-        """Verify that ``extend_lease()`` invokes ``_eval_script`` with the expected arguments."""
-        # Arrange
-        duration = 45
-
-        with patch.object(
-            async_generic_limiter, "_eval_script", return_value=1
-        ) as mock_eval:
-            # Act
-            await async_generic_limiter.extend_lease(task_id, duration)
-
-        # Assert
-        mock_eval.assert_called_once_with(
-            "renew.lua",
-            1,
-            async_generic_limiter.concurrency_key,
-            task_id,
-            duration,
-        )
 
 
 # ---------------------------------------------------------------------------

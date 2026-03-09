@@ -1,22 +1,22 @@
 Mutation Testing Report
 ============================================================
-Score: 97.10% (4083/4205 killed)
+Score: 97.12% (4084/4205 killed)
 
-  Killed:      4083
-  Survived:     116
-  Timeout:        1
+  Killed:      4084
+  Survived:     111
+  Timeout:        5
   Suspicious:     0
   No tests:       5
 
 Classification (non-killed mutants)
 ------------------------------------------------------------
-  Score 0 (cosmetic):   96
+  Score 0 (cosmetic):   92
   Score 1 (argument):    7
-  Score 2 (logic):   14
+  Score 2 (logic):   20
   Score 3 (fork-immune):    0
-  Known benign:           5
+  Known benign:           2
 
---- SCORE 2: LOGIC (needs tests) (9) ---
+--- SCORE 2: LOGIC (needs tests) (11) ---
   async_limiters.AbstractAsyncDistributedRateLimiter.consume__mutmut_74
     task_id = consume_result["task"]["id"] if consume_result["task"] else None  ->  task_id = None
 
@@ -32,6 +32,12 @@ Classification (non-killed mutants)
   async_limiters.AsyncBackendHealthMonitor.start__mutmut_1
     asyncio.create_task(self._run())  ->  None
 
+  async_limiters.AsyncTaskLifecycle.__aexit____mutmut_14
+    0  ->  None
+
+  limiter.AsyncIOTaskLimiter._dispatch_task__mutmut_3
+    +=  ->  =
+
   limiter.CeleryRateLimiter._check_backend_health__mutmut_2
     1.0  ->  None
 
@@ -41,8 +47,8 @@ Classification (non-killed mutants)
   limiter.RQRateLimiter._check_backend_health__mutmut_2
     self.queue.connection  ->  None
 
-  limiter.RQRateLimiter.schedule_task__mutmut_1
-    100  ->  101
+  limiters.BackendHealthMonitor.shutdown__mutmut_3
+    5.0  ->  6.0
 
 --- SCORE 1: ARGUMENT (6) ---
   [sync/async mirror] BackendHealthMonitor._run_once__mutmut_5
@@ -60,10 +66,10 @@ Classification (non-killed mutants)
     limiters.BackendHealthMonitor._run_once__mutmut_7
     removed exc_info=True argument
 
---- SCORE 0: COSMETIC (96) ---
-  [sync/async mirror] DistributedRateLimiter._cleanup_inflight_key__mutmut_13
-    async_limiters.AbstractAsyncDistributedRateLimiter._cleanup_inflight_key__mutmut_13
-    limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_13
+--- SCORE 0: COSMETIC (92) ---
+  [sync/async mirror] DistributedRateLimiter.extend_lease__mutmut_26
+    async_limiters.AbstractAsyncDistributedRateLimiter.extend_lease__mutmut_26
+    limiters.AbstractDistributedRateLimiter.extend_lease__mutmut_26
     xx wrap on logger.debug format string
 
   [sync/async mirror] DistributedRateLimiter.extend_lease__mutmut_27
@@ -172,20 +178,17 @@ Classification (non-killed mutants)
   async_limiters.AbstractAsyncDistributedRateLimiter._cleanup_inflight_key__mutmut_25
     lowercase on logger.warning format string
 
-  async_limiters.AbstractAsyncDistributedRateLimiter.consume__mutmut_93
+  async_limiters.AbstractAsyncDistributedRateLimiter.consume__mutmut_84
+    task_id  ->  None (logger format argument)
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_67
+    exc_info boolean swap (cosmetic)
+
+  async_limiters.AsyncTaskLifecycle.__aexit____mutmut_42
     xx wrap on logger.debug format string
 
-  async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_54
-    lowercase on logger.error format string
-
-  base.AbstractRateLimiter._apply_config_overrides__mutmut_26
-    lowercase on logger.info format string
-
-  limiter.ASGIRateLimiter.start__mutmut_13
-    lowercase on logger.info format string
-
-  limiter.CeleryRateLimiter._configure_backend__mutmut_10
-    xx wrap on error message
+  base.AbstractRateLimiter._apply_config_overrides__mutmut_25
+    xx wrap on logger.info format string
 
   limiter.CeleryRateLimiter._dispatch_task__mutmut_44
     xx wrap on logger.debug format string
@@ -199,8 +202,8 @@ Classification (non-killed mutants)
   limiter.CeleryRateLimiter._dispatch_task__mutmut_64
     lowercase on logger.debug format string
 
-  limiter.ProcessPoolRateLimiter._configure_backend__mutmut_10
-    xx wrap on error message
+  limiter.ProcessPoolRateLimiter._configure_backend__mutmut_11
+    uppercase on error message
 
   limiter.ProcessPoolRateLimiter._dispatch_task__mutmut_29
     xx wrap on logger.debug format string
@@ -208,8 +211,8 @@ Classification (non-killed mutants)
   limiter.ProcessPoolRateLimiter._dispatch_task__mutmut_30
     lowercase on logger.debug format string
 
-  limiter.RQRateLimiter._configure_backend__mutmut_7
-    xx wrap on error message
+  limiter.RQRateLimiter._configure_backend__mutmut_11
+    uppercase on error message
 
   limiter.RQRateLimiter._configure_backend__mutmut_8
     lowercase on error message
@@ -226,9 +229,6 @@ Classification (non-killed mutants)
   limiter.RQRateLimiter._dispatch_task__mutmut_62
     lowercase on logger.debug format string
 
-  limiter.ThreadPoolRateLimiter._configure_backend__mutmut_10
-    xx wrap on error message
-
   limiter.ThreadPoolRateLimiter._configure_backend__mutmut_11
     uppercase on error message
 
@@ -238,14 +238,11 @@ Classification (non-killed mutants)
   limiter.ThreadPoolRateLimiter._dispatch_task__mutmut_22
     lowercase on logger.debug format string
 
+  limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_13
+    xx wrap on logger.debug format string
+
   limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_14
     lowercase on logger.debug format string
-
-  limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_26
-    xx wrap on logger.warning format string
-
-  limiters.AbstractDistributedRateLimiter.extend_lease__mutmut_26
-    xx wrap on logger.debug format string
 
   limiters.DistributedRateLimiterMixin._calculate_smart_jitter__mutmut_35
     xx wrap on logger.debug format string
@@ -253,20 +250,17 @@ Classification (non-killed mutants)
   limiters.DistributedRateLimiterMixin._calculate_smart_jitter__mutmut_36
     lowercase on logger.debug format string
 
+  limiters.DrainLoop._run__mutmut_18
+    lowercase on logger.exception format string
+
   managed.AsyncManagedRateLimiter.get__mutmut_35
     format string  ->  None on logger.debug
 
   managed.AsyncManagedRateLimiter.get__mutmut_42
     xx wrap on logger.debug format string
 
-  managed.AsyncManagedRateLimiter.get__mutmut_8
-    xx wrap on logger.debug format string
-
   managed.AsyncManagedRateLimiter.update__mutmut_13
     xx wrap on logger.info format string
-
-  managed.SyncManagedRateLimiter.get__mutmut_8
-    xx wrap on logger.debug format string
 
   managed.SyncManagedRateLimiter.update__mutmut_13
     xx wrap on logger.info format string
@@ -328,8 +322,12 @@ Classification (non-killed mutants)
   x_resolve_import_path__mutmut_44
     lowercase on logger.debug format string
 
---- TIMEOUTS (1) ---
-  limiters.DrainSignalSubscriber._run__mutmut_8
+--- TIMEOUTS (5) ---
+  limiters.DrainLoop.shutdown__mutmut_1
+  limiters.DrainLoop.shutdown__mutmut_2
+  limiters.DrainSignalSubscriber._run__mutmut_7
+  limiters.DrainSignalSubscriber.shutdown__mutmut_1
+  limiters.DrainSignalSubscriber.shutdown__mutmut_2
 
 --- NO TESTS (5) ---
   async_limiters.AsyncBackendHealthMonitor._run__mutmut_1
@@ -338,19 +336,7 @@ Classification (non-killed mutants)
   async_limiters.AsyncBackendHealthMonitor._run__mutmut_4
   async_limiters.AsyncBackendHealthMonitor._run__mutmut_5
 
---- KNOWN BENIGN (5) ---
-  limiter.CeleryRateLimiter.schedule_task__mutmut_2
-    True  ->  False
-    reason: fork-immune: default parameter value (use_executor=True) is tested by test_schedule_task_use_executor_default_is_true (signature inspection)
-
-  async_limiters.AsyncTaskLifecycle.__init____mutmut_1
-    on_heartbeat_failure: Literal["warn", "kill"] = "warn",  ->  on_heartbeat_failure: Literal["warn", "kill"] = "XXwarnXX",
-    reason: fork-immune: default parameter value is tested by test_default_on_heartbeat_failure_is_warn (signature inspection)
-
-  limiters.DrainLoop.wake__mutmut_6
-    <  ->  <=
-    reason: when target equals _next_wake, the assignment writes the same value back; the wake time does not change
-
+--- KNOWN BENIGN (2) ---
   limiters.DistributedRateLimiterMixin._calculate_token_recovery_delay__mutmut_7
     >=  ->  >
     reason: when val_current equals limit, the primary decay formula computes reset_in_ms / 1000.0, identical to the fallback return value
@@ -362,78 +348,83 @@ Classification (non-killed mutants)
 Killed-By Summary
 ------------------------------------------------------------
   Mutants with kill data: 4200
-  Killing tests:         416
-  Zero-kill tests:       397 of 813
+  Killing tests:         421
+  Zero-kill tests:       362 of 783
 
   Top 20 killing tests:
-     170 kills (170 unique)  tests/implementations/test_get_status.py::TestSyncGetStatus::test_get_status_reflects_rate_limit_state
-     132 kills (132 unique)  tests/implementations/asyncio/test_asyncio_limiter.py::TestAsyncIOTaskLimiter::test_schedule_duplicate_task_returns_false
-      95 kills ( 95 unique)  tests/implementations/asyncio/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_applies_remote_change
-      83 kills ( 83 unique)  tests/implementations/rq/test_contracts.py::TestRQContracts::test_consume_result_fields_have_distinct_values
+     133 kills (133 unique)  tests/implementations/asyncio/test_asyncio_limiter.py::TestAsyncIOTaskLimiter::test_get_buffer_count_reflects_scheduled_tasks
+     109 kills (109 unique)  tests/implementations/asgi/test_asgi_limiter.py::TestASGIRateLimiter::test_acquire_denied_at_limit
+      98 kills ( 98 unique)  tests/implementations/asyncio/test_rate_limiter_class_api.py::TestCreate::test_create_persist_increments_version
+      95 kills ( 95 unique)  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_applies_remote_change
+      87 kills ( 87 unique)  tests/integration/test_rate_limiting.py::TestRateLimitingIntegration::test_per_task_max_age_stored_in_buffer
+      85 kills ( 85 unique)  tests/implementations/rq/test_rq_limiter.py::TestRQRateLimiter::test_schedule_task_defaults_use_executor_to_true
+      78 kills ( 78 unique)  tests/integration/test_rate_limiting.py::TestRateLimitingIntegration::test_empty_buffer_returns_no_task
       71 kills ( 71 unique)  tests/integrations/test_prometheus.py::TestEdgeCases::test_custom_registry_isolation
-      70 kills ( 70 unique)  tests/implementations/test_metrics_callback.py::TestSyncMetricsCallback::test_metrics_callback_none_by_default
-      65 kills ( 65 unique)  tests/implementations/test_concurrent_access.py::TestConcurrentFullPipeline::test_producers_and_consumers_under_contention
-      64 kills ( 64 unique)  tests/implementations/test_rate_limiter_class_api.py::TestCreate::test_create_caches_instance_locally
+      65 kills ( 65 unique)  tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterImplementation::test_schedule_single_task_stores_correctly
       63 kills ( 63 unique)  tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterImplementation::test_consume_result_index_mapping_is_correct
-      61 kills ( 61 unique)  tests/implementations/test_async_task_lifecycle.py::TestAsyncTaskLifecycleImplementation::test_lifecycle_with_multiple_concurrent_tasks
-      60 kills ( 60 unique)  tests/implementations/test_rate_limiter_class_api.py::TestUpdate::test_get_status_reflects_updated_config
-      55 kills ( 55 unique)  tests/implementations/test_get_status.py::TestAsyncGetStatus::test_get_status_returns_expected_structure
-      54 kills ( 54 unique)  tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_wrap_send_handles_missing_headers_key
-      52 kills ( 52 unique)  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfigObservability::test_refresh_config_success_emits_info_log
-      50 kills ( 50 unique)  tests/implementations/asyncio/test_rate_limiter_class_api.py::TestGet::test_get_hydration_loads_current_config_version
-      48 kills ( 48 unique)  tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterImplementation::test_consume_lease_expiry_reflects_configured_duration
-      46 kills ( 46 unique)  tests/implementations/test_task_lifecycle.py::TestTaskLifecycleImplementation::test_lifecycle_with_multiple_concurrent_tasks
-      42 kills ( 42 unique)  tests/implementations/test_drain.py::TestAsyncDrain::test_drain_schedules_delayed_retry_when_rate_limited
-      42 kills ( 42 unique)  tests/implementations/test_drain.py::TestSyncDrain::test_drain_dispatches_task_and_schedules_follow_up
-      37 kills ( 37 unique)  tests/implementations/test_drain.py::TestSyncDrain::test_drain_skips_jitter_on_token_recovery_path
+      63 kills ( 63 unique)  tests/implementations/test_concurrent_access.py::TestConcurrentFullPipeline::test_producers_and_consumers_under_contention
+      62 kills ( 62 unique)  tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_blocked_response_includes_retry_after
+      58 kills ( 58 unique)  tests/implementations/test_async_task_lifecycle.py::TestAsyncTaskLifecycle::test_lifecycle_removes_task_from_concurrency_set
+      58 kills ( 58 unique)  tests/implementations/test_rate_limiter_class_api.py::TestUpdate::test_update_persists_new_config_and_bumps_version
+      57 kills ( 57 unique)  tests/implementations/test_drain.py::TestSyncDrain::test_drain_rate_limited_emits_info_log
+      49 kills ( 49 unique)  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_returns_false_when_version_hash_missing
+      48 kills ( 48 unique)  tests/implementations/test_get_status.py::TestAsyncGetStatus::test_get_status_reports_locked_dispatcher
+      47 kills ( 47 unique)  tests/implementations/threadpool/test_contracts.py::TestThreadPoolContracts::test_execution_lock_default_timeout
+      45 kills ( 45 unique)  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_window_change_sets_pause_until
+      45 kills ( 45 unique)  tests/implementations/test_task_lifecycle.py::TestTaskLifecycleObservability::test_lifecycle_cleanup_emits_debug_log
 
 Partial Data (SIGXCPU)
 ------------------------------------------------------------
-  1 mutants with partial data  (process killed before test completed)
-    limiters.DrainSignalSubscriber._run__mutmut_8
+  5 mutants with partial data  (process killed before test completed)
+    limiters.DrainLoop.shutdown__mutmut_1
+    limiters.DrainLoop.shutdown__mutmut_2
+    limiters.DrainSignalSubscriber._run__mutmut_7
+    limiters.DrainSignalSubscriber.shutdown__mutmut_1
+    limiters.DrainSignalSubscriber.shutdown__mutmut_2
 
 Test Effectiveness (kills per second of test runtime)
 ------------------------------------------------------------
   Top 10 most efficient:
-    227526.2 k/s    71 kills  0.000s  tests/integrations/test_prometheus.py::TestEdgeCases::test_custom_registry_isolation
-    113157.1 k/s    33 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPath::test_resolves_module_level_class
-    70946.1 k/s    29 kills  0.000s  tests/integrations/test_prometheus.py::TestMetricRegistration::test_metric_descriptions_match_expected_text
-    64168.5 k/s   170 kills  0.003s  tests/implementations/test_get_status.py::TestSyncGetStatus::test_get_status_reflects_rate_limit_state
-    44058.9 k/s     9 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPath::test_rejects_callable_with_absent_module_attribute
-    43066.7 k/s    64 kills  0.002s  tests/implementations/test_rate_limiter_class_api.py::TestCreate::test_create_caches_instance_locally
-    42029.8 k/s    17 kills  0.000s  tests/integrations/test_prometheus.py::TestMetricRegistration::test_schedule_counter_label_names
-    28502.2 k/s    70 kills  0.003s  tests/implementations/test_metrics_callback.py::TestSyncMetricsCallback::test_metrics_callback_none_by_default
-    27395.2 k/s    60 kills  0.002s  tests/implementations/test_rate_limiter_class_api.py::TestUpdate::test_get_status_reflects_updated_config
-    23251.8 k/s    83 kills  0.004s  tests/implementations/rq/test_contracts.py::TestRQContracts::test_consume_result_fields_have_distinct_values
+    241746.6 k/s    71 kills  0.000s  tests/integrations/test_prometheus.py::TestEdgeCases::test_custom_registry_isolation
+    77510.4 k/s    18 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPath::test_rejects_callable_that_fails_round_trip_verification
+    72498.4 k/s    35 kills  0.001s  tests/integrations/test_prometheus.py::TestMetricRegistration::test_metric_descriptions_match_expected_text
+    67778.6 k/s    14 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPath::test_rejects_bound_method
+    65706.6 k/s    95 kills  0.001s  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_applies_remote_change
+    49097.7 k/s     9 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPath::test_rejects_callable_without_qualname_attribute
+    39010.7 k/s    49 kills  0.001s  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_returns_false_when_version_hash_missing
+    37109.4 k/s    87 kills  0.002s  tests/integration/test_rate_limiting.py::TestRateLimitingIntegration::test_per_task_max_age_stored_in_buffer
+    31087.8 k/s    11 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPathObservability::test_emits_debug_log_on_success
+    29429.5 k/s    45 kills  0.002s  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_window_change_sets_pause_until
 
 Per-File Survival Rates
 ------------------------------------------------------------
-    2.3%   32 survived    0 no tests  1440 total  src/redis_rate_limiter/core/limiters.py
-    3.2%   34 survived    5 no tests  1227 total  src/redis_rate_limiter/core/async_limiters.py
-    1.6%    6 survived    0 no tests   372 total  src/redis_rate_limiter/core/managed.py
+    2.6%   32 survived    0 no tests  1440 total  src/redis_rate_limiter/core/limiters.py
+    3.3%   35 survived    5 no tests  1227 total  src/redis_rate_limiter/core/async_limiters.py
+    1.1%    4 survived    0 no tests   372 total  src/redis_rate_limiter/core/managed.py
     1.4%    2 survived    0 no tests   148 total  src/redis_rate_limiter/integrations/prometheus.py
     0.7%    1 survived    0 no tests   137 total  src/redis_rate_limiter/core/base.py
-    6.6%    8 survived    0 no tests   121 total  src/redis_rate_limiter/backends/celery/limiter.py
-    6.8%    8 survived    0 no tests   117 total  src/redis_rate_limiter/backends/rq/limiter.py
-    1.3%    1 survived    0 no tests    75 total  src/redis_rate_limiter/backends/asgi/limiter.py
+    5.0%    6 survived    0 no tests   121 total  src/redis_rate_limiter/backends/celery/limiter.py
+    6.0%    7 survived    0 no tests   117 total  src/redis_rate_limiter/backends/rq/limiter.py
+    1.1%    1 survived    0 no tests    87 total  src/redis_rate_limiter/backends/asyncio/limiter.py
     8.1%    6 survived    0 no tests    74 total  src/redis_rate_limiter/core/importing.py
     4.4%    3 survived    0 no tests    68 total  src/redis_rate_limiter/backends/processpool/limiter.py
-    6.7%    4 survived    0 no tests    60 total  src/redis_rate_limiter/backends/threading/limiter.py
+    5.0%    3 survived    0 no tests    60 total  src/redis_rate_limiter/backends/threading/limiter.py
    14.9%    7 survived    0 no tests    47 total  src/redis_rate_limiter/core/decorators.py
    18.2%    2 survived    0 no tests    11 total  src/redis_rate_limiter/backends/rq/tasks/worker.py
    18.2%    2 survived    0 no tests    11 total  src/redis_rate_limiter/backends/celery/tasks/worker.py
 
 Mutation Type Distribution (non-killed)
 ------------------------------------------------------------
-    44 total   43 survived  string_xx_wrap
-    31 total   31 survived  string_lowercase
-    15 total   13 survived  value_to_none
-    12 total   11 survived  string_uppercase
+    38 total   37 survived  string_xx_wrap
+    29 total   29 survived  string_lowercase
+    19 total   15 survived  value_to_none
+    13 total   13 survived  string_uppercase
      7 total    6 survived  argument_removal
-     4 total    1 survived  operator_swap
-     3 total    2 survived  boolean_swap
+     5 total    3 survived  boolean_swap
      3 total    2 survived  unknown
+     3 total    1 survived  operator_swap
      2 total    2 survived  numeric_increment
+     1 total    1 survived  augmented_assignment
      1 total    0 survived  unary_removal
 
 Uncovered Functions (1 with zero test coverage)

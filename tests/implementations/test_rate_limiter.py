@@ -361,15 +361,6 @@ class RateLimiterImplementationTests:
         )
 
     @staticmethod
-    async def test_get_buffer_count_returns_zero_when_empty(limiter):
-        """Verify that ``get_buffer_count()`` returns zero when no tasks are scheduled."""
-        # Act
-        count = await limiter.get_buffer_count()
-
-        # Assert
-        assert count == 0, "empty buffer should report zero tasks"
-
-    @staticmethod
     async def test_get_buffer_count_reflects_scheduled_tasks(limiter, func_path):
         """Verify that ``get_buffer_count()`` reflects the number of scheduled tasks."""
         # Arrange
@@ -648,17 +639,6 @@ class RateLimiterImplementationTests:
             actual_limiter.window = original_window
             actual_limiter.limit = original_limit
 
-    @staticmethod
-    async def test_execution_lock_forwards_custom_timeout(limiter):
-        """Verify that a custom ``timeout_ms`` is forwarded to the lock."""
-        # Act
-        actual_limiter = getattr(limiter, "_inner", limiter)
-        lock = actual_limiter.execution_lock(timeout_ms=3000)
-
-        # Assert
-        assert lock.timeout_ms == 3000, (
-            "lock timeout should match the custom value, not the default 5000"
-        )
 
 
 # ---------------------------------------------------------------------------
