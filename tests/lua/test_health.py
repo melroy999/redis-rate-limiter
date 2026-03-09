@@ -11,7 +11,6 @@ Fixture dependencies:
 from tests.lua.conftest import (
     HEALTH_SOURCE,
     WINDOW_SIZE,
-    build_task_json,
     get_redis_timestamp,
     get_window_keys,
 )
@@ -108,7 +107,7 @@ class TestHealthReturnValues:
 
     @staticmethod
     def test_buffer_count_reflects_buffer_sorted_set(
-        redis_client, base_key, buffer_key, concurrency_key
+        redis_client, base_key, buffer_key, concurrency_key, build_task_json
     ):
         """Verify that ``result[5]`` reflects the buffer sorted set cardinality."""
         # Arrange
@@ -128,7 +127,7 @@ class TestHealthReadOnly:
 
     @staticmethod
     def test_does_not_modify_redis_state(
-        redis_client, base_key, buffer_key, concurrency_key
+        redis_client, base_key, buffer_key, concurrency_key, build_task_json
     ):
         """Verify that ``health.lua`` is purely read-only.
 

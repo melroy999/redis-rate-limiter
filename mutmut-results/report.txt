@@ -1,30 +1,339 @@
 Mutation Testing Report
 ============================================================
-Score: 97.12% (4084/4205 killed)
+Score: 83.40% (3507/4205 killed)
 
-  Killed:      4084
-  Survived:     111
-  Timeout:        5
-  Suspicious:     0
+  Killed:      3507
+  Survived:     614
+  Timeout:       77
+  Suspicious:     2
   No tests:       5
 
 Classification (non-killed mutants)
 ------------------------------------------------------------
-  Score 0 (cosmetic):   92
-  Score 1 (argument):    7
-  Score 2 (logic):   20
+  Score 0 (cosmetic):  355
+  Score 1 (argument):   72
+  Score 2 (logic):  250
   Score 3 (fork-immune):    0
-  Known benign:           2
+  Known benign:          19
 
---- SCORE 2: LOGIC (needs tests) (11) ---
-  async_limiters.AbstractAsyncDistributedRateLimiter.consume__mutmut_74
+--- FORK-IMMUNE (2) ---
+  mutmut cannot exercise these: Python stores default parameter
+  values in __defaults__ at import time, but mutmut's AST mutations
+  only modify the code object inside forked children. The parent's
+  __defaults__ tuple is inherited unchanged, so the test suite always
+  sees the original default regardless of the mutation.
+  [sync/async mirror] DistributedRateLimiter.execution_lock__mutmut_1
+    async_limiters.AbstractAsyncDistributedRateLimiter.execution_lock__mutmut_1
+    limiters.AbstractDistributedRateLimiter.execution_lock__mutmut_1
+    def execution_lock(self, timeout_ms: int = 5000) -> AsyncDistributedLock:  ->  def execution_lock(self, timeout_ms: int = 5001) -> AsyncDistributedLock:
+
+--- SCORE 2: LOGIC (needs tests) (201) ---
+  [sync/async mirror] DistributedRateLimiter.__del____mutmut_13
+    async_limiters.AbstractAsyncDistributedRateLimiter.__del____mutmut_13
+    limiters.AbstractDistributedRateLimiter.__del____mutmut_13
+    False  ->  None
+
+  [sync/async mirror] DistributedRateLimiter.__del____mutmut_26
+    async_limiters.AbstractAsyncDistributedRateLimiter.__del____mutmut_26
+    limiters.AbstractDistributedRateLimiter.__del____mutmut_26
+    "call await shutdown() to stop background tasks",  ->  "XXcall await shutdown() to stop background tasksXX",
+
+  [sync/async mirror] DistributedRateLimiter.__del____mutmut_28
+    async_limiters.AbstractAsyncDistributedRateLimiter.__del____mutmut_28
+    limiters.AbstractDistributedRateLimiter.__del____mutmut_28
+    1  ->  2
+
+  [sync/async mirror] DistributedRateLimiter.__del____mutmut_6
+    async_limiters.AbstractAsyncDistributedRateLimiter.__del____mutmut_6
+    limiters.AbstractDistributedRateLimiter.__del____mutmut_6
+    if getattr(self, "_drain_loop", None) is not None and not getattr(  ->  if getattr(self, "_drain_loop", ) is not None and not getattr(
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_101
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_101
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_101
+    0  ->  1
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_104
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_104
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_104
+    "Drain stopped: buffer empty (async) for limiter=%s.", self.id  ->  self.id
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_128
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_128
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_128
+    0  ->  1
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_143
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_143
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_143
+    0  ->  None
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_145
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_145
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_145
+    reset_in_ms=result.get("reset_in_ms", 0),  ->  reset_in_ms=result.get("reset_in_ms", ),
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_148
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_148
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_148
+    0  ->  1
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_150
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_150
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_150
+    or  ->  and
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_151
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_151
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_151
+    <=  ->  <
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_152
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_152
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_152
+    0  ->  1
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_153
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_153
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_153
+    >=  ->  >
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_155
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_155
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_155
+    result["remaining_tasks"]  ->  None
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_156
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_156
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_156
+    result["remaining_tokens"]  ->  None
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_157
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_157
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_157
+    result["active_concurrency"]  ->  None
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_179
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_179
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_179
+    +  ->  -
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_180
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_180
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_180
+    3  ->  4
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_3
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_3
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_3
+    logger.debug("Drain loop start (async): limiter=%s.", self.id)  ->  logger.debug(self.id)
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_4
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_4
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_4
+    logger.debug("Drain loop start (async): limiter=%s.", self.id)  ->  logger.debug("Drain loop start (async): limiter=%s.", )
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_44
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_44
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_44
+    and  ->  or
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_54
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_54
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_54
+    ""  ->  None
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_56
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_56
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_56
+    task_id = task.get("id", "")  ->  task_id = task.get("id", )
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_59
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_59
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_59
+    task_id = task.get("id", "")  ->  task_id = task.get("id", "XXXX")
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_86
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_86
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_86
+    0  ->  1
+
+  [sync/async mirror] DistributedRateLimiter.consume__mutmut_74
+    async_limiters.AbstractAsyncDistributedRateLimiter.consume__mutmut_74
+    limiters.AbstractDistributedRateLimiter.consume__mutmut_74
     task_id = consume_result["task"]["id"] if consume_result["task"] else None  ->  task_id = None
 
-  async_limiters.AsyncBackendHealthMonitor.__init____mutmut_2
+  [sync/async mirror] DistributedRateLimiter.drain__mutmut_14
+    async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_14
+    limiters.AbstractDistributedRateLimiter.drain__mutmut_14
+    <  ->  <=
+
+  [sync/async mirror] DistributedRateLimiter.drain__mutmut_16
+    async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_16
+    limiters.AbstractDistributedRateLimiter.drain__mutmut_16
+    -  ->  +
+
+  [sync/async mirror] DistributedRateLimiter.drain__mutmut_47
+    async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_47
+    limiters.AbstractDistributedRateLimiter.drain__mutmut_47
+    True  ->  None
+
+  [sync/async mirror] DistributedRateLimiter.schedule_task__mutmut_1
+    async_limiters.AbstractAsyncDistributedRateLimiter.schedule_task__mutmut_1
+    limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_1
+    100  ->  101
+
+  [sync/async mirror] DistributedRateLimiter.trigger_consume__mutmut_3
+    async_limiters.AbstractAsyncDistributedRateLimiter.trigger_consume__mutmut_3
+    limiters.AbstractDistributedRateLimiter.trigger_consume__mutmut_3
+    logger.debug("Trigger consume scheduling drain (async): limiter=%s.", self.id)  ->  logger.debug(self.id)
+
+  [sync/async mirror] DistributedRateLimiter.trigger_consume__mutmut_4
+    async_limiters.AbstractAsyncDistributedRateLimiter.trigger_consume__mutmut_4
+    limiters.AbstractDistributedRateLimiter.trigger_consume__mutmut_4
+    logger.debug("Trigger consume scheduling drain (async): limiter=%s.", self.id)  ->  logger.debug("Trigger consume scheduling drain (async): limiter=%s.", )
+
+  [sync/async mirror] BackendHealthMonitor.__init____mutmut_2
+    async_limiters.AsyncBackendHealthMonitor.__init____mutmut_2
+    limiters.BackendHealthMonitor.__init____mutmut_2
     interval  ->  None
 
-  async_limiters.AsyncBackendHealthMonitor.__init____mutmut_6
+  [sync/async mirror] BackendHealthMonitor.__init____mutmut_6
+    async_limiters.AsyncBackendHealthMonitor.__init____mutmut_6
+    limiters.BackendHealthMonitor.__init____mutmut_6
     self._task: asyncio.Task[None] | None = None  ->  self._task: asyncio.Task[None] | None = ""
+
+  [sync/async mirror] DistributedLock.__init____mutmut_1
+    async_limiters.AsyncDistributedLock.__init____mutmut_1
+    limiters.DistributedLock.__init____mutmut_1
+    worker_id: str = "",  ->  worker_id: str = "XXXX",
+
+  [sync/async mirror] DistributedLock.__init____mutmut_10
+    async_limiters.AsyncDistributedLock.__init____mutmut_10
+    limiters.DistributedLock.__init____mutmut_10
+    False  ->  True
+
+  [sync/async mirror] DistributedLock.__init____mutmut_15
+    async_limiters.AsyncDistributedLock.__init____mutmut_15
+    limiters.DistributedLock.__init____mutmut_15
+    self._cooldown_key = f"{lock_key}:cd:{worker_id}" if worker_id else ""  ->  self._cooldown_key = f"{lock_key}:cd:{worker_id}" if worker_id else "XXXX"
+
+  [sync/async mirror] DistributedLock.__init____mutmut_18
+    async_limiters.AsyncDistributedLock.__init____mutmut_18
+    limiters.DistributedLock.__init____mutmut_18
+    self._fairness_enabled = bool(worker_id and cooldown_ms > 0 and contention_key)  ->  self._fairness_enabled = bool(worker_id and cooldown_ms > 0 or contention_key)
+
+  [sync/async mirror] DistributedLock.__init____mutmut_19
+    async_limiters.AsyncDistributedLock.__init____mutmut_19
+    limiters.DistributedLock.__init____mutmut_19
+    and  ->  or
+
+  [sync/async mirror] DistributedLock.__init____mutmut_2
+    async_limiters.AsyncDistributedLock.__init____mutmut_2
+    limiters.DistributedLock.__init____mutmut_2
+    0  ->  1
+
+  [sync/async mirror] DistributedLock.__init____mutmut_20
+    async_limiters.AsyncDistributedLock.__init____mutmut_20
+    limiters.DistributedLock.__init____mutmut_20
+    >  ->  >=
+
+  [sync/async mirror] DistributedLock.__init____mutmut_21
+    async_limiters.AsyncDistributedLock.__init____mutmut_21
+    limiters.DistributedLock.__init____mutmut_21
+    0  ->  1
+
+  [sync/async mirror] DistributedLock.__init____mutmut_9
+    async_limiters.AsyncDistributedLock.__init____mutmut_9
+    limiters.DistributedLock.__init____mutmut_9
+    False  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_2
+    30  ->  31
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_3
+    on_heartbeat_failure: Literal["warn", "kill"] = "warn",  ->  on_heartbeat_failure: Literal["warn", "kill"] = "XXwarnXX",
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_36
+    self  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_4
+    on_heartbeat_failure: Literal["warn", "kill"] = "warn",  ->  on_heartbeat_failure: Literal["warn", "kill"] = "WARN",
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_5
+    True  ->  False
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_55
+    self  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_56
+    float(self.lease_duration)  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_57
+    AsyncBackendHealthMonitor(self, interval=float(self.lease_duration))  ->  AsyncBackendHealthMonitor(interval=float(self.lease_duration))
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_58
+    AsyncBackendHealthMonitor(self, interval=float(self.lease_duration))  ->  AsyncBackendHealthMonitor(self, )
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_59
+    self.lease_duration  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_6
+    0.02  ->  1.02
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_7
+    0.08  ->  1.08
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_8
+    True  ->  False
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.schedule_task__mutmut_96
+    task_id  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_20
+    self.max_age  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_21
+    self.lease_duration  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_22
+    self.on_heartbeat_failure  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_23
+    self.jitter_enabled  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_24
+    self.jitter_min_pct  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_25
+    self.jitter_max_pct  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_27
+    self.drain_enabled  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_28
+    "enabled" if self._backend_health_monitor else "disabled"  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_46
+    "enabled" if self.metrics_callback else "disabled",  ->  "XXenabledXX" if self.metrics_callback else "disabled",
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_47
+    "enabled" if self.metrics_callback else "disabled",  ->  "ENABLED" if self.metrics_callback else "disabled",
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_48
+    "enabled" if self.metrics_callback else "disabled",  ->  "enabled" if self.metrics_callback else "XXdisabledXX",
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_49
+    "enabled" if self.metrics_callback else "disabled",  ->  "enabled" if self.metrics_callback else "DISABLED",
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_50
+    "enabled" if self._backend_health_monitor else "disabled",  ->  "XXenabledXX" if self._backend_health_monitor else "disabled",
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_51
+    "enabled" if self._backend_health_monitor else "disabled",  ->  "ENABLED" if self._backend_health_monitor else "disabled",
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_52
+    "enabled" if self._backend_health_monitor else "disabled",  ->  "enabled" if self._backend_health_monitor else "XXdisabledXX",
 
   async_limiters.AsyncBackendHealthMonitor.shutdown__mutmut_1
     and  ->  or
@@ -32,11 +341,74 @@ Classification (non-killed mutants)
   async_limiters.AsyncBackendHealthMonitor.start__mutmut_1
     asyncio.create_task(self._run())  ->  None
 
+  async_limiters.AsyncDrainLoop.__init____mutmut_2
+    asyncio.Lock()  ->  None
+
+  async_limiters.AsyncDrainLoop.__init____mutmut_4
+    self._lock  ->  None
+
+  async_limiters.AsyncDrainLoop.shutdown__mutmut_10
+    5.0  ->  6.0
+
+  async_limiters.AsyncDrainLoop.shutdown__mutmut_7
+    5.0  ->  None
+
+  async_limiters.AsyncDrainSignalSubscriber._run__mutmut_19
+    sender_id.decode("utf-8")  ->  None
+
+  async_limiters.AsyncDrainSignalSubscriber._run__mutmut_20
+    "utf-8"  ->  None
+
+  async_limiters.AsyncDrainSignalSubscriber._run__mutmut_3
+    True  ->  None
+
+  async_limiters.AsyncDrainSignalSubscriber._run__mutmut_4
+    0.5  ->  None
+
+  async_limiters.AsyncDrainSignalSubscriber._run__mutmut_7
+    True  ->  False
+
+  async_limiters.AsyncDrainSignalSubscriber._run__mutmut_8
+    0.5  ->  1.5
+
   async_limiters.AsyncTaskLifecycle.__aexit____mutmut_14
     0  ->  None
 
+  async_limiters.AsyncTaskLifecycle._heartbeat_loop__mutmut_24
+    ==  ->  !=
+
+  base.AbstractAsyncRateLimiter._eval_script__mutmut_2
+    script_name  ->  None
+
+  base.AbstractAsyncRateLimiter._eval_script__mutmut_6
+    Awaitable, self.redis.evalsha(sha, num_keys, *args)  ->  Awaitable, self.redis.evalsha(num_keys, *args)
+
+  base.AbstractSyncRateLimiter._eval_script__mutmut_2
+    script_name  ->  None
+
+  base.AbstractSyncRateLimiter._eval_script__mutmut_6
+    return self.redis.evalsha(sha, num_keys, *args)  ->  return self.redis.evalsha(num_keys, *args)
+
+  limiter.AsyncIOTaskLimiter._dispatch_task__mutmut_21
+    -=  ->  =
+
+  limiter.AsyncIOTaskLimiter._dispatch_task__mutmut_22
+    -  ->  +
+
+  limiter.AsyncIOTaskLimiter._dispatch_task__mutmut_23
+    1  ->  2
+
+  limiter.AsyncIOTaskLimiter._dispatch_task__mutmut_24
+    task  ->  None
+
   limiter.AsyncIOTaskLimiter._dispatch_task__mutmut_3
     +=  ->  =
+
+  limiter.AsyncIOTaskLimiter._reset_backend_context__mutmut_1
+    cls._max_tasks = None  ->  cls._max_tasks = ""
+
+  limiter.AsyncIOTaskLimiter.shutdown__mutmut_12
+    await asyncio.gather(*self._active_tasks, return_exceptions=True)  ->  await asyncio.gather(return_exceptions=True)
 
   limiter.CeleryRateLimiter._check_backend_health__mutmut_2
     1.0  ->  None
@@ -44,13 +416,228 @@ Classification (non-killed mutants)
   limiter.CeleryRateLimiter._check_backend_health__mutmut_3
     1.0  ->  2.0
 
+  limiter.CeleryRateLimiter.schedule_task__mutmut_1
+    100  ->  101
+
   limiter.RQRateLimiter._check_backend_health__mutmut_2
     self.queue.connection  ->  None
+
+  limiter.RQRateLimiter.schedule_task__mutmut_1
+    100  ->  101
+
+  limiter.RQRateLimiter.schedule_task__mutmut_2
+    True  ->  False
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_1
+    3600  ->  3601
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_104
+    "enabled" if self.metrics_callback else "disabled",  ->  "XXenabledXX" if self.metrics_callback else "disabled",
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_105
+    "enabled" if self.metrics_callback else "disabled",  ->  "ENABLED" if self.metrics_callback else "disabled",
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_106
+    "enabled" if self.metrics_callback else "disabled",  ->  "enabled" if self.metrics_callback else "XXdisabledXX",
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_107
+    "enabled" if self.metrics_callback else "disabled",  ->  "enabled" if self.metrics_callback else "DISABLED",
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_108
+    "enabled" if self._backend_health_monitor else "disabled",  ->  "XXenabledXX" if self._backend_health_monitor else "disabled",
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_109
+    "enabled" if self._backend_health_monitor else "disabled",  ->  "ENABLED" if self._backend_health_monitor else "disabled",
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_110
+    "enabled" if self._backend_health_monitor else "disabled",  ->  "enabled" if self._backend_health_monitor else "XXdisabledXX",
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_111
+    "enabled" if self._backend_health_monitor else "disabled",  ->  "enabled" if self._backend_health_monitor else "DISABLED",
+
+  limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_105
+    logger.debug("Drain stopped: buffer empty for limiter=%s.", self.id)  ->  logger.debug("Drain stopped: buffer empty for limiter=%s.", )
+
+  limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_189
+    is_fallback  ->  None
+
+  limiters.AbstractDistributedRateLimiter.consume__mutmut_85
+    task_id  ->  None
+
+  limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_102
+    task_id  ->  None
+
+  limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_14
+    max_age  ->  None
+
+  limiters.BackendHealthMonitor._run__mutmut_2
+    self._interval  ->  None
+
+  limiters.BackendHealthMonitor.shutdown__mutmut_2
+    5.0  ->  None
 
   limiters.BackendHealthMonitor.shutdown__mutmut_3
     5.0  ->  6.0
 
---- SCORE 1: ARGUMENT (6) ---
+  limiters.BackendHealthMonitor.start__mutmut_2
+    self._run  ->  None
+
+  limiters.BackendHealthMonitor.start__mutmut_3
+    True  ->  None
+
+  limiters.BackendHealthMonitor.start__mutmut_4
+    self._thread = Thread(target=self._run, daemon=True)  ->  self._thread = Thread(daemon=True)
+
+  limiters.BackendHealthMonitor.start__mutmut_5
+    self._thread = Thread(target=self._run, daemon=True)  ->  self._thread = Thread(target=self._run, )
+
+  limiters.BackendHealthMonitor.start__mutmut_6
+    True  ->  False
+
+  limiters.DistributedLock.__init____mutmut_3
+    contention_key: str = "",  ->  contention_key: str = "XXXX",
+
+  limiters.DistributedRateLimiterMixin._get_inflight_ttl__mutmut_10
+    1.0  ->  2.0
+
+  limiters.DistributedRateLimiterMixin._get_inflight_ttl__mutmut_16
+    1.0  ->  2.0
+
+  limiters.DistributedRateLimiterMixin._get_inflight_ttl__mutmut_22
+    1.0  ->  2.0
+
+  limiters.DistributedRateLimiterMixin._get_task_data_str__mutmut_11
+    True  ->  False
+
+  limiters.DistributedRateLimiterMixin._get_task_data_str__mutmut_2
+    True  ->  None
+
+  limiters.DistributedRateLimiterMixin._get_task_signature_str__mutmut_5
+    return json.dumps({"path": func_path, "payload": payload}, sort_keys=True)  ->  return json.dumps({"XXpathXX": func_path, "payload": payload}, sort_keys=True)
+
+  limiters.DistributedRateLimiterMixin._get_task_signature_str__mutmut_6
+    return json.dumps({"path": func_path, "payload": payload}, sort_keys=True)  ->  return json.dumps({"PATH": func_path, "payload": payload}, sort_keys=True)
+
+  limiters.DistributedRateLimiterMixin._get_task_signature_str__mutmut_7
+    return json.dumps({"path": func_path, "payload": payload}, sort_keys=True)  ->  return json.dumps({"path": func_path, "XXpayloadXX": payload}, sort_keys=True)
+
+  limiters.TaskLifecycle.__enter____mutmut_5
+    self._thread = Thread(target=self._heartbeat_loop, daemon=True)  ->  self._thread = Thread(target=self._heartbeat_loop, )
+
+  limiters.TaskLifecycle.__enter____mutmut_6
+    True  ->  False
+
+  limiters.TaskLifecycle.__exit____mutmut_1
+    and  ->  or
+
+  limiters.TaskLifecycle.__exit____mutmut_2
+    1.0  ->  None
+
+  limiters.TaskLifecycle.__exit____mutmut_3
+    1.0  ->  2.0
+
+  limiters.TaskLifecycle.__exit____mutmut_9
+    0  ->  None
+
+  limiters.TaskLifecycle._heartbeat_loop__mutmut_21
+    ==  ->  !=
+
+  limiters.TaskLifecycle._heartbeat_loop__mutmut_37
+    break  ->  return
+
+  managed.AsyncManagedRateLimiter._persist_config__mutmut_15
+    Awaitable, cls._redis_client.hincrby(cls._VERSION_KEY, instance.id, 1)  ->  Awaitable, cls._redis_client.hincrby(cls._VERSION_KEY, instance.id, )
+
+  managed.AsyncManagedRateLimiter.create__mutmut_1
+    True  ->  False
+
+  managed.AsyncManagedRateLimiter.create__mutmut_2
+    False  ->  True
+
+  managed.ManagedRateLimiterMixin._parse_version__mutmut_4
+    "utf-8"  ->  None
+
+  managed.ManagedRateLimiterMixin._parse_version__mutmut_5
+    version_value.decode("utf-8")  ->  version_value.decode("XXutf-8XX")
+
+  managed.ManagedRateLimiterMixin._parse_version__mutmut_6
+    version_value.decode("utf-8")  ->  version_value.decode("UTF-8")
+
+  managed.ManagedRateLimiterMixin._require_configured__mutmut_1
+    or  ->  and
+
+  managed.SyncManagedRateLimiter._persist_config__mutmut_15
+    cls._redis_client.hincrby(cls._VERSION_KEY, instance.id, 1)  ->  cls._redis_client.hincrby(cls._VERSION_KEY, instance.id, )
+
+  managed.SyncManagedRateLimiter.create__mutmut_1
+    True  ->  False
+
+  managed.SyncManagedRateLimiter.create__mutmut_2
+    False  ->  True
+
+  middleware.RateLimitMiddleware.__call____mutmut_37
+    scope  ->  None
+
+  middleware.RateLimitMiddleware.__call____mutmut_47
+    scope  ->  None
+
+  middleware.RateLimitMiddleware.__call____mutmut_48
+    result  ->  None
+
+  middleware.RateLimitMiddleware.__call____mutmut_57
+    scope  ->  None
+
+--- SCORE 1: ARGUMENT (54) ---
+  [sync/async mirror] DistributedRateLimiter.__del____mutmut_25
+    async_limiters.AbstractAsyncDistributedRateLimiter.__del____mutmut_25
+    limiters.AbstractDistributedRateLimiter.__del____mutmut_25
+    removed stacklevel=1 argument
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_11
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_11
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_11
+    removed "Drain deferred: local execution capacity reached (async) for limiter=%s." argument
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_12
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_12
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_12
+    removed self.id argument
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_158
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_158
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_158
+    removed remaining_tasks=result["remaining_tasks"] argument
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_159
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_159
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_159
+    removed remaining_tokens=result["remaining_tokens"] argument
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_160
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_160
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_160
+    removed active_concurrency=result["active_concurrency"] argument
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_29
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_29
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_29
+    removed "Drain skipped: lock held by another drainer (async): limiter=%s." argument
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_30
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_30
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_30
+    removed self.id argument
+
+  [sync/async mirror] DistributedRateLimiter.drain__mutmut_52
+    async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_52
+    limiters.AbstractDistributedRateLimiter.drain__mutmut_52
+    removed exc_info=True argument
+
+  [sync/async mirror] DistributedRateLimiter.drain__mutmut_63
+    async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_63
+    limiters.AbstractDistributedRateLimiter.drain__mutmut_63
+    removed exc_info=True argument
+
   [sync/async mirror] BackendHealthMonitor._run_once__mutmut_5
     async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_5
     limiters.BackendHealthMonitor._run_once__mutmut_5
@@ -66,7 +653,276 @@ Classification (non-killed mutants)
     limiters.BackendHealthMonitor._run_once__mutmut_7
     removed exc_info=True argument
 
---- SCORE 0: COSMETIC (92) ---
+  async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_54
+    removed self._backend_health_monitor: AsyncBackendHealthMonitor | None = ( argument
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.schedule_task__mutmut_76
+    removed max_age or "" argument
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_29
+    removed "Async rate limiter initialized: id=%s, limit=%d, window_s=%g, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s, drain_enabled=%s, backend_health_monitor=%s." argument
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_30
+    removed self.id argument
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_31
+    removed self.limit argument
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_32
+    removed self.window argument
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_33
+    removed self.max_concurrency argument
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_34
+    removed self.max_age argument
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_35
+    removed self.lease_duration argument
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_36
+    removed self.on_heartbeat_failure argument
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_37
+    removed self.jitter_enabled argument
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_38
+    removed self.jitter_min_pct argument
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_39
+    removed self.jitter_max_pct argument
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_40
+    removed "enabled" if self.metrics_callback else "disabled" argument
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_41
+    removed self.drain_enabled argument
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_42
+    removed "enabled" if self._backend_health_monitor else "disabled" argument
+
+  base.AbstractAsyncRateLimiter._register_script__mutmut_12
+    removed "Lua script registered (async): limiter=%s, script=%s, sha=%s." argument
+
+  base.AbstractAsyncRateLimiter._register_script__mutmut_13
+    removed self.id argument
+
+  base.AbstractAsyncRateLimiter._register_script__mutmut_14
+    removed script_name argument
+
+  base.AbstractAsyncRateLimiter._register_script__mutmut_15
+    removed sha argument
+
+  limiter.AsyncIOTaskLimiter._configure_backend__mutmut_6
+    removed "AsyncIOTaskLimiter.configure(redis_client, max_tasks=N) " argument
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_100
+    removed "enabled" if self._backend_health_monitor else "disabled" argument
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_97
+    removed self.jitter_max_pct argument
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_98
+    removed "enabled" if self.metrics_callback else "disabled" argument
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_99
+    removed self.drain_enabled argument
+
+  limiters.DistributedRateLimiterMixin._get_task_data_str__mutmut_4
+    removed self._get_task_data(task_id, func_path, payload), sort_keys=True argument
+
+  managed.AsyncManagedRateLimiter.get__mutmut_26
+    removed **cls._get_instance_context() argument
+
+  managed.SyncManagedRateLimiter.get__mutmut_27
+    removed **cls._get_instance_context() argument
+
+--- SCORE 0: COSMETIC (340) ---
+  [sync/async mirror] DistributedRateLimiter._cleanup_inflight_key__mutmut_13
+    async_limiters.AbstractAsyncDistributedRateLimiter._cleanup_inflight_key__mutmut_13
+    limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_13
+    xx wrap on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter._cleanup_inflight_key__mutmut_14
+    async_limiters.AbstractAsyncDistributedRateLimiter._cleanup_inflight_key__mutmut_14
+    limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_14
+    lowercase on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_10
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_10
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_10
+    format string  ->  None on logger.debug
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_102
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_102
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_102
+    format string  ->  None on logger.debug
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_103
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_103
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_103
+    format string  ->  None on logger.debug
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_106
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_106
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_106
+    xx wrap on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_107
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_107
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_107
+    lowercase on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_108
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_108
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_108
+    uppercase on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_120
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_120
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_120
+    xx wrap on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_121
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_121
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_121
+    lowercase on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_13
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_13
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_13
+    xx wrap on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_14
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_14
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_14
+    lowercase on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_15
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_15
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_15
+    uppercase on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_18
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_18
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_18
+    format string  ->  None on logger.debug
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_19
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_19
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_19
+    format string  ->  None on logger.debug
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_2
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_2
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_2
+    format string  ->  None on logger.debug
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_23
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_23
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_23
+    xx wrap on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_24
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_24
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_24
+    lowercase on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_28
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_28
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_28
+    format string  ->  None on logger.debug
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_31
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_31
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_31
+    xx wrap on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_32
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_32
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_32
+    lowercase on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_41
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_41
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_41
+    xx wrap on logger.warning format string
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_5
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_5
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_5
+    xx wrap on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_6
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_6
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_6
+    lowercase on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_78
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_78
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_78
+    xx wrap on logger.info format string
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_79
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_79
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_79
+    lowercase on logger.info format string
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_93
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_93
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_93
+    xx wrap on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter._publish_drain_signal__mutmut_9
+    async_limiters.AbstractAsyncDistributedRateLimiter._publish_drain_signal__mutmut_9
+    limiters.AbstractDistributedRateLimiter._publish_drain_signal__mutmut_9
+    xx wrap on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter.consume__mutmut_5
+    async_limiters.AbstractAsyncDistributedRateLimiter.consume__mutmut_5
+    limiters.AbstractDistributedRateLimiter.consume__mutmut_5
+    xx wrap on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter.consume__mutmut_84
+    async_limiters.AbstractAsyncDistributedRateLimiter.consume__mutmut_84
+    limiters.AbstractDistributedRateLimiter.consume__mutmut_84
+    task_id  ->  None (logger format argument)
+
+  [sync/async mirror] DistributedRateLimiter.drain__mutmut_23
+    async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_23
+    limiters.AbstractDistributedRateLimiter.drain__mutmut_23
+    xx wrap on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter.drain__mutmut_24
+    async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_24
+    limiters.AbstractDistributedRateLimiter.drain__mutmut_24
+    lowercase on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter.drain__mutmut_53
+    async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_53
+    limiters.AbstractDistributedRateLimiter.drain__mutmut_53
+    xx wrap on logger.error format string
+
+  [sync/async mirror] DistributedRateLimiter.drain__mutmut_54
+    async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_54
+    limiters.AbstractDistributedRateLimiter.drain__mutmut_54
+    lowercase on logger.error format string
+
+  [sync/async mirror] DistributedRateLimiter.drain__mutmut_56
+    async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_56
+    limiters.AbstractDistributedRateLimiter.drain__mutmut_56
+    exc_info boolean swap (cosmetic)
+
+  [sync/async mirror] DistributedRateLimiter.drain__mutmut_60
+    async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_60
+    limiters.AbstractDistributedRateLimiter.drain__mutmut_60
+    format string  ->  None on logger.critical
+
+  [sync/async mirror] DistributedRateLimiter.drain__mutmut_64
+    async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_64
+    limiters.AbstractDistributedRateLimiter.drain__mutmut_64
+    xx wrap on logger.critical format string
+
   [sync/async mirror] DistributedRateLimiter.extend_lease__mutmut_26
     async_limiters.AbstractAsyncDistributedRateLimiter.extend_lease__mutmut_26
     limiters.AbstractDistributedRateLimiter.extend_lease__mutmut_26
@@ -75,6 +931,26 @@ Classification (non-killed mutants)
   [sync/async mirror] DistributedRateLimiter.extend_lease__mutmut_27
     async_limiters.AbstractAsyncDistributedRateLimiter.extend_lease__mutmut_27
     limiters.AbstractDistributedRateLimiter.extend_lease__mutmut_27
+    lowercase on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter.schedule_task__mutmut_3
+    async_limiters.AbstractAsyncDistributedRateLimiter.schedule_task__mutmut_3
+    limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_3
+    format string  ->  None on logger.debug
+
+  [sync/async mirror] DistributedRateLimiter.trigger_consume__mutmut_2
+    async_limiters.AbstractAsyncDistributedRateLimiter.trigger_consume__mutmut_2
+    limiters.AbstractDistributedRateLimiter.trigger_consume__mutmut_2
+    format string  ->  None on logger.debug
+
+  [sync/async mirror] DistributedRateLimiter.trigger_consume__mutmut_5
+    async_limiters.AbstractAsyncDistributedRateLimiter.trigger_consume__mutmut_5
+    limiters.AbstractDistributedRateLimiter.trigger_consume__mutmut_5
+    xx wrap on logger.debug format string
+
+  [sync/async mirror] DistributedRateLimiter.trigger_consume__mutmut_6
+    async_limiters.AbstractAsyncDistributedRateLimiter.trigger_consume__mutmut_6
+    limiters.AbstractDistributedRateLimiter.trigger_consume__mutmut_6
     lowercase on logger.debug format string
 
   [sync/async mirror] BackendHealthMonitor._run_once__mutmut_10
@@ -178,17 +1054,239 @@ Classification (non-killed mutants)
   async_limiters.AbstractAsyncDistributedRateLimiter._cleanup_inflight_key__mutmut_25
     lowercase on logger.warning format string
 
-  async_limiters.AbstractAsyncDistributedRateLimiter.consume__mutmut_84
-    task_id  ->  None (logger format argument)
+  async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_193
+    xx wrap on logger.info format string
+
+  async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_194
+    lowercase on logger.info format string
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.consume__mutmut_93
+    xx wrap on logger.debug format string
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.consume__mutmut_94
+    lowercase on logger.debug format string
 
   async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_67
     exc_info boolean swap (cosmetic)
 
+  async_limiters.AbstractAsyncDistributedRateLimiter.schedule_task__mutmut_19
+    xx wrap on logger.debug format string
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.schedule_task__mutmut_20
+    lowercase on logger.debug format string
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.schedule_task__mutmut_35
+    xx wrap on logger.debug format string
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.schedule_task__mutmut_43
+    xx wrap on logger.debug format string
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.schedule_task__mutmut_44
+    lowercase on logger.debug format string
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.schedule_task__mutmut_81
+    xx wrap on logger.info format string
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.schedule_task__mutmut_92
+    xx wrap on logger.info format string
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.schedule_task__mutmut_93
+    lowercase on logger.info format string
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_15
+    format string  ->  None on logger.info
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_17
+    format string  ->  None on logger.info
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_18
+    self.window  ->  None (logger format argument)
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_43
+    xx wrap on logger.info format string
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_44
+    lowercase on logger.info format string
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_45
+    uppercase on logger.info format string
+
+  async_limiters.AsyncDistributedLock.__aenter____mutmut_37
+    xx wrap on logger.debug format string
+
+  async_limiters.AsyncDistributedLock.__aenter____mutmut_38
+    lowercase on logger.debug format string
+
+  async_limiters.AsyncDistributedLock.__aenter____mutmut_45
+    lowercase on logger.debug format string
+
+  async_limiters.AsyncDistributedLock.__aexit____mutmut_27
+    format string  ->  None on logger.debug
+
+  async_limiters.AsyncDistributedLock.__aexit____mutmut_31
+    xx wrap on logger.debug format string
+
+  async_limiters.AsyncDistributedLock.__aexit____mutmut_32
+    lowercase on logger.debug format string
+
+  async_limiters.AsyncDistributedLock.__aexit____mutmut_36
+    format string  ->  None on logger.debug
+
+  async_limiters.AsyncDistributedLock.__aexit____mutmut_40
+    xx wrap on logger.debug format string
+
+  async_limiters.AsyncDistributedLock.__aexit____mutmut_41
+    lowercase on logger.debug format string
+
+  async_limiters.AsyncDrainLoop._run__mutmut_23
+    xx wrap on logger.exception format string
+
+  async_limiters.AsyncDrainLoop._run__mutmut_24
+    lowercase on logger.exception format string
+
+  async_limiters.AsyncDrainSignalSubscriber._run__mutmut_21
+    xx wrap on error message
+
+  async_limiters.AsyncDrainSignalSubscriber._run__mutmut_22
+    uppercase on error message
+
+  async_limiters.AsyncTaskLifecycle.__aenter____mutmut_11
+    xx wrap on logger.debug format string
+
+  async_limiters.AsyncTaskLifecycle.__aenter____mutmut_12
+    lowercase on logger.debug format string
+
+  async_limiters.AsyncTaskLifecycle.__aexit____mutmut_29
+    xx wrap on logger.debug format string
+
+  async_limiters.AsyncTaskLifecycle.__aexit____mutmut_30
+    lowercase on logger.debug format string
+
   async_limiters.AsyncTaskLifecycle.__aexit____mutmut_42
     xx wrap on logger.debug format string
 
+  async_limiters.AsyncTaskLifecycle.__aexit____mutmut_43
+    lowercase on logger.debug format string
+
+  async_limiters.AsyncTaskLifecycle._heartbeat_loop__mutmut_17
+    xx wrap on logger.info format string
+
+  async_limiters.AsyncTaskLifecycle._heartbeat_loop__mutmut_18
+    lowercase on logger.info format string
+
+  async_limiters.AsyncTaskLifecycle._heartbeat_loop__mutmut_22
+    format string  ->  None on logger.critical
+
+  async_limiters.AsyncTaskLifecycle._heartbeat_loop__mutmut_33
+    xx wrap on logger.critical format string
+
+  async_limiters.AsyncTaskLifecycle._heartbeat_loop__mutmut_34
+    lowercase on logger.critical format string
+
+  async_limiters.AsyncTaskLifecycle._heartbeat_loop__mutmut_46
+    xx wrap on logger.critical format string
+
+  async_limiters.AsyncTaskLifecycle._heartbeat_loop__mutmut_47
+    lowercase on logger.critical format string
+
+  base.AbstractAsyncRateLimiter._eval_script__mutmut_15
+    xx wrap on logger.warning format string
+
+  base.AbstractAsyncRateLimiter._eval_script__mutmut_16
+    lowercase on logger.warning format string
+
+  base.AbstractAsyncRateLimiter._register_script__mutmut_10
+    format string  ->  None on logger.debug
+
+  base.AbstractAsyncRateLimiter._register_script__mutmut_11
+    sha  ->  None (logger format argument)
+
+  base.AbstractAsyncRateLimiter._register_script__mutmut_16
+    xx wrap on logger.debug format string
+
+  base.AbstractAsyncRateLimiter._register_script__mutmut_17
+    lowercase on logger.debug format string
+
+  base.AbstractAsyncRateLimiter._register_script__mutmut_18
+    uppercase on logger.debug format string
+
+  base.AbstractAsyncRateLimiter._register_script__mutmut_8
+    format string  ->  None on logger.debug
+
+  base.AbstractAsyncRateLimiter._register_script__mutmut_9
+    format string  ->  None on logger.debug
+
   base.AbstractRateLimiter._apply_config_overrides__mutmut_25
     xx wrap on logger.info format string
+
+  base.AbstractRateLimiter._apply_config_overrides__mutmut_26
+    lowercase on logger.info format string
+
+  base.AbstractSyncRateLimiter._eval_script__mutmut_15
+    xx wrap on logger.warning format string
+
+  base.AbstractSyncRateLimiter._eval_script__mutmut_16
+    lowercase on logger.warning format string
+
+  base.AbstractSyncRateLimiter._register_script__mutmut_11
+    sha  ->  None (logger format argument)
+
+  base.AbstractSyncRateLimiter._register_script__mutmut_8
+    format string  ->  None on logger.debug
+
+  limiter.ASGIRateLimiter.acquire__mutmut_48
+    xx wrap on logger.exception format string
+
+  limiter.ASGIRateLimiter.acquire__mutmut_49
+    lowercase on logger.exception format string
+
+  limiter.ASGIRateLimiter.start__mutmut_12
+    xx wrap on logger.info format string
+
+  limiter.ASGIRateLimiter.start__mutmut_13
+    lowercase on logger.info format string
+
+  limiter.AsyncIOTaskLimiter._configure_backend__mutmut_10
+    xx wrap on error message
+
+  limiter.AsyncIOTaskLimiter._configure_backend__mutmut_11
+    uppercase on error message
+
+  limiter.AsyncIOTaskLimiter._configure_backend__mutmut_7
+    xx wrap on error message
+
+  limiter.AsyncIOTaskLimiter._configure_backend__mutmut_8
+    lowercase on error message
+
+  limiter.AsyncIOTaskLimiter._configure_backend__mutmut_9
+    uppercase on error message
+
+  limiter.AsyncIOTaskLimiter._dispatch_task__mutmut_18
+    xx wrap on logger.exception format string
+
+  limiter.AsyncIOTaskLimiter._dispatch_task__mutmut_19
+    lowercase on logger.exception format string
+
+  limiter.AsyncIOTaskLimiter._dispatch_task__mutmut_38
+    xx wrap on logger.debug format string
+
+  limiter.AsyncIOTaskLimiter._dispatch_task__mutmut_39
+    lowercase on logger.debug format string
+
+  limiter.AsyncIOTaskLimiter.shutdown__mutmut_7
+    xx wrap on logger.info format string
+
+  limiter.CeleryRateLimiter._configure_backend__mutmut_10
+    xx wrap on error message
+
+  limiter.CeleryRateLimiter._configure_backend__mutmut_11
+    uppercase on error message
+
+  limiter.CeleryRateLimiter._configure_backend__mutmut_7
+    xx wrap on error message
+
+  limiter.CeleryRateLimiter._configure_backend__mutmut_8
+    lowercase on error message
 
   limiter.CeleryRateLimiter._dispatch_task__mutmut_44
     xx wrap on logger.debug format string
@@ -202,8 +1300,17 @@ Classification (non-killed mutants)
   limiter.CeleryRateLimiter._dispatch_task__mutmut_64
     lowercase on logger.debug format string
 
+  limiter.ProcessPoolRateLimiter._configure_backend__mutmut_10
+    xx wrap on error message
+
   limiter.ProcessPoolRateLimiter._configure_backend__mutmut_11
     uppercase on error message
+
+  limiter.ProcessPoolRateLimiter._configure_backend__mutmut_7
+    xx wrap on error message
+
+  limiter.ProcessPoolRateLimiter._configure_backend__mutmut_8
+    lowercase on error message
 
   limiter.ProcessPoolRateLimiter._dispatch_task__mutmut_29
     xx wrap on logger.debug format string
@@ -211,8 +1318,14 @@ Classification (non-killed mutants)
   limiter.ProcessPoolRateLimiter._dispatch_task__mutmut_30
     lowercase on logger.debug format string
 
+  limiter.RQRateLimiter._configure_backend__mutmut_10
+    xx wrap on error message
+
   limiter.RQRateLimiter._configure_backend__mutmut_11
     uppercase on error message
+
+  limiter.RQRateLimiter._configure_backend__mutmut_7
+    xx wrap on error message
 
   limiter.RQRateLimiter._configure_backend__mutmut_8
     lowercase on error message
@@ -229,8 +1342,17 @@ Classification (non-killed mutants)
   limiter.RQRateLimiter._dispatch_task__mutmut_62
     lowercase on logger.debug format string
 
+  limiter.ThreadPoolRateLimiter._configure_backend__mutmut_10
+    xx wrap on error message
+
   limiter.ThreadPoolRateLimiter._configure_backend__mutmut_11
     uppercase on error message
+
+  limiter.ThreadPoolRateLimiter._configure_backend__mutmut_7
+    xx wrap on error message
+
+  limiter.ThreadPoolRateLimiter._configure_backend__mutmut_8
+    lowercase on error message
 
   limiter.ThreadPoolRateLimiter._dispatch_task__mutmut_21
     xx wrap on logger.debug format string
@@ -238,10 +1360,109 @@ Classification (non-killed mutants)
   limiter.ThreadPoolRateLimiter._dispatch_task__mutmut_22
     lowercase on logger.debug format string
 
-  limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_13
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_101
+    xx wrap on logger.info format string
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_102
+    lowercase on logger.info format string
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_103
+    uppercase on logger.info format string
+
+  limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_26
+    xx wrap on logger.warning format string
+
+  limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_27
+    lowercase on logger.warning format string
+
+  limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_199
+    xx wrap on logger.info format string
+
+  limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_200
+    lowercase on logger.info format string
+
+  limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_9
+    format string  ->  None on logger.debug
+
+  limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_94
+    lowercase on logger.debug format string
+
+  limiters.AbstractDistributedRateLimiter.consume__mutmut_100
+    lowercase on logger.debug format string
+
+  limiters.AbstractDistributedRateLimiter.consume__mutmut_99
     xx wrap on logger.debug format string
 
-  limiters.AbstractDistributedRateLimiter._cleanup_inflight_key__mutmut_14
+  limiters.AbstractDistributedRateLimiter.drain__mutmut_67
+    xx wrap on logger.critical format string
+
+  limiters.AbstractDistributedRateLimiter.drain__mutmut_68
+    lowercase on logger.critical format string
+
+  limiters.AbstractDistributedRateLimiter.drain__mutmut_69
+    uppercase on logger.critical format string
+
+  limiters.AbstractDistributedRateLimiter.drain__mutmut_70
+    exc_info boolean swap (cosmetic)
+
+  limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_21
+    xx wrap on logger.debug format string
+
+  limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_22
+    lowercase on logger.debug format string
+
+  limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_37
+    xx wrap on logger.debug format string
+
+  limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_42
+    inflight_key  ->  None (logger format argument)
+
+  limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_49
+    xx wrap on logger.debug format string
+
+  limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_50
+    lowercase on logger.debug format string
+
+  limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_87
+    xx wrap on logger.info format string
+
+  limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_98
+    xx wrap on logger.info format string
+
+  limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_99
+    lowercase on logger.info format string
+
+  limiters.DistributedLock.__enter____mutmut_31
+    format string  ->  None on logger.debug
+
+  limiters.DistributedLock.__enter____mutmut_37
+    xx wrap on logger.debug format string
+
+  limiters.DistributedLock.__enter____mutmut_38
+    lowercase on logger.debug format string
+
+  limiters.DistributedLock.__enter____mutmut_44
+    xx wrap on logger.debug format string
+
+  limiters.DistributedLock.__enter____mutmut_45
+    lowercase on logger.debug format string
+
+  limiters.DistributedLock.__exit____mutmut_29
+    format string  ->  None on logger.debug
+
+  limiters.DistributedLock.__exit____mutmut_33
+    xx wrap on logger.debug format string
+
+  limiters.DistributedLock.__exit____mutmut_34
+    lowercase on logger.debug format string
+
+  limiters.DistributedLock.__exit____mutmut_38
+    format string  ->  None on logger.debug
+
+  limiters.DistributedLock.__exit____mutmut_42
+    xx wrap on logger.debug format string
+
+  limiters.DistributedLock.__exit____mutmut_43
     lowercase on logger.debug format string
 
   limiters.DistributedRateLimiterMixin._calculate_smart_jitter__mutmut_35
@@ -250,8 +1471,77 @@ Classification (non-killed mutants)
   limiters.DistributedRateLimiterMixin._calculate_smart_jitter__mutmut_36
     lowercase on logger.debug format string
 
+  limiters.DistributedRateLimiterMixin._emit_metric__mutmut_14
+    xx wrap on logger.warning format string
+
+  limiters.DistributedRateLimiterMixin._schedule_backup_drain__mutmut_7
+    xx wrap on logger.debug format string
+
+  limiters.DistributedRateLimiterMixin._schedule_backup_drain__mutmut_8
+    lowercase on logger.debug format string
+
+  limiters.DrainLoop._run__mutmut_17
+    xx wrap on logger.exception format string
+
   limiters.DrainLoop._run__mutmut_18
     lowercase on logger.exception format string
+
+  limiters.TaskLifecycle.__enter____mutmut_15
+    xx wrap on logger.debug format string
+
+  limiters.TaskLifecycle.__enter____mutmut_16
+    lowercase on logger.debug format string
+
+  limiters.TaskLifecycle.__enter____mutmut_3
+    format string  ->  None on logger.debug
+
+  limiters.TaskLifecycle.__exit____mutmut_24
+    xx wrap on logger.debug format string
+
+  limiters.TaskLifecycle.__exit____mutmut_25
+    lowercase on logger.debug format string
+
+  limiters.TaskLifecycle.__exit____mutmut_32
+    format string  ->  None on logger.debug
+
+  limiters.TaskLifecycle.__exit____mutmut_33
+    format string  ->  None on logger.debug
+
+  limiters.TaskLifecycle.__exit____mutmut_37
+    xx wrap on logger.debug format string
+
+  limiters.TaskLifecycle.__exit____mutmut_38
+    lowercase on logger.debug format string
+
+  limiters.TaskLifecycle._heartbeat_loop__mutmut_14
+    xx wrap on logger.info format string
+
+  limiters.TaskLifecycle._heartbeat_loop__mutmut_15
+    lowercase on logger.info format string
+
+  limiters.TaskLifecycle._heartbeat_loop__mutmut_19
+    format string  ->  None on logger.critical
+
+  limiters.TaskLifecycle._heartbeat_loop__mutmut_30
+    xx wrap on logger.critical format string
+
+  limiters.TaskLifecycle._heartbeat_loop__mutmut_31
+    lowercase on logger.critical format string
+
+  limiters.TaskLifecycle._heartbeat_loop__mutmut_44
+    xx wrap on logger.critical format string
+
+  limiters.TaskLifecycle._heartbeat_loop__mutmut_45
+    lowercase on logger.critical format string
+
+  managed.AsyncManagedRateLimiter.configure__mutmut_6
+    xx wrap on logger.info format string
+
+  managed.AsyncManagedRateLimiter.create__mutmut_22
+    config  ->  None (logger format argument)
+
+  managed.AsyncManagedRateLimiter.create__mutmut_29
+    xx wrap on logger.info format string
 
   managed.AsyncManagedRateLimiter.get__mutmut_35
     format string  ->  None on logger.debug
@@ -259,11 +1549,77 @@ Classification (non-killed mutants)
   managed.AsyncManagedRateLimiter.get__mutmut_42
     xx wrap on logger.debug format string
 
+  managed.AsyncManagedRateLimiter.get__mutmut_8
+    xx wrap on logger.debug format string
+
+  managed.AsyncManagedRateLimiter.refresh_config__mutmut_23
+    format string  ->  None on logger.warning
+
+  managed.AsyncManagedRateLimiter.refresh_config__mutmut_27
+    xx wrap on logger.warning format string
+
+  managed.AsyncManagedRateLimiter.refresh_config__mutmut_28
+    lowercase on logger.warning format string
+
+  managed.AsyncManagedRateLimiter.refresh_config__mutmut_32
+    format string  ->  None on logger.info
+
+  managed.AsyncManagedRateLimiter.refresh_config__mutmut_39
+    xx wrap on logger.info format string
+
+  managed.AsyncManagedRateLimiter.refresh_config__mutmut_40
+    lowercase on logger.info format string
+
   managed.AsyncManagedRateLimiter.update__mutmut_13
     xx wrap on logger.info format string
 
+  managed.SyncManagedRateLimiter.configure__mutmut_6
+    xx wrap on logger.info format string
+
+  managed.SyncManagedRateLimiter.create__mutmut_22
+    config  ->  None (logger format argument)
+
+  managed.SyncManagedRateLimiter.create__mutmut_29
+    xx wrap on logger.info format string
+
+  managed.SyncManagedRateLimiter.get__mutmut_37
+    format string  ->  None on logger.debug
+
+  managed.SyncManagedRateLimiter.get__mutmut_44
+    xx wrap on logger.debug format string
+
+  managed.SyncManagedRateLimiter.get__mutmut_8
+    xx wrap on logger.debug format string
+
+  managed.SyncManagedRateLimiter.refresh_config__mutmut_23
+    format string  ->  None on logger.warning
+
+  managed.SyncManagedRateLimiter.refresh_config__mutmut_27
+    xx wrap on logger.warning format string
+
+  managed.SyncManagedRateLimiter.refresh_config__mutmut_28
+    lowercase on logger.warning format string
+
+  managed.SyncManagedRateLimiter.refresh_config__mutmut_32
+    format string  ->  None on logger.info
+
+  managed.SyncManagedRateLimiter.refresh_config__mutmut_39
+    xx wrap on logger.info format string
+
+  managed.SyncManagedRateLimiter.refresh_config__mutmut_40
+    lowercase on logger.info format string
+
   managed.SyncManagedRateLimiter.update__mutmut_13
     xx wrap on logger.info format string
+
+  middleware.RateLimitMiddleware.__call____mutmut_23
+    format string  ->  None on logger.exception
+
+  middleware.RateLimitMiddleware.__call____mutmut_30
+    xx wrap on logger.exception format string
+
+  middleware.RateLimitMiddleware.__call____mutmut_31
+    lowercase on logger.exception format string
 
   prometheus.PrometheusMetricsExporter.__call____mutmut_15
     xx wrap on logger.debug format string
@@ -282,6 +1638,24 @@ Classification (non-killed mutants)
 
   x_generic_rate_limited_worker__mutmut_8
     lowercase on logger.debug format string
+
+  x_import_string__mutmut_27
+    xx wrap on logger.debug format string
+
+  x_import_string__mutmut_28
+    lowercase on logger.debug format string
+
+  x_load_lua_script__mutmut_15
+    xx wrap on logger.debug format string
+
+  x_load_lua_script__mutmut_16
+    lowercase on logger.debug format string
+
+  x_load_lua_script__mutmut_6
+    format string  ->  None on logger.debug
+
+  x_load_lua_script__mutmut_8
+    uppercase on logger.debug format string
 
   x_rate_limited__mutmut_11
     xx wrap on error message
@@ -322,12 +1696,84 @@ Classification (non-killed mutants)
   x_resolve_import_path__mutmut_44
     lowercase on logger.debug format string
 
---- TIMEOUTS (5) ---
+--- TIMEOUTS (77) ---
+  base.AbstractSyncRateLimiter._register_script__mutmut_9
+  base.AbstractSyncRateLimiter._register_script__mutmut_10
+  base.AbstractSyncRateLimiter._register_script__mutmut_12
+  base.AbstractSyncRateLimiter._register_script__mutmut_13
+  base.AbstractSyncRateLimiter._register_script__mutmut_14
+  base.AbstractSyncRateLimiter._register_script__mutmut_15
+  base.AbstractSyncRateLimiter._register_script__mutmut_16
+  base.AbstractSyncRateLimiter._register_script__mutmut_17
+  base.AbstractSyncRateLimiter._register_script__mutmut_18
+  limiters.TaskLifecycle._heartbeat_loop__mutmut_1
+  limiters.DrainLoop.__init____mutmut_2
+  limiters.DrainLoop.__init____mutmut_4
   limiters.DrainLoop.shutdown__mutmut_1
   limiters.DrainLoop.shutdown__mutmut_2
-  limiters.DrainSignalSubscriber._run__mutmut_7
-  limiters.DrainSignalSubscriber.shutdown__mutmut_1
-  limiters.DrainSignalSubscriber.shutdown__mutmut_2
+  limiters.DrainLoop.shutdown__mutmut_4
+  limiters.DrainLoop.shutdown__mutmut_5
+  limiters.DrainSignalSubscriber.start__mutmut_3
+  limiters.DrainSignalSubscriber.start__mutmut_4
+  limiters.DrainSignalSubscriber.start__mutmut_5
+  limiters.DrainSignalSubscriber.start__mutmut_6
+  limiters.DrainSignalSubscriber.start__mutmut_7
+  limiters.DrainSignalSubscriber._run__mutmut_3
+  limiters.DrainSignalSubscriber._run__mutmut_4
+  limiters.DrainSignalSubscriber._run__mutmut_12
+  limiters.DrainSignalSubscriber._run__mutmut_16
+  limiters.DrainSignalSubscriber._run__mutmut_17
+  limiters.DrainSignalSubscriber._run__mutmut_18
+  limiters.DrainSignalSubscriber._run__mutmut_19
+  limiters.DrainSignalSubscriber._run__mutmut_20
+  limiters.DrainSignalSubscriber._run__mutmut_21
+  limiters.DrainSignalSubscriber._run__mutmut_22
+  limiters.DrainSignalSubscriber._run__mutmut_23
+  limiters.DrainSignalSubscriber._run__mutmut_24
+  limiters.DrainSignalSubscriber.shutdown__mutmut_4
+  limiters.DrainSignalSubscriber.shutdown__mutmut_5
+  limiters.DistributedRateLimiterMixin.__init____mutmut_1
+  limiters.DistributedRateLimiterMixin.__init____mutmut_2
+  limiters.DistributedRateLimiterMixin.__init____mutmut_4
+  limiters.DistributedRateLimiterMixin.__init____mutmut_5
+  limiters.DistributedRateLimiterMixin.__init____mutmut_6
+  limiters.DistributedRateLimiterMixin.__init____mutmut_7
+  limiters.DistributedRateLimiterMixin.__init____mutmut_8
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_2
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_3
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_4
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_5
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_6
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_7
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_8
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_29
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_44
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_55
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_56
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_73
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_74
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_75
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_76
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_77
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_78
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_79
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_80
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_81
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_82
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_83
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_84
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_85
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_86
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_87
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_88
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_89
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_90
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_91
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_92
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_93
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_94
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_95
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_96
 
 --- NO TESTS (5) ---
   async_limiters.AsyncBackendHealthMonitor._run__mutmut_1
@@ -336,7 +1782,59 @@ Classification (non-killed mutants)
   async_limiters.AsyncBackendHealthMonitor._run__mutmut_4
   async_limiters.AsyncBackendHealthMonitor._run__mutmut_5
 
---- KNOWN BENIGN (2) ---
+--- KNOWN BENIGN (19) ---
+  async_limiters.AsyncDistributedLock.__init____mutmut_3
+    contention_key: str = "",  ->  contention_key: str = "XXXX",
+    reason: fork-immune: default parameter value is tested by test_async_distributed_lock_contention_key_defaults_to_empty (signature inspection)
+
+  async_limiters.AsyncTaskLifecycle.__init____mutmut_1
+    on_heartbeat_failure: Literal["warn", "kill"] = "warn",  ->  on_heartbeat_failure: Literal["warn", "kill"] = "XXwarnXX",
+    reason: fork-immune: default parameter value is tested by test_default_on_heartbeat_failure_is_warn (signature inspection)
+
+  async_limiters.AsyncTaskLifecycle.__init____mutmut_2
+    on_heartbeat_failure: Literal["warn", "kill"] = "warn",  ->  on_heartbeat_failure: Literal["warn", "kill"] = "WARN",
+    reason: fork-immune: default parameter value is tested by test_default_on_heartbeat_failure_is_warn (signature inspection); .lower() normalization makes uppercase equivalent at runtime
+
+  async_limiters.AsyncDrainLoop.wake__mutmut_1
+    def wake(self, delay: float = 0.0) -> None:  ->  def wake(self, delay: float = 1.0) -> None:
+    reason: fork-immune: default parameter value is tested by test_wake_default_delay_is_zero (signature inspection) and test_wake_default_delay_fires_immediately (behavioral)
+
+  async_limiters.AsyncDrainLoop._wake_async__mutmut_4
+    <  ->  <=
+    reason: when target equals _next_wake, the assignment writes the same value back; the wake time does not change
+
+  async_limiters.AsyncDrainLoop._run__mutmut_11
+    >  ->  >=
+    reason: when remaining equals zero, wait(timeout=0) returns immediately and the next iteration falls through to drain unchanged
+
+  async_limiters.AbstractAsyncDistributedRateLimiter._schedule_drain__mutmut_1
+    def _schedule_drain(self, delay: float = 0.0) -> None:  ->  def _schedule_drain(self, delay: float = 1.0) -> None:
+    reason: fork-immune: default parameter value is tested by test_async_schedule_drain_default_delay_is_zero and test_sync_schedule_drain_default_delay_is_zero (signature inspection)
+
+  limiters.TaskLifecycle.__init____mutmut_1
+    on_heartbeat_failure: Literal["warn", "kill"] = "warn",  ->  on_heartbeat_failure: Literal["warn", "kill"] = "XXwarnXX",
+    reason: fork-immune: default parameter value is tested by test_default_on_heartbeat_failure_is_warn (signature inspection)
+
+  limiters.TaskLifecycle.__init____mutmut_2
+    on_heartbeat_failure: Literal["warn", "kill"] = "warn",  ->  on_heartbeat_failure: Literal["warn", "kill"] = "WARN",
+    reason: fork-immune: default parameter value is tested by test_default_on_heartbeat_failure_is_warn (signature inspection); .lower() normalization makes uppercase equivalent at runtime
+
+  limiters.TaskLifecycle.__init____mutmut_9
+    self._thread: Optional[Thread] = None  ->  self._thread: Optional[Thread] = ""
+    reason: both None and empty string are falsy; the only check is `if self._thread and self._thread.is_alive()` which short-circuits identically for both
+
+  limiters.DrainLoop.wake__mutmut_1
+    def wake(self, delay: float = 0.0) -> None:  ->  def wake(self, delay: float = 1.0) -> None:
+    reason: fork-immune: default parameter value is tested by test_wake_default_delay_is_zero (signature inspection) and test_wake_default_delay_fires_immediately (behavioral)
+
+  limiters.DrainLoop.wake__mutmut_6
+    <  ->  <=
+    reason: when target equals _next_wake, the assignment writes the same value back; the wake time does not change
+
+  limiters.DrainLoop._run__mutmut_8
+    >  ->  >=
+    reason: when remaining equals zero, wait(timeout=0) returns immediately and the next iteration falls through to drain unchanged
+
   limiters.DistributedRateLimiterMixin._calculate_token_recovery_delay__mutmut_7
     >=  ->  >
     reason: when val_current equals limit, the primary decay formula computes reset_in_ms / 1000.0, identical to the fallback return value
@@ -345,87 +1843,114 @@ Classification (non-killed mutants)
     <=  ->  <
     reason: when wait_ms equals zero, the fallthrough path returns 0 / 1000.0 = 0.0, identical to the early return of 0.0
 
+  limiters.AbstractDistributedRateLimiter._schedule_drain__mutmut_1
+    def _schedule_drain(self, delay: float = 0.0) -> None:  ->  def _schedule_drain(self, delay: float = 1.0) -> None:
+    reason: fork-immune: default parameter value is tested by test_async_schedule_drain_default_delay_is_zero and test_sync_schedule_drain_default_delay_is_zero (signature inspection)
+
+  limiter.CeleryRateLimiter.schedule_task__mutmut_2
+    True  ->  False
+    reason: fork-immune: default parameter value (use_executor=True) is tested by test_schedule_task_use_executor_default_is_true (signature inspection)
+
+  middleware.RateLimitMiddleware.__init____mutmut_1
+    on_error: Literal["fail_open", "fail_closed"] = "fail_open",  ->  on_error: Literal["fail_open", "fail_closed"] = "XXfail_openXX",
+    reason: fork-immune: default parameter value is tested by test_default_on_error_is_fail_open (signature inspection)
+
+  middleware.RateLimitMiddleware.__init____mutmut_2
+    on_error: Literal["fail_open", "fail_closed"] = "fail_open",  ->  on_error: Literal["fail_open", "fail_closed"] = "FAIL_OPEN",
+    reason: fork-immune: default parameter value is tested by test_default_on_error_is_fail_open (signature inspection); .lower() normalization makes uppercase equivalent at runtime
+
 Killed-By Summary
 ------------------------------------------------------------
-  Mutants with kill data: 4200
-  Killing tests:         421
-  Zero-kill tests:       362 of 783
+  Mutants with kill data: 4198
+  Killing tests:         453
+  Zero-kill tests:       329 of 782
 
   Top 20 killing tests:
-     133 kills (133 unique)  tests/implementations/asyncio/test_asyncio_limiter.py::TestAsyncIOTaskLimiter::test_get_buffer_count_reflects_scheduled_tasks
-     109 kills (109 unique)  tests/implementations/asgi/test_asgi_limiter.py::TestASGIRateLimiter::test_acquire_denied_at_limit
-      98 kills ( 98 unique)  tests/implementations/asyncio/test_rate_limiter_class_api.py::TestCreate::test_create_persist_increments_version
-      95 kills ( 95 unique)  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_applies_remote_change
-      87 kills ( 87 unique)  tests/integration/test_rate_limiting.py::TestRateLimitingIntegration::test_per_task_max_age_stored_in_buffer
-      85 kills ( 85 unique)  tests/implementations/rq/test_rq_limiter.py::TestRQRateLimiter::test_schedule_task_defaults_use_executor_to_true
-      78 kills ( 78 unique)  tests/integration/test_rate_limiting.py::TestRateLimitingIntegration::test_empty_buffer_returns_no_task
+      92 kills ( 92 unique)  tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_wrap_send_header_values_reflect_acquire_result
       71 kills ( 71 unique)  tests/integrations/test_prometheus.py::TestEdgeCases::test_custom_registry_isolation
-      65 kills ( 65 unique)  tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterImplementation::test_schedule_single_task_stores_correctly
       63 kills ( 63 unique)  tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterImplementation::test_consume_result_index_mapping_is_correct
-      63 kills ( 63 unique)  tests/implementations/test_concurrent_access.py::TestConcurrentFullPipeline::test_producers_and_consumers_under_contention
-      62 kills ( 62 unique)  tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_blocked_response_includes_retry_after
-      58 kills ( 58 unique)  tests/implementations/test_async_task_lifecycle.py::TestAsyncTaskLifecycle::test_lifecycle_removes_task_from_concurrency_set
-      58 kills ( 58 unique)  tests/implementations/test_rate_limiter_class_api.py::TestUpdate::test_update_persists_new_config_and_bumps_version
-      57 kills ( 57 unique)  tests/implementations/test_drain.py::TestSyncDrain::test_drain_rate_limited_emits_info_log
-      49 kills ( 49 unique)  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_returns_false_when_version_hash_missing
-      48 kills ( 48 unique)  tests/implementations/test_get_status.py::TestAsyncGetStatus::test_get_status_reports_locked_dispatcher
-      47 kills ( 47 unique)  tests/implementations/threadpool/test_contracts.py::TestThreadPoolContracts::test_execution_lock_default_timeout
-      45 kills ( 45 unique)  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_window_change_sets_pause_until
-      45 kills ( 45 unique)  tests/implementations/test_task_lifecycle.py::TestTaskLifecycleObservability::test_lifecycle_cleanup_emits_debug_log
+      62 kills ( 62 unique)  tests/implementations/test_rate_limiter.py::TestSyncRateLimiterImplementation::test_consume_expired_result_sets_correct_flags
+      42 kills ( 42 unique)  tests/implementations/test_drain.py::TestAsyncDrain::test_drain_schedules_delayed_retry_when_rate_limited
+      40 kills ( 40 unique)  tests/implementations/test_metrics_callback.py::TestAsyncMetricsCallback::test_schedule_emits_metric
+      39 kills ( 39 unique)  tests/integration/test_rate_limiting.py::TestRateLimitingIntegration::test_per_task_max_age_stored_in_buffer
+      38 kills ( 38 unique)  tests/implementations/test_rate_limiter_class_api.py::TestUpdate::test_get_status_reflects_updated_config
+      37 kills ( 37 unique)  tests/implementations/test_distributed_lock.py::TestAsyncContentionAwareCooldown::test_cooldown_key_has_correct_ttl
+      37 kills ( 37 unique)  tests/implementations/test_importing.py::TestResolveImportPath::test_round_trip_with_import_string
+      37 kills ( 37 unique)  tests/implementations/asgi/test_middleware.py::TestSendBlockedResponse::test_send_blocked_response_structure
+      34 kills ( 34 unique)  tests/implementations/test_drain.py::TestSyncDrain::test_drain_dispatches_task_and_schedules_follow_up
+      32 kills ( 32 unique)  tests/implementations/test_drain.py::TestAsyncDrain::test_drain_dispatches_task_and_schedules_follow_up
+      31 kills ( 31 unique)  tests/implementations/test_distributed_lock.py::TestAsyncDistributedLockObservability::test_lock_release_emits_debug_log
+      31 kills ( 31 unique)  tests/implementations/asyncio/test_rate_limiter_class_api.py::TestUpdate::test_get_status_reflects_updated_config
+      31 kills ( 31 unique)  tests/implementations/test_metrics_callback.py::TestSyncMetricsCallback::test_consume_emits_attempt_and_result_debug_logs
+      31 kills ( 31 unique)  tests/implementations/test_drain.py::TestSyncDrain::test_drain_skips_jitter_on_token_recovery_path
+      30 kills ( 30 unique)  tests/implementations/test_distributed_lock.py::TestSyncDistributedLockObservability::test_lock_release_emits_debug_log
+      27 kills ( 27 unique)  tests/implementations/test_async_task_lifecycle.py::TestAsyncTaskLifecycleObservability::test_empty_task_id_emits_removed_inflight_false
+      27 kills ( 27 unique)  tests/implementations/test_rate_limiter.py::TestRateLimiterContracts::test_execution_lock_context_manager_yields_boolean
 
 Partial Data (SIGXCPU)
 ------------------------------------------------------------
-  5 mutants with partial data  (process killed before test completed)
-    limiters.DrainLoop.shutdown__mutmut_1
-    limiters.DrainLoop.shutdown__mutmut_2
-    limiters.DrainSignalSubscriber._run__mutmut_7
-    limiters.DrainSignalSubscriber.shutdown__mutmut_1
-    limiters.DrainSignalSubscriber.shutdown__mutmut_2
+  77 mutants with partial data  (process killed before test completed)
+    base.AbstractSyncRateLimiter._register_script__mutmut_9
+    base.AbstractSyncRateLimiter._register_script__mutmut_10
+    base.AbstractSyncRateLimiter._register_script__mutmut_12
+    base.AbstractSyncRateLimiter._register_script__mutmut_13
+    base.AbstractSyncRateLimiter._register_script__mutmut_14
+    base.AbstractSyncRateLimiter._register_script__mutmut_15
+    base.AbstractSyncRateLimiter._register_script__mutmut_16
+    base.AbstractSyncRateLimiter._register_script__mutmut_17
+    base.AbstractSyncRateLimiter._register_script__mutmut_18
+    limiters.TaskLifecycle._heartbeat_loop__mutmut_1
+    ... and 67 more
 
 Test Effectiveness (kills per second of test runtime)
 ------------------------------------------------------------
   Top 10 most efficient:
-    241746.6 k/s    71 kills  0.000s  tests/integrations/test_prometheus.py::TestEdgeCases::test_custom_registry_isolation
-    77510.4 k/s    18 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPath::test_rejects_callable_that_fails_round_trip_verification
-    72498.4 k/s    35 kills  0.001s  tests/integrations/test_prometheus.py::TestMetricRegistration::test_metric_descriptions_match_expected_text
-    67778.6 k/s    14 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPath::test_rejects_bound_method
-    65706.6 k/s    95 kills  0.001s  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_applies_remote_change
-    49097.7 k/s     9 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPath::test_rejects_callable_without_qualname_attribute
-    39010.7 k/s    49 kills  0.001s  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_returns_false_when_version_hash_missing
-    37109.4 k/s    87 kills  0.002s  tests/integration/test_rate_limiting.py::TestRateLimitingIntegration::test_per_task_max_age_stored_in_buffer
-    31087.8 k/s    11 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPathObservability::test_emits_debug_log_on_success
-    29429.5 k/s    45 kills  0.002s  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_window_change_sets_pause_until
+    278143.4 k/s    71 kills  0.000s  tests/integrations/test_prometheus.py::TestEdgeCases::test_custom_registry_isolation
+    218509.5 k/s    37 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPath::test_round_trip_with_import_string
+    55838.5 k/s    20 kills  0.000s  tests/integrations/test_prometheus.py::TestMetricRegistration::test_metric_descriptions_match_expected_text
+    49650.1 k/s    17 kills  0.000s  tests/integrations/test_prometheus.py::TestScheduleCounter::test_scheduled_false
+    43162.8 k/s    14 kills  0.000s  tests/integrations/test_prometheus.py::TestMetricRegistration::test_all_expected_metric_names_are_registered
+    37970.8 k/s    25 kills  0.001s  tests/implementations/test_async_drain_loop.py::TestAsyncDrainLoop::test_shutdown_is_idempotent
+    35381.4 k/s    11 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPathObservability::test_emits_debug_log_on_success
+    29590.3 k/s    11 kills  0.000s  tests/implementations/test_lua_script_infrastructure.py::TestScriptLoaderFallbackObservability::test_load_lua_script_logs_resource_package_on_success
+    27507.9 k/s    92 kills  0.003s  tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_wrap_send_header_values_reflect_acquire_result
+    22812.4 k/s    62 kills  0.003s  tests/implementations/test_rate_limiter.py::TestSyncRateLimiterImplementation::test_consume_expired_result_sets_correct_flags
 
 Per-File Survival Rates
 ------------------------------------------------------------
-    2.6%   32 survived    0 no tests  1440 total  src/redis_rate_limiter/core/limiters.py
-    3.3%   35 survived    5 no tests  1227 total  src/redis_rate_limiter/core/async_limiters.py
-    1.1%    4 survived    0 no tests   372 total  src/redis_rate_limiter/core/managed.py
+   20.8%  230 survived    0 no tests  1440 total  src/redis_rate_limiter/core/limiters.py
+   19.4%  232 survived    5 no tests  1227 total  src/redis_rate_limiter/core/async_limiters.py
+   10.2%   38 survived    0 no tests   372 total  src/redis_rate_limiter/core/managed.py
+    5.1%    9 survived    0 no tests   176 total  src/redis_rate_limiter/backends/asgi/middleware.py
     1.4%    2 survived    0 no tests   148 total  src/redis_rate_limiter/integrations/prometheus.py
-    0.7%    1 survived    0 no tests   137 total  src/redis_rate_limiter/core/base.py
-    5.0%    6 survived    0 no tests   121 total  src/redis_rate_limiter/backends/celery/limiter.py
-    6.0%    7 survived    0 no tests   117 total  src/redis_rate_limiter/backends/rq/limiter.py
-    1.1%    1 survived    0 no tests    87 total  src/redis_rate_limiter/backends/asyncio/limiter.py
-    8.1%    6 survived    0 no tests    74 total  src/redis_rate_limiter/core/importing.py
-    4.4%    3 survived    0 no tests    68 total  src/redis_rate_limiter/backends/processpool/limiter.py
-    5.0%    3 survived    0 no tests    60 total  src/redis_rate_limiter/backends/threading/limiter.py
+   23.4%   23 survived    0 no tests   137 total  src/redis_rate_limiter/core/base.py
+    9.9%   12 survived    0 no tests   121 total  src/redis_rate_limiter/backends/celery/limiter.py
+    9.4%   11 survived    0 no tests   117 total  src/redis_rate_limiter/backends/rq/limiter.py
+   20.7%   18 survived    0 no tests    87 total  src/redis_rate_limiter/backends/asyncio/limiter.py
+    5.3%    4 survived    0 no tests    75 total  src/redis_rate_limiter/backends/asgi/limiter.py
+   10.8%    8 survived    0 no tests    74 total  src/redis_rate_limiter/core/importing.py
+    8.8%    6 survived    0 no tests    68 total  src/redis_rate_limiter/backends/processpool/limiter.py
+   10.0%    6 survived    0 no tests    60 total  src/redis_rate_limiter/backends/threading/limiter.py
    14.9%    7 survived    0 no tests    47 total  src/redis_rate_limiter/core/decorators.py
-   18.2%    2 survived    0 no tests    11 total  src/redis_rate_limiter/backends/rq/tasks/worker.py
+   19.1%    4 survived    0 no tests    21 total  src/redis_rate_limiter/core/scripts.py
    18.2%    2 survived    0 no tests    11 total  src/redis_rate_limiter/backends/celery/tasks/worker.py
+   18.2%    2 survived    0 no tests    11 total  src/redis_rate_limiter/backends/rq/tasks/worker.py
 
 Mutation Type Distribution (non-killed)
 ------------------------------------------------------------
-    38 total   37 survived  string_xx_wrap
-    29 total   29 survived  string_lowercase
-    19 total   15 survived  value_to_none
-    13 total   13 survived  string_uppercase
-     7 total    6 survived  argument_removal
-     5 total    3 survived  boolean_swap
-     3 total    2 survived  unknown
-     3 total    1 survived  operator_swap
-     2 total    2 survived  numeric_increment
-     1 total    1 survived  augmented_assignment
-     1 total    0 survived  unary_removal
+   169 total  162 survived  string_xx_wrap
+   154 total  122 survived  value_to_none
+   108 total  106 survived  string_lowercase
+    72 total   54 survived  argument_removal
+    47 total   35 survived  numeric_increment
+    43 total   36 survived  string_uppercase
+    38 total   34 survived  unknown
+    30 total   22 survived  operator_swap
+    26 total   19 survived  boolean_swap
+     6 total    2 survived  default_param
+     2 total    0 survived  unary_removal
+     2 total    2 survived  augmented_assignment
+     1 total    1 survived  keyword_swap
 
 Uncovered Functions (1 with zero test coverage)
 ------------------------------------------------------------

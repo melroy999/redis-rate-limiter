@@ -10,7 +10,7 @@ Fixture dependencies:
 
 import json
 
-from tests.lua.conftest import SCHEDULE_SOURCE, build_task_json
+from tests.lua.conftest import SCHEDULE_SOURCE
 
 
 def _eval_schedule(
@@ -33,7 +33,7 @@ class TestSchedule:
     """Tests for the ``schedule.lua`` task scheduling and metadata injection."""
 
     @staticmethod
-    def test_task_added_to_buffer_sorted_set(redis_client, buffer_key):
+    def test_task_added_to_buffer_sorted_set(redis_client, buffer_key, build_task_json):
         """Verify that scheduling a task adds it to the buffer sorted set."""
         # Arrange
         task_json = build_task_json("task-1")
@@ -47,7 +47,7 @@ class TestSchedule:
         )
 
     @staticmethod
-    def test_priority_used_as_zadd_score(redis_client, buffer_key):
+    def test_priority_used_as_zadd_score(redis_client, buffer_key, build_task_json):
         """Verify that the provided priority is used as the ZADD score."""
         # Arrange
         task_json = build_task_json("task-1")
@@ -62,7 +62,7 @@ class TestSchedule:
         assert score == 42.0, "ZADD score should equal the provided priority"
 
     @staticmethod
-    def test_meta_arrived_at_injected(redis_client, buffer_key):
+    def test_meta_arrived_at_injected(redis_client, buffer_key, build_task_json):
         """Verify that ``__meta_arrived_at`` is injected into the stored task JSON."""
         # Arrange
         task_json = build_task_json("task-1")
@@ -83,7 +83,7 @@ class TestSchedule:
         )
 
     @staticmethod
-    def test_meta_max_age_injected_when_provided(redis_client, buffer_key):
+    def test_meta_max_age_injected_when_provided(redis_client, buffer_key, build_task_json):
         """Verify that ``__meta_max_age`` is injected when ARGV[3] is provided."""
         # Arrange
         task_json = build_task_json("task-1")
@@ -101,7 +101,7 @@ class TestSchedule:
         )
 
     @staticmethod
-    def test_meta_max_age_absent_when_argv3_is_empty_string(redis_client, buffer_key):
+    def test_meta_max_age_absent_when_argv3_is_empty_string(redis_client, buffer_key, build_task_json):
         """Verify that ``__meta_max_age`` is absent when ARGV[3] is an empty string.
 
         When ``max_age`` is not provided, the Python layer passes ``""`` to
@@ -121,7 +121,7 @@ class TestSchedule:
         )
 
     @staticmethod
-    def test_gsub_handles_nested_closing_brace(redis_client, buffer_key):
+    def test_gsub_handles_nested_closing_brace(redis_client, buffer_key, build_task_json):
         """Verify that ``string.gsub`` injects metadata at the correct position.
 
         The ``gsub`` pattern ``'}$'`` should match only the final closing

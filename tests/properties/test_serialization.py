@@ -24,6 +24,13 @@ from tests.implementations.conftest import MinimalRateLimiter
 # ---------------------------------------------------------------------------
 
 
+def _clear_limiter_keys(redis_client, limiter):
+    """Delete all Redis keys belonging to the given limiter instance."""
+    keys = redis_client.keys(f"{limiter.id}:*")
+    if keys:
+        redis_client.delete(*keys)
+
+
 @pytest.fixture(scope="module")
 def property_limiter(
     property_redis_client,
@@ -69,7 +76,7 @@ class TestSerializationProperties:
         """
         # Arrange
         # Ensure a clean state for each example.
-        property_redis_client.flushdb()
+        _clear_limiter_keys(property_redis_client, property_limiter)
 
         # Act
         try:
@@ -116,7 +123,7 @@ class TestSerializationProperties:
 
         finally:
             # Cleanup.
-            property_redis_client.flushdb()
+            _clear_limiter_keys(property_redis_client, property_limiter)
 
     @staticmethod
     @given(
@@ -138,7 +145,7 @@ class TestSerializationProperties:
         This verifies that the rate limiter does not reject valid dictionary payloads.
         """
         # Arrange
-        property_redis_client.flushdb()
+        _clear_limiter_keys(property_redis_client, property_limiter)
 
         # Act
         success, task_id = property_limiter.schedule_task(func_path, payload)
@@ -151,7 +158,7 @@ class TestSerializationProperties:
         ), "task should be marked as in-flight"
 
         # Cleanup
-        property_redis_client.flushdb()
+        _clear_limiter_keys(property_redis_client, property_limiter)
 
     @staticmethod
     @given(payload=nested_dict)

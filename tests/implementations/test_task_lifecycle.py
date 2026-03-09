@@ -37,7 +37,7 @@ HEARTBEAT_OVERRIDE_CASES: list[tuple[HeartbeatFailureMode, HeartbeatFailureMode]
 
 
 @pytest.fixture
-def mock_limiter(redis_client, task_id):
+def mock_limiter(redis_client, limiter_id, task_id):
     """Create a mock limiter that uses the real Redis client but mocks internal helpers.
 
     This fixture provides a limiter with real Redis operations but mocked
@@ -45,9 +45,9 @@ def mock_limiter(redis_client, task_id):
     """
     limiter = MagicMock()
     limiter.redis = redis_client
-    limiter.concurrency_key = "test:concurrency"
-    limiter.id = "test_limiter"
-    limiter.get_inflight_key.side_effect = lambda tid: f"test:inflight:{tid}"
+    limiter.concurrency_key = f"{limiter_id}:concurrency"
+    limiter.id = limiter_id
+    limiter.get_inflight_key.side_effect = lambda tid: f"{limiter_id}:inflight:{tid}"
 
     # A short duration is used for fast test execution.
     limiter.lease_duration = 0.2
@@ -160,13 +160,13 @@ class TestTaskLifecycleImplementation:
         mock_limiter.trigger_consume.assert_called_once()
 
     @staticmethod
-    def test_empty_task_id_skips_inflight_cleanup(redis_client):
+    def test_empty_task_id_skips_inflight_cleanup(redis_client, limiter_id):
         """Verify that an empty ``task_id`` skips inflight key deletion."""
         # Arrange
         limiter = MagicMock()
         limiter.redis = redis_client
-        limiter.concurrency_key = "test:concurrency"
-        limiter.id = "test_limiter"
+        limiter.concurrency_key = f"{limiter_id}:concurrency"
+        limiter.id = limiter_id
         limiter.lease_duration = 0.2
         limiter.extend_lease.return_value = None
 
@@ -256,13 +256,13 @@ class TestTaskLifecycleObservability:
         )
 
     @staticmethod
-    def test_empty_task_id_emits_removed_inflight_false(redis_client, caplog):
+    def test_empty_task_id_emits_removed_inflight_false(redis_client, limiter_id, caplog):
         """Verify that an empty ``task_id`` emits ``removed_inflight=False`` in the cleanup log."""
         # Arrange
         limiter = MagicMock()
         limiter.redis = redis_client
-        limiter.concurrency_key = "test:concurrency"
-        limiter.id = "test_limiter"
+        limiter.concurrency_key = f"{limiter_id}:concurrency"
+        limiter.id = limiter_id
         limiter.lease_duration = 0.2
         limiter.extend_lease.return_value = None
 

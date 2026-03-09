@@ -14,6 +14,13 @@ from hypothesis import strategies as st
 
 from tests.implementations.conftest import MinimalRateLimiter
 
+
+def _clear_limiter_keys(redis_client, limiter):
+    """Delete all Redis keys belonging to the given limiter instance."""
+    keys = redis_client.keys(f"{limiter.id}:*")
+    if keys:
+        redis_client.delete(*keys)
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -60,7 +67,7 @@ class TestConcurrencyInvariantProperties:
     ):
         """Property: the active concurrency never exceeds the configured max_concurrency."""
         # Arrange
-        property_redis_client.flushdb()
+        _clear_limiter_keys(property_redis_client, property_limiter)
         next_payload_id = 0
         active_task_ids = set()
 
@@ -97,4 +104,4 @@ class TestConcurrencyInvariantProperties:
             ), "concurrency set cardinality must never exceed max_concurrency"
 
         # Cleanup
-        property_redis_client.flushdb()
+        _clear_limiter_keys(property_redis_client, property_limiter)

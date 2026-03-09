@@ -1,10 +1,10 @@
 {
   "total_classes": 124,
-  "total_superfluous_tests": 129,
+  "total_superfluous_tests": 113,
   "classes": {
     "test_asgi_limiter::TestASGIAcquireObservability": {
       "total_tests": 1,
-      "total_kills": 18
+      "total_kills": 17
     },
     "test_asgi_limiter::TestASGILimiterClassVariables": {
       "total_tests": 1,
@@ -12,65 +12,71 @@
     },
     "test_asgi_limiter::TestASGIRateLimiter": {
       "total_tests": 9,
-      "total_kills": 492,
+      "total_kills": 561,
       "superfluous": [
         {
           "test": "tests/implementations/asgi/test_asgi_limiter.py::TestASGIRateLimiter::test_acquire_skips_refresh_within_interval",
           "kills": 33,
-          "subsumed_by": "tests/implementations/asgi/test_asgi_limiter.py::TestASGIRateLimiter::test_acquire_denied_at_limit",
-          "subsumed_by_kills": 115
+          "subsumed_by": "tests/implementations/asgi/test_asgi_limiter.py::TestASGIRateLimiter::test_per_identity_isolation",
+          "subsumed_by_kills": 142
+        },
+        {
+          "test": "tests/implementations/asgi/test_asgi_limiter.py::TestASGIRateLimiter::test_acquire_refreshes_config_at_interval_boundary",
+          "kills": 33,
+          "subsumed_by": "tests/implementations/asgi/test_asgi_limiter.py::TestASGIRateLimiter::test_per_identity_isolation",
+          "subsumed_by_kills": 142
+        },
+        {
+          "test": "tests/implementations/asgi/test_asgi_limiter.py::TestASGIRateLimiter::test_acquire_allowed_under_limit",
+          "kills": 46,
+          "subsumed_by": "tests/implementations/asgi/test_asgi_limiter.py::TestASGIRateLimiter::test_per_identity_isolation",
+          "subsumed_by_kills": 142
+        },
+        {
+          "test": "tests/implementations/asgi/test_asgi_limiter.py::TestASGIRateLimiter::test_acquire_raises_on_script_failure",
+          "kills": 14,
+          "subsumed_by": "tests/implementations/asgi/test_asgi_limiter.py::TestASGIRateLimiter::test_per_identity_isolation",
+          "subsumed_by_kills": 142
+        },
+        {
+          "test": "tests/implementations/asgi/test_asgi_limiter.py::TestASGIRateLimiter::test_acquire_returns_window_counters",
+          "kills": 42,
+          "subsumed_by": "tests/implementations/asgi/test_asgi_limiter.py::TestASGIRateLimiter::test_per_identity_isolation",
+          "subsumed_by_kills": 142
         }
       ]
     },
     "test_asgi_limiter::TestASGIStartObservability": {
       "total_tests": 1,
-      "total_kills": 71
+      "total_kills": 70
     },
     "test_async_distributed_lock::TestAsyncDistributedLock": {
       "total_tests": 8,
-      "total_kills": 282,
+      "total_kills": 468,
       "superfluous": [
         {
           "test": "tests/implementations/test_async_distributed_lock.py::TestAsyncDistributedLock::test_lock_has_unique_token",
           "kills": 2,
           "subsumed_by": "tests/implementations/test_async_distributed_lock.py::TestAsyncDistributedLock::test_lock_only_releases_own_token",
-          "subsumed_by_kills": 42
+          "subsumed_by_kills": 85
         }
       ]
     },
     "test_async_drain_loop::TestAsyncDrainLoop": {
-      "total_tests": 13,
-      "total_kills": 238,
+      "total_tests": 11,
+      "total_kills": 228,
       "superfluous": [
-        {
-          "test": "tests/implementations/test_async_drain_loop.py::TestAsyncDrainLoop::test_wake_fires_drain_immediately",
-          "kills": 23,
-          "subsumed_by": "tests/implementations/test_async_drain_loop.py::TestAsyncDrainLoop::test_shutdown_completes_promptly",
-          "subsumed_by_kills": 25
-        },
-        {
-          "test": "tests/implementations/test_async_drain_loop.py::TestAsyncDrainLoop::test_wake_default_delay_fires_immediately",
-          "kills": 23,
-          "subsumed_by": "tests/implementations/test_async_drain_loop.py::TestAsyncDrainLoop::test_shutdown_completes_promptly",
-          "subsumed_by_kills": 25
-        },
         {
           "test": "tests/implementations/test_async_drain_loop.py::TestAsyncDrainLoop::test_wake_ignores_later_time",
           "kills": 20,
-          "subsumed_by": "tests/implementations/test_async_drain_loop.py::TestAsyncDrainLoop::test_wake_fires_drain_immediately",
-          "subsumed_by_kills": 23
-        },
-        {
-          "test": "tests/implementations/test_async_drain_loop.py::TestAsyncDrainLoop::test_ensure_started_restarts_dead_task",
-          "kills": 9,
-          "subsumed_by": "tests/implementations/test_async_drain_loop.py::TestAsyncDrainLoop::test_drain_loop_survives_drain_exception",
+          "subsumed_by": "tests/implementations/test_async_drain_loop.py::TestAsyncDrainLoop::test_shutdown_completes_promptly",
           "subsumed_by_kills": 25
         }
       ]
     },
     "test_async_drain_loop::TestAsyncDrainLoopObservability": {
       "total_tests": 1,
-      "total_kills": 9
+      "total_kills": 23
     },
     "test_async_drain_loop::TestAsyncDrainSignalSubscriber": {
       "total_tests": 4,
@@ -93,64 +99,64 @@
       "total_kills": 57
     },
     "test_async_task_lifecycle::TestAsyncExtendLease": {
-      "total_tests": 3,
-      "total_kills": 113,
+      "total_tests": 2,
+      "total_kills": 107,
       "superfluous": [
         {
-          "test": "tests/implementations/test_async_task_lifecycle.py::TestAsyncExtendLease::test_extend_lease_passes_correct_arguments_to_lua",
-          "kills": 17,
+          "test": "tests/implementations/test_async_task_lifecycle.py::TestAsyncExtendLease::test_extend_lease_raises_key_error_for_unknown_task",
+          "kills": 21,
           "subsumed_by": "tests/implementations/test_async_task_lifecycle.py::TestAsyncExtendLease::test_extend_lease_succeeds_for_existing_task",
-          "subsumed_by_kills": 75
+          "subsumed_by_kills": 86
         }
       ]
     },
     "test_async_task_lifecycle::TestAsyncExtendLeaseObservability": {
       "total_tests": 2,
-      "total_kills": 108
-    },
-    "test_async_task_lifecycle::TestAsyncHeartbeatLoop": {
-      "total_tests": 7,
-      "total_kills": 132,
+      "total_kills": 127,
       "superfluous": [
         {
-          "test": "tests/implementations/test_async_task_lifecycle.py::TestAsyncHeartbeatLoop::test_heartbeat_loop_stops_on_exit",
-          "kills": 14,
-          "subsumed_by": "tests/implementations/test_async_task_lifecycle.py::TestAsyncHeartbeatLoop::test_heartbeat_loop_restores_health_on_recovery",
-          "subsumed_by_kills": 24
+          "test": "tests/implementations/test_async_task_lifecycle.py::TestAsyncExtendLeaseObservability::test_extend_lease_unknown_task_emits_debug_log",
+          "kills": 33,
+          "subsumed_by": "tests/implementations/test_async_task_lifecycle.py::TestAsyncExtendLeaseObservability::test_extend_lease_success_emits_debug_log",
+          "subsumed_by_kills": 94
         }
       ]
     },
+    "test_async_task_lifecycle::TestAsyncHeartbeatLoop": {
+      "total_tests": 6,
+      "total_kills": 119
+    },
     "test_async_task_lifecycle::TestAsyncHeartbeatLoopObservability": {
       "total_tests": 4,
-      "total_kills": 124
+      "total_kills": 123
     },
     "test_async_task_lifecycle::TestAsyncTaskLifecycle": {
       "total_tests": 6,
-      "total_kills": 121,
+      "total_kills": 163,
       "superfluous": [
         {
           "test": "tests/implementations/test_async_task_lifecycle.py::TestAsyncTaskLifecycle::test_lifecycle_triggers_consume_even_on_exception",
           "kills": 13,
           "subsumed_by": "tests/implementations/test_async_task_lifecycle.py::TestAsyncTaskLifecycle::test_lifecycle_removes_task_from_concurrency_set",
-          "subsumed_by_kills": 48
+          "subsumed_by_kills": 83
         },
         {
           "test": "tests/implementations/test_async_task_lifecycle.py::TestAsyncTaskLifecycle::test_lifecycle_triggers_consume",
           "kills": 13,
           "subsumed_by": "tests/implementations/test_async_task_lifecycle.py::TestAsyncTaskLifecycle::test_lifecycle_removes_task_from_concurrency_set",
-          "subsumed_by_kills": 48
+          "subsumed_by_kills": 83
         },
         {
           "test": "tests/implementations/test_async_task_lifecycle.py::TestAsyncTaskLifecycle::test_lifecycle_removes_active_marker",
           "kills": 14,
           "subsumed_by": "tests/implementations/test_async_task_lifecycle.py::TestAsyncTaskLifecycle::test_lifecycle_removes_task_from_concurrency_set",
-          "subsumed_by_kills": 48
+          "subsumed_by_kills": 83
         }
       ]
     },
     "test_async_task_lifecycle::TestAsyncTaskLifecycleImplementation": {
       "total_tests": 8,
-      "total_kills": 302,
+      "total_kills": 331,
       "superfluous": [
         {
           "test": "tests/implementations/test_async_task_lifecycle.py::TestAsyncTaskLifecycleImplementation::test_heartbeat_failure_override_precedence[default_warn_override_kill]",
@@ -168,27 +174,47 @@
           "test": "tests/implementations/test_async_task_lifecycle.py::TestAsyncTaskLifecycleImplementation::test_lifecycle_handles_redis_failure_during_cleanup",
           "kills": 7,
           "subsumed_by": "tests/implementations/test_async_task_lifecycle.py::TestAsyncTaskLifecycleImplementation::test_lifecycle_with_multiple_concurrent_tasks",
-          "subsumed_by_kills": 57
+          "subsumed_by_kills": 86
         },
         {
           "test": "tests/implementations/test_async_task_lifecycle.py::TestAsyncTaskLifecycleImplementation::test_empty_task_id_skips_inflight_cleanup",
           "kills": 11,
           "subsumed_by": "tests/implementations/test_async_task_lifecycle.py::TestAsyncTaskLifecycleImplementation::test_lifecycle_with_multiple_concurrent_tasks",
-          "subsumed_by_kills": 57
+          "subsumed_by_kills": 86
+        },
+        {
+          "test": "tests/implementations/test_async_task_lifecycle.py::TestAsyncTaskLifecycleImplementation::test_aexit_completes_within_timeout_bound",
+          "kills": 14,
+          "subsumed_by": "tests/implementations/test_async_task_lifecycle.py::TestAsyncTaskLifecycleImplementation::test_lifecycle_with_multiple_concurrent_tasks",
+          "subsumed_by_kills": 86
         }
       ]
     },
     "test_async_task_lifecycle::TestAsyncTaskLifecycleObservability": {
       "total_tests": 3,
-      "total_kills": 128
+      "total_kills": 170
     },
     "test_asyncio_limiter::TestAsyncIODispatchObservability": {
       "total_tests": 4,
-      "total_kills": 186
+      "total_kills": 185
     },
     "test_asyncio_limiter::TestAsyncIOTaskLimiter": {
       "total_tests": 10,
-      "total_kills": 1751
+      "total_kills": 2013,
+      "superfluous": [
+        {
+          "test": "tests/implementations/asyncio/test_asyncio_limiter.py::TestAsyncIOTaskLimiter::test_schedule_task_returns_success",
+          "kills": 73,
+          "subsumed_by": "tests/implementations/asyncio/test_asyncio_limiter.py::TestAsyncIOTaskLimiter::test_get_buffer_count_reflects_scheduled_tasks",
+          "subsumed_by_kills": 812
+        },
+        {
+          "test": "tests/implementations/asyncio/test_asyncio_limiter.py::TestAsyncIOTaskLimiter::test_has_local_capacity_respects_max_tasks",
+          "kills": 3,
+          "subsumed_by": "tests/implementations/asyncio/test_asyncio_limiter.py::TestAsyncIOTaskLimiter::test_get_buffer_count_reflects_scheduled_tasks",
+          "subsumed_by_kills": 812
+        }
+      ]
     },
     "test_backend_health_monitor::TestAsyncHealthMonitor": {
       "total_tests": 9,
@@ -229,13 +255,13 @@
       "total_kills": 63,
       "superfluous": [
         {
-          "test": "tests/implementations/test_backend_health_monitor.py::TestSyncHealthMonitor::test_is_healthy_recovers_after_healthy_check",
+          "test": "tests/implementations/test_backend_health_monitor.py::TestSyncHealthMonitor::test_is_healthy_reflects_unhealthy_state",
           "kills": 5,
           "subsumed_by": "tests/implementations/test_backend_health_monitor.py::TestSyncHealthMonitor::test_health_check_exception_transitions_to_unhealthy",
           "subsumed_by_kills": 7
         },
         {
-          "test": "tests/implementations/test_backend_health_monitor.py::TestSyncHealthMonitor::test_is_healthy_reflects_unhealthy_state",
+          "test": "tests/implementations/test_backend_health_monitor.py::TestSyncHealthMonitor::test_is_healthy_recovers_after_healthy_check",
           "kills": 5,
           "subsumed_by": "tests/implementations/test_backend_health_monitor.py::TestSyncHealthMonitor::test_health_check_exception_transitions_to_unhealthy",
           "subsumed_by_kills": 7
@@ -264,7 +290,7 @@
     },
     "test_celery_limiter::TestCeleryRateLimiter": {
       "total_tests": 14,
-      "total_kills": 545,
+      "total_kills": 705,
       "superfluous": [
         {
           "test": "tests/implementations/celery/test_celery_limiter.py::TestCeleryRateLimiter::test_dispatch_task_custom_path_sends_data_as_list_arg",
@@ -282,49 +308,49 @@
           "test": "tests/implementations/celery/test_celery_limiter.py::TestCeleryRateLimiter::test_enhanced_payload_structure",
           "kills": 6,
           "subsumed_by": "tests/implementations/celery/test_celery_limiter.py::TestCeleryRateLimiter::test_schedule_task_defaults_use_executor_to_true",
-          "subsumed_by_kills": 166
+          "subsumed_by_kills": 233
         }
       ]
     },
     "test_concurrency_invariants::TestConcurrencyInvariantProperties": {
       "total_tests": 1,
-      "total_kills": 96
+      "total_kills": 124
     },
     "test_concurrent_access::TestConcurrentConsumption": {
       "total_tests": 3,
-      "total_kills": 1103
+      "total_kills": 1432
     },
     "test_concurrent_access::TestConcurrentDrain": {
       "total_tests": 3,
-      "total_kills": 1778
+      "total_kills": 2078
     },
     "test_concurrent_access::TestConcurrentFullPipeline": {
       "total_tests": 1,
-      "total_kills": 700
+      "total_kills": 769
     },
     "test_concurrent_access::TestConcurrentLifecycle": {
       "total_tests": 1,
-      "total_kills": 357
+      "total_kills": 535
     },
     "test_concurrent_access::TestConcurrentScheduling": {
       "total_tests": 2,
-      "total_kills": 513
+      "total_kills": 666
     },
     "test_config_round_trip::TestConfigRoundTripProperties": {
       "total_tests": 2,
-      "total_kills": 45,
+      "total_kills": 48,
       "superfluous": [
         {
           "test": "tests/properties/test_config_round_trip.py::TestConfigRoundTripProperties::test_extra_keys_in_overrides_are_silently_ignored",
-          "kills": 12,
+          "kills": 14,
           "subsumed_by": "tests/properties/test_config_round_trip.py::TestConfigRoundTripProperties::test_persist_then_apply_preserves_all_fields",
-          "subsumed_by_kills": 33
+          "subsumed_by_kills": 34
         }
       ]
     },
     "test_contracts::TestThreadPoolContracts": {
       "total_tests": 14,
-      "total_kills": 1551,
+      "total_kills": 1707,
       "superfluous": [
         {
           "test": "tests/implementations/threadpool/test_contracts.py::TestThreadPoolContracts::test_execution_lock_context_manager_yields_boolean",
@@ -336,19 +362,19 @@
           "test": "tests/implementations/threadpool/test_contracts.py::TestThreadPoolContracts::test_consume_expired_field_is_boolean",
           "kills": 160,
           "subsumed_by": "tests/implementations/threadpool/test_contracts.py::TestThreadPoolContracts::test_consume_result_fields_have_distinct_values",
-          "subsumed_by_kills": 321
+          "subsumed_by_kills": 348
         },
         {
           "test": "tests/implementations/threadpool/test_contracts.py::TestThreadPoolContracts::test_schedule_task_returns_success_and_task_id",
           "kills": 57,
           "subsumed_by": "tests/implementations/threadpool/test_contracts.py::TestThreadPoolContracts::test_consume_result_fields_have_distinct_values",
-          "subsumed_by_kills": 321
+          "subsumed_by_kills": 348
         },
         {
           "test": "tests/implementations/threadpool/test_contracts.py::TestThreadPoolContracts::test_limiter_has_required_attributes",
           "kills": 4,
           "subsumed_by": "tests/implementations/threadpool/test_contracts.py::TestThreadPoolContracts::test_consume_result_fields_have_distinct_values",
-          "subsumed_by_kills": 321
+          "subsumed_by_kills": 348
         }
       ]
     },
@@ -361,20 +387,20 @@
       "total_kills": 131,
       "superfluous": [
         {
-          "test": "tests/implementations/test_decorator.py::TestRateLimitedDecorator::test_decorator_raises_when_task_id_missing",
-          "kills": 10,
-          "subsumed_by": "tests/implementations/test_decorator.py::TestRateLimitedDecorator::test_decorator_uses_default_limiter_resolver",
-          "subsumed_by_kills": 14
-        },
-        {
           "test": "tests/implementations/test_decorator.py::TestRateLimitedDecorator::test_decorator_propagates_wrapped_function_exception",
           "kills": 11,
-          "subsumed_by": "tests/implementations/test_decorator.py::TestRateLimitedDecorator::test_decorator_uses_default_limiter_resolver",
-          "subsumed_by_kills": 14
+          "subsumed_by": "tests/implementations/test_decorator.py::TestRateLimitedDecorator::test_decorator_pops_rate_limit_task_id_from_kwargs",
+          "subsumed_by_kills": 12
         },
         {
           "test": "tests/implementations/test_decorator.py::TestRateLimitedDecorator::test_decorator_uses_injected_limiter_resolver",
           "kills": 13,
+          "subsumed_by": "tests/implementations/test_decorator.py::TestRateLimitedDecorator::test_decorator_uses_default_limiter_resolver",
+          "subsumed_by_kills": 14
+        },
+        {
+          "test": "tests/implementations/test_decorator.py::TestRateLimitedDecorator::test_decorator_raises_when_task_id_missing",
+          "kills": 10,
           "subsumed_by": "tests/implementations/test_decorator.py::TestRateLimitedDecorator::test_decorator_uses_default_limiter_resolver",
           "subsumed_by_kills": 14
         },
@@ -385,14 +411,14 @@
           "subsumed_by_kills": 13
         },
         {
-          "test": "tests/implementations/test_decorator.py::TestRateLimitedDecorator::test_decorator_resolves_limiter_id_from_argument",
-          "kills": 10,
+          "test": "tests/implementations/test_decorator.py::TestRateLimitedDecorator::test_propagates_exception_from_lifecycle_enter",
+          "kills": 9,
           "subsumed_by": "tests/implementations/test_decorator.py::TestRateLimitedDecorator::test_decorator_resolves_limiter_id_from_kwargs",
           "subsumed_by_kills": 13
         },
         {
-          "test": "tests/implementations/test_decorator.py::TestRateLimitedDecorator::test_propagates_exception_from_lifecycle_enter",
-          "kills": 9,
+          "test": "tests/implementations/test_decorator.py::TestRateLimitedDecorator::test_decorator_resolves_limiter_id_from_argument",
+          "kills": 10,
           "subsumed_by": "tests/implementations/test_decorator.py::TestRateLimitedDecorator::test_decorator_resolves_limiter_id_from_kwargs",
           "subsumed_by_kills": 13
         }
@@ -403,11 +429,11 @@
       "total_kills": 29
     },
     "test_destructor_warning::TestAsyncDestructorWarning": {
-      "total_tests": 7,
-      "total_kills": 115,
+      "total_tests": 6,
+      "total_kills": 94,
       "superfluous": [
         {
-          "test": "tests/implementations/test_destructor_warning.py::TestAsyncDestructorWarning::test_del_warning_originates_from_limiter_module",
+          "test": "tests/implementations/test_destructor_warning.py::TestAsyncDestructorWarning::test_del_warning_category_is_resource_warning",
           "kills": 18,
           "subsumed_by": "tests/implementations/test_destructor_warning.py::TestAsyncDestructorWarning::test_del_warning_contains_shutdown_instruction",
           "subsumed_by_kills": 19
@@ -415,106 +441,82 @@
       ]
     },
     "test_destructor_warning::TestSyncDestructorWarning": {
-      "total_tests": 7,
-      "total_kills": 112,
+      "total_tests": 6,
+      "total_kills": 94,
       "superfluous": [
         {
           "test": "tests/implementations/test_destructor_warning.py::TestSyncDestructorWarning::test_del_warning_category_is_resource_warning",
           "kills": 18,
-          "subsumed_by": "tests/implementations/test_destructor_warning.py::TestSyncDestructorWarning::test_del_warning_contains_shutdown_instruction",
-          "subsumed_by_kills": 19
-        },
-        {
-          "test": "tests/implementations/test_destructor_warning.py::TestSyncDestructorWarning::test_del_warning_originates_from_limiter_module",
-          "kills": 18,
-          "subsumed_by": "tests/implementations/test_destructor_warning.py::TestSyncDestructorWarning::test_del_warning_contains_shutdown_instruction",
+          "subsumed_by": "tests/implementations/test_destructor_warning.py::TestSyncDestructorWarning::test_del_warning_contains_limiter_id",
           "subsumed_by_kills": 19
         }
       ]
     },
     "test_distributed_lock::TestAsyncContentionAwareCooldown": {
       "total_tests": 7,
-      "total_kills": 416,
+      "total_kills": 530,
       "superfluous": [
         {
           "test": "tests/implementations/test_distributed_lock.py::TestAsyncContentionAwareCooldown::test_cooldown_not_set_without_contention",
           "kills": 34,
-          "subsumed_by": "tests/implementations/test_distributed_lock.py::TestAsyncContentionAwareCooldown::test_cooldown_does_not_affect_other_workers",
-          "subsumed_by_kills": 63
+          "subsumed_by": "tests/implementations/test_distributed_lock.py::TestAsyncContentionAwareCooldown::test_cooldown_key_has_correct_ttl",
+          "subsumed_by_kills": 81
         }
       ]
     },
     "test_distributed_lock::TestAsyncDistributedLockImplementation": {
       "total_tests": 2,
-      "total_kills": 69
+      "total_kills": 116
     },
     "test_distributed_lock::TestAsyncDistributedLockObservability": {
       "total_tests": 4,
-      "total_kills": 150
+      "total_kills": 194
     },
     "test_distributed_lock::TestDistributedLock": {
       "total_tests": 8,
-      "total_kills": 319,
+      "total_kills": 453,
       "superfluous": [
         {
           "test": "tests/implementations/test_distributed_lock.py::TestDistributedLock::test_lock_has_unique_token",
           "kills": 2,
-          "subsumed_by": "tests/implementations/test_distributed_lock.py::TestDistributedLock::test_lock_cooldown_expires_and_allows_reacquisition",
-          "subsumed_by_kills": 62
+          "subsumed_by": "tests/implementations/test_distributed_lock.py::TestDistributedLock::test_lock_only_releases_own_token",
+          "subsumed_by_kills": 77
         }
       ]
     },
     "test_distributed_lock::TestSyncContentionAwareCooldown": {
       "total_tests": 7,
-      "total_kills": 446,
+      "total_kills": 579,
       "superfluous": [
         {
           "test": "tests/implementations/test_distributed_lock.py::TestSyncContentionAwareCooldown::test_cooldown_not_set_without_contention",
           "kills": 34,
           "subsumed_by": "tests/implementations/test_distributed_lock.py::TestSyncContentionAwareCooldown::test_cooldown_key_has_correct_ttl",
-          "subsumed_by_kills": 75
+          "subsumed_by_kills": 99
         }
       ]
     },
     "test_distributed_lock::TestSyncDistributedLockImplementation": {
       "total_tests": 2,
-      "total_kills": 82
+      "total_kills": 112
     },
     "test_distributed_lock::TestSyncDistributedLockObservability": {
       "total_tests": 4,
-      "total_kills": 166
+      "total_kills": 196
     },
     "test_drain::TestAsyncCrossProcessDrainSignal": {
       "total_tests": 4,
-      "total_kills": 95
+      "total_kills": 118
     },
     "test_drain::TestAsyncDrain": {
-      "total_tests": 28,
-      "total_kills": 755,
+      "total_tests": 26,
+      "total_kills": 686,
       "superfluous": [
-        {
-          "test": "tests/implementations/test_drain.py::TestAsyncDrain::test_drain_handles_consume_exception",
-          "kills": 26,
-          "subsumed_by": "tests/implementations/test_drain.py::TestAsyncDrain::test_drain_backoff_increases_with_consecutive_failures",
-          "subsumed_by_kills": 29
-        },
-        {
-          "test": "tests/implementations/test_drain.py::TestAsyncDrain::test_drain_handles_dispatch_exception",
-          "kills": 26,
-          "subsumed_by": "tests/implementations/test_drain.py::TestAsyncDrain::test_drain_backoff_increases_with_consecutive_failures",
-          "subsumed_by_kills": 29
-        },
         {
           "test": "tests/implementations/test_drain.py::TestAsyncDrain::test_drain_stops_when_buffer_empty",
           "kills": 18,
           "subsumed_by": "tests/implementations/test_drain.py::TestAsyncDrain::test_drain_skips_jitter_on_token_recovery_path",
           "subsumed_by_kills": 67
-        },
-        {
-          "test": "tests/implementations/test_drain.py::TestAsyncDrain::test_drain_backoff_caps_at_window",
-          "kills": 23,
-          "subsumed_by": "tests/implementations/test_drain.py::TestAsyncDrain::test_drain_backoff_increases_with_consecutive_failures",
-          "subsumed_by_kills": 29
         },
         {
           "test": "tests/implementations/test_drain.py::TestAsyncDrain::test_drain_handles_expired_task_without_dispatch",
@@ -532,13 +534,13 @@
     },
     "test_drain::TestAsyncDrainDisabled": {
       "total_tests": 3,
-      "total_kills": 110,
+      "total_kills": 116,
       "superfluous": [
         {
           "test": "tests/implementations/test_drain.py::TestAsyncDrainDisabled::test_shutdown_is_safe_when_drain_disabled",
-          "kills": 34,
+          "kills": 38,
           "subsumed_by": "tests/implementations/test_drain.py::TestAsyncDrainDisabled::test_shutdown_twice_does_not_raise_when_drain_disabled",
-          "subsumed_by_kills": 38
+          "subsumed_by_kills": 40
         }
       ]
     },
@@ -556,12 +558,18 @@
     },
     "test_drain::TestCrossProcessDrainSignal": {
       "total_tests": 4,
-      "total_kills": 106
+      "total_kills": 120
     },
     "test_drain::TestSyncDrain": {
-      "total_tests": 30,
-      "total_kills": 749,
+      "total_tests": 25,
+      "total_kills": 688,
       "superfluous": [
+        {
+          "test": "tests/implementations/test_drain.py::TestSyncDrain::test_drain_handles_expired_task_without_dispatch",
+          "kills": 20,
+          "subsumed_by": "tests/implementations/test_drain.py::TestSyncDrain::test_drain_stops_after_expired_task_with_remaining_tasks",
+          "subsumed_by_kills": 26
+        },
         {
           "test": "tests/implementations/test_drain.py::TestSyncDrain::test_drain_stops_when_buffer_empty",
           "kills": 18,
@@ -573,94 +581,40 @@
           "kills": 24,
           "subsumed_by": "tests/implementations/test_drain.py::TestSyncDrain::test_drain_concurrency_at_capacity_emits_debug_log",
           "subsumed_by_kills": 42
-        },
-        {
-          "test": "tests/implementations/test_drain.py::TestSyncDrain::test_drain_handles_dispatch_exception",
-          "kills": 26,
-          "subsumed_by": "tests/implementations/test_drain.py::TestSyncDrain::test_drain_backoff_increases_with_consecutive_failures",
-          "subsumed_by_kills": 29
-        },
-        {
-          "test": "tests/implementations/test_drain.py::TestSyncDrain::test_drain_handles_expired_task_without_dispatch",
-          "kills": 20,
-          "subsumed_by": "tests/implementations/test_drain.py::TestSyncDrain::test_drain_stops_after_expired_task_with_remaining_tasks",
-          "subsumed_by_kills": 26
-        },
-        {
-          "test": "tests/implementations/test_drain.py::TestSyncDrain::test_drain_handles_consume_exception",
-          "kills": 26,
-          "subsumed_by": "tests/implementations/test_drain.py::TestSyncDrain::test_drain_backoff_increases_with_consecutive_failures",
-          "subsumed_by_kills": 29
-        },
-        {
-          "test": "tests/implementations/test_drain.py::TestSyncDrain::test_drain_backoff_caps_at_window",
-          "kills": 10,
-          "subsumed_by": "tests/implementations/test_drain.py::TestSyncDrain::test_drain_backoff_increases_with_consecutive_failures",
-          "subsumed_by_kills": 29
-        },
-        {
-          "test": "tests/implementations/test_drain.py::TestSyncDrain::test_shutdown_twice_does_not_raise",
-          "kills": 1,
-          "subsumed_by": "tests/implementations/test_drain.py::TestSyncDrain::test_shutdown_delegates_to_drain_loop",
-          "subsumed_by_kills": 5
         }
       ]
     },
     "test_drain::TestSyncDrainDisabled": {
       "total_tests": 3,
-      "total_kills": 92
+      "total_kills": 112
     },
     "test_drain_loop::TestDrainLoop": {
-      "total_tests": 15,
-      "total_kills": 192,
+      "total_tests": 10,
+      "total_kills": 149,
       "superfluous": [
-        {
-          "test": "tests/implementations/test_drain_loop.py::TestDrainLoop::test_wake_fires_drain_immediately",
-          "kills": 18,
-          "subsumed_by": "tests/implementations/test_drain_loop.py::TestDrainLoop::test_drain_loop_survives_drain_exception",
-          "subsumed_by_kills": 20
-        },
-        {
-          "test": "tests/implementations/test_drain_loop.py::TestDrainLoop::test_wake_ignores_later_time",
-          "kills": 17,
-          "subsumed_by": "tests/implementations/test_drain_loop.py::TestDrainLoop::test_drain_loop_survives_drain_exception",
-          "subsumed_by_kills": 20
-        },
-        {
-          "test": "tests/implementations/test_drain_loop.py::TestDrainLoop::test_wake_default_delay_fires_immediately",
-          "kills": 18,
-          "subsumed_by": "tests/implementations/test_drain_loop.py::TestDrainLoop::test_drain_loop_survives_drain_exception",
-          "subsumed_by_kills": 20
-        },
-        {
-          "test": "tests/implementations/test_drain_loop.py::TestDrainLoop::test_shutdown_stops_thread",
-          "kills": 9,
-          "subsumed_by": "tests/implementations/test_drain_loop.py::TestDrainLoop::test_shutdown_completes_promptly",
-          "subsumed_by_kills": 11
-        },
         {
           "test": "tests/implementations/test_drain_loop.py::TestDrainLoop::test_shutdown_is_idempotent",
           "kills": 8,
           "subsumed_by": "tests/implementations/test_drain_loop.py::TestDrainLoop::test_wake_with_delay_fires_after_delay",
-          "subsumed_by_kills": 12
+          "subsumed_by_kills": 22
         },
         {
-          "test": "tests/implementations/test_drain_loop.py::TestDrainLoop::test_ensure_started_restarts_dead_thread",
-          "kills": 12,
+          "test": "tests/implementations/test_drain_loop.py::TestDrainLoop::test_wake_ignores_later_time",
+          "kills": 18,
           "subsumed_by": "tests/implementations/test_drain_loop.py::TestDrainLoop::test_drain_loop_survives_drain_exception",
           "subsumed_by_kills": 20
         },
         {
-          "test": "tests/implementations/test_drain_loop.py::TestDrainLoop::test_shutdown_sets_flag",
-          "kills": 5,
-          "subsumed_by": "tests/implementations/test_drain_loop.py::TestDrainLoop::test_shutdown_completes_promptly",
-          "subsumed_by_kills": 11
+          "test": "tests/implementations/test_drain_loop.py::TestDrainLoop::test_wake_coalesces_to_sooner_time",
+          "kills": 18,
+          "subsumed_by": "tests/implementations/test_drain_loop.py::TestDrainLoop::test_wake_with_delay_fires_after_delay",
+          "subsumed_by_kills": 22
         }
       ]
     },
     "test_drain_loop::TestDrainLoopObservability": {
       "total_tests": 1,
-      "total_kills": 14
+      "total_kills": 22
     },
     "test_drain_loop::TestDrainSignalSubscriber": {
       "total_tests": 4,
@@ -680,11 +634,11 @@
     },
     "test_get_status::TestAsyncGetStatus": {
       "total_tests": 8,
-      "total_kills": 885
+      "total_kills": 1059
     },
     "test_get_status::TestSyncGetStatus": {
       "total_tests": 8,
-      "total_kills": 763
+      "total_kills": 1033
     },
     "test_importing::TestImportString": {
       "total_tests": 7,
@@ -731,16 +685,22 @@
       "total_kills": 254,
       "superfluous": [
         {
+          "test": "tests/implementations/test_importing.py::TestResolveImportPath::test_rejects_callable_without_qualname_attribute",
+          "kills": 9,
+          "subsumed_by": "tests/implementations/test_importing.py::TestResolveImportPath::test_rejects_functools_partial",
+          "subsumed_by_kills": 10
+        },
+        {
           "test": "tests/implementations/test_importing.py::TestResolveImportPath::test_rejects_callable_without_module_attribute",
           "kills": 8,
           "subsumed_by": "tests/implementations/test_importing.py::TestResolveImportPath::test_rejects_callable_with_absent_module_attribute",
           "subsumed_by_kills": 9
         },
         {
-          "test": "tests/implementations/test_importing.py::TestResolveImportPath::test_rejects_callable_without_qualname_attribute",
-          "kills": 9,
-          "subsumed_by": "tests/implementations/test_importing.py::TestResolveImportPath::test_rejects_functools_partial",
-          "subsumed_by_kills": 10
+          "test": "tests/implementations/test_importing.py::TestResolveImportPath::test_rejects_static_method_reference",
+          "kills": 18,
+          "subsumed_by": "tests/implementations/test_importing.py::TestResolveImportPath::test_rejects_nested_function",
+          "subsumed_by_kills": 21
         },
         {
           "test": "tests/implementations/test_importing.py::TestResolveImportPath::test_round_trip_with_import_string",
@@ -753,12 +713,6 @@
           "kills": 37,
           "subsumed_by": "tests/implementations/test_importing.py::TestResolveImportPath::test_resolves_module_level_class",
           "subsumed_by_kills": 40
-        },
-        {
-          "test": "tests/implementations/test_importing.py::TestResolveImportPath::test_rejects_static_method_reference",
-          "kills": 18,
-          "subsumed_by": "tests/implementations/test_importing.py::TestResolveImportPath::test_rejects_nested_function",
-          "subsumed_by_kills": 21
         }
       ]
     },
@@ -767,26 +721,20 @@
       "total_kills": 48
     },
     "test_inflight_ttl::TestInflightTtlProperties": {
-      "total_tests": 5,
-      "total_kills": 13,
+      "total_tests": 3,
+      "total_kills": 4,
       "superfluous": [
         {
           "test": "tests/properties/test_inflight_ttl.py::TestInflightTtlProperties::test_ttl_is_monotonic_in_lease_duration",
-          "kills": 2,
+          "kills": 1,
           "subsumed_by": "tests/properties/test_inflight_ttl.py::TestInflightTtlProperties::test_ttl_lower_bound_is_three",
-          "subsumed_by_kills": 3
+          "subsumed_by_kills": 2
         },
         {
           "test": "tests/properties/test_inflight_ttl.py::TestInflightTtlProperties::test_ttl_is_monotonic_in_window",
           "kills": 1,
           "subsumed_by": "tests/properties/test_inflight_ttl.py::TestInflightTtlProperties::test_ttl_lower_bound_is_three",
-          "subsumed_by_kills": 3
-        },
-        {
-          "test": "tests/properties/test_inflight_ttl.py::TestInflightTtlProperties::test_ttl_is_monotonic_in_max_age",
-          "kills": 2,
-          "subsumed_by": "tests/properties/test_inflight_ttl.py::TestInflightTtlProperties::test_ttl_is_always_an_integer",
-          "subsumed_by_kills": 5
+          "subsumed_by_kills": 2
         }
       ]
     },
@@ -875,38 +823,26 @@
       "total_kills": 18
     },
     "test_metrics_callback::TestAsyncMetricsCallback": {
-      "total_tests": 12,
-      "total_kills": 1127,
+      "total_tests": 11,
+      "total_kills": 1107,
       "superfluous": [
         {
           "test": "tests/implementations/test_metrics_callback.py::TestAsyncMetricsCallback::test_metrics_callback_none_by_default",
-          "kills": 81,
+          "kills": 84,
           "subsumed_by": "tests/implementations/test_metrics_callback.py::TestAsyncMetricsCallback::test_callback_exception_does_not_break_consume",
-          "subsumed_by_kills": 87
-        },
-        {
-          "test": "tests/implementations/test_metrics_callback.py::TestAsyncMetricsCallback::test_consume_metric_data_matches_result",
-          "kills": 100,
-          "subsumed_by": "tests/implementations/test_metrics_callback.py::TestAsyncMetricsCallback::test_consume_emits_metric",
-          "subsumed_by_kills": 104
+          "subsumed_by_kills": 90
         }
       ]
     },
     "test_metrics_callback::TestSyncMetricsCallback": {
-      "total_tests": 12,
-      "total_kills": 1269,
+      "total_tests": 11,
+      "total_kills": 1196,
       "superfluous": [
         {
           "test": "tests/implementations/test_metrics_callback.py::TestSyncMetricsCallback::test_metrics_callback_none_by_default",
           "kills": 90,
           "subsumed_by": "tests/implementations/test_metrics_callback.py::TestSyncMetricsCallback::test_callback_exception_does_not_break_consume",
           "subsumed_by_kills": 96
-        },
-        {
-          "test": "tests/implementations/test_metrics_callback.py::TestSyncMetricsCallback::test_consume_metric_data_matches_result",
-          "kills": 109,
-          "subsumed_by": "tests/implementations/test_metrics_callback.py::TestSyncMetricsCallback::test_consume_emits_metric",
-          "subsumed_by_kills": 113
         }
       ]
     },
@@ -915,32 +851,32 @@
       "total_kills": 30
     },
     "test_middleware::TestRateLimitMiddleware": {
-      "total_tests": 13,
-      "total_kills": 1162,
+      "total_tests": 12,
+      "total_kills": 1235,
       "superfluous": [
         {
-          "test": "tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_allowed_request_passes_through",
-          "kills": 33,
-          "subsumed_by": "tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_allowed_response_includes_rate_limit_headers",
-          "subsumed_by_kills": 98
+          "test": "tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_allowed_response_includes_rate_limit_headers",
+          "kills": 98,
+          "subsumed_by": "tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_wrap_send_header_values_reflect_acquire_result",
+          "subsumed_by_kills": 105
         },
         {
           "test": "tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_non_http_scope_passes_through",
           "kills": 8,
-          "subsumed_by": "tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_custom_on_blocked_callback",
-          "subsumed_by_kills": 206
+          "subsumed_by": "tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_blocked_response_includes_retry_after",
+          "subsumed_by_kills": 285
         },
         {
           "test": "tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_key_func_none_bypasses_rate_limiting",
           "kills": 9,
           "subsumed_by": "tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_blocked_response_includes_retry_after",
-          "subsumed_by_kills": 239
+          "subsumed_by_kills": 285
         },
         {
           "test": "tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_fail_open_allows_on_error",
           "kills": 16,
-          "subsumed_by": "tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_blocked_request_returns_429",
-          "subsumed_by_kills": 252
+          "subsumed_by": "tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_blocked_response_includes_retry_after",
+          "subsumed_by_kills": 285
         }
       ]
     },
@@ -1015,38 +951,20 @@
       "total_kills": 53
     },
     "test_rate_limiter::TestAsyncRateLimiterImplementation": {
-      "total_tests": 28,
-      "total_kills": 2707,
+      "total_tests": 26,
+      "total_kills": 2975,
       "superfluous": [
-        {
-          "test": "tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterImplementation::test_schedule_non_noscript_failure_cleans_inflight_and_reraises",
-          "kills": 22,
-          "subsumed_by": "tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterImplementation::test_lua_script_permanent_failure_raises_error",
-          "subsumed_by_kills": 31
-        },
-        {
-          "test": "tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterImplementation::test_get_buffer_count_returns_zero_when_empty",
-          "kills": 3,
-          "subsumed_by": "tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterImplementation::test_get_buffer_count_reflects_scheduled_tasks",
-          "subsumed_by_kills": 190
-        },
-        {
-          "test": "tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterImplementation::test_execution_lock_forwards_custom_timeout",
-          "kills": 14,
-          "subsumed_by": "tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterImplementation::test_execution_lock_forwards_all_attributes",
-          "subsumed_by_kills": 26
-        },
         {
           "test": "tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterImplementation::test_contention_key_follows_redis_key_convention",
           "kills": 1,
           "subsumed_by": "tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterImplementation::test_schedule_task_equal_priorities_coexist",
-          "subsumed_by_kills": 119
+          "subsumed_by_kills": 170
         }
       ]
     },
     "test_rate_limiter::TestRateLimiterContracts": {
       "total_tests": 15,
-      "total_kills": 1089,
+      "total_kills": 1139,
       "superfluous": [
         {
           "test": "tests/implementations/test_rate_limiter.py::TestRateLimiterContracts::test_execution_lock_context_manager_yields_boolean",
@@ -1056,51 +974,45 @@
         },
         {
           "test": "tests/implementations/test_rate_limiter.py::TestRateLimiterContracts::test_consume_expired_field_is_boolean",
-          "kills": 154,
+          "kills": 152,
           "subsumed_by": "tests/implementations/test_rate_limiter.py::TestRateLimiterContracts::test_consume_result_fields_have_distinct_values",
-          "subsumed_by_kills": 230
+          "subsumed_by_kills": 232
+        },
+        {
+          "test": "tests/implementations/test_rate_limiter.py::TestRateLimiterContracts::test_schedule_multiple_different_tasks",
+          "kills": 8,
+          "subsumed_by": "tests/implementations/test_rate_limiter.py::TestRateLimiterContracts::test_consume_result_fields_have_distinct_values",
+          "subsumed_by_kills": 232
         },
         {
           "test": "tests/implementations/test_rate_limiter.py::TestRateLimiterContracts::test_schedule_task_returns_success_and_task_id",
-          "kills": 1,
+          "kills": 3,
           "subsumed_by": "tests/implementations/test_rate_limiter.py::TestRateLimiterContracts::test_consume_result_fields_have_distinct_values",
-          "subsumed_by_kills": 230
-        },
-        {
-          "test": "tests/implementations/test_rate_limiter.py::TestRateLimiterContracts::test_limiter_has_required_attributes",
-          "kills": 4,
-          "subsumed_by": "tests/implementations/test_rate_limiter.py::TestRateLimiterContracts::test_consume_returns_expected_structure",
-          "subsumed_by_kills": 102
+          "subsumed_by_kills": 232
         },
         {
           "test": "tests/implementations/test_rate_limiter.py::TestRateLimiterContracts::test_get_inflight_key_format",
           "kills": 2,
           "subsumed_by": "tests/implementations/test_rate_limiter.py::TestRateLimiterContracts::test_get_status_returns_dict_with_required_sections",
           "subsumed_by_kills": 47
+        },
+        {
+          "test": "tests/implementations/test_rate_limiter.py::TestRateLimiterContracts::test_limiter_has_required_attributes",
+          "kills": 4,
+          "subsumed_by": "tests/implementations/test_rate_limiter.py::TestRateLimiterContracts::test_consume_result_fields_have_distinct_values",
+          "subsumed_by_kills": 232
         }
       ]
     },
     "test_rate_limiter::TestSyncRateLimiterImplementation": {
-      "total_tests": 28,
-      "total_kills": 2780,
+      "total_tests": 26,
+      "total_kills": 3184,
       "superfluous": [
-        {
-          "test": "tests/implementations/test_rate_limiter.py::TestSyncRateLimiterImplementation::test_get_buffer_count_returns_zero_when_empty",
-          "kills": 4,
-          "subsumed_by": "tests/implementations/test_rate_limiter.py::TestSyncRateLimiterImplementation::test_get_buffer_count_reflects_scheduled_tasks",
-          "subsumed_by_kills": 229
-        },
-        {
-          "test": "tests/implementations/test_rate_limiter.py::TestSyncRateLimiterImplementation::test_execution_lock_forwards_custom_timeout",
-          "kills": 14,
-          "subsumed_by": "tests/implementations/test_rate_limiter.py::TestSyncRateLimiterImplementation::test_execution_lock_forwards_all_attributes",
-          "subsumed_by_kills": 26
-        },
         {
           "test": "tests/implementations/test_rate_limiter.py::TestSyncRateLimiterImplementation::test_contention_key_follows_redis_key_convention",
           "kills": 1,
-          "subsumed_by": "tests/implementations/test_rate_limiter.py::TestSyncRateLimiterImplementation::test_schedule_single_task_stores_correctly",
-          "subsumed_by_kills": 169
+          "subsumed_by": "tests/implementations/test_rate_limiter.py::TestSyncRateLimiterImplementation::test_get_buffer_count_reflects_scheduled_tasks",
+          "subsumed_by_kills": 247
         }
       ]
     },
@@ -1110,13 +1022,13 @@
     },
     "test_rate_limiting::TestRateLimitingIntegration": {
       "total_tests": 12,
-      "total_kills": 3801,
+      "total_kills": 4296,
       "superfluous": [
         {
           "test": "tests/integration/test_rate_limiting.py::TestRateLimitingIntegration::test_empty_buffer_returns_no_task",
           "kills": 98,
-          "subsumed_by": "tests/integration/test_rate_limiting.py::TestRateLimitingIntegration::test_accurate_telemetry_tracking[at_limit]",
-          "subsumed_by_kills": 442
+          "subsumed_by": "tests/integration/test_rate_limiting.py::TestRateLimitingIntegration::test_accurate_telemetry_tracking[below_limit]",
+          "subsumed_by_kills": 427
         }
       ]
     },
@@ -1126,7 +1038,7 @@
     },
     "test_rq_limiter::TestRQRateLimiter": {
       "total_tests": 14,
-      "total_kills": 559,
+      "total_kills": 660,
       "superfluous": [
         {
           "test": "tests/implementations/rq/test_rq_limiter.py::TestRQRateLimiter::test_check_backend_health_returns_false_when_no_workers",
@@ -1150,33 +1062,41 @@
           "test": "tests/implementations/rq/test_rq_limiter.py::TestRQRateLimiter::test_enhanced_payload_structure",
           "kills": 6,
           "subsumed_by": "tests/implementations/rq/test_rq_limiter.py::TestRQRateLimiter::test_schedule_task_defaults_use_executor_to_true",
-          "subsumed_by_kills": 174
+          "subsumed_by_kills": 208
         }
       ]
     },
     "test_serialization::TestSerializationProperties": {
       "total_tests": 2,
-      "total_kills": 469
+      "total_kills": 471
     },
     "test_smart_jitter::TestSmartJitterProperties": {
       "total_tests": 2,
-      "total_kills": 14
+      "total_kills": 12,
+      "superfluous": [
+        {
+          "test": "tests/properties/test_smart_jitter.py::TestSmartJitterProperties::test_concurrency_pressure_is_monotonic",
+          "kills": 5,
+          "subsumed_by": "tests/properties/test_smart_jitter.py::TestSmartJitterProperties::test_load_pressure_is_monotonic",
+          "subsumed_by_kills": 7
+        }
+      ]
     },
     "test_task_data_helpers::TestAsyncCleanupInflightKey": {
       "total_tests": 2,
-      "total_kills": 26
+      "total_kills": 64
     },
     "test_task_data_helpers::TestAsyncCleanupInflightKeyObservability": {
       "total_tests": 1,
-      "total_kills": 29
+      "total_kills": 93
     },
     "test_task_data_helpers::TestCleanupInflightKey": {
       "total_tests": 2,
-      "total_kills": 31
+      "total_kills": 46
     },
     "test_task_data_helpers::TestCleanupInflightKeyObservability": {
       "total_tests": 1,
-      "total_kills": 35
+      "total_kills": 65
     },
     "test_task_data_helpers::TestInflightTtl": {
       "total_tests": 2,
@@ -1195,64 +1115,48 @@
       "total_kills": 4
     },
     "test_task_lifecycle::TestExtendLease": {
-      "total_tests": 3,
-      "total_kills": 80,
-      "superfluous": [
-        {
-          "test": "tests/implementations/test_task_lifecycle.py::TestExtendLease::test_extend_lease_passes_correct_arguments_to_lua",
-          "kills": 17,
-          "subsumed_by": "tests/implementations/test_task_lifecycle.py::TestExtendLease::test_extend_lease_succeeds_for_existing_task",
-          "subsumed_by_kills": 42
-        }
-      ]
+      "total_tests": 2,
+      "total_kills": 79
     },
     "test_task_lifecycle::TestExtendLeaseObservability": {
       "total_tests": 2,
-      "total_kills": 84
+      "total_kills": 97
     },
     "test_task_lifecycle::TestHeartbeatLoop": {
-      "total_tests": 6,
-      "total_kills": 102,
-      "superfluous": [
-        {
-          "test": "tests/implementations/test_task_lifecycle.py::TestHeartbeatLoop::test_heartbeat_loop_stops_on_exit",
-          "kills": 13,
-          "subsumed_by": "tests/implementations/test_task_lifecycle.py::TestHeartbeatLoop::test_heartbeat_loop_restores_health_on_recovery",
-          "subsumed_by_kills": 19
-        }
-      ]
+      "total_tests": 5,
+      "total_kills": 90
     },
     "test_task_lifecycle::TestHeartbeatLoopObservability": {
       "total_tests": 4,
-      "total_kills": 109
+      "total_kills": 108
     },
     "test_task_lifecycle::TestTaskLifecycle": {
       "total_tests": 6,
-      "total_kills": 126,
+      "total_kills": 157,
       "superfluous": [
-        {
-          "test": "tests/implementations/test_task_lifecycle.py::TestTaskLifecycle::test_lifecycle_removes_active_marker",
-          "kills": 11,
-          "subsumed_by": "tests/implementations/test_task_lifecycle.py::TestTaskLifecycle::test_lifecycle_cleans_up_on_exception",
-          "subsumed_by_kills": 19
-        },
         {
           "test": "tests/implementations/test_task_lifecycle.py::TestTaskLifecycle::test_lifecycle_triggers_consume",
           "kills": 10,
           "subsumed_by": "tests/implementations/test_task_lifecycle.py::TestTaskLifecycle::test_lifecycle_removes_task_from_concurrency_set",
-          "subsumed_by_kills": 64
+          "subsumed_by_kills": 92
+        },
+        {
+          "test": "tests/implementations/test_task_lifecycle.py::TestTaskLifecycle::test_lifecycle_removes_active_marker",
+          "kills": 10,
+          "subsumed_by": "tests/implementations/test_task_lifecycle.py::TestTaskLifecycle::test_lifecycle_removes_task_from_concurrency_set",
+          "subsumed_by_kills": 92
         },
         {
           "test": "tests/implementations/test_task_lifecycle.py::TestTaskLifecycle::test_lifecycle_triggers_consume_even_on_exception",
           "kills": 10,
           "subsumed_by": "tests/implementations/test_task_lifecycle.py::TestTaskLifecycle::test_lifecycle_removes_task_from_concurrency_set",
-          "subsumed_by_kills": 64
+          "subsumed_by_kills": 92
         }
       ]
     },
     "test_task_lifecycle::TestTaskLifecycleImplementation": {
       "total_tests": 5,
-      "total_kills": 192,
+      "total_kills": 219,
       "superfluous": [
         {
           "test": "tests/implementations/test_task_lifecycle.py::TestTaskLifecycleImplementation::test_heartbeat_failure_override_precedence[default_kill_override_warn]",
@@ -1264,19 +1168,27 @@
           "test": "tests/implementations/test_task_lifecycle.py::TestTaskLifecycleImplementation::test_lifecycle_handles_redis_failure_during_cleanup",
           "kills": 4,
           "subsumed_by": "tests/implementations/test_task_lifecycle.py::TestTaskLifecycleImplementation::test_lifecycle_with_multiple_concurrent_tasks",
-          "subsumed_by_kills": 63
+          "subsumed_by_kills": 90
         },
         {
           "test": "tests/implementations/test_task_lifecycle.py::TestTaskLifecycleImplementation::test_empty_task_id_skips_inflight_cleanup",
           "kills": 8,
           "subsumed_by": "tests/implementations/test_task_lifecycle.py::TestTaskLifecycleImplementation::test_lifecycle_with_multiple_concurrent_tasks",
-          "subsumed_by_kills": 63
+          "subsumed_by_kills": 90
         }
       ]
     },
     "test_task_lifecycle::TestTaskLifecycleObservability": {
       "total_tests": 2,
-      "total_kills": 104
+      "total_kills": 113,
+      "superfluous": [
+        {
+          "test": "tests/implementations/test_task_lifecycle.py::TestTaskLifecycleObservability::test_empty_task_id_emits_removed_inflight_false",
+          "kills": 31,
+          "subsumed_by": "tests/implementations/test_task_lifecycle.py::TestTaskLifecycleObservability::test_lifecycle_cleanup_emits_debug_log",
+          "subsumed_by_kills": 82
+        }
+      ]
     },
     "test_tasks::TestGenericWorkerTask": {
       "total_tests": 1,
@@ -1288,28 +1200,24 @@
     },
     "test_threadpool_limiter::TestLocalCapacityGuard": {
       "total_tests": 4,
-      "total_kills": 28
+      "total_kills": 30,
+      "superfluous": [
+        {
+          "test": "tests/implementations/threadpool/test_threadpool_limiter.py::TestLocalCapacityGuard::test_dispatch_task_increments_and_decrements_counter",
+          "kills": 11,
+          "subsumed_by": "tests/implementations/threadpool/test_threadpool_limiter.py::TestLocalCapacityGuard::test_dispatch_task_increments_counter_additively",
+          "subsumed_by_kills": 12
+        }
+      ]
     },
     "test_threadpool_limiter::TestThreadPoolDispatchObservability": {
       "total_tests": 1,
       "total_kills": 17
     },
     "test_threadpool_limiter::TestThreadPoolRateLimiter": {
-      "total_tests": 6,
-      "total_kills": 24,
+      "total_tests": 4,
+      "total_kills": 15,
       "superfluous": [
-        {
-          "test": "tests/implementations/threadpool/test_threadpool_limiter.py::TestThreadPoolRateLimiter::test_dispatch_task_calls_function_with_payload_kwargs",
-          "kills": 5,
-          "subsumed_by": "tests/implementations/threadpool/test_threadpool_limiter.py::TestThreadPoolRateLimiter::test_dispatch_task_wraps_in_lifecycle",
-          "subsumed_by_kills": 6
-        },
-        {
-          "test": "tests/implementations/threadpool/test_threadpool_limiter.py::TestThreadPoolRateLimiter::test_dispatch_task_submits_to_executor",
-          "kills": 4,
-          "subsumed_by": "tests/implementations/threadpool/test_threadpool_limiter.py::TestThreadPoolRateLimiter::test_dispatch_task_wraps_in_lifecycle",
-          "subsumed_by_kills": 6
-        },
         {
           "test": "tests/implementations/threadpool/test_threadpool_limiter.py::TestThreadPoolRateLimiter::test_dispatch_task_import_failure_propagates",
           "kills": 1,
@@ -1320,7 +1228,7 @@
     },
     "test_token_recovery::TestTokenRecoveryDelayProperties": {
       "total_tests": 2,
-      "total_kills": 14
+      "total_kills": 16
     },
     "test_token_recovery_delay::TestAsyncTokenRecoveryDelay": {
       "total_tests": 8,
