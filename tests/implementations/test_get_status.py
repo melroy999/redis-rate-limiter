@@ -4,7 +4,8 @@ Tests are written once in async form. The sync implementation participates
 via the ``SyncToAsyncLimiterAdapter``; the async implementation runs natively.
 
 Fixture dependencies:
-    - ``generic_limiter``, ``async_generic_limiter``: from ``tests/implementations/conftest.py``.
+    - ``stub_limiter``, ``async_stub_limiter``:
+      from ``tests/implementations/conftest.py``.
     - ``func_path``: from ``tests/conftest.py``.
 """
 
@@ -20,8 +21,10 @@ from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class GetStatusTests:
-    """Unified test suite for ``get_status()`` behavior on both sync and async limiters.
+    """Unified test suite for ``get_status()`` behavior on both
+    sync and async limiters.
 
     Subclasses must provide a ``limiter`` fixture that returns either a
     ``SyncToAsyncLimiterAdapter``-wrapped sync limiter or a native async limiter.
@@ -29,7 +32,9 @@ class GetStatusTests:
 
     @staticmethod
     async def test_get_status_returns_expected_structure(limiter):
-        """Verify that ``get_status()`` returns the required sections and subsection keys."""
+        """Verify that ``get_status()`` returns the required
+        sections and subsection keys.
+        """
         # Act
         status = await limiter.get_status()
 
@@ -62,7 +67,9 @@ class GetStatusTests:
 
     @staticmethod
     async def test_get_status_reflects_scheduled_tasks(limiter, func_path):
-        """Verify that the ``get_status()`` buffer count reflects the scheduled task count."""
+        """Verify that the ``get_status()`` buffer count reflects
+        the scheduled task count.
+        """
         # Arrange
         for idx in range(3):
             await limiter.schedule_task(func_path, {"idx": idx})
@@ -77,7 +84,9 @@ class GetStatusTests:
 
     @staticmethod
     async def test_get_status_reflects_rate_limit_state(limiter, func_path):
-        """Verify that ``get_status()`` reflects the rate-limit telemetry after ``consume()`` is called."""
+        """Verify that ``get_status()`` reflects rate-limit
+        telemetry after ``consume()`` is called.
+        """
         # Arrange
         await limiter.schedule_task(func_path, {"idx": 1})
         consume_result = await limiter.consume()
@@ -96,16 +105,12 @@ class GetStatusTests:
             "tokens_used should be 1.0 after a single consume in the first window"
         )
 
-        # Verify individual result fields are not swapped.
-        # In the first window, val_previous is 0 and val_current is >= 1.
         assert int(status["rate_limit"]["val_previous"]) == 0, (
             "val_previous should be 0 in the first window"
         )
         assert int(status["rate_limit"]["val_current"]) == 1, (
             "val_current should be 1 after a single consume in the first window"
         )
-        # reset_in_ms is a positive number (time until window expires);
-        # buffer count is 0 after the consume drained the buffer.
         assert int(status["rate_limit"]["reset_in_ms"]) > 0, (
             "reset_in_ms should be a positive number within the current window"
         )
@@ -115,7 +120,9 @@ class GetStatusTests:
 
     @staticmethod
     async def test_get_status_clean_state_values(limiter):
-        """Verify that ``get_status()`` returns correct initial values for a fresh limiter."""
+        """Verify that ``get_status()`` returns correct initial
+        values for a fresh limiter.
+        """
         # Act
         status = await limiter.get_status()
 
@@ -154,10 +161,10 @@ class GetStatusTests:
 
     @staticmethod
     async def test_get_status_available_is_zero_when_all_slots_used(limiter):
-        """Verify that ``available`` is exactly 0 when all concurrency slots are occupied."""
+        """Verify that ``available`` is exactly 0 when all
+        concurrency slots are occupied.
+        """
         # Arrange
-        # Seed the concurrency sorted set with max_concurrency tasks.
-        # The ``zadd`` call may return a coroutine (async Redis) or an int (sync Redis).
         for i in range(limiter.max_concurrency):
             result = limiter.redis.zadd(
                 limiter.concurrency_key, {f"saturating_task_{i}": 9999999999.0}
@@ -176,14 +183,16 @@ class GetStatusTests:
             "concurrency available should be exactly 0 when all slots are occupied"
         )
         assert float(status["rate_limit"]["tokens_used"]) == 0.0, (
-            "tokens_used should remain 0 when only concurrency slots are seeded without consuming"
+            "tokens_used should remain 0 when only concurrency"
+            " slots are seeded without consuming"
         )
 
     @staticmethod
     async def test_get_status_available_clamps_to_zero_when_over_capacity(limiter):
-        """Verify that ``available`` is clamped to 0 when concurrency exceeds ``max_concurrency``."""
+        """Verify that ``available`` is clamped to 0 when
+        concurrency exceeds ``max_concurrency``.
+        """
         # Arrange
-        # Seed one more task than max_concurrency so the raw subtraction is negative.
         for i in range(limiter.max_concurrency + 1):
             result = limiter.redis.zadd(
                 limiter.concurrency_key, {f"overflow_task_{i}": 9999999999.0}
@@ -221,10 +230,12 @@ class GetStatusTests:
 
     @staticmethod
     async def test_get_status_val_current_uses_correct_result_index(limiter):
-        """Verify that ``get_status()`` maps each health.lua return index to the correct result field."""
+        """Verify that ``get_status()`` maps each health.lua
+        return index to the correct result field.
+        """
         # Arrange
-        # health.lua returns: [prev_count, curr_count, estimated_count, active_now, reset_in_ms, buffer_count]
-        # Each value is deliberately distinct to detect index swaps.
+        # health.lua returns: [prev_count, curr_count, estimated_count,
+        # active_now, reset_in_ms, buffer_count]
         controlled_response = ["10", "5", "7.5", "2", "500", "3"]
         actual_limiter = getattr(limiter, "_inner", limiter)
         mock_cls = (
@@ -235,7 +246,9 @@ class GetStatusTests:
 
         # Act
         with patch.object(
-            actual_limiter, "_eval_script", mock_cls(return_value=controlled_response)
+            actual_limiter,
+            "_eval_script",
+            mock_cls(return_value=controlled_response),
         ):
             status = await limiter.get_status()
 
@@ -244,10 +257,12 @@ class GetStatusTests:
             "val_previous should map to result[0] (previous_count)"
         )
         assert status["rate_limit"]["val_current"] == "5", (
-            "val_current should map to result[1] (current_count), not result[2] (estimated_count)"
+            "val_current should map to result[1]"
+            " (current_count), not result[2] (estimated_count)"
         )
         assert float(status["rate_limit"]["tokens_used"]) == pytest.approx(7.5), (
-            "tokens_used should map to result[2] (estimated_count), not result[1] (current_count)"
+            "tokens_used should map to result[2]"
+            " (estimated_count), not result[1] (current_count)"
         )
         assert int(status["concurrency"]["current"]) == 2, (
             "concurrency current should map to result[3] (active_now)"
@@ -265,19 +280,21 @@ class GetStatusTests:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestSyncGetStatus(GetStatusTests):
     """Sync rate limiter ``get_status()`` exercised through the async adapter."""
 
     @pytest.fixture
-    def limiter(self, generic_limiter):
+    def limiter(self, stub_limiter):
         """Wrap the sync generic limiter in an async adapter."""
-        return SyncToAsyncLimiterAdapter(generic_limiter)
+        return SyncToAsyncLimiterAdapter(stub_limiter)
 
 
+@pytest.mark.behavior
 class TestAsyncGetStatus(GetStatusTests):
     """Async rate limiter ``get_status()`` exercised natively."""
 
     @pytest.fixture
-    def limiter(self, async_generic_limiter):
+    def limiter(self, async_stub_limiter):
         """Provide the async generic limiter directly."""
-        return async_generic_limiter
+        return async_stub_limiter

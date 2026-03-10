@@ -65,10 +65,13 @@ def inflight_key(mock_limiter, task_id):
 
 @pytest.fixture
 def create_lifecycle():
-    """Provide a factory for sync ``TaskLifecycle`` instances wrapped in an async adapter.
+    """Provide a factory for sync ``TaskLifecycle`` instances
+    wrapped in an async adapter.
 
-    The unified contract tests use ``async with create_lifecycle(limiter, task_id):``,
-    so the sync lifecycle is wrapped in a ``SyncToAsyncLifecycleAdapter``.
+    The unified contract tests use
+    ``async with create_lifecycle(limiter, task_id):``,
+    so the sync lifecycle is wrapped in a
+    ``SyncToAsyncLifecycleAdapter``.
     """
     from tests.helpers.adapters import SyncToAsyncLifecycleAdapter
 
@@ -83,22 +86,27 @@ def create_lifecycle():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.contract
 class TestTaskLifecycle(TaskLifecycleContractTest):
     """Contract compliance for the sync TaskLifecycle context manager implementation."""
 
     pass
 
 
+@pytest.mark.behavior
 class TestTaskLifecycleImplementation:
-    """Tests for implementation-specific behaviour of the TaskLifecycle context manager."""
+    """Tests for implementation-specific behaviour of the
+    TaskLifecycle context manager.
+    """
 
     @staticmethod
     def test_lifecycle_with_multiple_concurrent_tasks(
         redis_client, mock_limiter, task_id, inflight_key
     ):
-        """Verify that the lifecycle only removes the specific task from the concurrency set."""
+        """Verify that the lifecycle only removes the specific
+        task from the concurrency set.
+        """
         # Arrange
-        # Simulate five concurrent tasks.
         concurrent_tasks = {
             "other_task_1": 100,
             "other_task_2": 100,
@@ -110,7 +118,6 @@ class TestTaskLifecycleImplementation:
         redis_client.set(inflight_key, "1")
 
         # Act
-        # Prevent the heartbeat thread from starting.
         with patch("threading.Thread"):
             with TaskLifecycle(mock_limiter, task_id):
                 # During execution, all five tasks should be present.
@@ -119,7 +126,6 @@ class TestTaskLifecycleImplementation:
                 )
 
         # Assert
-        # After completion, only the target task should have been removed.
         assert redis_client.zcard(mock_limiter.concurrency_key) == 4, (
             "concurrency set should have four tasks after target completion"
         )
@@ -139,7 +145,9 @@ class TestTaskLifecycleImplementation:
     def test_lifecycle_handles_redis_failure_during_cleanup(
         redis_client, mock_limiter, task_id, inflight_key
     ):
-        """Verify that the lifecycle raises an exception but still triggers consume on Redis failure."""
+        """Verify that the lifecycle raises an exception but
+        still triggers consume on Redis failure.
+        """
         # Arrange
         with patch.object(
             mock_limiter.redis,
@@ -152,11 +160,8 @@ class TestTaskLifecycleImplementation:
                     with TaskLifecycle(mock_limiter, task_id):
                         pass
 
-                # Verify that the exception originated from zrem.
                 mock_zrem.assert_called_once()
 
-        # Assert that trigger_consume is still invoked.
-        # noinspection PyUnboundLocalVariable
         mock_limiter.trigger_consume.assert_called_once()
 
     @staticmethod
@@ -176,7 +181,6 @@ class TestTaskLifecycleImplementation:
                 pass
 
         # Assert
-        # trigger_consume should still be called on exit.
         limiter.trigger_consume.assert_called_once()
 
     @staticmethod
@@ -192,9 +196,10 @@ class TestTaskLifecycleImplementation:
         original: HeartbeatFailureMode,
         override: HeartbeatFailureMode,
     ):
-        """Verify that the override parameter takes precedence over the limiter default."""
+        """Verify that the override parameter takes precedence
+        over the limiter default.
+        """
         # Arrange
-        # A real limiter is used to test the override mechanism.
         limiter = MinimalRateLimiter(
             redis_client=redis_client,
             limiter_id=f"{limiter_id}_task_lifecycle_heartbeat_override_precedence",
@@ -206,16 +211,44 @@ class TestTaskLifecycleImplementation:
         )
 
         # Act
-        # Create the lifecycle with the override.
         lifecycle_with_override = limiter.task_lifecycle(
             task_id,
             on_heartbeat_failure_override=override,
         )
 
         # Assert
-        # The override should take precedence.
         assert lifecycle_with_override.on_failure_action == override, (
             f"override {override} should take precedence over default {original}"
+        )
+
+    @staticmethod
+    def test_task_lifecycle_passes_all_attributes(redis_client, task_id, limiter_id):
+        """Verify that ``task_lifecycle()`` forwards the
+        task_id, limiter, and default strategy.
+        """
+        # Arrange
+        limiter = MinimalRateLimiter(
+            redis_client=redis_client,
+            limiter_id=f"{limiter_id}_task_lifecycle_passthrough",
+            limit=1,
+            window=1,
+            max_concurrency=1,
+            max_age=1,
+            on_heartbeat_failure="kill",
+        )
+
+        # Act
+        lifecycle = limiter.task_lifecycle(task_id)
+
+        # Assert
+        assert lifecycle.task_id == task_id, (
+            "task_lifecycle should forward task_id to the lifecycle constructor"
+        )
+        assert lifecycle.limiter is limiter, (
+            "task_lifecycle should forward self as the limiter reference"
+        )
+        assert lifecycle.on_failure_action == "kill", (
+            "task_lifecycle should use the limiter default when no override is provided"
         )
 
 
@@ -224,6 +257,7 @@ class TestTaskLifecycleImplementation:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class TestTaskLifecycleObservability:
     """Observability tests for the ``TaskLifecycle`` context manager log emissions."""
 
@@ -252,12 +286,20 @@ class TestTaskLifecycleObservability:
                 "removed_concurrency=True",
                 "removed_inflight=True",
             ],
-            message="should emit a debug log for concurrency slot release with limiter id, task id, and removal counts",
+            message=(
+                "should emit a debug log for concurrency slot"
+                " release with limiter id, task id,"
+                " and removal counts"
+            ),
         )
 
     @staticmethod
-    def test_empty_task_id_emits_removed_inflight_false(redis_client, limiter_id, caplog):
-        """Verify that an empty ``task_id`` emits ``removed_inflight=False`` in the cleanup log."""
+    def test_empty_task_id_emits_removed_inflight_false(
+        redis_client, limiter_id, caplog
+    ):
+        """Verify that an empty ``task_id`` emits
+        ``removed_inflight=False`` in the cleanup log.
+        """
         # Arrange
         limiter = MagicMock()
         limiter.redis = redis_client
@@ -280,18 +322,46 @@ class TestTaskLifecycleObservability:
             message="empty task_id should log removed_inflight=False",
         )
 
+    @staticmethod
+    def test_exit_emits_lifecycle_exit_debug_log(mock_limiter, task_id, caplog):
+        """Verify that ``__exit__`` emits a DEBUG log with
+        the task id in the finally block.
+        """
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
+            with patch("threading.Thread"):
+                with TaskLifecycle(mock_limiter, task_id):
+                    pass
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            required_fragments=[
+                f"limiter={mock_limiter.id}",
+                f"task_id={task_id}",
+                "follow-up consume",
+            ],
+            message=(
+                "should emit a debug log for lifecycle exit with limiter id and task id"
+            ),
+        )
+
 
 # ---------------------------------------------------------------------------
 # Heartbeat loop tests
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestHeartbeatLoop:
     """Tests for the heartbeat loop that periodically extends the task lease."""
 
     @staticmethod
     def test_heartbeat_interval_calculation(mock_limiter, task_id):
-        """Verify that the heartbeat interval is correctly calculated as ``lease_duration / 2``."""
+        """Verify that the heartbeat interval is correctly
+        calculated as ``lease_duration / 2``.
+        """
         # Arrange & Act
         with patch("threading.Thread"):
             lifecycle = TaskLifecycle(mock_limiter, task_id)
@@ -306,24 +376,24 @@ class TestHeartbeatLoop:
     def test_heartbeat_loop_restores_health_on_recovery(
         redis_client, mock_limiter, task_id
     ):
-        """Verify that the heartbeat loop restores the health status after recovering from a failure."""
+        """Verify that the heartbeat loop restores the health
+        status after recovering from a failure.
+        """
         # Act
         with TaskLifecycle(mock_limiter, task_id) as lifecycle:
-            # Simulate an unhealthy state.
             lifecycle.is_healthy = False
-
-            # Wait for the heartbeat to execute multiple times.
             time.sleep(0.75 * mock_limiter.lease_duration)
 
             # Assert
-            # The lifecycle should have recovered and be marked as healthy.
             assert lifecycle.is_healthy, "lifecycle must restore health after recovery"
 
     @staticmethod
     def test_heartbeat_loop_flags_unhealthy_on_failure_warn_mode(
         redis_client, mock_limiter, task_id
     ):
-        """Verify that the heartbeat loop flags the lifecycle as unhealthy on failure in warn mode."""
+        """Verify that the heartbeat loop flags the lifecycle
+        as unhealthy on failure in warn mode.
+        """
         # Arrange
         mock_limiter.extend_lease.side_effect = Exception("Simulated Redis failure")
 
@@ -331,11 +401,9 @@ class TestHeartbeatLoop:
         with TaskLifecycle(
             mock_limiter, task_id, on_heartbeat_failure="warn"
         ) as lifecycle:
-            # Wait for the heartbeat to fail.
             time.sleep(0.75 * mock_limiter.lease_duration)
 
             # Assert
-            # The lifecycle should be marked as unhealthy.
             assert not lifecycle.is_healthy, (
                 "lifecycle must be marked unhealthy after heartbeat failure"
             )
@@ -344,35 +412,35 @@ class TestHeartbeatLoop:
     def test_heartbeat_loop_terminates_worker_on_failure_kill_mode(
         redis_client, mock_limiter, task_id
     ):
-        """Verify that the heartbeat loop terminates the worker on failure in kill mode."""
+        """Verify that the heartbeat loop terminates the
+        worker on failure in kill mode.
+        """
         # Arrange
         mock_limiter.extend_lease.side_effect = Exception("Simulated Redis failure")
 
         # Act & Assert
         with patch("os.kill") as mock_kill:
             with TaskLifecycle(mock_limiter, task_id, on_heartbeat_failure="kill"):
-                # Wait for the heartbeat to fail and trigger termination.
                 time.sleep(0.75 * mock_limiter.lease_duration)
 
-                # Verify that termination was attempted.
                 assert mock_kill.call_count > 0, (
                     "os.kill must be called in kill mode on heartbeat failure"
                 )
-
-                # Verify the correct signal and PID.
                 mock_kill.assert_called_with(os.getpid(), signal.SIGTERM)
 
     @staticmethod
     def test_heartbeat_loop_calls_extend_lease_with_correct_parameters(
         redis_client, mock_limiter, task_id
     ):
-        """Verify that the heartbeat loop calls ``extend_lease`` with the correct ``task_id`` and duration."""
+        """Verify that the heartbeat loop calls
+        ``extend_lease`` with the correct ``task_id``
+        and duration.
+        """
         # Act
         with TaskLifecycle(mock_limiter, task_id):
             time.sleep(0.75 * mock_limiter.lease_duration)
 
         # Assert
-        # Verify that extend_lease was called with the correct parameters.
         assert mock_limiter.extend_lease.call_count >= 1, (
             "extend_lease must be called at least once with correct parameters"
         )
@@ -388,12 +456,15 @@ class TestHeartbeatLoop:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class TestHeartbeatLoopObservability:
     """Observability tests for log emissions from the heartbeat loop."""
 
     @staticmethod
     def test_lifecycle_entry_emits_debug_log(mock_limiter, task_id, caplog):
-        """Verify that lifecycle entry emits a DEBUG log with limiter id, task id, and heartbeat interval."""
+        """Verify that lifecycle entry emits a DEBUG log with
+        limiter id, task id, and heartbeat interval.
+        """
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
             with TaskLifecycle(mock_limiter, task_id):
@@ -406,14 +477,20 @@ class TestHeartbeatLoopObservability:
             required_fragments=[
                 f"limiter={mock_limiter.id}",
                 f"task_id={task_id}",
-                "heartbeat_interval_s=0.1",
+                f"heartbeat_interval_s={mock_limiter.lease_duration / 2:.1f}",
             ],
-            message="should emit a debug log for lifecycle entry with limiter id, task id, and heartbeat interval",
+            message=(
+                "should emit a debug log for lifecycle entry"
+                " with limiter id, task id,"
+                " and heartbeat interval"
+            ),
         )
 
     @staticmethod
     def test_heartbeat_recovery_emits_info_log(mock_limiter, task_id, caplog):
-        """Verify that heartbeat recovery emits an INFO log with task id and limiter id."""
+        """Verify that heartbeat recovery emits an INFO log
+        with task id and limiter id.
+        """
         # Act
         with caplog.at_level(logging.INFO, logger="redis_rate_limiter.core.limiters"):
             with TaskLifecycle(mock_limiter, task_id) as lifecycle:
@@ -429,7 +506,11 @@ class TestHeartbeatLoopObservability:
                 f"limiter {mock_limiter.id}",
                 "restored",
             ],
-            message="should emit an info log for heartbeat connection restoration with task id and limiter id",
+            message=(
+                "should emit an info log for heartbeat"
+                " connection restoration with task id"
+                " and limiter id"
+            ),
         )
 
     @staticmethod
@@ -456,14 +537,19 @@ class TestHeartbeatLoopObservability:
                 "flagged as unhealthy",
                 "Simulated Redis failure",
             ],
-            message="should emit a critical log for heartbeat failure with task id and error message",
+            message=(
+                "should emit a critical log for heartbeat"
+                " failure with task id and error message"
+            ),
         )
 
     @staticmethod
     def test_heartbeat_failure_kill_mode_emits_critical_log(
         mock_limiter, task_id, caplog
     ):
-        """Verify that heartbeat failure in kill mode emits a CRITICAL log with termination action."""
+        """Verify that heartbeat failure in kill mode emits
+        a CRITICAL log with termination action.
+        """
         # Arrange
         mock_limiter.extend_lease.side_effect = Exception("Simulated Redis failure")
 
@@ -484,7 +570,11 @@ class TestHeartbeatLoopObservability:
                 "terminating worker",
                 "Simulated Redis failure",
             ],
-            message="should emit a critical log for heartbeat failure with task id, error, and termination action",
+            message=(
+                "should emit a critical log for heartbeat"
+                " failure with task id, error,"
+                " and termination action"
+            ),
         )
 
 
@@ -493,12 +583,15 @@ class TestHeartbeatLoopObservability:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestExtendLease:
     """Tests for ``extend_lease()`` success and error handling."""
 
     @staticmethod
     def test_extend_lease_raises_key_error_for_unknown_task(generic_limiter):
-        """Verify that ``extend_lease()`` raises a KeyError for unknown task identifiers."""
+        """Verify that ``extend_lease()`` raises a KeyError
+        for unknown task identifiers.
+        """
         # Act & Assert
         with pytest.raises(KeyError, match=r'in the concurrency set\."'):
             generic_limiter.extend_lease("nonexistent", 30)
@@ -507,7 +600,9 @@ class TestExtendLease:
     def test_extend_lease_succeeds_for_existing_task(
         generic_limiter, redis_client, task_id
     ):
-        """Verify that ``extend_lease()`` updates the score for a task present in the concurrency set."""
+        """Verify that ``extend_lease()`` updates the score
+        for a task present in the concurrency set.
+        """
         # Arrange
         # Seed the concurrency sorted set with a low score so the update is observable.
         initial_score = 1000.0
@@ -522,9 +617,9 @@ class TestExtendLease:
             "task should still be present in the concurrency set after lease extension"
         )
         assert new_score > initial_score, (
-            "lease extension should update the score to a value greater than the initial score"
+            "lease extension should update the score to a"
+            " value greater than the initial score"
         )
-
 
 
 # ---------------------------------------------------------------------------
@@ -532,12 +627,15 @@ class TestExtendLease:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class TestExtendLeaseObservability:
     """Observability tests for ``extend_lease()`` log emissions."""
 
     @staticmethod
     def test_extend_lease_unknown_task_emits_debug_log(generic_limiter, caplog):
-        """Verify that ``extend_lease()`` emits a DEBUG log with ``renewed=False`` for unknown tasks."""
+        """Verify that ``extend_lease()`` emits a DEBUG log
+        with ``renewed=False`` for unknown tasks.
+        """
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
             with pytest.raises(KeyError, match="not found in the concurrency set"):
@@ -553,14 +651,20 @@ class TestExtendLeaseObservability:
                 "duration_s=30",
                 "renewed=False",
             ],
-            message="should emit a debug log containing the limiter id, task id, duration, and renewed=False",
+            message=(
+                "should emit a debug log containing the"
+                " limiter id, task id, duration,"
+                " and renewed=False"
+            ),
         )
 
     @staticmethod
     def test_extend_lease_success_emits_debug_log(
         generic_limiter, redis_client, task_id, caplog
     ):
-        """Verify that ``extend_lease()`` emits a DEBUG log with ``renewed=True`` for existing tasks."""
+        """Verify that ``extend_lease()`` emits a DEBUG log
+        with ``renewed=True`` for existing tasks.
+        """
         # Arrange
         redis_client.zadd(generic_limiter.concurrency_key, {task_id: 1000.0})
 
@@ -578,7 +682,11 @@ class TestExtendLeaseObservability:
                 "duration_s=30",
                 "renewed=True",
             ],
-            message="should emit a debug log containing the limiter id, task id, duration, and renewed=True",
+            message=(
+                "should emit a debug log containing the"
+                " limiter id, task id, duration,"
+                " and renewed=True"
+            ),
         )
 
 
@@ -587,14 +695,17 @@ class TestExtendLeaseObservability:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.signature
 class TestTaskLifecycleSignatures:
     """Signature tests for ``TaskLifecycle`` default parameter values."""
 
     @staticmethod
     def test_default_on_heartbeat_failure_is_warn():
-        """Verify that the default ``on_heartbeat_failure`` parameter is lowercase ``'warn'``.
+        """Verify that the default ``on_heartbeat_failure``
+        parameter is lowercase ``'warn'``.
 
-        Mutation target: ``on_heartbeat_failure`` default value in ``TaskLifecycle.__init__``.
+        Mutation target: ``on_heartbeat_failure`` default value in
+        ``TaskLifecycle.__init__``.
         """
         # Arrange & Act
         sig = inspect.signature(TaskLifecycle.__init__)

@@ -6,7 +6,8 @@ sync implementation participates via the ``SyncToAsyncLimiterAdapter``, while
 the async implementation runs natively.
 
 Fixture dependencies:
-    - ``redis_client``, ``async_redis_client``, ``limiter_id``: from ``tests/conftest.py``.
+    - ``redis_client``, ``async_redis_client``,
+      ``limiter_id``: from ``tests/conftest.py``.
 """
 
 import logging
@@ -17,13 +18,14 @@ import pytest
 
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 from tests.helpers.utils import assert_log_emitted
-from tests.implementations.conftest import MinimalAsyncRateLimiter, MinimalRateLimiter
+from tests.implementations.conftest import AsyncStubRateLimiter, StubRateLimiter
 
 # ---------------------------------------------------------------------------
 # Unified implementation tests
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class SmartJitterTests:
     """Unified test suite for the adaptive jitter implementation.
 
@@ -60,7 +62,6 @@ class SmartJitterTests:
         random_values = self._seeded_random_values(samples, seed=20260207)
 
         # Act
-        # Multiple samples are taken to test statistical properties.
         limiter.window = 1
         with patch(
             "redis_rate_limiter.core.limiters.random.random",
@@ -101,7 +102,6 @@ class SmartJitterTests:
         random_values = self._seeded_random_values(samples, seed=20260208)
 
         # Act
-        # Multiple samples are taken at each load level.
         with patch(
             "redis_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
@@ -162,13 +162,13 @@ class SmartJitterTests:
         assert not monotonicity_violations, (
             f"paired jitter monotonicity violated for load pressure; "
             f"violations={len(monotonicity_violations)}, first={first_violation}, "
-            f"avg_low={avg_low:.4f}, avg_medium={avg_medium:.4f}, avg_high={avg_high:.4f}"
+            f"avg_low={avg_low:.4f}, avg_medium={avg_medium:.4f}, "
+            f"avg_high={avg_high:.4f}"
         )
 
     async def test_jitter_is_randomized(self, limiter):
         """Verify that repeated calls produce varied output."""
         # Act
-        # The jitter calculation is invoked multiple times with identical inputs.
         samples = 100
         random_values = self._seeded_random_values(samples, seed=20260209)
         with patch(
@@ -239,7 +239,6 @@ class SmartJitterTests:
         random_values = self._seeded_random_values(samples, seed=20260210)
 
         # Act
-        # Each concurrency level is sampled multiple times.
         # The exact same random values are reused for both levels so that any
         # difference arises from concurrency pressure, not random chance.
         with patch(
@@ -310,7 +309,8 @@ class SmartJitterTests:
 
         # Assert
         assert jitter == pytest.approx(0.16), (
-            f"jitter {jitter}s should equal 0.16s for zero remaining tasks and zero concurrency"
+            f"jitter {jitter}s should equal 0.16s for zero"
+            f" remaining tasks and zero concurrency"
         )
 
     @staticmethod
@@ -335,6 +335,7 @@ class SmartJitterTests:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class SmartJitterObservabilityTests:
     """Observability tests for the adaptive jitter implementation.
 
@@ -343,7 +344,9 @@ class SmartJitterObservabilityTests:
 
     @staticmethod
     async def test_custom_jitter_emits_debug_log(limiter, caplog):
-        """Verify that ``_calculate_smart_jitter()`` emits a debug log with the input parameters and computed jitter."""
+        """Verify that ``_calculate_smart_jitter()`` emits a
+        debug log with the input parameters and computed jitter.
+        """
         # Arrange
         limiter.window = 10
         limiter.jitter_min_pct = 0.01
@@ -376,7 +379,8 @@ class SmartJitterObservabilityTests:
                 "concurrency_pressure=0.600",
                 "jitter_s=0.283",
             ],
-            "should emit a debug log containing the limiter id, input parameters, computed pressures, and jitter",
+            "should emit a debug log containing the limiter id,"
+            " input parameters, computed pressures, and jitter",
         )
 
 
@@ -385,13 +389,14 @@ class SmartJitterObservabilityTests:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestSyncSmartJitter(SmartJitterTests, SmartJitterObservabilityTests):
     """Sync rate limiter smart jitter exercised through the async adapter."""
 
     @pytest.fixture
     def limiter(self, redis_client, limiter_id):
         """Create a sync limiter wrapped in the async adapter."""
-        _limiter = MinimalRateLimiter(
+        _limiter = StubRateLimiter(
             redis_client=redis_client,
             limiter_id=f"{limiter_id}_jitter",
             limit=10,
@@ -402,13 +407,14 @@ class TestSyncSmartJitter(SmartJitterTests, SmartJitterObservabilityTests):
         _limiter.shutdown()
 
 
+@pytest.mark.behavior
 class TestAsyncSmartJitter(SmartJitterTests, SmartJitterObservabilityTests):
     """Async rate limiter smart jitter exercised natively."""
 
     @pytest.fixture
     async def limiter(self, async_redis_client, limiter_id):
         """Create a native async limiter."""
-        lim = MinimalAsyncRateLimiter(
+        lim = AsyncStubRateLimiter(
             redis_client=async_redis_client,
             limiter_id=f"{limiter_id}_jitter",
             limit=10,

@@ -12,7 +12,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from tests.implementations.conftest import MinimalRateLimiter
+from tests.implementations.conftest import StubRateLimiter
 
 
 def _clear_limiter_keys(redis_client, limiter):
@@ -33,7 +33,7 @@ def property_limiter(
     module_limiter_id,
 ):
     """Provide a module-scoped rate limiter for concurrency-invariant property tests."""
-    return MinimalRateLimiter(
+    return StubRateLimiter(
         redis_client=property_redis_client,
         limiter_id=f"{module_limiter_id}_property_concurrency",
         limit=10_000,

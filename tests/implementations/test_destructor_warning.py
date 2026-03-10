@@ -1,24 +1,14 @@
 """Tests for ``__del__`` ResourceWarning emission on sync and async rate limiters.
 
-Mutation testing revealed that the ``__del__`` methods on
-``AbstractDistributedRateLimiter`` and ``AbstractAsyncDistributedRateLimiter``
-had zero test coverage. This module verifies that:
-
-- A ``ResourceWarning`` is emitted when a limiter with an active drain loop is
-  garbage-collected without a prior ``shutdown()`` call.
-- The warning message contains the limiter identifier and the correct shutdown
-  instruction.
-- No warning is emitted when the drain loop is disabled or when ``shutdown()``
-  was called before destruction.
-- The warning originates from the correct source module.
-
 Tests are written once in async form via the mixin pattern; the sync
 implementation participates directly (``__del__`` is synchronous on both
 classes, so no ``SyncToAsyncLimiterAdapter`` is needed).
 
 Fixture dependencies:
-    - ``redis_client``, ``async_redis_client``, ``limiter_id``: from ``tests/conftest.py``.
-    - ``MinimalRateLimiter``, ``MinimalAsyncRateLimiter``: from ``tests/implementations/conftest.py``.
+    - ``redis_client``, ``async_redis_client``,
+      ``limiter_id``: from ``tests/conftest.py``.
+    - ``StubRateLimiter``, ``AsyncStubRateLimiter``:
+      from ``tests/implementations/conftest.py``.
 """
 
 import warnings
@@ -30,6 +20,7 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class DestructorWarningTests:
     """Unified tests for ``__del__`` ResourceWarning emission.
 
@@ -45,7 +36,9 @@ class DestructorWarningTests:
 
     @staticmethod
     async def test_del_warns_when_shutdown_not_called(limiter_with_drain):
-        """Verify that ``__del__`` emits a ResourceWarning when shutdown was not called."""
+        """Verify that ``__del__`` emits a ResourceWarning
+        when shutdown was not called.
+        """
         # Arrange
         limiter = limiter_with_drain
 
@@ -162,21 +155,21 @@ class DestructorWarningTests:
         )
 
 
-
 # ---------------------------------------------------------------------------
 # Concrete test cases
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestSyncDestructorWarning(DestructorWarningTests):
     """Sync rate limiter ``__del__`` ResourceWarning tests."""
 
     @pytest.fixture
     def limiter_with_drain(self, redis_client, limiter_id):
         """Create a sync limiter with drain enabled that has not been shut down."""
-        from tests.implementations.conftest import MinimalRateLimiter
+        from tests.implementations.conftest import StubRateLimiter
 
-        limiter = MinimalRateLimiter(
+        limiter = StubRateLimiter(
             redis_client=redis_client,
             limiter_id=f"{limiter_id}_del_drain_sync",
             limit=5,
@@ -189,9 +182,9 @@ class TestSyncDestructorWarning(DestructorWarningTests):
     @pytest.fixture
     def limiter_drain_disabled(self, redis_client, limiter_id):
         """Create a sync limiter with drain explicitly disabled."""
-        from tests.implementations.conftest import MinimalRateLimiter
+        from tests.implementations.conftest import StubRateLimiter
 
-        return MinimalRateLimiter(
+        return StubRateLimiter(
             redis_client=redis_client,
             limiter_id=f"{limiter_id}_del_nodrain_sync",
             limit=5,
@@ -203,9 +196,9 @@ class TestSyncDestructorWarning(DestructorWarningTests):
     @pytest.fixture
     def limiter_after_shutdown(self, redis_client, limiter_id):
         """Create a sync limiter and shut it down before yielding."""
-        from tests.implementations.conftest import MinimalRateLimiter
+        from tests.implementations.conftest import StubRateLimiter
 
-        limiter = MinimalRateLimiter(
+        limiter = StubRateLimiter(
             redis_client=redis_client,
             limiter_id=f"{limiter_id}_del_shutdown_sync",
             limit=5,
@@ -221,15 +214,16 @@ class TestSyncDestructorWarning(DestructorWarningTests):
         return "call shutdown() to stop background threads"
 
 
+@pytest.mark.behavior
 class TestAsyncDestructorWarning(DestructorWarningTests):
     """Async rate limiter ``__del__`` ResourceWarning tests."""
 
     @pytest.fixture
     async def limiter_with_drain(self, async_redis_client, limiter_id):
         """Create an async limiter with drain enabled that has not been shut down."""
-        from tests.implementations.conftest import MinimalAsyncRateLimiter
+        from tests.implementations.conftest import AsyncStubRateLimiter
 
-        limiter = MinimalAsyncRateLimiter(
+        limiter = AsyncStubRateLimiter(
             redis_client=async_redis_client,
             limiter_id=f"{limiter_id}_del_drain_async",
             limit=5,
@@ -243,9 +237,9 @@ class TestAsyncDestructorWarning(DestructorWarningTests):
     @pytest.fixture
     def limiter_drain_disabled(self, async_redis_client, limiter_id):
         """Create an async limiter with drain explicitly disabled."""
-        from tests.implementations.conftest import MinimalAsyncRateLimiter
+        from tests.implementations.conftest import AsyncStubRateLimiter
 
-        return MinimalAsyncRateLimiter(
+        return AsyncStubRateLimiter(
             redis_client=async_redis_client,
             limiter_id=f"{limiter_id}_del_nodrain_async",
             limit=5,
@@ -257,9 +251,9 @@ class TestAsyncDestructorWarning(DestructorWarningTests):
     @pytest.fixture
     async def limiter_after_shutdown(self, async_redis_client, limiter_id):
         """Create an async limiter, start it, and shut it down before yielding."""
-        from tests.implementations.conftest import MinimalAsyncRateLimiter
+        from tests.implementations.conftest import AsyncStubRateLimiter
 
-        limiter = MinimalAsyncRateLimiter(
+        limiter = AsyncStubRateLimiter(
             redis_client=async_redis_client,
             limiter_id=f"{limiter_id}_del_shutdown_async",
             limit=5,
@@ -274,4 +268,3 @@ class TestAsyncDestructorWarning(DestructorWarningTests):
     def shutdown_instruction(self):
         """Return the expected async shutdown instruction."""
         return "call await shutdown() to stop background tasks"
-

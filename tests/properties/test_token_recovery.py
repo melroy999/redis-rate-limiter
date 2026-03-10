@@ -19,7 +19,7 @@ from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 from tests.algorithms.sliding_window_counter import sliding_window_estimate
-from tests.implementations.conftest import MinimalRateLimiter
+from tests.implementations.conftest import StubRateLimiter
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -29,7 +29,7 @@ from tests.implementations.conftest import MinimalRateLimiter
 @pytest.fixture(scope="module")
 def property_limiter(property_redis_client, module_limiter_id):
     """Provide a module-scoped rate limiter for token recovery property tests."""
-    return MinimalRateLimiter(
+    return StubRateLimiter(
         redis_client=property_redis_client,
         limiter_id=f"{module_limiter_id}_property_token_recovery",
         limit=10,

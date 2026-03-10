@@ -274,8 +274,8 @@ Do not confuse data-flow verification with call-count verification. Asserting th
 | `func_path` | session | `tests/conftest.py` | Static function path string |
 | `payload` | session | `tests/conftest.py` | Static payload dictionary |
 | `task_id` | function | `tests/implementations/conftest.py` | Unique `task_{uuid}` identifier |
-| `generic_limiter` | function | `tests/implementations/conftest.py` | Sync `MinimalRateLimiter` with teardown |
-| `async_generic_limiter` | function | `tests/implementations/conftest.py` | Async `MinimalAsyncRateLimiter` with teardown |
+| `stub_limiter` | function | `tests/implementations/conftest.py` | Sync `StubRateLimiter` with teardown |
+| `async_stub_limiter` | function | `tests/implementations/conftest.py` | Async `AsyncStubRateLimiter` with teardown |
 | `tracking_limiter` | function | `tests/implementations/conftest.py` | Sync limiter that records dispatch and schedule calls |
 
 **Fixture rules**:

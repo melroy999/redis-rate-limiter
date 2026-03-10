@@ -10,13 +10,11 @@ The ``_run_once()`` method is tested directly (without starting the
 background thread or asyncio task) to keep tests deterministic, following
 the same pattern used for ``DrainLoop`` testing via ``_drain_inner()``.
 
-Variant-specific lifecycle tests (thread shutdown, task cancellation,
-opt-in detection) remain in dedicated classes because threading and asyncio
-primitives are fundamentally incompatible.
-
 Fixture dependencies:
-    - ``redis_client``, ``async_redis_client``, ``limiter_id``: from ``tests/conftest.py``.
-    - ``generic_limiter``, ``async_generic_limiter``: from ``tests/implementations/conftest.py``.
+    - ``redis_client``, ``async_redis_client``,
+      ``limiter_id``: from ``tests/conftest.py``.
+    - ``stub_limiter``, ``async_stub_limiter``:
+      from ``tests/implementations/conftest.py``.
 """
 
 import logging
@@ -40,6 +38,7 @@ from tests.helpers.utils import assert_log_emitted
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class HealthMonitorBehaviorTests:
     """Abstract test suite for ``_run_once()`` state-transition logic.
 
@@ -60,7 +59,9 @@ class HealthMonitorBehaviorTests:
 
     @staticmethod
     async def test_is_healthy_defaults_to_true(monitor):
-        """Verify that a freshly created monitor reports healthy before any check runs."""
+        """Verify that a freshly created monitor reports
+        healthy before any check runs.
+        """
         # Assert
         assert monitor.is_healthy is True, (
             "monitor should default to healthy before first check"
@@ -80,7 +81,9 @@ class HealthMonitorBehaviorTests:
         )
 
     async def test_is_healthy_recovers_after_healthy_check(self, monitor, mock_limiter):
-        """Verify that ``is_healthy`` returns ``True`` after recovery from unhealthy state."""
+        """Verify that ``is_healthy`` returns ``True`` after
+        recovery from unhealthy state.
+        """
         # Arrange
         mock_limiter._check_backend_health.return_value = False
         await self.run_once(monitor)
@@ -113,6 +116,7 @@ class HealthMonitorBehaviorTests:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class HealthMonitorObservabilityTests:
     """Observability tests for state-transition log emissions.
 
@@ -185,7 +189,9 @@ class HealthMonitorObservabilityTests:
     async def test_exception_transition_emits_warning_log(
         self, monitor, mock_limiter, caplog
     ):
-        """Verify that a health check exception triggers the same warning as a ``False`` return."""
+        """Verify that a health check exception triggers the
+        same warning as a ``False`` return.
+        """
         # Arrange
         mock_limiter._check_backend_health.side_effect = RuntimeError("check failed")
 
@@ -201,9 +207,7 @@ class HealthMonitorObservabilityTests:
             message="should emit a warning log when health check raises an exception",
         )
 
-    async def test_healthy_to_healthy_emits_no_log(
-        self, monitor, mock_limiter, caplog
-    ):
+    async def test_healthy_to_healthy_emits_no_log(self, monitor, mock_limiter, caplog):
         """Verify that no log is emitted when the state remains healthy."""
         # Arrange
         mock_limiter._check_backend_health.return_value = True
@@ -229,7 +233,10 @@ class HealthMonitorObservabilityTests:
 # ---------------------------------------------------------------------------
 
 
-class TestSyncHealthMonitor(HealthMonitorBehaviorTests, HealthMonitorObservabilityTests):
+@pytest.mark.behavior
+class TestSyncHealthMonitor(
+    HealthMonitorBehaviorTests, HealthMonitorObservabilityTests
+):
     """Sync health monitor behavior exercised through the unified mixin."""
 
     @staticmethod
@@ -251,8 +258,11 @@ class TestSyncHealthMonitor(HealthMonitorBehaviorTests, HealthMonitorObservabili
         return BackendHealthMonitor(mock_limiter, interval=1.0)
 
 
+@pytest.mark.behavior
 class TestSyncHealthMonitorLifecycle:
-    """Sync-only lifecycle and opt-in detection tests for ``BackendHealthMonitor``."""
+    """Sync-only lifecycle and opt-in detection tests
+    for ``BackendHealthMonitor``.
+    """
 
     @pytest.fixture
     def mock_limiter(self):
@@ -282,10 +292,12 @@ class TestSyncHealthMonitorLifecycle:
         )
 
     @staticmethod
-    def test_monitor_not_started_for_default_implementation(generic_limiter):
-        """Verify that in-process backends (default ``_check_backend_health``) do not start a monitor."""
+    def test_monitor_not_started_for_default_implementation(stub_limiter):
+        """Verify that in-process backends (default
+        ``_check_backend_health``) do not start a monitor.
+        """
         # Assert
-        assert generic_limiter._backend_health_monitor is None, (
+        assert stub_limiter._backend_health_monitor is None, (
             "in-process backends should not have a health monitor"
         )
 
@@ -293,9 +305,9 @@ class TestSyncHealthMonitorLifecycle:
     def test_monitor_not_started_when_drain_disabled(redis_client, limiter_id):
         """Verify that scheduler-only instances do not start a health monitor."""
         # Arrange
-        from tests.implementations.conftest import MinimalRateLimiter
+        from tests.implementations.conftest import StubRateLimiter
 
-        limiter = MinimalRateLimiter(
+        limiter = StubRateLimiter(
             redis_client=redis_client,
             limiter_id=f"{limiter_id}_drain_disabled",
             limit=5,
@@ -313,12 +325,12 @@ class TestSyncHealthMonitorLifecycle:
             limiter.shutdown()
 
     @staticmethod
-    def test_monitor_uses_default_healthy_hook(generic_limiter):
+    def test_monitor_uses_default_healthy_hook(stub_limiter):
         """Verify that the base mixin ``_check_backend_health`` returns ``True``."""
         # Arrange
         # Use a real limiter instance; MagicMock is incompatible with the
         # mutmut trampoline (object.__getattribute__ bypasses mock __getattr__).
-        result = DistributedRateLimiterMixin._check_backend_health(generic_limiter)
+        result = DistributedRateLimiterMixin._check_backend_health(stub_limiter)
 
         # Assert
         assert result is True, "base mixin health check should always return true"
@@ -329,6 +341,7 @@ class TestSyncHealthMonitorLifecycle:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestAsyncHealthMonitor(
     HealthMonitorBehaviorTests, HealthMonitorObservabilityTests
 ):
@@ -349,12 +362,17 @@ class TestAsyncHealthMonitor(
 
     @pytest.fixture
     def monitor(self, mock_limiter):
-        """Provide an ``AsyncBackendHealthMonitor`` instance backed by a mock limiter."""
+        """Provide an ``AsyncBackendHealthMonitor`` instance
+        backed by a mock limiter.
+        """
         return AsyncBackendHealthMonitor(mock_limiter, interval=1.0)
 
 
+@pytest.mark.behavior
 class TestAsyncHealthMonitorLifecycle:
-    """Async-only lifecycle and opt-in detection tests for ``AsyncBackendHealthMonitor``."""
+    """Async-only lifecycle and opt-in detection tests
+    for ``AsyncBackendHealthMonitor``.
+    """
 
     @pytest.fixture
     def mock_limiter(self):
@@ -366,7 +384,9 @@ class TestAsyncHealthMonitorLifecycle:
 
     @pytest.fixture
     def monitor(self, mock_limiter):
-        """Provide an ``AsyncBackendHealthMonitor`` instance backed by a mock limiter."""
+        """Provide an ``AsyncBackendHealthMonitor`` instance
+        backed by a mock limiter.
+        """
         return AsyncBackendHealthMonitor(mock_limiter, interval=1.0)
 
     @staticmethod
@@ -385,11 +405,13 @@ class TestAsyncHealthMonitorLifecycle:
 
     @staticmethod
     async def test_monitor_not_started_for_default_implementation(
-        async_generic_limiter,
+        async_stub_limiter,
     ):
-        """Verify that in-process async backends (default ``_check_backend_health``) do not start a monitor."""
+        """Verify that in-process async backends (default
+        ``_check_backend_health``) do not start a monitor.
+        """
         # Assert
-        assert async_generic_limiter._backend_health_monitor is None, (
+        assert async_stub_limiter._backend_health_monitor is None, (
             "in-process async backends should not have a health monitor"
         )
 
@@ -399,9 +421,9 @@ class TestAsyncHealthMonitorLifecycle:
     ):
         """Verify that scheduler-only async instances do not start a health monitor."""
         # Arrange
-        from tests.implementations.conftest import MinimalAsyncRateLimiter
+        from tests.implementations.conftest import AsyncStubRateLimiter
 
-        limiter = MinimalAsyncRateLimiter(
+        limiter = AsyncStubRateLimiter(
             redis_client=async_redis_client,
             limiter_id=f"{limiter_id}_async_drain_disabled",
             limit=5,
@@ -420,14 +442,14 @@ class TestAsyncHealthMonitorLifecycle:
             await limiter.shutdown()
 
     @staticmethod
-    async def test_monitor_uses_default_healthy_hook(async_generic_limiter):
-        """Verify that the async base class ``_check_backend_health`` returns ``True``."""
+    async def test_monitor_uses_default_healthy_hook(async_stub_limiter):
+        """Verify that the async base class
+        ``_check_backend_health`` returns ``True``.
+        """
         # Act
         result = await AbstractAsyncDistributedRateLimiter._check_backend_health(
-            async_generic_limiter
+            async_stub_limiter
         )
 
         # Assert
-        assert result is True, (
-            "async base class health check should always return true"
-        )
+        assert result is True, "async base class health check should always return true"

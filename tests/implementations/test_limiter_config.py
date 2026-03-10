@@ -1,4 +1,5 @@
-"""Tests for limiter configuration defaults, window change logging, and metric callbacks.
+"""Tests for limiter configuration defaults, window change
+logging, and metric callbacks.
 
 This module covers the initial default values of freshly constructed limiters,
 the ``_apply_config_overrides`` window-change detection log, and the
@@ -8,8 +9,10 @@ Tests are written once in async form via the mixin pattern; the sync
 implementation participates via ``SyncToAsyncLimiterAdapter``.
 
 Fixture dependencies:
-    - ``redis_client``, ``async_redis_client``, ``limiter_id``: from ``tests/conftest.py``.
-    - ``generic_limiter``, ``async_generic_limiter``: from ``tests/implementations/conftest.py``.
+    - ``redis_client``, ``async_redis_client``, ``limiter_id``:
+      from ``tests/conftest.py``.
+    - ``stub_limiter``, ``async_stub_limiter``:
+      from ``tests/implementations/conftest.py``.
 """
 
 import inspect
@@ -26,6 +29,7 @@ from tests.helpers.utils import assert_log_emitted
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class InitialDefaultTests:
     """Unified tests for the initial default values of freshly constructed limiters.
 
@@ -35,7 +39,9 @@ class InitialDefaultTests:
 
     @staticmethod
     async def test_fresh_limiter_has_expected_defaults(limiter):
-        """Verify that a freshly constructed limiter exposes the correct initial defaults."""
+        """Verify that a freshly constructed limiter exposes
+        the correct initial defaults.
+        """
         # Assert
         assert limiter._paused_until == pytest.approx(0.0), (
             "fresh limiter should not be paused"
@@ -62,6 +68,7 @@ class InitialDefaultTests:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class WindowChangeObservabilityTests:
     """Unified tests for the window-change detection log in ``_apply_config_overrides``.
 
@@ -71,7 +78,9 @@ class WindowChangeObservabilityTests:
 
     @staticmethod
     async def test_window_change_emits_info_log(limiter, caplog):
-        """Verify that changing the window via ``_apply_config_overrides`` emits an INFO log."""
+        """Verify that changing the window via
+        ``_apply_config_overrides`` emits an INFO log.
+        """
         # Arrange
         old_window = limiter.window
         new_window = old_window * 2
@@ -90,10 +99,14 @@ class WindowChangeObservabilityTests:
                 f"new_window={new_window:g}",
                 "paused_for_s=",
             ],
-            message="should emit an info log containing the limiter id, new window, and pause duration",
+            message=(
+                "should emit an info log containing the"
+                " limiter id, new window, and pause duration"
+            ),
         )
 
 
+@pytest.mark.observability
 class EmitMetricObservabilityTests:
     """Unified tests for the ``_emit_metric`` warning log when the callback raises.
 
@@ -124,7 +137,10 @@ class EmitMetricObservabilityTests:
                 "event=consume",
                 "callback boom",
             ],
-            message="should emit a warning log containing the limiter id, event name, and error message",
+            message=(
+                "should emit a warning log containing the"
+                " limiter id, event name, and error message"
+            ),
         )
 
 
@@ -133,54 +149,61 @@ class EmitMetricObservabilityTests:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestSyncInitialDefaults(InitialDefaultTests):
     """Sync rate limiter initial defaults exercised through the async adapter."""
 
     @pytest.fixture
-    def limiter(self, generic_limiter):
+    def limiter(self, stub_limiter):
         """Wrap the sync generic limiter in an async adapter."""
-        return SyncToAsyncLimiterAdapter(generic_limiter)
+        return SyncToAsyncLimiterAdapter(stub_limiter)
 
 
+@pytest.mark.behavior
 class TestAsyncInitialDefaults(InitialDefaultTests):
     """Async rate limiter initial defaults exercised natively."""
 
     @pytest.fixture
-    def limiter(self, async_generic_limiter):
+    def limiter(self, async_stub_limiter):
         """Provide the async generic limiter directly."""
-        return async_generic_limiter
+        return async_stub_limiter
 
 
+@pytest.mark.observability
 class TestSyncWindowChangeLogging(WindowChangeObservabilityTests):
     """Sync rate limiter window-change logging exercised through the async adapter."""
 
     @pytest.fixture
-    def limiter(self, generic_limiter):
+    def limiter(self, stub_limiter):
         """Wrap the sync generic limiter in an async adapter."""
-        return SyncToAsyncLimiterAdapter(generic_limiter)
+        return SyncToAsyncLimiterAdapter(stub_limiter)
 
 
+@pytest.mark.observability
 class TestAsyncWindowChangeLogging(WindowChangeObservabilityTests):
     """Async rate limiter window-change logging exercised natively."""
 
     @pytest.fixture
-    def limiter(self, async_generic_limiter):
+    def limiter(self, async_stub_limiter):
         """Provide the async generic limiter directly."""
-        return async_generic_limiter
+        return async_stub_limiter
 
 
+@pytest.mark.observability
 class TestSyncEmitMetricLogging(EmitMetricObservabilityTests):
-    """Sync rate limiter ``_emit_metric`` logging exercised through the async adapter."""
+    """Sync rate limiter ``_emit_metric`` logging exercised
+    through the async adapter.
+    """
 
     @pytest.fixture
     def limiter_with_failing_callback(self, redis_client, limiter_id):
         """Create a sync limiter with a failing callback, wrapped in the adapter."""
-        from tests.implementations.conftest import MinimalRateLimiter
+        from tests.implementations.conftest import StubRateLimiter
 
         def failing_callback(event, data):
             raise RuntimeError("callback boom")
 
-        limiter = MinimalRateLimiter(
+        limiter = StubRateLimiter(
             redis_client=redis_client,
             limiter_id=f"{limiter_id}_emit_metric_sync",
             limit=5,
@@ -192,18 +215,19 @@ class TestSyncEmitMetricLogging(EmitMetricObservabilityTests):
         limiter.shutdown()
 
 
+@pytest.mark.observability
 class TestAsyncEmitMetricLogging(EmitMetricObservabilityTests):
     """Async rate limiter ``_emit_metric`` logging exercised natively."""
 
     @pytest.fixture
     async def limiter_with_failing_callback(self, async_redis_client, limiter_id):
         """Create an async limiter with a failing callback."""
-        from tests.implementations.conftest import MinimalAsyncRateLimiter
+        from tests.implementations.conftest import AsyncStubRateLimiter
 
         def failing_callback(event, data):
             raise RuntimeError("callback boom")
 
-        limiter = MinimalAsyncRateLimiter(
+        limiter = AsyncStubRateLimiter(
             redis_client=async_redis_client,
             limiter_id=f"{limiter_id}_emit_metric_async",
             limit=5,
@@ -221,8 +245,11 @@ class TestAsyncEmitMetricLogging(EmitMetricObservabilityTests):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.signature
 class TestMixinInitSignatures:
-    """Signature tests for ``DistributedRateLimiterMixin.__init__`` default parameter values."""
+    """Signature tests for ``DistributedRateLimiterMixin.__init__``
+    default parameter values.
+    """
 
     @staticmethod
     def test_mixin_init_default_parameters():

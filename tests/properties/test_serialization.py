@@ -17,7 +17,7 @@ from hypothesis import strategies as st
 
 from tests.helpers.strategies import nested_dict
 from tests.helpers.utils import dict_equals_approx
-from tests.implementations.conftest import MinimalRateLimiter
+from tests.implementations.conftest import StubRateLimiter
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -37,7 +37,7 @@ def property_limiter(
     module_limiter_id,
 ):
     """Provide the default module-scoped rate limiter for property-based tests."""
-    return MinimalRateLimiter(
+    return StubRateLimiter(
         redis_client=property_redis_client,
         limiter_id=f"{module_limiter_id}_property_default",
         limit=100,
@@ -161,10 +161,10 @@ class TestSerializationProperties:
         """Property: repeated signature generation for the
         same payload is deterministic."""
         # Act
-        signature_1 = MinimalRateLimiter._get_task_signature_str(
+        signature_1 = StubRateLimiter._get_task_signature_str(
             "myapp.tasks.process", payload
         )
-        signature_2 = MinimalRateLimiter._get_task_signature_str(
+        signature_2 = StubRateLimiter._get_task_signature_str(
             "myapp.tasks.process", payload
         )
 

@@ -1,12 +1,9 @@
-"""Tests for the ``DistributedLock`` and ``AsyncDistributedLock`` implementations.
+"""Tests for ``DistributedLock`` and ``AsyncDistributedLock``
+behavior and observability.
 
-This module tests the Redis-based distributed lock used by the rate limiter
-for serializing drain operations. Tests are written once in async form using
-the mixin pattern; the sync ``DistributedLock`` participates via
-``SyncToAsyncLockAdapter``, while the ``AsyncDistributedLock`` runs natively.
-
-Fixture dependencies:
-    - ``redis_client``, ``async_redis_client``, ``lock_key``: from ``tests/conftest.py``.
+Tests are written once in async form using the mixin pattern.
+The sync variant participates via ``SyncToAsyncLockAdapter``;
+the async variant runs natively.
 """
 
 import inspect
@@ -22,6 +19,7 @@ from tests.helpers.adapters import SyncToAsyncLockAdapter
 from tests.helpers.utils import assert_log_emitted, wait_for_key_expiry
 
 
+@pytest.mark.contract
 class TestDistributedLock(DistributedLockContractTest):
     """Contract compliance for the Redis-based DistributedLock implementation."""
 
@@ -68,7 +66,6 @@ class DistributedLockImplementationTests:
             token = await async_redis_client.get(lock_key)
 
             # Assert
-            # The token should conform to UUID format (i.e., it contains dashes and has the expected length).
             assert "-" in token, "token should be UUID format (contains dashes)"
             assert len(token) == 36, "UUID should be 36 characters long"
 
@@ -81,7 +78,6 @@ class DistributedLockImplementationTests:
         # Act
         async with lock as acquired:
             # Assert
-            # The key should exist and have a TTL assigned.
             assert acquired is True, "lock should be acquired successfully"
             assert await async_redis_client.exists(lock_key) == 1, (
                 "lock key must exist in Redis while held"
@@ -126,7 +122,10 @@ class DistributedLockObservabilityTests:
                 "timeout_ms=1000",
                 "acquired",
             ],
-            message="should emit a debug log for lock acquisition with key, token, and timeout_ms",
+            message=(
+                "should emit a debug log for lock "
+                "acquisition with key, token, and timeout_ms"
+            ),
         )
 
     @staticmethod
@@ -154,7 +153,8 @@ class DistributedLockObservabilityTests:
     async def test_lock_contention_emits_debug_log(
         async_redis_client, lock_key, create_lock, caplog
     ):
-        """Verify that a contention event emits a debug log when the lock is already held."""
+        """Verify that a contention event emits a debug log
+        when the lock is already held."""
         # Arrange
         lock_holder = create_lock(lock_key, timeout_ms=5000)
         lock_contender = create_lock(lock_key, timeout_ms=5000)
@@ -228,12 +228,10 @@ class ContentionAwareCooldownTests:
         )
 
         # Act
-        # Single worker acquires and releases without any contention.
         async with lock as acquired:
             assert acquired is True, "lock should be acquired successfully"
 
         # Assert
-        # No cooldown key should exist (burst behavior preserved).
         assert await async_redis_client.exists(cooldown_key) == 0, (
             "cooldown key must not be created when no contention is detected"
         )
@@ -242,7 +240,8 @@ class ContentionAwareCooldownTests:
     async def test_cooldown_set_when_contention_detected(
         async_redis_client, lock_key, create_lock
     ):
-        """Verify that a cooldown key is created when contention is detected during the hold period."""
+        """Verify that a cooldown key is created when
+        contention is detected during the hold period."""
         # Arrange
         worker_id = "worker-A"
         contention_key = f"{lock_key}:contention"
@@ -265,7 +264,6 @@ class ContentionAwareCooldownTests:
         )
 
         # Act
-        # Worker-A holds the lock while worker-B fails to acquire (creating contention).
         async with lock_holder as acquired_holder:
             assert acquired_holder is True, "holder should acquire successfully"
 
@@ -275,7 +273,6 @@ class ContentionAwareCooldownTests:
                 )
 
         # Assert
-        # After release, worker-A should have a cooldown key set.
         assert await async_redis_client.exists(cooldown_key) == 1, (
             "cooldown key must be created when contention was detected"
         )
@@ -287,7 +284,8 @@ class ContentionAwareCooldownTests:
     async def test_cooldown_does_not_affect_other_workers(
         async_redis_client, lock_key, create_lock
     ):
-        """Verify that a cooldown on one worker does not prevent other workers from acquiring."""
+        """Verify that a cooldown on one worker does not
+        prevent other workers from acquiring."""
         # Arrange
         contention_key = f"{lock_key}:contention"
         cooldown_ms = 500
@@ -307,19 +305,16 @@ class ContentionAwareCooldownTests:
             contention_key=contention_key,
         )
 
-        # Create contention so worker-A gets a cooldown.
         async with lock_a:
             async with lock_contender:
                 pass
 
         # Assert
-        # Worker-A is in cooldown.
         assert await async_redis_client.exists(f"{lock_key}:cd:worker-A") == 1, (
             "worker-A should be in cooldown after contention"
         )
 
         # Act
-        # Worker-B should be able to acquire the lock despite worker-A's cooldown.
         lock_b = create_lock(
             lock_key,
             timeout_ms=5000,
@@ -359,13 +354,11 @@ class ContentionAwareCooldownTests:
         )
 
         # Act
-        # Create contention and release.
         async with lock_holder:
             async with lock_contender:
                 pass
 
         # Assert
-        # The cooldown key should have a TTL close to cooldown_ms.
         ttl = await async_redis_client.pttl(cooldown_key)
         assert 0 < ttl <= cooldown_ms, (
             f"cooldown key TTL must be in (0, {cooldown_ms}], got {ttl}ms"
@@ -396,19 +389,16 @@ class ContentionAwareCooldownTests:
             contention_key=contention_key,
         )
 
-        # Create contention and release to trigger cooldown.
         async with lock_holder:
             async with lock_contender:
                 pass
 
-        # Verify the cooldown is active.
         cooldown_key = f"{lock_key}:cd:{worker_id}"
         assert await async_redis_client.exists(cooldown_key) == 1, (
             "cooldown key must exist before expiry wait"
         )
 
         # Act
-        # Wait for the cooldown key to expire in Redis.
         await wait_for_key_expiry(async_redis_client, cooldown_key)
 
         lock_retry = create_lock(
@@ -428,7 +418,8 @@ class ContentionAwareCooldownTests:
     async def test_contention_counter_reset_on_release(
         async_redis_client, lock_key, create_lock
     ):
-        """Verify that the contention counter is deleted when cooldown is set on release."""
+        """Verify that the contention counter is deleted
+        when cooldown is set on release."""
         # Arrange
         contention_key = f"{lock_key}:contention"
         cooldown_ms = 500
@@ -449,17 +440,15 @@ class ContentionAwareCooldownTests:
         )
 
         # Act
-        # Create contention and release.
         async with lock_holder:
             async with lock_contender:
                 pass
-            # While the lock is still held, contention should be recorded.
             assert int(await async_redis_client.get(contention_key) or 0) == 1, (
-                "contention counter must be 1 after exactly one failed acquisition attempt"
+                "contention counter must be 1 after "
+                "exactly one failed acquisition attempt"
             )
 
         # Assert
-        # After release, the contention counter should be cleared.
         assert await async_redis_client.exists(contention_key) == 0, (
             "contention counter must be deleted when cooldown is set on release"
         )
@@ -495,7 +484,6 @@ class ContentionAwareCooldownTests:
             async with lock_contender:
                 pass
 
-            # Verify the contention counter exists and has a TTL.
             assert await async_redis_client.exists(contention_key) == 1, (
                 "contention counter must exist after failed acquisition"
             )
@@ -510,6 +498,7 @@ class ContentionAwareCooldownTests:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestSyncDistributedLockImplementation(DistributedLockImplementationTests):
     """Sync DistributedLock implementation exercised through the async adapter."""
 
@@ -525,6 +514,7 @@ class TestSyncDistributedLockImplementation(DistributedLockImplementationTests):
         return _factory
 
 
+@pytest.mark.observability
 class TestSyncDistributedLockObservability(DistributedLockObservabilityTests):
     """Sync DistributedLock observability exercised through the async adapter."""
 
@@ -540,6 +530,7 @@ class TestSyncDistributedLockObservability(DistributedLockObservabilityTests):
         return _factory
 
 
+@pytest.mark.behavior
 class TestSyncContentionAwareCooldown(ContentionAwareCooldownTests):
     """Sync contention-aware cooldown exercised through the async adapter."""
 
@@ -555,6 +546,7 @@ class TestSyncContentionAwareCooldown(ContentionAwareCooldownTests):
         return _factory
 
 
+@pytest.mark.behavior
 class TestAsyncDistributedLockImplementation(DistributedLockImplementationTests):
     """Async DistributedLock implementation exercised natively."""
 
@@ -568,6 +560,7 @@ class TestAsyncDistributedLockImplementation(DistributedLockImplementationTests)
         return _factory
 
 
+@pytest.mark.observability
 class TestAsyncDistributedLockObservability(DistributedLockObservabilityTests):
     """Async DistributedLock observability exercised natively."""
 
@@ -581,6 +574,7 @@ class TestAsyncDistributedLockObservability(DistributedLockObservabilityTests):
         return _factory
 
 
+@pytest.mark.behavior
 class TestAsyncContentionAwareCooldown(ContentionAwareCooldownTests):
     """Async contention-aware cooldown exercised natively."""
 
@@ -599,6 +593,7 @@ class TestAsyncContentionAwareCooldown(ContentionAwareCooldownTests):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.signature
 class TestDistributedLockSignatures:
     """Signature tests for distributed lock default parameter values."""
 
@@ -609,10 +604,13 @@ class TestDistributedLockSignatures:
         ids=["sync", "async"],
     )
     def test_lock_init_default_parameters(cls):
-        """Verify that ``worker_id``, ``cooldown_ms``, and ``contention_key`` have the expected defaults.
+        """Verify that ``worker_id``, ``cooldown_ms``, and
+        ``contention_key`` have the expected defaults.
 
-        Mutation target: ``worker_id``, ``cooldown_ms``, and ``contention_key`` default values
-        in ``DistributedLock.__init__`` and ``AsyncDistributedLock.__init__``.
+        Mutation target: ``worker_id``, ``cooldown_ms``,
+        and ``contention_key`` default values in
+        ``DistributedLock.__init__`` and
+        ``AsyncDistributedLock.__init__``.
         """
         # Arrange & Act
         sig = inspect.signature(cls.__init__)
@@ -632,7 +630,8 @@ class TestDistributedLockSignatures:
     def test_execution_lock_timeout_ms_defaults_to_5000():
         """Verify that the ``timeout_ms`` parameter defaults to ``5000``.
 
-        Mutation target: ``timeout_ms`` default value in ``AbstractDistributedRateLimiter.execution_lock``.
+        Mutation target: ``timeout_ms`` default value in
+        ``AbstractDistributedRateLimiter.execution_lock``.
         """
         # Arrange & Act
         sig = inspect.signature(AbstractDistributedRateLimiter.execution_lock)

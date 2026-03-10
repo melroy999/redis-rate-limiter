@@ -25,7 +25,7 @@ from redis_rate_limiter import (
 # ---------------------------------------------------------------------------
 
 
-class MinimalRateLimiter(AbstractDistributedRateLimiter):
+class StubRateLimiter(AbstractDistributedRateLimiter):
     """Rate limiter whose dispatch and drain hooks perform no work.
 
     This allows tests to exercise all inherited core logic (consume, schedule,
@@ -39,7 +39,7 @@ class MinimalRateLimiter(AbstractDistributedRateLimiter):
         pass
 
 
-class TrackingRateLimiter(MinimalRateLimiter):
+class TrackingRateLimiter(StubRateLimiter):
     """Concrete rate limiter that records all dispatch and drain scheduling
     invocations."""
 
@@ -64,7 +64,7 @@ class TrackingRateLimiter(MinimalRateLimiter):
 # ---------------------------------------------------------------------------
 
 
-class MinimalAsyncRateLimiter(AbstractAsyncDistributedRateLimiter):
+class AsyncStubRateLimiter(AbstractAsyncDistributedRateLimiter):
     """Async rate limiter whose dispatch and drain hooks perform no work.
 
     This allows tests to exercise all inherited async core logic without any
@@ -78,7 +78,7 @@ class MinimalAsyncRateLimiter(AbstractAsyncDistributedRateLimiter):
         pass
 
 
-class AsyncTrackingRateLimiter(MinimalAsyncRateLimiter):
+class AsyncTrackingRateLimiter(AsyncStubRateLimiter):
     """Async concrete rate limiter that records all dispatch and drain
     scheduling invocations."""
 
@@ -111,10 +111,10 @@ def task_id():
 
 
 @pytest.fixture
-def generic_limiter(redis_client, limiter_id):
+def stub_limiter(redis_client, limiter_id):
     # Setup
     limiter_id = f"{limiter_id}_generic"
-    test_limiter = MinimalRateLimiter(
+    test_limiter = StubRateLimiter(
         redis_client=redis_client,
         limiter_id=limiter_id,
         limit=5,
@@ -160,7 +160,7 @@ def make_limiter_pool(redis_client, limiter_id):
     # Setup
     created_limiters: list = []
 
-    def _factory(n, *, limiter_cls=MinimalRateLimiter, **kwargs):
+    def _factory(n, *, limiter_cls=StubRateLimiter, **kwargs):
         pool_limiter_id = f"{limiter_id}_concurrent"
         defaults = dict(
             limit=5, window=60, max_concurrency=2, max_age=3600, lease_duration=30
@@ -188,10 +188,10 @@ def make_limiter_pool(redis_client, limiter_id):
 
 
 @pytest.fixture
-async def async_generic_limiter(async_redis_client, limiter_id):
+async def async_stub_limiter(async_redis_client, limiter_id):
     # Setup
     limiter_id = f"{limiter_id}_async_generic"
-    test_limiter = MinimalAsyncRateLimiter(
+    test_limiter = AsyncStubRateLimiter(
         redis_client=async_redis_client,
         limiter_id=limiter_id,
         limit=5,
@@ -239,7 +239,7 @@ async def make_async_limiter_pool(async_redis_client, limiter_id):
     # Setup
     created_limiters: list = []
 
-    async def _factory(n, *, limiter_cls=MinimalAsyncRateLimiter, **kwargs):
+    async def _factory(n, *, limiter_cls=AsyncStubRateLimiter, **kwargs):
         pool_limiter_id = f"{limiter_id}_async_concurrent"
         defaults = dict(
             limit=5, window=60, max_concurrency=2, max_age=3600, lease_duration=30

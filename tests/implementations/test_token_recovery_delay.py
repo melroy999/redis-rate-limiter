@@ -6,7 +6,8 @@ decay. Tests are written once in async form via the mixin pattern; the sync
 implementation participates via ``SyncToAsyncLimiterAdapter``.
 
 Fixture dependencies:
-    - ``generic_limiter``, ``async_generic_limiter``: from ``tests/implementations/conftest.py``.
+    - ``stub_limiter``, ``async_stub_limiter``:
+      from ``tests/implementations/conftest.py``.
 """
 
 import pytest
@@ -18,6 +19,7 @@ from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TokenRecoveryDelayTests:
     """Unified tests for the sliding-window token recovery delay calculation.
 
@@ -27,7 +29,9 @@ class TokenRecoveryDelayTests:
 
     @staticmethod
     async def test_token_recovery_returns_fractional_wait_when_decay_applies(limiter):
-        """Verify that a positive fractional delay is returned when previous-window decay can free a token."""
+        """Verify that a positive fractional delay is returned
+        when previous-window decay can free a token.
+        """
         # Arrange
         # A 1-second window is used so the arithmetic is straightforward to verify.
         limiter.window = 1.0
@@ -48,7 +52,9 @@ class TokenRecoveryDelayTests:
     async def test_token_recovery_returns_zero_when_decay_already_freed_token(
         limiter,
     ):
-        """Verify that zero delay is returned when previous-window decay has already freed a token."""
+        """Verify that zero delay is returned when
+        previous-window decay has already freed a token.
+        """
         # Arrange
         limiter.window = 1.0
         limiter.limit = 5
@@ -65,7 +71,9 @@ class TokenRecoveryDelayTests:
 
     @staticmethod
     async def test_token_recovery_fallback_when_val_previous_is_zero(limiter):
-        """Verify that the delay falls back to reset_in_ms when the previous window has no requests."""
+        """Verify that the delay falls back to reset_in_ms when
+        the previous window has no requests.
+        """
         # Arrange
         limiter.window = 1.0
         limiter.limit = 5
@@ -83,7 +91,9 @@ class TokenRecoveryDelayTests:
 
     @staticmethod
     async def test_token_recovery_fallback_when_val_current_equals_limit(limiter):
-        """Verify that the delay falls back to reset_in_ms when the current window is at the limit."""
+        """Verify that the delay falls back to reset_in_ms
+        when the current window is at the limit.
+        """
         # Arrange
         limiter.window = 1.0
         limiter.limit = 5
@@ -142,7 +152,9 @@ class TokenRecoveryDelayTests:
 
     @staticmethod
     async def test_token_recovery_primary_path_when_val_previous_is_one(limiter):
-        """Verify that ``val_previous=1`` takes the primary decay path, not the fallback."""
+        """Verify that ``val_previous=1`` takes the primary
+        decay path, not the fallback.
+        """
         # Arrange
         limiter.window = 1.0
         limiter.limit = 5
@@ -163,7 +175,9 @@ class TokenRecoveryDelayTests:
 
     @staticmethod
     async def test_token_recovery_primary_path_fractional_wait_ms(limiter):
-        """Verify that a fractional wait_ms between 0 and 1 returns the exact value, not the floor."""
+        """Verify that a fractional wait_ms between 0 and 1
+        returns the exact value, not the floor.
+        """
         # Arrange
         limiter.window = 1.0
         limiter.limit = 5
@@ -189,19 +203,21 @@ class TokenRecoveryDelayTests:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestSyncTokenRecoveryDelay(TokenRecoveryDelayTests):
     """Sync rate limiter token recovery exercised through the async adapter."""
 
     @pytest.fixture
-    def limiter(self, generic_limiter):
+    def limiter(self, stub_limiter):
         """Wrap the sync generic limiter in an async adapter."""
-        return SyncToAsyncLimiterAdapter(generic_limiter)
+        return SyncToAsyncLimiterAdapter(stub_limiter)
 
 
+@pytest.mark.behavior
 class TestAsyncTokenRecoveryDelay(TokenRecoveryDelayTests):
     """Async rate limiter token recovery exercised natively."""
 
     @pytest.fixture
-    def limiter(self, async_generic_limiter):
+    def limiter(self, async_stub_limiter):
         """Provide the async generic limiter directly."""
-        return async_generic_limiter
+        return async_stub_limiter

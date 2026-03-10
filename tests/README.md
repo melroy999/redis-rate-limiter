@@ -242,7 +242,7 @@ Integration tests verify the end-to-end behavior of the rate limiter with real R
 @pytest.fixture
 def integration_limiter(redis_client, limiter_id):
     """Create a backend-agnostic limiter for integration tests."""
-    return MinimalRateLimiter(
+    return StubRateLimiter(
         redis_client=redis_client,
         limiter_id=f"{limiter_id}_integration_default",
         limit=5,
@@ -638,7 +638,7 @@ Fixtures are placed at the **narrowest scope** that serves all their consumers:
 | Level | Location | What belongs here |
 |---|---|---|
 | **Root** | `tests/conftest.py` | Global infrastructure (`redis_client`, `async_redis_client`) and universal identifiers/values (`limiter_id`, `module_limiter_id`, `lock_key`, `func_path`, `payload`) |
-| **Category** | `tests/{category}/conftest.py` | Shared fixtures for a test category (e.g., `implementations/conftest.py` has `generic_limiter`, `tracking_limiter`, while `properties/conftest.py` has `property_redis_client`) |
+| **Category** | `tests/{category}/conftest.py` | Shared fixtures for a test category (e.g., `implementations/conftest.py` has `stub_limiter`, `tracking_limiter`, while `properties/conftest.py` has `property_redis_client`) |
 | **Backend** | `tests/implementations/{backend}/conftest.py` | Backend-specific `limiter` fixture and autouse reset fixtures |
 | **External module** | `tests/fixtures/{backend}_backend.py` | Sync backend fixture definitions re-exported by conftest (Celery, ThreadPool: needed for cross-directory import) |
 | **Test file** | The test file itself | Fixtures used exclusively by that file (`mock_limiter`, `inflight_key`, `create_lifecycle`, local factories) |
@@ -651,7 +651,7 @@ Each backend conftest provides its limiter under the name `limiter`. Contract te
 
 - **Async backends** (AsyncIO): conftest provides `limiter`: the contract test class inherits directly (no override needed).
 - **Sync backends** (Celery, ThreadPool): conftest provides `limiter`: the contract test class overrides with `SyncToAsyncLimiterAdapter` wrapping (genuine transformation, justified).
-- **Generic implementations**: `implementations/conftest.py` provides `generic_limiter` (distinct name because it coexists with backend `limiter` fixtures in the same directory tree): test classes map to `limiter` at class level.
+- **Generic implementations**: `implementations/conftest.py` provides `stub_limiter` (distinct name because it coexists with backend `limiter` fixtures in the same directory tree): test classes map to `limiter` at class level.
 
 **Rule: a fixture override at the class or file level is only justified when it transforms the value.** A pass-through that returns the input unchanged must be removed, and the source fixture should be renamed to match the expected name instead.
 
@@ -678,7 +678,7 @@ Each backend conftest provides its limiter under the name `limiter`. Contract te
 
 #### Implementation fixtures (`tests/implementations/conftest.py`)
 
-- `generic_limiter`: a `MinimalRateLimiter` instance (no-op dispatch/schedule) for testing `AbstractDistributedRateLimiter` behavior.
+- `stub_limiter`: a `StubRateLimiter` instance (no-op dispatch/schedule) for testing `AbstractDistributedRateLimiter` behavior.
 - `tracking_limiter`: a `TrackingRateLimiter` instance that records `_dispatch_task()` and `_schedule_drain()` calls.
 - `make_limiter_pool`: a factory fixture that creates N limiter instances sharing the same Redis-backed limiter ID.
 - `task_id`: a unique task ID string for testing.

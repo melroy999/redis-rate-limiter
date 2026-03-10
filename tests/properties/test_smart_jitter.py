@@ -21,7 +21,7 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
-from tests.implementations.conftest import MinimalRateLimiter
+from tests.implementations.conftest import StubRateLimiter
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -45,7 +45,7 @@ random_stream_strategy = st.lists(
 @pytest.fixture(scope="module")
 def property_limiter(property_redis_client, module_limiter_id):
     """Provide a module-scoped rate limiter for jitter property tests."""
-    return MinimalRateLimiter(
+    return StubRateLimiter(
         redis_client=property_redis_client,
         limiter_id=f"{module_limiter_id}_property_jitter",
         limit=10,

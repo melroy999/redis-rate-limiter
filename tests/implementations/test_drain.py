@@ -1,20 +1,12 @@
-"""Tests for the ``drain()`` and ``trigger_consume()`` branch behavior.
+"""Tests for ``drain()`` and ``trigger_consume()`` behavior and observability.
 
-Tests are written once in async form using a mixin pattern. Each test
-receives variant-specific fixtures (``limiter``, ``mock_target``) and uses
-class-level customization points (``lock_result``, ``_mock_cls``) to
-accommodate the structural differences between sync and async drain
-implementations.
-
-The sync variant participates via the ``SyncToAsyncLimiterAdapter``;
-the async variant runs natively.
-
-Fixture dependencies:
-    - ``tracking_limiter``, ``async_tracking_limiter``: from ``tests/implementations/conftest.py``.
-    - ``redis_client``, ``async_redis_client``, ``limiter_id``: from ``tests/conftest.py``.
+Tests are written once in async form using a mixin pattern.
+The sync variant participates via ``SyncToAsyncLimiterAdapter``;
+the async variant runs natively. Fixture mixins
+(``_SyncDrainFixture``, ``_AsyncDrainFixture``) supply the
+variant-specific fixtures and customization points.
 """
 
-import asyncio
 import inspect
 import logging
 import time
@@ -22,7 +14,6 @@ from contextlib import asynccontextmanager, contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import redis.asyncio
 
 from redis_rate_limiter.core.async_limiters import (
     AbstractAsyncDistributedRateLimiter,
@@ -31,8 +22,8 @@ from redis_rate_limiter.core.limiters import AbstractDistributedRateLimiter
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 from tests.helpers.utils import assert_log_emitted
 from tests.implementations.conftest import (
+    AsyncStubRateLimiter,
     AsyncTrackingRateLimiter,
-    MinimalAsyncRateLimiter,
     TrackingRateLimiter,
 )
 
@@ -42,14 +33,11 @@ from tests.implementations.conftest import (
 
 
 class DrainBehaviorTests:
-    """Abstract test suite for branch coverage in ``drain()``.
+    """Behavioral test mixin for ``drain()`` branch coverage.
 
-    Subclasses must provide:
-        - ``limiter``: a fixture returning the limiter to call (adapter or native).
-        - ``mock_target``: a fixture returning the object to patch (inner for sync, direct for async).
-        - ``lock_result(acquired)``: a class method returning a sync or async context manager.
-        - ``_mock_cls``: a class attribute (``MagicMock`` or ``AsyncMock``) for mocking awaitable methods
-          that are set as attributes rather than patched.
+    Concrete test classes compose this mixin with a fixture mixin
+    (``_SyncDrainFixture`` or ``_AsyncDrainFixture``) that supplies
+    ``limiter``, ``mock_target``, ``lock_result``, and ``_mock_cls``.
     """
 
     _mock_cls = None
@@ -61,7 +49,8 @@ class DrainBehaviorTests:
 
     @staticmethod
     async def test_drain_defers_when_paused(limiter, mock_target):
-        """Verify that ``drain()`` defers execution and schedules a follow-up when the limiter is paused."""
+        """Verify that ``drain()`` defers execution and schedules
+        a follow-up when the limiter is paused."""
         # Arrange
         mock_target._paused_until = time.time() + 0.2
         consume_mock = MagicMock()
@@ -82,7 +71,8 @@ class DrainBehaviorTests:
     async def test_drain_schedules_backup_when_lock_contended(
         self, limiter, mock_target
     ):
-        """Verify that ``drain()`` schedules a backup drain when the dispatch lock is not acquired."""
+        """Verify that ``drain()`` schedules a backup drain
+        when the dispatch lock is not acquired."""
         # Arrange
         consume_mock = MagicMock()
 
@@ -115,7 +105,8 @@ class DrainBehaviorTests:
     async def test_drain_dispatches_task_and_schedules_follow_up(
         self, limiter, mock_target
     ):
-        """Verify that a successful consume dispatches the task and schedules the next drain."""
+        """Verify that a successful consume dispatches the task
+        and schedules the next drain."""
         # Arrange
         consume_result = {
             "success": True,
@@ -160,7 +151,8 @@ class DrainBehaviorTests:
         )
 
     async def test_drain_stops_when_buffer_empty(self, limiter, mock_target):
-        """Verify that ``drain()`` stops without scheduling a follow-up when no tasks remain."""
+        """Verify that ``drain()`` stops without scheduling
+        a follow-up when no tasks remain."""
         # Arrange
         consume_result = {
             "success": False,
@@ -194,7 +186,8 @@ class DrainBehaviorTests:
     async def test_drain_handles_expired_task_without_dispatch(
         self, limiter, mock_target
     ):
-        """Verify that an expired consume result is neither dispatched nor rescheduled."""
+        """Verify that an expired consume result is neither
+        dispatched nor rescheduled."""
         # Arrange
         consume_result = {
             "success": False,
@@ -222,11 +215,13 @@ class DrainBehaviorTests:
             "drain should not dispatch expired task results"
         )
         assert limiter.scheduled_drains == [], (
-            "drain should not schedule follow-up when expired result has no remaining tasks"
+            "drain should not schedule follow-up when expired "
+            "result has no remaining tasks"
         )
 
     async def test_drain_stops_when_concurrency_at_capacity(self, limiter, mock_target):
-        """Verify that ``drain()`` stops without scheduling a follow-up when concurrency is saturated."""
+        """Verify that ``drain()`` stops without scheduling
+        a follow-up when concurrency is saturated."""
         # Arrange
         consume_result = {
             "success": False,
@@ -260,7 +255,8 @@ class DrainBehaviorTests:
     async def test_drain_schedules_delayed_retry_when_rate_limited(
         self, limiter, mock_target
     ):
-        """Verify that ``drain()`` schedules a delayed retry when the remaining tokens are exhausted."""
+        """Verify that ``drain()`` schedules a delayed retry
+        when the remaining tokens are exhausted."""
         # Arrange
         consume_result = {
             "success": False,
@@ -298,11 +294,13 @@ class DrainBehaviorTests:
             "drain should schedule one delayed retry when rate-limited"
         )
         assert limiter.scheduled_drains[0] == pytest.approx(0.25), (
-            "rate-limited retry delay should be reset_in_ms/1000 = 0.25 on fallback path"
+            "rate-limited retry delay should be "
+            "reset_in_ms/1000 = 0.25 on fallback path"
         )
 
     async def test_drain_calls_refresh_config_if_available(self, limiter, mock_target):
-        """Verify that ``drain()`` calls ``refresh_config()`` when the attribute exists."""
+        """Verify that ``drain()`` calls ``refresh_config()``
+        when the attribute exists."""
         # Arrange
         mock_target.refresh_config = self._mock_cls()
         consume_result = {
@@ -330,7 +328,8 @@ class DrainBehaviorTests:
         mock_target.refresh_config.assert_called_once()
 
     async def test_drain_resets_failure_counter_on_success(self, limiter, mock_target):
-        """Verify that the consecutive failure counter resets to zero after a successful drain."""
+        """Verify that the consecutive failure counter resets
+        to zero after a successful drain."""
         # Arrange
         mock_target._consecutive_drain_failures = 3
         consume_result = {
@@ -376,7 +375,6 @@ class DrainBehaviorTests:
                 side_effect=RuntimeError("fail"),
             ),
         ):
-            # Two consecutive failures to verify escalating backoff.
             await limiter.drain()
             await limiter.drain()
 
@@ -397,7 +395,8 @@ class DrainBehaviorTests:
     async def test_drain_dispatches_last_task_without_follow_up(
         self, limiter, mock_target
     ):
-        """Verify that drain does not schedule a follow-up after dispatching the last task."""
+        """Verify that drain does not schedule a follow-up
+        after dispatching the last task."""
         # Arrange
         consume_result = {
             "success": True,
@@ -438,7 +437,8 @@ class DrainBehaviorTests:
     async def test_drain_stops_after_expired_task_with_remaining_tasks(
         self, limiter, mock_target
     ):
-        """Verify that drain stops without follow-up when an expired task leaves remaining tasks."""
+        """Verify that drain stops without follow-up when an
+        expired task leaves remaining tasks."""
         # Arrange
         consume_result = {
             "success": False,
@@ -466,13 +466,15 @@ class DrainBehaviorTests:
             "drain should not dispatch when consume reports an expired task"
         )
         assert limiter.scheduled_drains == [], (
-            "drain should not schedule a follow-up in the expired-with-remaining fall-through path"
+            "drain should not schedule a follow-up in the "
+            "expired-with-remaining fall-through path"
         )
 
     async def test_drain_handles_double_failure_when_schedule_drain_also_fails(
         self, limiter, mock_target
     ):
-        """Verify that ``drain()`` does not propagate when both the inner drain and recovery scheduling fail."""
+        """Verify that ``drain()`` does not propagate when both
+        the inner drain and recovery scheduling fail."""
         # Act
         with (
             patch.object(
@@ -491,7 +493,6 @@ class DrainBehaviorTests:
                 side_effect=RuntimeError("schedule also failed"),
             ),
         ):
-            # This invocation must not raise.
             await limiter.drain()
 
         # Assert
@@ -502,7 +503,8 @@ class DrainBehaviorTests:
     async def test_drain_skips_jitter_on_token_recovery_path(
         self, limiter, mock_target
     ):
-        """Verify that jitter is skipped when the token recovery uses sliding-window decay."""
+        """Verify that jitter is skipped when the token
+        recovery uses sliding-window decay."""
         # Arrange
         consume_result = {
             "success": False,
@@ -541,16 +543,14 @@ class DrainBehaviorTests:
             "drain should schedule a retry based on pure token-recovery delay"
         )
         assert limiter.scheduled_drains[0] == pytest.approx(0.001), (
-            "token-recovery retry delay should be 0.001 when decay has already freed a token"
+            "token-recovery retry delay should be 0.001 "
+            "when decay has already freed a token"
         )
 
     @staticmethod
     async def test_shutdown_delegates_to_drain_loop(limiter):
         """Verify that ``shutdown()`` completes without error on an idle limiter."""
         # Act & Assert
-        # This invocation must not raise. The drain loop was never woken because
-        # TrackingRateLimiter overrides _schedule_drain; as such, this exercises
-        # the delegation path on the base class.
         await limiter.shutdown()
 
     @staticmethod
@@ -587,7 +587,9 @@ class DrainBehaviorTests:
         expected = max(5.0, limiter.window * 2)
         actual = limiter._drain_loop._watchdog_interval
         assert actual == expected, (
-            f"watchdog interval should be max(5.0, window * 2) = {expected}, got {actual}"
+            f"watchdog interval should be "
+            f"max(5.0, window * 2) = {expected}, "
+            f"got {actual}"
         )
 
     @staticmethod
@@ -608,15 +610,11 @@ class DrainBehaviorTests:
 
 
 class DrainObservabilityTests:
-    """Observability tests for ``drain()`` log emissions.
+    """Observability test mixin for ``drain()`` log emissions.
 
-    These tests mirror the behavioral scenarios in ``DrainBehaviorTests`` but
-    assert exclusively on log output per Section 4.1 of the testing guidelines.
-
-    Subclasses must provide the same customization points as ``DrainBehaviorTests``:
-        - ``limiter``: a fixture returning the limiter under test.
-        - ``mock_target``: a fixture returning the object to patch.
-        - ``lock_result(acquired)``: a class method returning a sync or async context manager.
+    Mirrors the behavioral scenarios in ``DrainBehaviorTests``
+    but asserts exclusively on log output. Uses the same fixture
+    mixins for variant-specific customization points.
     """
 
     @staticmethod
@@ -635,13 +633,16 @@ class DrainObservabilityTests:
             caplog.records,
             level="DEBUG",
             required_fragments=[f"limiter={limiter.id}", "paused"],
-            message="should emit a debug log indicating the drain is deferred due to pause",
+            message=(
+                "should emit a debug log indicating the drain is deferred due to pause"
+            ),
         )
 
     async def test_drain_lock_contended_emits_debug_log(
         self, limiter, mock_target, caplog
     ):
-        """Verify that ``drain()`` emits a debug log when the dispatch lock is contended."""
+        """Verify that ``drain()`` emits a debug log when
+        the dispatch lock is contended."""
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
             with (
@@ -659,13 +660,16 @@ class DrainObservabilityTests:
             caplog.records,
             level="DEBUG",
             required_fragments=[f"limiter={limiter.id}", "delay_s=12.000"],
-            message="should emit a debug log for the backup drain with limiter id and delay",
+            message=(
+                "should emit a debug log for the backup drain with limiter id and delay"
+            ),
         )
 
     async def test_drain_dispatch_emits_expected_logs(
         self, limiter, mock_target, caplog
     ):
-        """Verify that a successful dispatch emits an info log and a follow-up debug log."""
+        """Verify that a successful dispatch emits an info
+        log and a follow-up debug log."""
         # Arrange
         consume_result = {
             "success": True,
@@ -702,7 +706,10 @@ class DrainObservabilityTests:
                 "task_id=task-1",
                 "func_path=myapp.tasks.work",
             ],
-            message="should emit an info log for the dispatched task with limiter id, task id, and func path",
+            message=(
+                "should emit an info log for the dispatched "
+                "task with limiter id, task id, and func path"
+            ),
         )
         assert_log_emitted(
             caplog.records,
@@ -714,7 +721,8 @@ class DrainObservabilityTests:
     async def test_drain_consume_exception_emits_error_log(
         self, limiter, mock_target, caplog
     ):
-        """Verify that a consume exception emits an error log with the attempt number."""
+        """Verify that a consume exception emits an error
+        log with the attempt number."""
         # Act
         with caplog.at_level(logging.ERROR, logger="redis_rate_limiter"):
             with (
@@ -736,13 +744,17 @@ class DrainObservabilityTests:
             caplog.records,
             level="ERROR",
             required_fragments=[f"limiter={limiter.id}", "attempt #1"],
-            message="should emit an error log containing the limiter id and failure attempt number",
+            message=(
+                "should emit an error log containing the "
+                "limiter id and failure attempt number"
+            ),
         )
 
     async def test_drain_double_failure_emits_critical_log(
         self, limiter, mock_target, caplog
     ):
-        """Verify that ``drain()`` emits a CRITICAL log when both consume and recovery scheduling fail."""
+        """Verify that ``drain()`` emits a CRITICAL log when
+        both consume and recovery scheduling fail."""
         # Act
         with caplog.at_level(logging.CRITICAL, logger="redis_rate_limiter"):
             with (
@@ -772,13 +784,17 @@ class DrainObservabilityTests:
                 f"limiter={limiter.id}",
                 "Recovery scheduling also failed",
             ],
-            message="should emit a critical log when both drain and recovery scheduling fail",
+            message=(
+                "should emit a critical log when both "
+                "drain and recovery scheduling fail"
+            ),
         )
 
     async def test_drain_expired_task_emits_warning_log(
         self, limiter, mock_target, caplog
     ):
-        """Verify that an expired consume result emits a warning log mentioning the DLQ."""
+        """Verify that an expired consume result emits a
+        warning log mentioning the DLQ."""
         # Arrange
         consume_result = {
             "success": False,
@@ -807,7 +823,10 @@ class DrainObservabilityTests:
             caplog.records,
             level="WARNING",
             required_fragments=[f"limiter={limiter.id}", "DLQ"],
-            message="should emit a warning log indicating the expired task was moved to the DLQ",
+            message=(
+                "should emit a warning log indicating "
+                "the expired task was moved to the DLQ"
+            ),
         )
 
     async def test_drain_concurrency_at_capacity_emits_debug_log(
@@ -846,13 +865,18 @@ class DrainObservabilityTests:
                 f"active={limiter.max_concurrency}",
                 f"max={limiter.max_concurrency}",
             ],
-            message="should emit a debug log indicating concurrency is at capacity with active and max counts",
+            message=(
+                "should emit a debug log indicating "
+                "concurrency is at capacity with "
+                "active and max counts"
+            ),
         )
 
     async def test_drain_rate_limited_emits_info_log(
         self, limiter, mock_target, caplog
     ):
-        """Verify that ``drain()`` emits an info log when scheduling a rate-limited retry."""
+        """Verify that ``drain()`` emits an info log when
+        scheduling a rate-limited retry."""
         # Arrange
         consume_result = {
             "success": False,
@@ -892,14 +916,19 @@ class DrainObservabilityTests:
                 "delay_s=0.250",
                 "remaining_tasks=4",
             ],
-            message="should emit an info log for the rate-limited retry with delay and remaining tasks",
+            message=(
+                "should emit an info log for the "
+                "rate-limited retry with delay "
+                "and remaining tasks"
+            ),
         )
 
     @staticmethod
     async def test_publish_drain_signal_emits_debug_log_on_failure(
         limiter, mock_target, caplog
     ):
-        """Verify that ``_publish_drain_signal()`` emits a debug log when Redis publish fails."""
+        """Verify that ``_publish_drain_signal()`` emits a
+        debug log when Redis publish fails."""
         # Arrange
         with patch.object(
             mock_target.redis, "publish", side_effect=Exception("publish boom")
@@ -925,15 +954,15 @@ class DrainObservabilityTests:
 # ---------------------------------------------------------------------------
 
 
-class TestSyncDrain(DrainBehaviorTests, DrainObservabilityTests):
-    """Sync drain behavior exercised through the async adapter."""
+class _SyncDrainFixture:
+    """Shared fixture mixin for sync drain tests."""
 
     _mock_cls = MagicMock
 
     @staticmethod
     @contextmanager
     def lock_result(acquired):
-        """Provide a sync context manager that yields a deterministic lock outcome."""
+        """Yield a deterministic lock outcome."""
         yield acquired
 
     @pytest.fixture
@@ -943,19 +972,19 @@ class TestSyncDrain(DrainBehaviorTests, DrainObservabilityTests):
 
     @pytest.fixture
     def mock_target(self, tracking_limiter):
-        """Return the inner sync tracking limiter as the patch target."""
+        """Return the inner sync limiter as the patch target."""
         return tracking_limiter
 
 
-class TestAsyncDrain(DrainBehaviorTests, DrainObservabilityTests):
-    """Async drain behavior exercised natively."""
+class _AsyncDrainFixture:
+    """Shared fixture mixin for async drain tests."""
 
     _mock_cls = AsyncMock
 
     @staticmethod
     @asynccontextmanager
     async def lock_result(acquired):
-        """Provide an async context manager that yields a deterministic lock outcome."""
+        """Yield a deterministic lock outcome."""
         yield acquired
 
     @pytest.fixture
@@ -965,8 +994,28 @@ class TestAsyncDrain(DrainBehaviorTests, DrainObservabilityTests):
 
     @pytest.fixture
     def mock_target(self, async_tracking_limiter):
-        """Return the async tracking limiter as the patch target."""
+        """Return the async limiter as the patch target."""
         return async_tracking_limiter
+
+
+@pytest.mark.behavior
+class TestSyncDrainBehavior(_SyncDrainFixture, DrainBehaviorTests):
+    """Sync drain behavior via the async adapter."""
+
+
+@pytest.mark.observability
+class TestSyncDrainObservability(_SyncDrainFixture, DrainObservabilityTests):
+    """Sync drain observability via the async adapter."""
+
+
+@pytest.mark.behavior
+class TestAsyncDrainBehavior(_AsyncDrainFixture, DrainBehaviorTests):
+    """Async drain behavior exercised natively."""
+
+
+@pytest.mark.observability
+class TestAsyncDrainObservability(_AsyncDrainFixture, DrainObservabilityTests):
+    """Async drain observability exercised natively."""
 
 
 # ---------------------------------------------------------------------------
@@ -996,7 +1045,6 @@ class DrainDisabledTests:
         )
 
         # Act
-        # trigger_consume delegates to _schedule_drain, which should be a no-op.
         await limiter.trigger_consume()
 
         # Assert
@@ -1011,12 +1059,12 @@ class DrainDisabledTests:
         limiter = await limiter_factory(drain_enabled=False)
 
         # Act & Assert
-        # Must not raise.
         await limiter.shutdown()
 
     @staticmethod
     async def test_shutdown_twice_does_not_raise_when_drain_disabled(limiter_factory):
-        """Verify that calling ``shutdown()`` twice does not raise when ``drain_enabled=False``."""
+        """Verify that calling ``shutdown()`` twice does not
+        raise when ``drain_enabled=False``."""
         # Arrange
         limiter = await limiter_factory(drain_enabled=False)
 
@@ -1024,10 +1072,10 @@ class DrainDisabledTests:
         await limiter.shutdown()
 
         # Assert
-        # Second shutdown must not raise.
         await limiter.shutdown()
 
 
+@pytest.mark.behavior
 class TestSyncDrainDisabled(DrainDisabledTests):
     """Sync scheduler-only mode exercised through the async adapter."""
 
@@ -1049,6 +1097,7 @@ class TestSyncDrainDisabled(DrainDisabledTests):
         return _factory
 
 
+@pytest.mark.behavior
 class TestAsyncDrainDisabled(DrainDisabledTests):
     """Async scheduler-only mode exercised natively."""
 
@@ -1065,13 +1114,14 @@ class TestAsyncDrainDisabled(DrainDisabledTests):
                 max_concurrency=2,
             )
             defaults.update(kwargs)
-            lim = MinimalAsyncRateLimiter(**defaults)
+            lim = AsyncStubRateLimiter(**defaults)
             await lim.start()
             return lim
 
         return _factory
 
 
+@pytest.mark.behavior
 class TestAsyncScheduleDrainDelegation:
     """Tests for the base-class ``_schedule_drain`` implementation on async limiters.
 
@@ -1083,16 +1133,17 @@ class TestAsyncScheduleDrainDelegation:
 
     @staticmethod
     async def test_schedule_drain_delegates_to_drain_loop_wake(
-        async_generic_limiter,
+        async_stub_limiter,
     ):
-        """Verify that the base-class ``_schedule_drain`` delegates to ``_drain_loop.wake()``."""
+        """Verify that the base-class ``_schedule_drain``
+        delegates to ``_drain_loop.wake()``."""
         # Arrange
         mock_loop = MagicMock()
 
         # Act
-        with patch.object(async_generic_limiter, "_drain_loop", mock_loop):
+        with patch.object(async_stub_limiter, "_drain_loop", mock_loop):
             AbstractAsyncDistributedRateLimiter._schedule_drain(
-                async_generic_limiter, delay=1.5
+                async_stub_limiter, delay=1.5
             )
 
         # Assert
@@ -1100,15 +1151,16 @@ class TestAsyncScheduleDrainDelegation:
 
     @staticmethod
     async def test_schedule_drain_is_noop_when_drain_loop_is_none(
-        async_generic_limiter,
+        async_stub_limiter,
     ):
-        """Verify that the base-class ``_schedule_drain`` is a no-op when ``_drain_loop`` is ``None``."""
+        """Verify that the base-class ``_schedule_drain`` is
+        a no-op when ``_drain_loop`` is ``None``."""
         # Act & Assert
-        # Must not raise AttributeError.
-        with patch.object(async_generic_limiter, "_drain_loop", None):
-            AbstractAsyncDistributedRateLimiter._schedule_drain(async_generic_limiter)
+        with patch.object(async_stub_limiter, "_drain_loop", None):
+            AbstractAsyncDistributedRateLimiter._schedule_drain(async_stub_limiter)
 
 
+@pytest.mark.behavior
 class TestCrossProcessDrainSignal:
     """Tests for the Redis Pub/Sub cross-process drain notification mechanism.
 
@@ -1118,9 +1170,9 @@ class TestCrossProcessDrainSignal:
 
     @staticmethod
     def test_trigger_consume_publishes_drain_signal(redis_client, limiter_id):
-        """Verify that ``trigger_consume()`` publishes a drain signal to the Pub/Sub channel."""
+        """Verify that ``trigger_consume()`` publishes a
+        drain signal to the Pub/Sub channel."""
         # Arrange
-        # Set up a test subscriber to capture the message.
         limiter_id = f"{limiter_id}_pubsub"
         channel = f"{limiter_id}:drain_signal"
         test_sub = redis_client.pubsub()
@@ -1155,7 +1207,8 @@ class TestCrossProcessDrainSignal:
 
     @staticmethod
     def test_subscriber_wakes_drain_on_cross_process_signal(redis_client, limiter_id):
-        """Verify that a drain signal from one limiter wakes another limiter's drain loop."""
+        """Verify that a drain signal from one limiter wakes
+        another limiter's drain loop."""
         # Arrange
         limiter_id = f"{limiter_id}_cross"
         limiter_a = TrackingRateLimiter(
@@ -1194,7 +1247,8 @@ class TestCrossProcessDrainSignal:
 
     @staticmethod
     def test_subscriber_ignores_self_notification(redis_client, limiter_id):
-        """Verify that the subscriber ignores drain signals originating from the local process."""
+        """Verify that the subscriber ignores drain signals
+        originating from the local process."""
         # Arrange
         limiter_id = f"{limiter_id}_self"
         limiter = TrackingRateLimiter(
@@ -1216,8 +1270,6 @@ class TestCrossProcessDrainSignal:
                 limiter.trigger_consume()
 
             # Assert
-            # Only the direct _schedule_drain() call from trigger_consume();
-            # the subscriber filters out self-notifications.
             assert len(limiter.scheduled_drains) == 1, (
                 "subscriber should ignore self-notifications; "
                 f"expected 1 scheduled drain, got {len(limiter.scheduled_drains)}"
@@ -1227,7 +1279,8 @@ class TestCrossProcessDrainSignal:
 
     @staticmethod
     def test_drain_disabled_still_publishes(redis_client, limiter_id):
-        """Verify that ``trigger_consume()`` publishes even when ``drain_enabled=False``."""
+        """Verify that ``trigger_consume()`` publishes even
+        when ``drain_enabled=False``."""
         # Arrange
         limiter_id = f"{limiter_id}_disabled_pub"
         channel = f"{limiter_id}:drain_signal"
@@ -1267,6 +1320,7 @@ class TestCrossProcessDrainSignal:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestAsyncCrossProcessDrainSignal:
     """Async tests for the Redis Pub/Sub cross-process drain notification mechanism.
 
@@ -1278,16 +1332,16 @@ class TestAsyncCrossProcessDrainSignal:
     async def test_trigger_consume_publishes_drain_signal(
         async_redis_client, limiter_id
     ):
-        """Verify that ``trigger_consume()`` publishes a drain signal to the Pub/Sub channel."""
+        """Verify that ``trigger_consume()`` publishes a
+        drain signal to the Pub/Sub channel."""
         # Arrange
-        # Set up a test subscriber to capture the message.
         limiter_id = f"{limiter_id}_async_pubsub"
         channel = f"{limiter_id}:drain_signal"
         test_sub = async_redis_client.pubsub()
         await test_sub.subscribe(channel)
         await test_sub.get_message(timeout=1.0)  # consume the subscribe confirmation
 
-        limiter = MinimalAsyncRateLimiter(
+        limiter = AsyncStubRateLimiter(
             redis_client=async_redis_client,
             limiter_id=limiter_id,
             limit=5,
@@ -1321,7 +1375,8 @@ class TestAsyncCrossProcessDrainSignal:
     async def test_subscriber_wakes_drain_on_cross_process_signal(
         async_redis_client, limiter_id
     ):
-        """Verify that a drain signal from one limiter wakes another limiter's drain loop."""
+        """Verify that a drain signal from one limiter wakes
+        another limiter's drain loop."""
         # Arrange
         limiter_id = f"{limiter_id}_async_cross"
         limiter_a = AsyncTrackingRateLimiter(
@@ -1364,7 +1419,8 @@ class TestAsyncCrossProcessDrainSignal:
 
     @staticmethod
     async def test_subscriber_ignores_self_notification(async_redis_client, limiter_id):
-        """Verify that the subscriber ignores drain signals originating from the local process."""
+        """Verify that the subscriber ignores drain signals
+        originating from the local process."""
         # Arrange
         limiter_id = f"{limiter_id}_async_self"
         limiter = AsyncTrackingRateLimiter(
@@ -1389,8 +1445,6 @@ class TestAsyncCrossProcessDrainSignal:
                 await limiter.trigger_consume()
 
             # Assert
-            # Only the direct _schedule_drain() call from trigger_consume();
-            # the subscriber filters out self-notifications.
             assert len(limiter.scheduled_drains) == 1, (
                 "subscriber should ignore self-notifications; "
                 f"expected 1 scheduled drain, got {len(limiter.scheduled_drains)}"
@@ -1400,7 +1454,8 @@ class TestAsyncCrossProcessDrainSignal:
 
     @staticmethod
     async def test_drain_disabled_still_publishes(async_redis_client, limiter_id):
-        """Verify that ``trigger_consume()`` publishes even when ``drain_enabled=False``."""
+        """Verify that ``trigger_consume()`` publishes even
+        when ``drain_enabled=False``."""
         # Arrange
         limiter_id = f"{limiter_id}_async_disabled_pub"
         channel = f"{limiter_id}:drain_signal"
@@ -1408,7 +1463,7 @@ class TestAsyncCrossProcessDrainSignal:
         await test_sub.subscribe(channel)
         await test_sub.get_message(timeout=1.0)  # consume the subscribe confirmation
 
-        limiter = MinimalAsyncRateLimiter(
+        limiter = AsyncStubRateLimiter(
             redis_client=async_redis_client,
             limiter_id=limiter_id,
             limit=5,
@@ -1444,6 +1499,7 @@ class TestAsyncCrossProcessDrainSignal:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.signature
 class TestScheduleDrainSignatures:
     """Signature tests for ``_schedule_drain()`` default parameter values."""
 

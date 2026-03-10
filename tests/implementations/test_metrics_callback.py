@@ -6,7 +6,9 @@ systems. Tests are written once in async form; the sync implementation
 participates via the ``SyncToAsyncLimiterAdapter``.
 
 Fixture dependencies:
-    - ``redis_client``, ``async_redis_client``, ``limiter_id``, ``func_path``: from ``tests/conftest.py``.
+    - ``redis_client``, ``async_redis_client``,
+      ``limiter_id``, ``func_path``:
+      from ``tests/conftest.py``.
 """
 
 import inspect
@@ -18,13 +20,14 @@ import pytest
 
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 from tests.helpers.utils import assert_log_emitted
-from tests.implementations.conftest import MinimalAsyncRateLimiter, MinimalRateLimiter
+from tests.implementations.conftest import AsyncStubRateLimiter, StubRateLimiter
 
 # ---------------------------------------------------------------------------
 # Unified implementation tests
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class MetricsCallbackTests:
     """Unified test suite for the metrics callback behavior.
 
@@ -40,7 +43,9 @@ class MetricsCallbackTests:
 
     @staticmethod
     async def test_metrics_callback_none_by_default(limiter_no_callback):
-        """Verify that the metrics_callback defaults to ``None`` and does not cause errors."""
+        """Verify that the metrics_callback defaults to
+        ``None`` and does not cause errors.
+        """
         # Arrange
         limiter = limiter_no_callback
 
@@ -56,7 +61,9 @@ class MetricsCallbackTests:
 
     @staticmethod
     async def test_consume_emits_metric(limiter, callback):
-        """Verify that consume emits a metric with the correct event name and data keys."""
+        """Verify that consume emits a metric with the
+        correct event name and data keys.
+        """
         # Act
         await limiter.consume()
 
@@ -73,12 +80,15 @@ class MetricsCallbackTests:
             "remaining_tasks",
         }
         assert set(event_data.keys()) == expected_keys, (
-            f"consume event should contain keys {expected_keys}, got {set(event_data.keys())}"
+            f"consume event should contain keys {expected_keys},"
+            f" got {set(event_data.keys())}"
         )
 
     @staticmethod
     async def test_schedule_emits_metric(limiter, callback, func_path):
-        """Verify that ``schedule_task()`` emits a metric with the correct event name and data."""
+        """Verify that ``schedule_task()`` emits a metric
+        with the correct event name and data.
+        """
         # Act
         was_scheduled, task_id = await limiter.schedule_task(
             func_path, {"key": "value"}
@@ -95,19 +105,18 @@ class MetricsCallbackTests:
         assert event_name == "schedule", "event name should be 'schedule'"
         assert event_data["scheduled"] is True, "task should be reported as scheduled"
         assert event_data["task_id"] == task_id, (
-            f"emitted task_id ({event_data['task_id']}) should match returned task_id ({task_id})"
+            f"emitted task_id ({event_data['task_id']}) should"
+            f" match returned task_id ({task_id})"
         )
 
     @staticmethod
     async def test_schedule_duplicate_emits_not_scheduled(limiter, callback, func_path):
         """Verify that scheduling a duplicate task emits ``scheduled=False``."""
         # Arrange
-        # Schedule the task once so that it becomes in-flight.
         await limiter.schedule_task(func_path, {"key": "value"})
         callback.reset_mock()
 
         # Act
-        # Schedule the same task again.
         was_scheduled, task_id = await limiter.schedule_task(
             func_path, {"key": "value"}
         )
@@ -120,7 +129,9 @@ class MetricsCallbackTests:
 
     @staticmethod
     async def test_consume_metric_includes_expired_flag(limiter, callback):
-        """Verify that the metric data correctly reflects ``expired=True`` for expired consume results."""
+        """Verify that the metric data correctly reflects
+        ``expired=True`` for expired consume results.
+        """
         # Arrange
         task_json = json.dumps(
             {
@@ -166,7 +177,9 @@ class MetricsCallbackTests:
 
     @staticmethod
     async def test_callback_exception_does_not_break_consume(limiter, callback):
-        """Verify that consume continues to function when the callback raises an exception."""
+        """Verify that consume continues to function when
+        the callback raises an exception.
+        """
         # Arrange
         callback.side_effect = RuntimeError("callback failure")
 
@@ -185,7 +198,9 @@ class MetricsCallbackTests:
     async def test_callback_exception_does_not_break_schedule(
         limiter, callback, func_path
     ):
-        """Verify that ``schedule_task()`` continues to function when the callback raises an exception."""
+        """Verify that ``schedule_task()`` continues to
+        function when the callback raises an exception.
+        """
         # Arrange
         callback.side_effect = RuntimeError("callback failure")
 
@@ -226,6 +241,7 @@ class MetricsCallbackTests:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class MetricsCallbackObservabilityTests:
     """Observability tests for the metrics callback feature.
 
@@ -258,7 +274,8 @@ class MetricsCallbackObservabilityTests:
             caplog.records,
             "DEBUG",
             [f"limiter={limiter.id}", "success=False", "remaining_tokens=10"],
-            "should emit a debug log for the consume result with limiter id, success, and remaining tokens",
+            "should emit a debug log for the consume result"
+            " with limiter id, success, and remaining tokens",
         )
 
     @staticmethod
@@ -306,7 +323,7 @@ class MetricsCallbackObservabilityTests:
                 f"limiter={limiter.id}",
                 "event=schedule",
             ],
-            "should emit a warning log when the metrics callback raises during schedule",
+            "should emit a warning log when the callback raises during schedule",
         )
 
 
@@ -315,13 +332,16 @@ class MetricsCallbackObservabilityTests:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestSyncMetricsCallback(MetricsCallbackTests, MetricsCallbackObservabilityTests):
     """Sync rate limiter metrics callback exercised through the async adapter."""
 
     @pytest.fixture
     def limiter(self, redis_client, callback, limiter_id):
-        """Create a sync limiter with a metrics callback, wrapped in the async adapter."""
-        _limiter = MinimalRateLimiter(
+        """Create a sync limiter with a metrics callback,
+        wrapped in the async adapter.
+        """
+        _limiter = StubRateLimiter(
             redis_client=redis_client,
             limiter_id=f"{limiter_id}_sync_metrics",
             limit=10,
@@ -334,8 +354,10 @@ class TestSyncMetricsCallback(MetricsCallbackTests, MetricsCallbackObservability
 
     @pytest.fixture
     def limiter_no_callback(self, redis_client, limiter_id):
-        """Create a sync limiter without a metrics callback, wrapped in the async adapter."""
-        _limiter = MinimalRateLimiter(
+        """Create a sync limiter without a metrics callback,
+        wrapped in the async adapter.
+        """
+        _limiter = StubRateLimiter(
             redis_client=redis_client,
             limiter_id=f"{limiter_id}_sync_no_metrics",
             limit=10,
@@ -346,13 +368,14 @@ class TestSyncMetricsCallback(MetricsCallbackTests, MetricsCallbackObservability
         _limiter.shutdown()
 
 
+@pytest.mark.behavior
 class TestAsyncMetricsCallback(MetricsCallbackTests, MetricsCallbackObservabilityTests):
     """Async rate limiter metrics callback exercised natively."""
 
     @pytest.fixture
     async def limiter(self, async_redis_client, callback, limiter_id):
         """Create an async limiter with a metrics callback."""
-        lim = MinimalAsyncRateLimiter(
+        lim = AsyncStubRateLimiter(
             redis_client=async_redis_client,
             limiter_id=f"{limiter_id}_async_metrics",
             limit=10,
@@ -367,7 +390,7 @@ class TestAsyncMetricsCallback(MetricsCallbackTests, MetricsCallbackObservabilit
     @pytest.fixture
     async def limiter_no_callback(self, async_redis_client, limiter_id):
         """Create an async limiter without a metrics callback."""
-        lim = MinimalAsyncRateLimiter(
+        lim = AsyncStubRateLimiter(
             redis_client=async_redis_client,
             limiter_id=f"{limiter_id}_async_no_metrics",
             limit=10,
