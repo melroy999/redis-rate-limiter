@@ -196,7 +196,8 @@ class TestLockReleaseScript:
 
     @staticmethod
     def test_sets_cooldown_when_contention_detected(redis_client, lock_key):
-        """Verify that a cooldown key is set when contention was detected during the lock hold."""
+        """Verify that a cooldown key is set when contention
+        was detected during the lock hold."""
         # Arrange
         cooldown_key = f"{lock_key}:cd:worker-1"
         contention_key = f"{lock_key}:contention"

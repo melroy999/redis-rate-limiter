@@ -6,7 +6,8 @@ and telemetry accuracy at the Lua level.
 
 Fixture dependencies:
     - ``redis_client``: from ``tests/conftest.py``.
-    - ``base_key``, ``buffer_key``, ``concurrency_key``, ``dlq_key``: from ``tests/lua/conftest.py``.
+    - ``base_key``, ``buffer_key``, ``concurrency_key``,
+      ``dlq_key``: from ``tests/lua/conftest.py``.
 """
 
 from tests.lua.conftest import (
@@ -97,7 +98,8 @@ class TestConsumeReturnValues:
     def test_success_returns_task_json(
         redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
-        """Verify that a successful consumption returns the original task JSON string."""
+        """Verify that a successful consumption returns the original
+        task JSON string."""
         # Arrange
         now = get_redis_timestamp(redis_client)
         task_json = build_task_json("task-1", arrived_at_ms=now * 1000)
@@ -284,7 +286,8 @@ class TestConsumeBoundaryDecisions:
     def test_allows_when_estimate_is_one_below_limit(
         redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
-        """Verify that consumption is allowed when the estimated count is one below the limit."""
+        """Verify that consumption is allowed when the estimated
+        count is one below the limit."""
         # Arrange
         now = get_redis_timestamp(redis_client)
         task_json = build_task_json("task-1", arrived_at_ms=now * 1000)
@@ -324,7 +327,8 @@ class TestConsumeBoundaryDecisions:
     def test_concurrency_at_max_denies_request(
         redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
-        """Verify that consumption is denied when the concurrency set is at ``max_concurrency``."""
+        """Verify that consumption is denied when the concurrency
+        set is at ``max_concurrency``."""
         # Arrange
         now = get_redis_timestamp(redis_client)
         task_json = build_task_json("task-1", arrived_at_ms=now * 1000)
@@ -347,7 +351,8 @@ class TestConsumeBoundaryDecisions:
     def test_concurrency_below_max_allows_request(
         redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
-        """Verify that consumption is allowed when the concurrency set is one below ``max_concurrency``."""
+        """Verify that consumption is allowed when the concurrency
+        set is one below ``max_concurrency``."""
         # Arrange
         now = get_redis_timestamp(redis_client)
         task_json = build_task_json("task-1", arrived_at_ms=now * 1000)
@@ -428,11 +433,11 @@ class TestConsumeBoundaryDecisions:
     def test_pexpire_set_on_first_increment_only(
         redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
-        """Verify that ``PEXPIRE`` is set on the first increment only.
+        """Verify that the window key's TTL is established once.
 
-        A mutation changing ``current_count == 0`` to ``current_count == 1``
-        would cause the TTL to be reset on every second consume instead of
-        only on the first.
+        The expiry is set when the window counter is first created.
+        Later increments within the same window must not reset the
+        TTL.
         """
         # Arrange
         now = get_redis_timestamp(redis_client)
@@ -542,3 +547,6 @@ class TestConsumeTelemetry:
 
         # Assert
         assert result[4] > 0, "reset_in_ms should be positive within a window"
+        assert result[4] <= WINDOW_SIZE * 1000, (
+            "reset_in_ms should not exceed the window size"
+        )

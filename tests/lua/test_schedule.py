@@ -83,7 +83,9 @@ class TestSchedule:
         )
 
     @staticmethod
-    def test_meta_max_age_injected_when_provided(redis_client, buffer_key, build_task_json):
+    def test_meta_max_age_injected_when_provided(
+        redis_client, buffer_key, build_task_json
+    ):
         """Verify that ``__meta_max_age`` is injected when ARGV[3] is provided."""
         # Arrange
         task_json = build_task_json("task-1")
@@ -101,7 +103,9 @@ class TestSchedule:
         )
 
     @staticmethod
-    def test_meta_max_age_absent_when_argv3_is_empty_string(redis_client, buffer_key, build_task_json):
+    def test_meta_max_age_absent_when_argv3_is_empty_string(
+        redis_client, buffer_key, build_task_json
+    ):
         """Verify that ``__meta_max_age`` is absent when ARGV[3] is an empty string.
 
         When ``max_age`` is not provided, the Python layer passes ``""`` to
@@ -121,7 +125,9 @@ class TestSchedule:
         )
 
     @staticmethod
-    def test_gsub_handles_nested_closing_brace(redis_client, buffer_key, build_task_json):
+    def test_gsub_handles_nested_closing_brace(
+        redis_client, buffer_key, build_task_json
+    ):
         """Verify that ``string.gsub`` injects metadata at the correct position.
 
         The ``gsub`` pattern ``'}$'`` should match only the final closing

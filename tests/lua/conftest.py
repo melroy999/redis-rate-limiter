@@ -13,6 +13,7 @@ import json
 import time
 
 import pytest
+from redis import Redis
 
 from redis_rate_limiter.core.limiters import (
     LOCK_ACQUIRE_SCRIPT,
@@ -42,7 +43,7 @@ COOLDOWN_MS: int = 1000
 
 
 def get_window_keys(
-    redis_client,  # type: ignore[no-untyped-def]
+    redis_client: Redis,
     base_key: str,
     window_size: int = WINDOW_SIZE,
 ) -> tuple[str, str]:
@@ -84,7 +85,7 @@ def get_window_keys(
     return current_key, previous_key
 
 
-def get_redis_timestamp(redis_client) -> int:  # type: ignore[no-untyped-def]
+def get_redis_timestamp(redis_client: Redis) -> int:
     """Return the current Redis server timestamp in seconds.
 
     Args:
@@ -138,7 +139,8 @@ def _build_task_json(
 
 @pytest.fixture
 def build_task_json(base_key: str):
-    """Provide a factory for building JSON task strings with namespace-isolated inflight keys.
+    """Provide a factory for building JSON task strings with
+    namespace-isolated inflight keys.
 
     The returned callable has the same signature as the underlying
     ``_build_task_json`` helper, but with ``base_key`` pre-bound from the

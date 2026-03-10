@@ -52,7 +52,8 @@ class TestWeightCalculation:
 
     @staticmethod
     def test_weight_is_one_at_window_start():
-        """Verify that the previous window is assigned full weight (1.0) at the window start."""
+        """Verify that the previous window is assigned full weight
+        (1.0) at the window start."""
         # Arrange
         window_ms = 1000
         elapsed_ms = 0
@@ -73,7 +74,8 @@ class TestWeightCalculation:
 
     @staticmethod
     def test_weight_is_half_at_window_midpoint():
-        """Verify that the previous window is assigned half weight (0.5) at the window midpoint."""
+        """Verify that the previous window is assigned half weight
+        (0.5) at the window midpoint."""
         # Arrange
         window_ms = 1000
         elapsed_ms = 500
@@ -94,7 +96,8 @@ class TestWeightCalculation:
 
     @staticmethod
     def test_weight_is_zero_at_window_end():
-        """Verify that the previous window is assigned zero weight (0.0) at the window end."""
+        """Verify that the previous window is assigned zero weight
+        (0.0) at the window end."""
         # Arrange
         window_ms = 1000
         elapsed_ms = 1000
@@ -129,7 +132,8 @@ class TestWeightCalculation:
                 elapsed_ms=elapsed,
             )
             assert estimated == pytest.approx(5.0), (
-                f"estimated request count should be 5.0 at elapsed={elapsed}ms, got {estimated}"
+                f"estimated request count should be 5.0 at "
+                f"elapsed={elapsed}ms, got {estimated}"
             )
 
     @staticmethod
@@ -178,7 +182,8 @@ class TestWeightCalculation:
         # Assert
         expected_estimate = previous_count * expected_weight
         assert estimated == pytest.approx(expected_estimate, rel=1e-9), (
-            f"estimated request count at {elapsed_ms}ms should be {expected_estimate}, got {estimated}"
+            f"estimated request count at {elapsed_ms}ms should be "
+            f"{expected_estimate}, got {estimated}"
         )
 
 
@@ -187,7 +192,8 @@ class TestEstimateFormula:
 
     @staticmethod
     def test_combined_counts_at_midpoint():
-        """Verify that both the previous and current counts contribute to the estimate."""
+        """Verify that both the previous and current counts
+        contribute to the estimate."""
         # Arrange
         previous_count = 10
         current_count = 5
@@ -203,7 +209,8 @@ class TestEstimateFormula:
         # Assert
         # estimated = 5 + (10 * 0.5) = 10.0
         assert estimated == pytest.approx(10.0), (
-            f"estimated request count should be 10.0 (curr=5 + prev=10*0.5), got {estimated}"
+            f"estimated request count should be 10.0 "
+            f"(curr=5 + prev=10*0.5), got {estimated}"
         )
 
     @staticmethod
@@ -218,7 +225,9 @@ class TestEstimateFormula:
                 elapsed_ms=elapsed,
             )
             assert estimated == pytest.approx(0.0), (
-                f"estimated request count should be 0.0 with empty windows, got {estimated} at elapsed={elapsed}ms"
+                f"estimated request count should be 0.0 with "
+                f"empty windows, got {estimated} at "
+                f"elapsed={elapsed}ms"
             )
 
     @staticmethod
@@ -244,7 +253,8 @@ class TestEstimateFormula:
         ],
     )
     def test_formula_across_configurations(prev, curr, window, elapsed, expected):
-        """Verify that the formula produces correct results across various configurations."""
+        """Verify that the formula produces correct results across
+        various configurations."""
         # Act
         estimated = sliding_window_estimate(prev, curr, window, elapsed)
 
@@ -328,46 +338,37 @@ class TestRateLimitDecision:
         # At the window start: estimated = 0 + (10 * 1.0) = 10.0, denied
         result = is_allowed(10, 0, 1000, 0, limit)
         assert result is False, (
-            f"is_allowed should return False at elapsed=0ms (estimate=10, limit=10), got {result}"
+            f"is_allowed should return False at elapsed=0ms "
+            f"(estimate=10, limit=10), got {result}"
         )
 
         # After 100ms: estimated = 0 + (10 * 0.9) = 9.0, permitted
         result = is_allowed(10, 0, 1000, 100, limit)
         assert result is True, (
-            f"is_allowed should return True at elapsed=100ms (estimate=9, limit=10), got {result}"
+            f"is_allowed should return True at elapsed=100ms "
+            f"(estimate=9, limit=10), got {result}"
         )
 
         # At the midpoint: estimated = 0 + (10 * 0.5) = 5.0, permitted
         result = is_allowed(10, 0, 1000, 500, limit)
         assert result is True, (
-            f"is_allowed should return True at elapsed=500ms (estimate=5, limit=10), got {result}"
+            f"is_allowed should return True at elapsed=500ms "
+            f"(estimate=5, limit=10), got {result}"
         )
 
 
 class TestBurstBoundProperty:
     """Tests verifying the 2x burst bound property of the algorithm.
 
-    The algorithm can permit up to 2x the limit within a window-sized period
-    when the following conditions are met:
-
-    1. The previous window is empty (i.e., no requests were recorded).
-    2. Requests arrive at the very end of the current (empty) window.
-    3. Requests continue into the subsequent window.
-
-    In this scenario:
-    - End of window N: up to `limit` requests can be consumed (previous empty).
-    - Start of window N+1: `limit` additional requests as the previous weight decays.
-
-    This is a known algorithmic property, not a defect. These tests verify
-    that the bound is respected and document the expected behavior.
-
-    See also: tests/integration/test_rate_limiting.py for behavioral tests
-    that verify this property with the actual Redis/Lua implementation.
+    The algorithm can permit up to 2x the limit when an empty previous
+    window is followed by a boundary crossing. This is a known algorithmic
+    property, not a defect.
     """
 
     @staticmethod
     def test_max_burst_at_boundary_with_empty_history():
-        """Verify that an empty previous window permits the full limit at the window end (2x burst scenario)."""
+        """Verify that an empty previous window permits the full
+        limit at the window end (2x burst scenario)."""
         # Arrange
         limit = 10
         window_ms = 1000
@@ -387,7 +388,8 @@ class TestBurstBoundProperty:
 
     @staticmethod
     def test_second_window_allows_more_after_first_window_burst():
-        """Verify that additional requests are permitted as the weight decays after a burst at the window end."""
+        """Verify that additional requests are permitted as the
+        weight decays after a burst at the window end."""
         # Arrange
         limit = 10
         window_ms = 1000
@@ -397,17 +399,20 @@ class TestBurstBoundProperty:
         # At window N+1 start: estimated = 0 + (10 * 1.0) = 10.0, exactly at limit
         result = is_allowed(previous_count, 0, window_ms, 0, limit)
         assert result is False, (
-            f"is_allowed should return False at window boundary (estimate=10, limit=10), got {result}"
+            f"is_allowed should return False at window boundary "
+            f"(estimate=10, limit=10), got {result}"
         )
 
         # At elapsed=1ms: estimated = 0 + (10 * 0.999) = 9.99 < 10, allowed
         result = is_allowed(previous_count, 0, window_ms, 1, limit)
         assert result is True, (
-            f"is_allowed should return True at elapsed=1ms (estimate=9.99, limit=10), got {result}"
+            f"is_allowed should return True at elapsed=1ms "
+            f"(estimate=9.99, limit=10), got {result}"
         )
 
         # Consume additional requests in window N+1, spread throughout the window.
-        # Each request requires the weight to decay sufficiently: weight < (limit - current) / limit
+        # Each request requires the weight to decay sufficiently:
+        # weight < (limit - current) / limit
         consumed_in_window_n1 = 0
         for elapsed in range(1, window_ms + 1):
             if is_allowed(
@@ -419,12 +424,14 @@ class TestBurstBoundProperty:
 
         # Assert
         assert consumed_in_window_n1 == limit, (
-            f"consumed count in window N+1 should be {limit}, got {consumed_in_window_n1}"
+            f"consumed count in window N+1 should be {limit}, "
+            f"got {consumed_in_window_n1}"
         )
 
     @staticmethod
     def test_burst_cannot_exceed_2x_limit():
-        """Property: the total burst in the worst-case scenario is exactly 2x the limit."""
+        """Property: the total burst in the worst-case scenario is
+        exactly 2x the limit."""
         # Arrange
         limit = 10
         window_ms = 1000
@@ -435,7 +442,8 @@ class TestBurstBoundProperty:
             if is_allowed(0, consumed_n, window_ms, window_ms - 1, limit):
                 consumed_n += 1
 
-        # Window N+1: the previous window has consumed_n; consume as the weight decays over the full window
+        # Window N+1: the previous window has consumed_n; consume
+        # as the weight decays over the full window
         consumed_n1 = 0
         for elapsed in range(1, window_ms + 1):
             if is_allowed(consumed_n, consumed_n1, window_ms, elapsed, limit):
@@ -455,7 +463,8 @@ class TestBurstBoundProperty:
             f"total burst should be {2 * limit}, got {total_burst}"
         )
 
-        # Verify that no additional requests can be consumed when both windows are at the limit
+        # Verify that no additional requests can be consumed
+        # when both windows are at the limit
         result = is_allowed(limit, limit, window_ms, 100, limit)
         assert result is False, (
             f"is_allowed should return False when both windows at limit, got {result}"
@@ -548,14 +557,16 @@ class TestSmoothingBehavior:
         assert allowed_at_times[500] == 5, (
             f"allowed requests at t=500 should be 5, got {allowed_at_times[500]}"
         )
-        # At t=1000: 10 requests can be permitted (the previous window has fully aged out)
+        # At t=1000: 10 requests can be permitted
+        # (the previous window has fully aged out)
         assert allowed_at_times[1000] == 10, (
             f"allowed requests at t=1000 should be 10, got {allowed_at_times[1000]}"
         )
 
     @staticmethod
     def test_steady_state_maintains_limit():
-        """Verify that the algorithm maintains approximately the limit per window in the steady state."""
+        """Verify that the algorithm maintains approximately the
+        limit per window in the steady state."""
         # Arrange
         limit = 10
         window_ms = 1000
@@ -574,5 +585,6 @@ class TestSmoothingBehavior:
 
         # Assert
         assert allowed_count == 5, (
-            f"allowed count at midpoint with full previous should be 5, got {allowed_count}"
+            f"allowed count at midpoint with full previous "
+            f"should be 5, got {allowed_count}"
         )
