@@ -43,35 +43,40 @@ class TestAbstractBackendHooks:
 
     @staticmethod
     def test_configure_backend_raises_not_implemented():
-        """Contract: ``_configure_backend`` must raise ``NotImplementedError`` when not overridden."""
+        """Contract: ``_configure_backend`` must raise
+        ``NotImplementedError`` when not overridden."""
         # Act & Assert
         with pytest.raises(NotImplementedError, match="^Subclasses"):
             _BareMixin._configure_backend()
 
     @staticmethod
     def test_has_backend_context_raises_not_implemented():
-        """Contract: ``_has_backend_context`` must raise ``NotImplementedError`` when not overridden."""
+        """Contract: ``_has_backend_context`` must raise
+        ``NotImplementedError`` when not overridden."""
         # Act & Assert
         with pytest.raises(NotImplementedError, match="^Subclasses"):
             _BareMixin._has_backend_context()
 
     @staticmethod
     def test_get_instance_context_raises_not_implemented():
-        """Contract: ``_get_instance_context`` must raise ``NotImplementedError`` when not overridden."""
+        """Contract: ``_get_instance_context`` must raise
+        ``NotImplementedError`` when not overridden."""
         # Act & Assert
         with pytest.raises(NotImplementedError, match="^Subclasses"):
             _BareMixin._get_instance_context()
 
     @staticmethod
     def test_reset_backend_context_raises_not_implemented():
-        """Contract: ``_reset_backend_context`` must raise ``NotImplementedError`` when not overridden."""
+        """Contract: ``_reset_backend_context`` must raise
+        ``NotImplementedError`` when not overridden."""
         # Act & Assert
         with pytest.raises(NotImplementedError, match="^Subclasses"):
             _BareMixin._reset_backend_context()
 
     @staticmethod
     def test_configure_hint_raises_not_implemented():
-        """Contract: ``_configure_hint`` must raise ``NotImplementedError`` when not overridden."""
+        """Contract: ``_configure_hint`` must raise
+        ``NotImplementedError`` when not overridden."""
         # Act & Assert
         with pytest.raises(NotImplementedError, match="^Subclasses"):
             _BareMixin._configure_hint()
@@ -98,7 +103,8 @@ class TestConfigureHintCompliance:
         ids=lambda cls: cls.__name__,
     )
     def test_configure_hint_starts_with_class_name(backend_cls):
-        """Contract: ``_configure_hint()`` must return a hint starting with the class name."""
+        """Contract: ``_configure_hint()`` must return a hint
+        starting with the class name."""
         # Act
         hint = backend_cls._configure_hint()
 

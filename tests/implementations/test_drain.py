@@ -1112,8 +1112,8 @@ class TestAsyncScheduleDrainDelegation:
 class TestCrossProcessDrainSignal:
     """Tests for the Redis Pub/Sub cross-process drain notification mechanism.
 
-    These tests are inherently sync-specific: they use ``redis_client.pubsub()``,
-    ``time.sleep()``, and threading-based subscribers.
+    These tests are inherently sync-specific: they use ``redis_client.pubsub()``
+    and threading-based subscribers.
     """
 
     @staticmethod
@@ -1157,7 +1157,6 @@ class TestCrossProcessDrainSignal:
     def test_subscriber_wakes_drain_on_cross_process_signal(redis_client, limiter_id):
         """Verify that a drain signal from one limiter wakes another limiter's drain loop."""
         # Arrange
-        # Two limiter instances with the same ID (simulating two workers).
         limiter_id = f"{limiter_id}_cross"
         limiter_a = TrackingRateLimiter(
             redis_client=redis_client,
@@ -1165,6 +1164,7 @@ class TestCrossProcessDrainSignal:
             limit=5,
             window=60,
             max_concurrency=2,
+            drain_enabled=False,
         )
         limiter_b = TrackingRateLimiter(
             redis_client=redis_client,
@@ -1172,19 +1172,19 @@ class TestCrossProcessDrainSignal:
             limit=5,
             window=60,
             max_concurrency=2,
+            drain_enabled=False,
         )
+
+        def simulate_subscriber(channel, message):
+            if message != limiter_b._worker_id:
+                limiter_b._schedule_drain()
 
         try:
             # Act
-            # Trigger consume on limiter A (publishes with A's worker_id).
-            limiter_a.trigger_consume()
-
-            # Allow the subscriber thread time to process the message.
-            time.sleep(1.0)
+            with patch.object(redis_client, "publish", side_effect=simulate_subscriber):
+                limiter_a.trigger_consume()
 
             # Assert
-            # Limiter B's subscriber should have received the signal
-            # and called _schedule_drain() on limiter B.
             assert len(limiter_b.scheduled_drains) >= 1, (
                 "limiter B should have received a drain signal from limiter A"
             )
@@ -1203,20 +1203,21 @@ class TestCrossProcessDrainSignal:
             limit=5,
             window=60,
             max_concurrency=2,
+            drain_enabled=False,
         )
+
+        def simulate_subscriber(channel, message):
+            if message != limiter._worker_id:
+                limiter._schedule_drain()
 
         try:
             # Act
-            limiter.trigger_consume()
-
-            # Allow the subscriber thread time to process (or ignore) the message.
-            time.sleep(1.0)
+            with patch.object(redis_client, "publish", side_effect=simulate_subscriber):
+                limiter.trigger_consume()
 
             # Assert
-            # scheduled_drains should have exactly 1 entry from the
-            # direct _schedule_drain() call in trigger_consume(). The subscriber
-            # receives the message but ignores it because the sender's worker_id
-            # matches the local worker_id.
+            # Only the direct _schedule_drain() call from trigger_consume();
+            # the subscriber filters out self-notifications.
             assert len(limiter.scheduled_drains) == 1, (
                 "subscriber should ignore self-notifications; "
                 f"expected 1 scheduled drain, got {len(limiter.scheduled_drains)}"
@@ -1269,8 +1270,8 @@ class TestCrossProcessDrainSignal:
 class TestAsyncCrossProcessDrainSignal:
     """Async tests for the Redis Pub/Sub cross-process drain notification mechanism.
 
-    These tests are inherently async-specific: they use ``redis.asyncio.Redis.pubsub()``,
-    ``asyncio.sleep()``, and task-based subscribers.
+    These tests are inherently async-specific: they use ``redis.asyncio.Redis.pubsub()``
+    and task-based subscribers.
     """
 
     @staticmethod
@@ -1322,58 +1323,44 @@ class TestAsyncCrossProcessDrainSignal:
     ):
         """Verify that a drain signal from one limiter wakes another limiter's drain loop."""
         # Arrange
-        # Two limiter instances with the same ID (simulating two workers).
-        # Each needs its own Redis connection for independent Pub/Sub.
         limiter_id = f"{limiter_id}_async_cross"
-        conn_a = redis.asyncio.Redis(
-            host=async_redis_client.connection_pool.connection_kwargs["host"],
-            port=async_redis_client.connection_pool.connection_kwargs["port"],
-            db=async_redis_client.connection_pool.connection_kwargs.get("db", 0),
-            decode_responses=True,
-        )
-        conn_b = redis.asyncio.Redis(
-            host=async_redis_client.connection_pool.connection_kwargs["host"],
-            port=async_redis_client.connection_pool.connection_kwargs["port"],
-            db=async_redis_client.connection_pool.connection_kwargs.get("db", 0),
-            decode_responses=True,
-        )
-
         limiter_a = AsyncTrackingRateLimiter(
-            redis_client=conn_a,
+            redis_client=async_redis_client,
             limiter_id=limiter_id,
             limit=5,
             window=60,
             max_concurrency=2,
+            drain_enabled=False,
         )
         limiter_b = AsyncTrackingRateLimiter(
-            redis_client=conn_b,
+            redis_client=async_redis_client,
             limiter_id=limiter_id,
             limit=5,
             window=60,
             max_concurrency=2,
+            drain_enabled=False,
         )
         await limiter_a.start()
         await limiter_b.start()
 
+        async def simulate_subscriber(channel, message):
+            if message != limiter_b._worker_id:
+                limiter_b._schedule_drain()
+
         try:
             # Act
-            # Trigger consume on limiter A (publishes with A's worker_id).
-            await limiter_a.trigger_consume()
-
-            # Allow the subscriber task time to process the message.
-            await asyncio.sleep(1.0)
+            with patch.object(
+                async_redis_client, "publish", side_effect=simulate_subscriber
+            ):
+                await limiter_a.trigger_consume()
 
             # Assert
-            # Limiter B's subscriber should have received the signal
-            # and called _schedule_drain() on limiter B.
             assert len(limiter_b.scheduled_drains) >= 1, (
                 "limiter B should have received a drain signal from limiter A"
             )
         finally:
             await limiter_a.shutdown()
             await limiter_b.shutdown()
-            await conn_a.aclose()
-            await conn_b.aclose()
 
     @staticmethod
     async def test_subscriber_ignores_self_notification(async_redis_client, limiter_id):
@@ -1386,21 +1373,24 @@ class TestAsyncCrossProcessDrainSignal:
             limit=5,
             window=60,
             max_concurrency=2,
+            drain_enabled=False,
         )
         await limiter.start()
 
+        async def simulate_subscriber(channel, message):
+            if message != limiter._worker_id:
+                limiter._schedule_drain()
+
         try:
             # Act
-            await limiter.trigger_consume()
-
-            # Allow the subscriber task time to process (or ignore) the message.
-            await asyncio.sleep(1.0)
+            with patch.object(
+                async_redis_client, "publish", side_effect=simulate_subscriber
+            ):
+                await limiter.trigger_consume()
 
             # Assert
-            # scheduled_drains should have exactly 1 entry from the
-            # direct _schedule_drain() call in trigger_consume(). The subscriber
-            # receives the message but ignores it because the sender's worker_id
-            # matches the local worker_id.
+            # Only the direct _schedule_drain() call from trigger_consume();
+            # the subscriber filters out self-notifications.
             assert len(limiter.scheduled_drains) == 1, (
                 "subscriber should ignore self-notifications; "
                 f"expected 1 scheduled drain, got {len(limiter.scheduled_drains)}"

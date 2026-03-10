@@ -101,17 +101,7 @@ class TestSerializationProperties:
             task_data = json.loads(task_data_str)
 
             # Extract the payload from the stored task data.
-            # The limiter wraps payloads with metadata: {"data": ..., "meta": {...}}
-            stored_enhanced_payload = task_data.get("payload")
-            if (
-                isinstance(stored_enhanced_payload, dict)
-                and "data" in stored_enhanced_payload
-            ):
-                # Extract only the data portion
-                stored_payload = stored_enhanced_payload["data"]
-            else:
-                # Fallback for non-enhanced payloads
-                stored_payload = stored_enhanced_payload
+            stored_payload = task_data.get("payload")
 
             # The payload should survive the round-trip intact.
             # Approximate equality is used for floats to account for JSON precision limits.

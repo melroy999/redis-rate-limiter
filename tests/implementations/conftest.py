@@ -1,13 +1,13 @@
 """Fixtures for generic implementation tests.
 
 This module provides fixtures for testing implementations that do not require
-Celery-specific functionality. Both sync and async test helpers are provided;
+backend-specific functionality. Both sync and async test helpers are provided;
 sync helpers extend ``AbstractDistributedRateLimiter``, while async helpers
 extend ``AbstractAsyncDistributedRateLimiter``.
 
 Fixture dependencies from the root ``tests/conftest.py``:
-    - ``redis_client``: sync Redis client with per-test ``flushdb`` isolation.
-    - ``async_redis_client``: async Redis client with per-test ``flushdb`` isolation.
+    - ``redis_client``: sync Redis client with per-test namespace isolation.
+    - ``async_redis_client``: async Redis client with per-test namespace isolation.
     - ``limiter_id``: unique per-test limiter identifier.
 """
 
@@ -26,23 +26,22 @@ from redis_rate_limiter import (
 
 
 class MinimalRateLimiter(AbstractDistributedRateLimiter):
-    """Minimal concrete implementation of the abstract rate limiter for testing purposes.
+    """Rate limiter whose dispatch and drain hooks perform no work.
 
-    This class provides the minimum set of required methods to test the
-    abstract base class behavior without introducing Celery dependencies.
+    This allows tests to exercise all inherited core logic (consume, schedule,
+    lifecycle) without any tasks being dispatched or drain cycles triggered.
     """
 
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
-        """Dispatch implementation that performs no action, used for testing."""
         pass
 
     def _schedule_drain(self, delay: float = 0.0) -> None:
-        """Drain scheduling implementation that performs no action, used for testing."""
         pass
 
 
 class TrackingRateLimiter(MinimalRateLimiter):
-    """Concrete rate limiter that records all dispatch and drain scheduling invocations."""
+    """Concrete rate limiter that records all dispatch and drain scheduling
+    invocations."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -50,7 +49,7 @@ class TrackingRateLimiter(MinimalRateLimiter):
         self.scheduled_drains: list[float] = []
 
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
-        """Record the dispatch invocation for subsequent assertion in drain tests."""
+        """Record the dispatch invocation for subsequent test assertion."""
         self.dispatched_tasks.append(
             {"func_path": func_path, "payload": payload, "task_id": task_id}
         )
@@ -66,25 +65,22 @@ class TrackingRateLimiter(MinimalRateLimiter):
 
 
 class MinimalAsyncRateLimiter(AbstractAsyncDistributedRateLimiter):
-    """Minimal async concrete implementation of the abstract rate limiter for testing purposes.
+    """Async rate limiter whose dispatch and drain hooks perform no work.
 
-    This class provides the minimum set of required methods to test the
-    async abstract base class behavior without introducing backend dependencies.
-    The ``_schedule_drain`` override prevents the drain loop from being woken,
-    keeping the test environment deterministic.
+    This allows tests to exercise all inherited async core logic without any
+    tasks being dispatched or drain cycles triggered.
     """
 
     async def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
-        """Dispatch implementation that performs no action, used for testing."""
         pass
 
     def _schedule_drain(self, delay: float = 0.0) -> None:
-        """Drain scheduling implementation that performs no action, used for testing."""
         pass
 
 
 class AsyncTrackingRateLimiter(MinimalAsyncRateLimiter):
-    """Async concrete rate limiter that records all dispatch and drain scheduling invocations."""
+    """Async concrete rate limiter that records all dispatch and drain
+    scheduling invocations."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -92,7 +88,7 @@ class AsyncTrackingRateLimiter(MinimalAsyncRateLimiter):
         self.scheduled_drains: list[float] = []
 
     async def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
-        """Record the dispatch invocation for subsequent assertion in drain tests."""
+        """Record the dispatch invocation for subsequent test assertion."""
         self.dispatched_tasks.append(
             {"func_path": func_path, "payload": payload, "task_id": task_id}
         )
@@ -109,25 +105,14 @@ class AsyncTrackingRateLimiter(MinimalAsyncRateLimiter):
 
 @pytest.fixture
 def task_id():
-    """Provide a unique task identifier for testing to prevent accidental coupling."""
+    """Produce a realistic, non-hardcoded task identifier so tests do not
+    accidentally depend on a specific string."""
     return f"task_{uuid4().hex[:8]}"
 
 
 @pytest.fixture
 def generic_limiter(redis_client, limiter_id):
-    """Create a minimal rate limiter instance for testing abstract behavior.
-
-    This fixture provides a concrete implementation without Celery dependencies,
-    and is therefore suitable for testing generic rate limiter functionality.
-
-    Args:
-        redis_client: The Redis client fixture provided by the parent conftest.
-        limiter_id: A unique base limiter identifier from which the fixture limiter identifier is derived.
-
-    Yields:
-        A configured MinimalRateLimiter instance ready for testing.
-    """
-    # Setup.
+    # Setup
     limiter_id = f"{limiter_id}_generic"
     test_limiter = MinimalRateLimiter(
         redis_client=redis_client,
@@ -141,14 +126,13 @@ def generic_limiter(redis_client, limiter_id):
 
     yield test_limiter
 
-    # Teardown: stop the subscriber thread.
+    # Teardown
     test_limiter.shutdown()
 
 
 @pytest.fixture
 def tracking_limiter(redis_client, limiter_id):
-    """Create a tracking rate limiter that records all dispatch and schedule invocations."""
-    # Setup.
+    # Setup
     limiter_id = f"{limiter_id}_tracking"
     test_limiter = TrackingRateLimiter(
         redis_client=redis_client,
@@ -162,29 +146,21 @@ def tracking_limiter(redis_client, limiter_id):
 
     yield test_limiter
 
-    # Teardown: stop the subscriber thread.
+    # Teardown
     test_limiter.shutdown()
 
 
 @pytest.fixture
 def make_limiter_pool(redis_client, limiter_id):
-    """Factory fixture that creates N rate limiter instances sharing the same Redis state.
+    """Create N rate limiter instances sharing the same Redis state.
 
-    This simulates N independent workers that all operate against the same
-    rate limiter, which corresponds to the intended distributed deployment topology.
-
-    Args:
-        redis_client: The Redis client fixture provided by the parent conftest.
-        limiter_id: A unique base identifier for the current test.
-
-    Yields:
-        A factory function that accepts (n, *, limiter_cls, **kwargs).
+    This simulates N independent workers all rate-limited by the same key,
+    as they would be in a multi-process deployment.
     """
-    pool_limiter_id = None
+    # Setup
     created_limiters: list = []
 
     def _factory(n, *, limiter_cls=MinimalRateLimiter, **kwargs):
-        nonlocal pool_limiter_id
         pool_limiter_id = f"{limiter_id}_concurrent"
         defaults = dict(
             limit=5, window=60, max_concurrency=2, max_age=3600, lease_duration=30
@@ -201,7 +177,7 @@ def make_limiter_pool(redis_client, limiter_id):
 
     yield _factory
 
-    # Teardown: stop subscriber threads.
+    # Teardown
     for lim in created_limiters:
         lim.shutdown()
 
@@ -213,21 +189,7 @@ def make_limiter_pool(redis_client, limiter_id):
 
 @pytest.fixture
 async def async_generic_limiter(async_redis_client, limiter_id):
-    """Create a minimal async rate limiter instance for testing abstract behavior.
-
-    This fixture provides an async concrete implementation without backend
-    dependencies, suitable for testing generic async rate limiter functionality.
-    Lua scripts are registered and the drain signal subscriber is started via
-    ``start()``.
-
-    Args:
-        async_redis_client: The async Redis client fixture provided by the parent conftest.
-        limiter_id: A unique base limiter identifier from which the fixture limiter identifier is derived.
-
-    Yields:
-        A configured MinimalAsyncRateLimiter instance ready for testing.
-    """
-    # Setup.
+    # Setup
     limiter_id = f"{limiter_id}_async_generic"
     test_limiter = MinimalAsyncRateLimiter(
         redis_client=async_redis_client,
@@ -242,14 +204,13 @@ async def async_generic_limiter(async_redis_client, limiter_id):
 
     yield test_limiter
 
-    # Teardown: stop the subscriber task.
+    # Teardown
     await test_limiter.shutdown()
 
 
 @pytest.fixture
 async def async_tracking_limiter(async_redis_client, limiter_id):
-    """Create an async tracking rate limiter that records all dispatch and schedule invocations."""
-    # Setup.
+    # Setup
     limiter_id = f"{limiter_id}_async_tracking"
     test_limiter = AsyncTrackingRateLimiter(
         redis_client=async_redis_client,
@@ -264,29 +225,21 @@ async def async_tracking_limiter(async_redis_client, limiter_id):
 
     yield test_limiter
 
-    # Teardown: stop the subscriber task.
+    # Teardown
     await test_limiter.shutdown()
 
 
 @pytest.fixture
 async def make_async_limiter_pool(async_redis_client, limiter_id):
-    """Factory fixture that creates N async rate limiter instances sharing the same Redis state.
+    """Create N async rate limiter instances sharing the same Redis state.
 
-    This simulates N independent async workers that all operate against the same
-    rate limiter, which corresponds to the intended distributed deployment topology.
-
-    Args:
-        async_redis_client: The async Redis client fixture provided by the parent conftest.
-        limiter_id: A unique base identifier for the current test.
-
-    Yields:
-        An async factory function that accepts (n, *, limiter_cls, **kwargs).
+    This simulates N independent workers all rate-limited by the same key,
+    as they would be in a multi-process deployment.
     """
-    pool_limiter_id = None
+    # Setup
     created_limiters: list = []
 
     async def _factory(n, *, limiter_cls=MinimalAsyncRateLimiter, **kwargs):
-        nonlocal pool_limiter_id
         pool_limiter_id = f"{limiter_id}_async_concurrent"
         defaults = dict(
             limit=5, window=60, max_concurrency=2, max_age=3600, lease_duration=30
@@ -306,6 +259,6 @@ async def make_async_limiter_pool(async_redis_client, limiter_id):
 
     yield _factory
 
-    # Teardown: stop subscriber tasks.
+    # Teardown
     for lim in created_limiters:
         await lim.shutdown()
