@@ -14,11 +14,7 @@ from tests.algorithms.sliding_window_counter import is_allowed, sliding_window_e
 
 
 class TestSlidingWindowProperties:
-    """Property-based tests for the sliding window counter invariants.
-
-    These tests employ Hypothesis to verify mathematical properties that hold
-    for any valid input, without re-implementing the formula itself.
-    """
+    """Property-based tests for the sliding window counter invariants."""
 
     @staticmethod
     @given(
@@ -28,7 +24,8 @@ class TestSlidingWindowProperties:
         elapsed_ms=st.integers(min_value=0, max_value=100000),
     )
     def test_estimate_is_bounded(previous_count, current_count, window_ms, elapsed_ms):
-        """Property: the estimate is always bounded between current_count and (previous + current)."""
+        """Property: the estimate is always bounded between
+        current_count and (previous + current)."""
         # Arrange
         elapsed_ms = elapsed_ms % (window_ms + 1)
 
@@ -42,7 +39,8 @@ class TestSlidingWindowProperties:
         upper = previous_count + current_count
         assert lower <= estimate <= upper, (
             f"estimate {estimate} should be in range [{lower}, {upper}]\n"
-            f"(prev={previous_count}, curr={current_count}, window={window_ms}ms, elapsed={elapsed_ms}ms)"
+            f"(prev={previous_count}, curr={current_count},"
+            f" window={window_ms}ms, elapsed={elapsed_ms}ms)"
         )
 
     @staticmethod
@@ -64,7 +62,8 @@ class TestSlidingWindowProperties:
         # Assert
         for i in range(len(estimates) - 1):
             assert estimates[i] >= estimates[i + 1], (
-                f"estimate should decrease over time, but estimates[{i}]={estimates[i]} "
+                f"estimate should decrease over time,"
+                f" but estimates[{i}]={estimates[i]} "
                 f"< estimates[{i + 1}]={estimates[i + 1]} "
                 f"(prev={previous_count}, curr={current_count}, window={window_ms}ms)"
             )
@@ -102,7 +101,8 @@ class TestSlidingWindowProperties:
     def test_is_allowed_matches_estimate_comparison(
         previous_count, current_count, window_ms, elapsed_ms, limit
     ):
-        """Property: is_allowed returns True if and only if the estimate is less than the limit."""
+        """Property: is_allowed returns True if and only if
+        the estimate is less than the limit."""
         # Arrange
         elapsed_ms = elapsed_ms % (window_ms + 1)
 
@@ -117,8 +117,10 @@ class TestSlidingWindowProperties:
         # Assert
         expected = estimate < limit
         assert allowed == expected, (
-            f"is_allowed returned {allowed}, but estimate ({estimate}) < limit ({limit}) is {expected}\n"
-            f"(prev={previous_count}, curr={current_count}, window={window_ms}ms, elapsed={elapsed_ms}ms)"
+            f"is_allowed returned {allowed}, but estimate"
+            f" ({estimate}) < limit ({limit}) is {expected}\n"
+            f"(prev={previous_count}, curr={current_count},"
+            f" window={window_ms}ms, elapsed={elapsed_ms}ms)"
         )
 
     @staticmethod
@@ -130,7 +132,8 @@ class TestSlidingWindowProperties:
     def test_estimate_equals_previous_plus_current_at_start(
         previous_count, current_count, window_ms
     ):
-        """Property: at elapsed=0, the estimate equals the sum of previous and current."""
+        """Property: at elapsed=0, the estimate equals the sum
+        of previous and current."""
         # Act
         estimate = sliding_window_estimate(previous_count, current_count, window_ms, 0)
 
@@ -157,5 +160,6 @@ class TestSlidingWindowProperties:
 
         # Assert
         assert estimate == pytest.approx(current_count), (
-            f"at elapsed=window_ms, estimate should be {current_count} (curr only), got {estimate}"
+            f"at elapsed=window_ms, estimate should be"
+            f" {current_count} (curr only), got {estimate}"
         )

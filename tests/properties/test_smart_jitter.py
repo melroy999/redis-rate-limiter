@@ -145,7 +145,9 @@ class TestSmartJitterProperties:
         assert not monotonicity_violations, (
             f"paired jitter monotonicity violated for load pressure; "
             f"violations={len(monotonicity_violations)}, first={first_violation}, "
-            f"avg_low={avg_low:.4f}, avg_medium={avg_medium:.4f}, avg_high={avg_high:.4f}"
+            f"avg_low={avg_low:.4f}, "
+            f"avg_medium={avg_medium:.4f}, "
+            f"avg_high={avg_high:.4f}"
         )
 
     @staticmethod
@@ -160,7 +162,8 @@ class TestSmartJitterProperties:
     def test_concurrency_pressure_is_monotonic(
         property_limiter, random_stream, low_active, high_active
     ):
-        """Property: paired random streams preserve the concurrency-based jitter ordering."""
+        """Property: paired random streams preserve the
+        concurrency-based jitter ordering."""
         # Arrange
         assume(low_active < high_active)
         samples = len(random_stream)

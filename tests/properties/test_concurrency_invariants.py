@@ -21,6 +21,7 @@ def _clear_limiter_keys(redis_client, limiter):
     if keys:
         redis_client.delete(*keys)
 
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -65,7 +66,8 @@ class TestConcurrencyInvariantProperties:
     def test_active_concurrency_never_exceeds_max(
         property_limiter, property_redis_client, operations
     ):
-        """Property: the active concurrency never exceeds the configured max_concurrency."""
+        """Property: the active concurrency never exceeds
+        the configured max_concurrency."""
         # Arrange
         _clear_limiter_keys(property_redis_client, property_limiter)
         next_payload_id = 0
@@ -86,7 +88,8 @@ class TestConcurrencyInvariantProperties:
                 assert (
                     result["active_concurrency"] <= property_limiter.max_concurrency
                 ), (
-                    "consume should never report active_concurrency above max_concurrency"
+                    "consume should never report"
+                    " active_concurrency above max_concurrency"
                 )
             else:
                 if active_task_ids:

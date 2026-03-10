@@ -180,11 +180,14 @@ class TestTokenRecoveryDelayProperties:
         val_current,
         reset_fraction,
     ):
-        """Property: on the primary path, the sliding window estimate is below the limit after waiting the computed delay.
+        """Property: on the primary path, the sliding window
+        estimate is below the limit after waiting the computed
+        delay.
 
-        This property validates the formula correctness by computing the
-        estimate at the projected elapsed time and verifying that it is
-        strictly less than the configured limit.
+        This property validates the formula correctness by
+        computing the estimate at the projected elapsed time
+        and verifying that it is strictly less than the
+        configured limit.
         """
         # Arrange
         # Restrict to the primary path where decay can free a token.

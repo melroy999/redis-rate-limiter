@@ -49,7 +49,8 @@ class TestByClientIpProperties:
     @staticmethod
     @given(ip=ipv4_addresses, port=ports)
     def test_identity_preservation(ip, port):
-        """Property: the extracted IP equals the string representation of the client address."""
+        """Property: the extracted IP equals the string
+        representation of the client address."""
         # Arrange
         scope = {"client": (ip, port)}
 
@@ -64,7 +65,8 @@ class TestByClientIpProperties:
     @staticmethod
     @given(ip=latin1_text, port=ports)
     def test_non_ip_client_values_are_returned_as_strings(ip, port):
-        """Property: any client address value is returned as its string representation."""
+        """Property: any client address value is returned
+        as its string representation."""
         # Arrange
         scope = {"client": (ip, port)}
 
@@ -96,13 +98,15 @@ class TestByHeaderProperties:
 
         # Assert
         assert result == value, (
-            f"header value should survive round-trip: got {result!r}, expected {value!r}"
+            f"header value should survive round-trip: "
+            f"got {result!r}, expected {value!r}"
         )
 
     @staticmethod
     @given(name=header_names, value=latin1_text)
     def test_case_insensitive_name_matching(name, value):
-        """Property: header name matching is case-insensitive regardless of input casing."""
+        """Property: header name matching is
+        case-insensitive regardless of input casing."""
         # Arrange
         key_func = by_header(name.upper())
         encoded_name = name.lower().encode("latin-1")

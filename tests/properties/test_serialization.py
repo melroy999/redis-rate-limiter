@@ -64,7 +64,8 @@ class TestSerializationProperties:
     def test_json_payload_survives_redis_round_trip(
         property_limiter, property_redis_client, payload, func_path
     ):
-        """Property: any JSON-serializable dict payload survives a Redis round-trip unchanged.
+        """Property: any JSON-serializable dict payload survives
+        a Redis round-trip unchanged.
 
         This property verifies that, regardless of the dictionary structure (i.e.,
         nested dicts, lists as values, primitives, Unicode), the data is preserved
@@ -104,7 +105,8 @@ class TestSerializationProperties:
             stored_payload = task_data.get("payload")
 
             # The payload should survive the round-trip intact.
-            # Approximate equality is used for floats to account for JSON precision limits.
+            # Approximate equality is used for floats to account
+            # for JSON precision limits.
             assert dict_equals_approx(stored_payload, payload), (
                 f"payload mismatch after round-trip\n"
                 f"original: {payload}\n"
@@ -156,7 +158,8 @@ class TestSerializationProperties:
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
     def test_task_signature_is_deterministic(payload):
-        """Property: repeated signature generation for the same payload is deterministic."""
+        """Property: repeated signature generation for the
+        same payload is deterministic."""
         # Act
         signature_1 = MinimalRateLimiter._get_task_signature_str(
             "myapp.tasks.process", payload
