@@ -44,6 +44,11 @@ addopts = "-m 'not slow' --import-mode=importlib"
 asyncio_mode = "auto"
 markers = [
     "slow: marks tests as slow (use real time.sleep, multiple configurations). Run explicitly with: pytest -m slow",
+    "behavior: tests functional correctness",
+    "observability: tests logging, metrics, callbacks",
+    "signature: tests method/API signatures and default values",
+    "contract: runs a shared contract suite against a specific backend",
+    "concurrency: tests thread/process safety",
 ]
 
 [tool.mutmut]
