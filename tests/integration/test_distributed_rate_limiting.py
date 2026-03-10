@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from tests.implementations.conftest import MinimalRateLimiter
+from tests.implementations.conftest import StubRateLimiter
 from tests.integration.conftest import consume_and_complete, precise_sleep
 
 # Skip the entire module on Windows owing to unreliable sub-second timing.
@@ -39,7 +39,7 @@ pytestmark = [
 # ---------------------------------------------------------------------------
 
 
-def schedule_n_tasks(limiter: MinimalRateLimiter, n: int, func_path: str) -> list[str]:
+def schedule_n_tasks(limiter: StubRateLimiter, n: int, func_path: str) -> list[str]:
     """Preload the limiter buffer with ``n`` unique tasks."""
     task_ids: list[str] = []
     for i in range(n):
@@ -53,13 +53,13 @@ def make_distributed_limiter(
     redis_client,
     limiter_id: str,
     **kwargs,
-) -> MinimalRateLimiter:
-    """Create a MinimalRateLimiter for distributed testing."""
+) -> StubRateLimiter:
+    """Create a StubRateLimiter for distributed testing."""
     defaults = dict(
         limit=25, window=1.0, max_concurrency=100, max_age=3600, lease_duration=30
     )
     defaults.update(kwargs)
-    return MinimalRateLimiter(
+    return StubRateLimiter(
         redis_client=redis_client,
         limiter_id=limiter_id,
         **defaults,
@@ -107,7 +107,7 @@ class TestDistributedRateLimiting:
         lock = threading.Lock()
         stop = threading.Event()
 
-        def greedy_consumer(limiter: MinimalRateLimiter) -> None:
+        def greedy_consumer(limiter: StubRateLimiter) -> None:
             while not stop.is_set():
                 result = consume_and_complete(limiter)
                 if result["success"]:
@@ -317,7 +317,7 @@ class TestDistributedRateLimiting:
                 seq += 1
                 precise_sleep(interval)
 
-        def consumer(limiter: MinimalRateLimiter) -> None:
+        def consumer(limiter: StubRateLimiter) -> None:
             while not stop.is_set():
                 result = consume_and_complete(limiter)
                 if result["success"]:

@@ -10,7 +10,7 @@ Fixture dependencies from the root ``tests/conftest.py``:
     - ``func_path``: static function path string.
 
 Test helpers from ``tests/implementations/conftest``:
-    - ``MinimalRateLimiter``: minimal concrete rate limiter for testing.
+    - ``StubRateLimiter``: minimal concrete rate limiter for testing.
     - ``TrackingRateLimiter``: rate limiter that records dispatch and drain calls.
 
 Test helpers from ``tests/integration/conftest``:
@@ -25,7 +25,7 @@ import time
 import pytest
 
 from redis_rate_limiter import AbstractDistributedRateLimiter
-from tests.implementations.conftest import MinimalRateLimiter, TrackingRateLimiter
+from tests.implementations.conftest import StubRateLimiter, TrackingRateLimiter
 from tests.integration.conftest import consume_and_complete, precise_sleep
 
 # ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ def integration_limiter(redis_client, limiter_id):
         - max_age: 3600 seconds (1 hour)
         - lease_duration: 30 seconds
     """
-    limiter = MinimalRateLimiter(
+    limiter = StubRateLimiter(
         redis_client=redis_client,
         limiter_id=f"{limiter_id}_integration_default",
         limit=5,
@@ -385,7 +385,7 @@ class TestRateLimitingIntegration:
     def test_expired_task_moved_to_dlq(redis_client, func_path, limiter_id):
         """Verify that expired queued tasks are moved to the DLQ and reported as expired."""
         # Arrange
-        limiter = MinimalRateLimiter(
+        limiter = StubRateLimiter(
             redis_client=redis_client,
             limiter_id=f"{limiter_id}_integration_expired_dlq",
             limit=5,
@@ -432,7 +432,7 @@ class TestRateLimitingIntegration:
     ):
         """Verify that a per-task max_age override can cause expiration earlier than the global max_age."""
         # Arrange
-        limiter = MinimalRateLimiter(
+        limiter = StubRateLimiter(
             redis_client=redis_client,
             limiter_id=f"{limiter_id}_integration_per_task_max_age",
             limit=5,
@@ -466,7 +466,7 @@ class TestRateLimitingIntegration:
     def test_per_task_max_age_stored_in_buffer(redis_client, func_path, limiter_id):
         """Verify that ``schedule_task()`` with ``max_age`` stores the ``__meta_max_age`` field in the buffered payload."""
         # Arrange
-        limiter = MinimalRateLimiter(
+        limiter = StubRateLimiter(
             redis_client=redis_client,
             limiter_id=f"{limiter_id}_integration_meta_max_age",
             limit=5,
@@ -496,7 +496,7 @@ class TestRateLimitingIntegration:
     def test_expired_lease_cleaned_up_on_consume(redis_client, func_path, limiter_id):
         """Verify that stale concurrency lease entries are cleaned during consumption."""
         # Arrange
-        limiter = MinimalRateLimiter(
+        limiter = StubRateLimiter(
             redis_client=redis_client,
             limiter_id=f"{limiter_id}_integration_stale_lease",
             limit=5,
@@ -618,7 +618,7 @@ class TestSlidingWindowBehavior:
             - window: 1.0 seconds (production setting; less timing-sensitive than 0.5s)
             - max_concurrency: 50 (set high to isolate rate limiting behaviour)
         """
-        limiter = MinimalRateLimiter(
+        limiter = StubRateLimiter(
             redis_client=redis_client,
             limiter_id=f"{limiter_id}_sliding_window",
             limit=25,

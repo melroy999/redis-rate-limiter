@@ -7,7 +7,7 @@ adds implementation-specific behavioral and observability tests.
 
 Fixture dependencies:
     - ``redis_client``, ``limiter_id``: from ``tests/conftest.py``.
-    - ``generic_limiter``, ``task_id``: from ``tests/implementations/conftest.py``.
+    - ``stub_limiter``, ``task_id``: from ``tests/implementations/conftest.py``.
 """
 
 import inspect
@@ -23,7 +23,7 @@ import pytest
 from redis_rate_limiter import TaskLifecycle
 from tests.contracts.test_task_lifecycle import TaskLifecycleContractTest
 from tests.helpers.utils import assert_log_emitted
-from tests.implementations.conftest import MinimalRateLimiter
+from tests.implementations.conftest import StubRateLimiter
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -200,7 +200,7 @@ class TestTaskLifecycleImplementation:
         over the limiter default.
         """
         # Arrange
-        limiter = MinimalRateLimiter(
+        limiter = StubRateLimiter(
             redis_client=redis_client,
             limiter_id=f"{limiter_id}_task_lifecycle_heartbeat_override_precedence",
             limit=1,
@@ -227,7 +227,7 @@ class TestTaskLifecycleImplementation:
         task_id, limiter, and default strategy.
         """
         # Arrange
-        limiter = MinimalRateLimiter(
+        limiter = StubRateLimiter(
             redis_client=redis_client,
             limiter_id=f"{limiter_id}_task_lifecycle_passthrough",
             limit=1,
@@ -588,17 +588,17 @@ class TestExtendLease:
     """Tests for ``extend_lease()`` success and error handling."""
 
     @staticmethod
-    def test_extend_lease_raises_key_error_for_unknown_task(generic_limiter):
+    def test_extend_lease_raises_key_error_for_unknown_task(stub_limiter):
         """Verify that ``extend_lease()`` raises a KeyError
         for unknown task identifiers.
         """
         # Act & Assert
         with pytest.raises(KeyError, match=r'in the concurrency set\."'):
-            generic_limiter.extend_lease("nonexistent", 30)
+            stub_limiter.extend_lease("nonexistent", 30)
 
     @staticmethod
     def test_extend_lease_succeeds_for_existing_task(
-        generic_limiter, redis_client, task_id
+        stub_limiter, redis_client, task_id
     ):
         """Verify that ``extend_lease()`` updates the score
         for a task present in the concurrency set.
@@ -606,13 +606,13 @@ class TestExtendLease:
         # Arrange
         # Seed the concurrency sorted set with a low score so the update is observable.
         initial_score = 1000.0
-        redis_client.zadd(generic_limiter.concurrency_key, {task_id: initial_score})
+        redis_client.zadd(stub_limiter.concurrency_key, {task_id: initial_score})
 
         # Act
-        generic_limiter.extend_lease(task_id, 30)
+        stub_limiter.extend_lease(task_id, 30)
 
         # Assert
-        new_score = redis_client.zscore(generic_limiter.concurrency_key, task_id)
+        new_score = redis_client.zscore(stub_limiter.concurrency_key, task_id)
         assert new_score is not None, (
             "task should still be present in the concurrency set after lease extension"
         )
@@ -632,21 +632,21 @@ class TestExtendLeaseObservability:
     """Observability tests for ``extend_lease()`` log emissions."""
 
     @staticmethod
-    def test_extend_lease_unknown_task_emits_debug_log(generic_limiter, caplog):
+    def test_extend_lease_unknown_task_emits_debug_log(stub_limiter, caplog):
         """Verify that ``extend_lease()`` emits a DEBUG log
         with ``renewed=False`` for unknown tasks.
         """
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
             with pytest.raises(KeyError, match="not found in the concurrency set"):
-                generic_limiter.extend_lease("nonexistent", 30)
+                stub_limiter.extend_lease("nonexistent", 30)
 
         # Assert
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
             required_fragments=[
-                f"limiter={generic_limiter.id}",
+                f"limiter={stub_limiter.id}",
                 "task_id=nonexistent",
                 "duration_s=30",
                 "renewed=False",
@@ -660,24 +660,24 @@ class TestExtendLeaseObservability:
 
     @staticmethod
     def test_extend_lease_success_emits_debug_log(
-        generic_limiter, redis_client, task_id, caplog
+        stub_limiter, redis_client, task_id, caplog
     ):
         """Verify that ``extend_lease()`` emits a DEBUG log
         with ``renewed=True`` for existing tasks.
         """
         # Arrange
-        redis_client.zadd(generic_limiter.concurrency_key, {task_id: 1000.0})
+        redis_client.zadd(stub_limiter.concurrency_key, {task_id: 1000.0})
 
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
-            generic_limiter.extend_lease(task_id, 30)
+            stub_limiter.extend_lease(task_id, 30)
 
         # Assert
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
             required_fragments=[
-                f"limiter={generic_limiter.id}",
+                f"limiter={stub_limiter.id}",
                 f"task_id={task_id}",
                 "duration_s=30",
                 "renewed=True",

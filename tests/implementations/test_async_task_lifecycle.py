@@ -8,7 +8,7 @@ the sync lifecycle tests in ``test_task_lifecycle.py``.
 
 Fixture dependencies:
     - ``async_redis_client``, ``limiter_id``: from ``tests/conftest.py``.
-    - ``async_generic_limiter``, ``task_id``: from
+    - ``async_stub_limiter``, ``task_id``: from
       ``tests/implementations/conftest.py``.
 """
 
@@ -26,7 +26,7 @@ import pytest
 from redis_rate_limiter.core import AsyncTaskLifecycle
 from tests.contracts.test_task_lifecycle import TaskLifecycleContractTest
 from tests.helpers.utils import assert_log_emitted
-from tests.implementations.conftest import MinimalAsyncRateLimiter
+from tests.implementations.conftest import AsyncStubRateLimiter
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -261,7 +261,7 @@ class TestAsyncTaskLifecycleImplementation:
         the limiter default.
         """
         # Arrange
-        limiter = MinimalAsyncRateLimiter(
+        limiter = AsyncStubRateLimiter(
             redis_client=async_redis_client,
             limiter_id=f"{limiter_id}_async_lifecycle_heartbeat_override",
             limit=1,
@@ -294,7 +294,7 @@ class TestAsyncTaskLifecycleImplementation:
         limiter, and default strategy.
         """
         # Arrange
-        limiter = MinimalAsyncRateLimiter(
+        limiter = AsyncStubRateLimiter(
             redis_client=async_redis_client,
             limiter_id=f"{limiter_id}_async_lifecycle_passthrough",
             limit=1,
@@ -697,18 +697,18 @@ class TestAsyncExtendLease:
 
     @staticmethod
     async def test_extend_lease_raises_key_error_for_unknown_task(
-        async_generic_limiter,
+        async_stub_limiter,
     ):
         """Verify that ``extend_lease()`` raises a KeyError for
         unknown task identifiers.
         """
         # Act & Assert
         with pytest.raises(KeyError, match=r'in the concurrency set\."'):
-            await async_generic_limiter.extend_lease("nonexistent", 30)
+            await async_stub_limiter.extend_lease("nonexistent", 30)
 
     @staticmethod
     async def test_extend_lease_succeeds_for_existing_task(
-        async_generic_limiter, async_redis_client, task_id
+        async_stub_limiter, async_redis_client, task_id
     ):
         """Verify that ``extend_lease()`` updates the score for a task
         present in the concurrency set.
@@ -717,15 +717,15 @@ class TestAsyncExtendLease:
         # Seed the concurrency sorted set with a low score so the update is observable.
         initial_score = 1000.0
         await async_redis_client.zadd(
-            async_generic_limiter.concurrency_key, {task_id: initial_score}
+            async_stub_limiter.concurrency_key, {task_id: initial_score}
         )
 
         # Act
-        await async_generic_limiter.extend_lease(task_id, 30)
+        await async_stub_limiter.extend_lease(task_id, 30)
 
         # Assert
         new_score = await async_redis_client.zscore(
-            async_generic_limiter.concurrency_key, task_id
+            async_stub_limiter.concurrency_key, task_id
         )
         assert new_score is not None, (
             "task should still be present in the concurrency set after lease extension"
@@ -747,7 +747,7 @@ class TestAsyncExtendLeaseObservability:
 
     @staticmethod
     async def test_extend_lease_unknown_task_emits_debug_log(
-        async_generic_limiter, caplog
+        async_stub_limiter, caplog
     ):
         """Verify that ``extend_lease()`` emits a DEBUG log with
         ``renewed=False`` for unknown tasks.
@@ -757,14 +757,14 @@ class TestAsyncExtendLeaseObservability:
             logging.DEBUG, logger="redis_rate_limiter.core.async_limiters"
         ):
             with pytest.raises(KeyError, match="not found in the concurrency set"):
-                await async_generic_limiter.extend_lease("nonexistent", 30)
+                await async_stub_limiter.extend_lease("nonexistent", 30)
 
         # Assert
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
             required_fragments=[
-                f"limiter={async_generic_limiter.id}",
+                f"limiter={async_stub_limiter.id}",
                 "task_id=nonexistent",
                 "duration_s=30",
                 "renewed=False",
@@ -777,28 +777,28 @@ class TestAsyncExtendLeaseObservability:
 
     @staticmethod
     async def test_extend_lease_success_emits_debug_log(
-        async_generic_limiter, async_redis_client, task_id, caplog
+        async_stub_limiter, async_redis_client, task_id, caplog
     ):
         """Verify that ``extend_lease()`` emits a DEBUG log with
         ``renewed=True`` for existing tasks.
         """
         # Arrange
         await async_redis_client.zadd(
-            async_generic_limiter.concurrency_key, {task_id: 1000.0}
+            async_stub_limiter.concurrency_key, {task_id: 1000.0}
         )
 
         # Act
         with caplog.at_level(
             logging.DEBUG, logger="redis_rate_limiter.core.async_limiters"
         ):
-            await async_generic_limiter.extend_lease(task_id, 30)
+            await async_stub_limiter.extend_lease(task_id, 30)
 
         # Assert
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
             required_fragments=[
-                f"limiter={async_generic_limiter.id}",
+                f"limiter={async_stub_limiter.id}",
                 f"task_id={task_id}",
                 "duration_s=30",
                 "renewed=True",
