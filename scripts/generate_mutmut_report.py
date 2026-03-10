@@ -548,9 +548,11 @@ def _build_report(
     for r in records:
         status_counts[r.status] += 1
 
-    # Classification summary (survivors only).
+    # Classification summary (non-killed only).
     cls_summary = ClassificationSummary()
     for r in records:
+        if r.status == "killed":
+            continue
         if r.is_known_benign:
             cls_summary.known_benign += 1
         elif r.classification_score == 0:
