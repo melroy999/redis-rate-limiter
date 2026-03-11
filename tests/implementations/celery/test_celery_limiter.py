@@ -17,6 +17,7 @@ from redis_rate_limiter import CeleryRateLimiter
 from tests.helpers.utils import assert_log_emitted
 
 
+@pytest.mark.behavior
 class TestCeleryRateLimiter:
     """Tests that are specific to the Celery backend dispatch and payload logic."""
 
@@ -24,11 +25,10 @@ class TestCeleryRateLimiter:
     def test_schedule_task_defaults_use_executor_to_true(
         limiter, redis_client, func_path, payload
     ):
-        """Verify that ``schedule_task`` defaults ``use_executor`` to ``True`` when not specified."""
+        """Verify that ``schedule_task`` defaults
+        ``use_executor`` to ``True``."""
         # Arrange
-        # Pause the drain loop far into the future to prevent it from consuming
-        # the task before the assertions inspect the buffer.
-        limiter._paused_until = 5_000_000_000.0
+        limiter._drain_paused_until = 5_000_000_000.0
 
         # Act
         success, task_id = limiter.schedule_task(func_path, payload)
@@ -50,11 +50,10 @@ class TestCeleryRateLimiter:
     def test_schedule_task_with_use_executor_false_stores_meta(
         limiter, redis_client, func_path, payload
     ):
-        """Verify that ``schedule_task`` stores ``use_executor=False`` in the task payload metadata."""
+        """Verify that ``schedule_task`` stores
+        ``use_executor=False`` in task payload metadata."""
         # Arrange
-        # Pause the drain loop far into the future to prevent it from consuming
-        # the task before the assertions inspect the buffer.
-        limiter._paused_until = 5_000_000_000.0
+        limiter._drain_paused_until = 5_000_000_000.0
 
         # Act
         success, task_id = limiter.schedule_task(func_path, payload, use_executor=False)
@@ -76,7 +75,8 @@ class TestCeleryRateLimiter:
     def test_dispatch_task_use_executor_true_sends_generic_worker(
         limiter, payload, task_id
     ):
-        """Verify that ``_dispatch_task`` sends the generic worker task when ``use_executor`` is true."""
+        """Verify that ``_dispatch_task`` sends the generic
+        worker task when ``use_executor`` is true."""
         # Arrange
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=True)
 
@@ -99,7 +99,8 @@ class TestCeleryRateLimiter:
     def test_dispatch_task_use_executor_false_sends_custom_task(
         limiter, payload, task_id
     ):
-        """Verify that ``_dispatch_task`` sends a custom task directly when ``use_executor`` is false."""
+        """Verify that ``_dispatch_task`` sends a custom task
+        directly when ``use_executor`` is false."""
         # Arrange
         func_path = "myapp.tasks.custom"
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=False)
@@ -130,7 +131,8 @@ class TestCeleryRateLimiter:
 
     @staticmethod
     def test_dispatch_task_send_task_failure_propagates(limiter, payload, task_id):
-        """Verify that a ``send_task()`` failure propagates from ``_dispatch_task()``."""
+        """Verify that a ``send_task()`` failure propagates
+        from ``_dispatch_task()``."""
         # Arrange
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=True)
 
@@ -143,7 +145,8 @@ class TestCeleryRateLimiter:
 
     @staticmethod
     def test_enhanced_payload_structure(limiter, payload):
-        """Verify that ``_get_enhanced_payload`` wraps the payload in the expected data/meta structure."""
+        """Verify that ``_get_enhanced_payload`` wraps the
+        payload in the expected data/meta structure."""
         # Act
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=False)
 
@@ -157,9 +160,9 @@ class TestCeleryRateLimiter:
 
     @staticmethod
     def test_dispatch_task_missing_meta_uses_default_executor(limiter, task_id):
-        """Verify that ``_dispatch_task`` defaults to the generic worker when the meta key is absent."""
+        """Verify that ``_dispatch_task`` defaults to the
+        generic worker when the meta key is absent."""
         # Arrange
-        # A raw payload without the ``meta`` wrapper triggers the default path.
         payload_without_meta = {"data": {"key": "value"}}
 
         # Act
@@ -175,7 +178,8 @@ class TestCeleryRateLimiter:
 
     @staticmethod
     def test_dispatch_task_missing_data_uses_empty_dict(limiter, task_id):
-        """Verify that ``_dispatch_task`` uses an empty dict when the data key is absent."""
+        """Verify that ``_dispatch_task`` uses an empty dict
+        when the data key is absent."""
         # Arrange
         payload_without_data = {"meta": {"use_executor": True}}
 
@@ -191,31 +195,43 @@ class TestCeleryRateLimiter:
         )
 
     @staticmethod
-    def test_schedule_task_forwards_max_age_override(limiter, func_path, payload):
-        """Verify that ``schedule_task`` passes the ``max_age`` override through to the parent scheduler."""
+    def test_schedule_task_forwards_max_age_override(
+        limiter, redis_client, func_path, payload
+    ):
+        """Verify that ``schedule_task`` passes the ``max_age``
+        override through to the parent scheduler."""
         # Arrange
+        limiter._drain_paused_until = 5_000_000_000.0
         max_age_override = 60
+        default_ttl = limiter._get_inflight_ttl()
+        overridden_ttl = limiter._get_inflight_ttl(
+            max_age_override=max_age_override
+        )
 
         # Act
-        # Spy on _get_inflight_ttl to verify the max_age argument is forwarded
-        # to the parent scheduler. This avoids a race with the drain loop, which
-        # can consume the task and delete the inflight key before a TTL check.
-        with patch.object(
-            limiter, "_get_inflight_ttl", wraps=limiter._get_inflight_ttl
-        ) as mock_ttl:
-            success, _ = limiter.schedule_task(
-                func_path, payload, max_age=max_age_override
-            )
+        success, task_id = limiter.schedule_task(
+            func_path, payload, max_age=max_age_override
+        )
 
         # Assert
         assert success is True, "scheduling should succeed"
-        mock_ttl.assert_called_once_with(max_age_override=max_age_override)
+        inflight_key = limiter.get_inflight_key(task_id)
+        actual_ttl = redis_client.ttl(inflight_key)
+        assert actual_ttl <= overridden_ttl, (
+            f"inflight TTL {actual_ttl} should not exceed "
+            f"the overridden TTL {overridden_ttl}"
+        )
+        assert actual_ttl < default_ttl, (
+            f"inflight TTL {actual_ttl} should be less than "
+            f"the default TTL {default_ttl}"
+        )
 
     @staticmethod
     def test_dispatch_task_custom_path_sends_data_as_list_arg(
         limiter, payload, task_id
     ):
-        """Verify that the custom task path sends data wrapped in a single-element list."""
+        """Verify that the custom task path sends data wrapped
+        in a single-element list."""
         # Arrange
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=False)
 
@@ -240,7 +256,8 @@ class TestCeleryRateLimiter:
 
     @staticmethod
     def test_check_backend_health_returns_true_when_workers_respond(limiter):
-        """Verify that ``_check_backend_health`` returns ``True`` when Celery workers respond to ping."""
+        """Verify that ``_check_backend_health`` returns
+        ``True`` when Celery workers respond to ping."""
         # Arrange
         mock_response = [{"worker1": {"ok": "pong"}}]
 
@@ -255,7 +272,8 @@ class TestCeleryRateLimiter:
 
     @staticmethod
     def test_check_backend_health_returns_false_when_no_response(limiter):
-        """Verify that ``_check_backend_health`` returns ``False`` when no Celery workers respond."""
+        """Verify that ``_check_backend_health`` returns
+        ``False`` when no Celery workers respond."""
         # Act
         with patch.object(limiter.app.control, "ping", return_value=[]):
             result = limiter._check_backend_health()
@@ -267,7 +285,8 @@ class TestCeleryRateLimiter:
 
     @staticmethod
     def test_check_backend_health_returns_false_on_exception(limiter):
-        """Verify that ``_check_backend_health`` returns ``False`` when ping raises an exception."""
+        """Verify that ``_check_backend_health`` returns
+        ``False`` when ping raises an exception."""
         # Act
         with patch.object(
             limiter.app.control, "ping", side_effect=ConnectionError("broker down")
@@ -285,12 +304,14 @@ class TestCeleryRateLimiter:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class TestCeleryDispatchObservability:
     """Observability tests for the ``_dispatch_task`` log emissions."""
 
     @staticmethod
     def test_dispatch_generic_worker_emits_debug_log(limiter, payload, task_id, caplog):
-        """Verify that dispatching via the generic worker emits a DEBUG log with limiter id, task id, and func path."""
+        """Verify that dispatching via the generic worker emits
+        a DEBUG log with limiter id, task id, and func path."""
         # Arrange
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=True)
 
@@ -310,12 +331,14 @@ class TestCeleryDispatchObservability:
                 f"task_id={task_id}",
                 "func_path=myapp.tasks.process",
             ],
-            message="should emit a debug log containing the limiter id, task id, and func path",
+            message="should emit a debug log containing "
+            "the limiter id, task id, and func path",
         )
 
     @staticmethod
     def test_dispatch_custom_task_emits_debug_log(limiter, payload, task_id, caplog):
-        """Verify that dispatching via a custom task path emits a DEBUG log with limiter id, task id, and func path."""
+        """Verify that dispatching via a custom task path emits
+        a DEBUG log with limiter id, task id, and func path."""
         # Arrange
         func_path = "myapp.tasks.custom"
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=False)
@@ -336,7 +359,8 @@ class TestCeleryDispatchObservability:
                 f"task_id={task_id}",
                 f"func_path={func_path}",
             ],
-            message="should emit a debug log containing the limiter id, task id, and func path",
+            message="should emit a debug log containing "
+            "the limiter id, task id, and func path",
         )
 
 
@@ -345,14 +369,18 @@ class TestCeleryDispatchObservability:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.signature
 class TestCeleryScheduleTaskSignatures:
-    """Signature tests for ``CeleryRateLimiter.schedule_task()`` default parameter values."""
+    """Signature tests for ``CeleryRateLimiter.schedule_task()``
+    default parameter values."""
 
     @staticmethod
     def test_schedule_task_use_executor_defaults_to_true():
-        """Verify that the ``use_executor`` parameter defaults to ``True``.
+        """Verify that the ``use_executor`` parameter defaults
+        to ``True``.
 
-        Mutation target: default value of ``use_executor`` in ``CeleryRateLimiter.schedule_task()``.
+        Mutation target: default value of ``use_executor`` in
+        ``CeleryRateLimiter.schedule_task()``.
         """
         # Arrange & Act
         sig = inspect.signature(CeleryRateLimiter.schedule_task)

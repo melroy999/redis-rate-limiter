@@ -1,4 +1,5 @@
-"""ProcessPool-specific behavioural tests for the ``ProcessPoolRateLimiter`` implementation.
+"""ProcessPool-specific behavioural tests for the
+``ProcessPoolRateLimiter`` implementation.
 
 Fixture dependencies:
     - ``redis_client``, ``func_path``, ``payload``: from ``tests/conftest.py``.
@@ -15,12 +16,14 @@ import pytest
 from tests.helpers.utils import assert_log_emitted
 
 
+@pytest.mark.behavior
 class TestProcessPoolRateLimiter:
-    """Tests that are specific to the process pool backend dispatch and lifecycle logic."""
+    """Tests for the process pool backend dispatch and lifecycle logic."""
 
     @staticmethod
     def test_dispatch_task_submits_to_executor(limiter, payload, func_path, task_id):
-        """Verify that ``_dispatch_task`` submits the target function to the process pool executor."""
+        """Verify that ``_dispatch_task`` submits the target
+        function to the process pool executor."""
         # Arrange
         mock_func = MagicMock()
         mock_future = MagicMock(spec=Future)
@@ -44,7 +47,8 @@ class TestProcessPoolRateLimiter:
 
     @staticmethod
     def test_dispatch_task_resolves_function_path(limiter, payload, func_path, task_id):
-        """Verify that ``_dispatch_task`` uses ``import_string`` to resolve the function path."""
+        """Verify that ``_dispatch_task`` uses
+        ``import_string`` to resolve the function path."""
         # Arrange
         mock_future = MagicMock(spec=Future)
 
@@ -67,7 +71,8 @@ class TestProcessPoolRateLimiter:
     def test_dispatch_task_enters_lifecycle_before_submit(
         limiter, payload, func_path, task_id
     ):
-        """Verify that ``_dispatch_task`` enters the task lifecycle before submitting to the executor."""
+        """Verify that ``_dispatch_task`` enters the task
+        lifecycle before submitting to the executor."""
         # Arrange
         call_order = []
         mock_lifecycle = MagicMock()
@@ -103,7 +108,8 @@ class TestProcessPoolRateLimiter:
     def test_dispatch_task_exits_lifecycle_on_future_completion(
         limiter, payload, func_path, task_id
     ):
-        """Verify that ``_dispatch_task`` exits the task lifecycle when the future completes."""
+        """Verify that ``_dispatch_task`` exits the task
+        lifecycle when the future completes."""
         # Arrange
         mock_lifecycle = MagicMock()
         mock_lifecycle.__enter__ = MagicMock(return_value=None)
@@ -123,7 +129,6 @@ class TestProcessPoolRateLimiter:
             limiter._dispatch_task(func_path, payload, task_id)
 
         # Assert
-        # Callback should be registered.
         assert len(callbacks) == 1, "exactly one done callback should be registered"
 
         # Simulate future completion.
@@ -134,7 +139,8 @@ class TestProcessPoolRateLimiter:
     def test_dispatch_task_import_failure_propagates(
         limiter, payload, func_path, task_id
     ):
-        """Verify that an ``import_string()`` failure propagates from ``_dispatch_task()``."""
+        """Verify that an ``import_string()`` failure
+        propagates from ``_dispatch_task()``."""
         # Act & Assert
         with patch(
             "redis_rate_limiter.backends.processpool.limiter.import_string",
@@ -147,7 +153,8 @@ class TestProcessPoolRateLimiter:
 
     @staticmethod
     def test_dispatch_task_passes_payload_as_kwargs(limiter, func_path, task_id):
-        """Verify that ``_dispatch_task`` passes the payload as keyword arguments to ``submit``."""
+        """Verify that ``_dispatch_task`` passes the payload
+        as keyword arguments to ``submit``."""
         # Arrange
         payload = {"user_id": 42, "action": "process"}
         mock_func = MagicMock()
@@ -184,12 +191,15 @@ class TestProcessPoolRateLimiter:
         mock_wake.assert_called_once_with(delay)
 
 
+@pytest.mark.behavior
 class TestLocalCapacityGuard:
     """Tests for the local capacity guard in ``ProcessPoolRateLimiter``."""
 
     @staticmethod
     def test_has_local_capacity_returns_true_when_below_max_workers(limiter):
-        """Verify that ``_has_local_capacity()`` returns ``True`` when the local dispatch count is below ``max_workers``."""
+        """Verify that ``_has_local_capacity()`` returns
+        ``True`` when the dispatch count is below
+        ``max_workers``."""
         # Act & Assert
         assert limiter._has_local_capacity() is True, (
             "_has_local_capacity should return True when no tasks are dispatched"
@@ -198,9 +208,10 @@ class TestLocalCapacityGuard:
 
     @staticmethod
     def test_has_local_capacity_returns_false_at_max_workers(limiter):
-        """Verify that ``_has_local_capacity()`` returns ``False`` when the dispatch count equals ``max_workers``."""
+        """Verify that ``_has_local_capacity()`` returns
+        ``False`` when the dispatch count equals
+        ``max_workers``."""
         # Arrange
-        # Simulate max_workers tasks dispatched.
         limiter._local_dispatched = limiter._local_max_workers
 
         # Act
@@ -213,7 +224,9 @@ class TestLocalCapacityGuard:
     def test_dispatch_task_increments_counter_and_callback_decrements(
         limiter, func_path, task_id
     ):
-        """Verify that ``_dispatch_task()`` increments the counter before submission and the done callback decrements it."""
+        """Verify that ``_dispatch_task()`` increments the
+        counter before submission and the done callback
+        decrements it."""
         # Arrange
         mock_future = MagicMock(spec=Future)
         callbacks = []
@@ -232,7 +245,6 @@ class TestLocalCapacityGuard:
             limiter._dispatch_task(func_path, {}, task_id)
 
         # Assert
-        # Counter should be 1 while the future is pending.
         assert limiter._local_dispatched == 1, (
             "dispatch count should be 1 while future is pending"
         )
@@ -240,14 +252,15 @@ class TestLocalCapacityGuard:
         # Simulate future completion via the done callback.
         callbacks[0](mock_future)
 
-        # Counter should return to 0 after the callback runs.
         assert limiter._local_dispatched == 0, (
             "dispatch count should return to 0 after done callback"
         )
 
     @staticmethod
     def test_dispatch_task_increments_counter_additively(limiter, func_path, task_id):
-        """Verify that ``_dispatch_task()`` uses additive increment, not assignment, for the dispatch counter."""
+        """Verify that ``_dispatch_task()`` uses additive
+        increment, not assignment, for the dispatch
+        counter."""
         # Arrange
         callbacks = []
 
@@ -279,7 +292,6 @@ class TestLocalCapacityGuard:
             limiter._dispatch_task(func_path, {}, f"{task_id}_2")
 
         # Assert
-        # Counter should be 2 with two pending futures.
         assert limiter._local_dispatched == 2, (
             "dispatch count should be 2 with two pending futures"
         )
@@ -288,7 +300,6 @@ class TestLocalCapacityGuard:
         callbacks[0](mock_future_1)
         callbacks[1](mock_future_2)
 
-        # Counter should return to 0 after both callbacks run.
         assert limiter._local_dispatched == 0, (
             "dispatch count should return to 0 after both done callbacks"
         )
@@ -299,6 +310,7 @@ class TestLocalCapacityGuard:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class TestProcessPoolDispatchObservability:
     """Observability tests for the ``_dispatch_task`` log emissions."""
 
@@ -306,7 +318,9 @@ class TestProcessPoolDispatchObservability:
     def test_dispatch_task_emits_debug_log(
         limiter, payload, func_path, task_id, caplog
     ):
-        """Verify that ``_dispatch_task`` emits a DEBUG log with limiter id, task id, func path, and local dispatch count."""
+        """Verify that ``_dispatch_task`` emits a DEBUG log
+        with limiter id, task id, func path, and local
+        dispatch count."""
         # Arrange
         mock_future = MagicMock(spec=Future)
 
@@ -335,5 +349,7 @@ class TestProcessPoolDispatchObservability:
                 f"func_path={func_path}",
                 "local_dispatched=1",
             ],
-            message="should emit a debug log containing the limiter id, task id, func path, and local dispatch count",
+            message="should emit a debug log containing the "
+            "limiter id, task id, func path, and "
+            "local dispatch count",
         )

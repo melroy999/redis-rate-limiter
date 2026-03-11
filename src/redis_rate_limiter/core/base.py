@@ -49,7 +49,7 @@ class AbstractRateLimiter:
         self.limit = limit
         self.window = window
         self._config_version: int = 0
-        self._paused_until: float = 0.0
+        self._drain_paused_until: float = 0.0
 
         # Guards against unconsumed kwargs, i.e., a TypeError will be thrown
         # by object.__init__() if kwargs is non-empty.
@@ -72,7 +72,7 @@ class AbstractRateLimiter:
         new_window = overrides.get("window")
         if new_window is not None and new_window != self.window:
             pause_duration = max(self.window, new_window)
-            self._paused_until = time.time() + pause_duration
+            self._drain_paused_until = time.time() + pause_duration
             self.window = float(new_window)
             logger.info(
                 "Window change detected: limiter=%s, new_window=%g, paused_for_s=%g.",

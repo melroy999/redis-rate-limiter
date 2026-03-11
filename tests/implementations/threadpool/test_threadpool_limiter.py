@@ -1,4 +1,5 @@
-"""Threading-specific behavioural tests for the ``ThreadPoolRateLimiter`` implementation.
+"""Threading-specific behavioural tests for the
+``ThreadPoolRateLimiter`` implementation.
 
 Fixture dependencies:
     - ``redis_client``, ``func_path``, ``payload``: from ``tests/conftest.py``.
@@ -16,12 +17,14 @@ import pytest
 from tests.helpers.utils import assert_log_emitted
 
 
+@pytest.mark.behavior
 class TestThreadPoolRateLimiter:
     """Tests that are specific to the threading backend dispatch and lifecycle logic."""
 
     @staticmethod
     def test_dispatch_task_resolves_function_path(limiter, payload, func_path, task_id):
-        """Verify that ``_dispatch_task`` uses ``import_string`` to resolve the function path."""
+        """Verify that ``_dispatch_task`` uses
+        ``import_string`` to resolve the function path."""
         # Act
         with (
             patch.object(limiter.executor, "submit"),
@@ -37,7 +40,8 @@ class TestThreadPoolRateLimiter:
 
     @staticmethod
     def test_dispatch_task_wraps_in_lifecycle(limiter, payload, func_path, task_id):
-        """Verify that ``_dispatch_task`` wraps execution within the ``task_lifecycle`` context manager."""
+        """Verify that ``_dispatch_task`` wraps execution
+        within the ``task_lifecycle`` context manager."""
         # Arrange
         mock_lifecycle = MagicMock()
 
@@ -67,7 +71,8 @@ class TestThreadPoolRateLimiter:
     def test_dispatch_task_import_failure_propagates(
         limiter, payload, func_path, task_id
     ):
-        """Verify that an ``import_string()`` failure propagates from ``_dispatch_task()``."""
+        """Verify that an ``import_string()`` failure
+        propagates from ``_dispatch_task()``."""
         # Act & Assert
         with patch(
             "redis_rate_limiter.backends.threading.limiter.import_string",
@@ -92,12 +97,15 @@ class TestThreadPoolRateLimiter:
         mock_wake.assert_called_once_with(delay)
 
 
+@pytest.mark.behavior
 class TestLocalCapacityGuard:
     """Tests for the local capacity guard in ``ThreadPoolRateLimiter``."""
 
     @staticmethod
     def test_has_local_capacity_returns_true_when_below_max_workers(limiter):
-        """Verify that ``_has_local_capacity()`` returns ``True`` when the local dispatch count is below ``max_workers``."""
+        """Verify that ``_has_local_capacity()`` returns
+        ``True`` when the dispatch count is below
+        ``max_workers``."""
         # Act & Assert
         assert limiter._has_local_capacity() is True, (
             "_has_local_capacity should return True when no tasks are dispatched"
@@ -106,9 +114,10 @@ class TestLocalCapacityGuard:
 
     @staticmethod
     def test_has_local_capacity_returns_false_at_max_workers(limiter):
-        """Verify that ``_has_local_capacity()`` returns ``False`` when the dispatch count equals ``max_workers``."""
+        """Verify that ``_has_local_capacity()`` returns
+        ``False`` when the dispatch count equals
+        ``max_workers``."""
         # Arrange
-        # Simulate max_workers tasks dispatched.
         limiter._local_dispatched = limiter._local_max_workers
 
         # Act
@@ -121,7 +130,9 @@ class TestLocalCapacityGuard:
     def test_dispatch_task_increments_and_decrements_counter(
         limiter, func_path, task_id
     ):
-        """Verify that ``_dispatch_task()`` increments the counter before submission and decrements after completion."""
+        """Verify that ``_dispatch_task()`` increments the
+        counter before submission and decrements after
+        completion."""
         # Arrange
         started = threading.Event()
         proceed = threading.Event()
@@ -147,25 +158,24 @@ class TestLocalCapacityGuard:
             started.wait(timeout=5.0)
 
             # Assert
-            # Counter should be 1 while task is running.
             assert limiter._local_dispatched == 1, (
                 "dispatch count should be 1 while task is running"
             )
 
-            # Release the task.
             proceed.set()
 
         # Allow thread pool task to complete.
         time.sleep(0.2)
 
-        # Counter should return to 0 after completion.
         assert limiter._local_dispatched == 0, (
             "dispatch count should return to 0 after task completion"
         )
 
     @staticmethod
     def test_dispatch_task_increments_counter_additively(limiter, func_path, task_id):
-        """Verify that ``_dispatch_task()`` uses additive increment, not assignment, for the dispatch counter."""
+        """Verify that ``_dispatch_task()`` uses additive
+        increment, not assignment, for the dispatch
+        counter."""
         # Arrange
         started_1 = threading.Event()
         started_2 = threading.Event()
@@ -187,7 +197,6 @@ class TestLocalCapacityGuard:
             return blocking_task_1 if call_count == 1 else blocking_task_2
 
         # Act
-        # Dispatch two tasks concurrently and check the counter reaches 2.
         with (
             patch(
                 "redis_rate_limiter.backends.threading.limiter.import_string",
@@ -205,18 +214,15 @@ class TestLocalCapacityGuard:
             started_2.wait(timeout=5.0)
 
             # Assert
-            # Counter should be 2 with two concurrent tasks.
             assert limiter._local_dispatched == 2, (
                 "dispatch count should be 2 with two concurrent tasks"
             )
 
-            # Release both tasks.
             proceed.set()
 
         # Allow thread pool tasks to complete.
         time.sleep(0.2)
 
-        # Counter should return to 0 after both complete.
         assert limiter._local_dispatched == 0, (
             "dispatch count should return to 0 after both tasks complete"
         )
@@ -227,6 +233,7 @@ class TestLocalCapacityGuard:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class TestThreadPoolDispatchObservability:
     """Observability tests for the ``_dispatch_task`` log emissions."""
 
@@ -234,7 +241,9 @@ class TestThreadPoolDispatchObservability:
     def test_dispatch_task_emits_debug_log(
         limiter, payload, func_path, task_id, caplog
     ):
-        """Verify that ``_dispatch_task`` emits a DEBUG log with limiter id, task id, func path, and local dispatch count."""
+        """Verify that ``_dispatch_task`` emits a DEBUG log
+        with limiter id, task id, func path, and local
+        dispatch count."""
         # Act
         with caplog.at_level(
             logging.DEBUG, logger="redis_rate_limiter.backends.threading.limiter"
@@ -258,5 +267,7 @@ class TestThreadPoolDispatchObservability:
                 f"func_path={func_path}",
                 "local_dispatched=1",
             ],
-            message="should emit a debug log containing the limiter id, task id, func path, and local dispatch count",
+            message="should emit a debug log containing the "
+            "limiter id, task id, func path, and "
+            "local dispatch count",
         )

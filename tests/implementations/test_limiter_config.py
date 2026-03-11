@@ -43,7 +43,7 @@ class InitialDefaultTests:
         the correct initial defaults.
         """
         # Assert
-        assert limiter._paused_until == pytest.approx(0.0), (
+        assert limiter._drain_paused_until == pytest.approx(0.0), (
             "fresh limiter should not be paused"
         )
         assert limiter._config_version == 0, (

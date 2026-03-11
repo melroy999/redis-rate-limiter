@@ -17,6 +17,7 @@ from redis_rate_limiter import RQRateLimiter
 from tests.helpers.utils import assert_log_emitted
 
 
+@pytest.mark.behavior
 class TestRQRateLimiter:
     """Tests that are specific to the RQ backend dispatch and payload logic."""
 
@@ -24,11 +25,10 @@ class TestRQRateLimiter:
     def test_schedule_task_defaults_use_executor_to_true(
         limiter, redis_client, func_path, payload
     ):
-        """Verify that ``schedule_task`` defaults ``use_executor`` to ``True`` when not specified."""
+        """Verify that ``schedule_task`` defaults
+        ``use_executor`` to ``True`` when not specified."""
         # Arrange
-        # Pause the drain loop far into the future to prevent it from consuming
-        # the task before the assertions inspect the buffer.
-        limiter._paused_until = 5_000_000_000.0
+        limiter._drain_paused_until = 5_000_000_000.0
 
         # Act
         success, task_id = limiter.schedule_task(func_path, payload)
@@ -50,11 +50,10 @@ class TestRQRateLimiter:
     def test_schedule_task_with_use_executor_false_stores_meta(
         limiter, redis_client, func_path, payload
     ):
-        """Verify that ``schedule_task`` stores ``use_executor=False`` in the task payload metadata."""
+        """Verify that ``schedule_task`` stores
+        ``use_executor=False`` in the task payload metadata."""
         # Arrange
-        # Pause the drain loop far into the future to prevent it from consuming
-        # the task before the assertions inspect the buffer.
-        limiter._paused_until = 5_000_000_000.0
+        limiter._drain_paused_until = 5_000_000_000.0
 
         # Act
         success, task_id = limiter.schedule_task(func_path, payload, use_executor=False)
@@ -76,7 +75,8 @@ class TestRQRateLimiter:
     def test_dispatch_task_use_executor_true_enqueues_generic_worker(
         limiter, payload, task_id
     ):
-        """Verify that ``_dispatch_task`` enqueues the generic worker when ``use_executor`` is true."""
+        """Verify that ``_dispatch_task`` enqueues the generic
+        worker when ``use_executor`` is true."""
         # Arrange
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=True)
 
@@ -87,7 +87,6 @@ class TestRQRateLimiter:
         # Assert
         mock_enqueue.assert_called_once()
         call_args = mock_enqueue.call_args
-        # The first positional argument should be the generic worker function.
         from redis_rate_limiter.backends.rq.tasks.worker import (
             generic_rate_limited_worker,
         )
@@ -106,7 +105,8 @@ class TestRQRateLimiter:
     def test_dispatch_task_use_executor_false_enqueues_custom_task(
         limiter, payload, task_id
     ):
-        """Verify that ``_dispatch_task`` enqueues a custom task directly when ``use_executor`` is false."""
+        """Verify that ``_dispatch_task`` enqueues a custom task
+        directly when ``use_executor`` is false."""
         # Arrange
         func_path = "myapp.tasks.custom"
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=False)
@@ -137,7 +137,8 @@ class TestRQRateLimiter:
 
     @staticmethod
     def test_dispatch_task_enqueue_failure_propagates(limiter, payload, task_id):
-        """Verify that an ``enqueue()`` failure propagates from ``_dispatch_task()``."""
+        """Verify that an ``enqueue()`` failure
+        propagates from ``_dispatch_task()``."""
         # Arrange
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=True)
 
@@ -150,7 +151,8 @@ class TestRQRateLimiter:
 
     @staticmethod
     def test_enhanced_payload_structure(limiter, payload):
-        """Verify that ``_get_enhanced_payload`` wraps the payload in the expected data/meta structure."""
+        """Verify that ``_get_enhanced_payload`` wraps the
+        payload in the expected data/meta structure."""
         # Act
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=False)
 
@@ -164,7 +166,8 @@ class TestRQRateLimiter:
 
     @staticmethod
     def test_dispatch_task_missing_meta_uses_default_executor(limiter, task_id):
-        """Verify that ``_dispatch_task`` defaults to the generic worker when the meta key is absent."""
+        """Verify that ``_dispatch_task`` defaults to the generic
+        worker when the meta key is absent."""
         # Arrange
         # A raw payload without the ``meta`` wrapper triggers the default path.
         payload_without_meta = {"data": {"key": "value"}}
@@ -186,7 +189,8 @@ class TestRQRateLimiter:
 
     @staticmethod
     def test_dispatch_task_missing_data_uses_empty_dict(limiter, task_id):
-        """Verify that ``_dispatch_task`` uses an empty dict when the data key is absent."""
+        """Verify that ``_dispatch_task`` uses an empty dict
+        when the data key is absent."""
         # Arrange
         payload_without_data = {"meta": {"use_executor": True}}
 
@@ -203,7 +207,8 @@ class TestRQRateLimiter:
 
     @staticmethod
     def test_schedule_task_forwards_max_age_override(limiter, func_path, payload):
-        """Verify that ``schedule_task`` passes the ``max_age`` override through to the parent scheduler."""
+        """Verify that ``schedule_task`` passes the ``max_age``
+        override through to the parent scheduler."""
         # Arrange
         max_age_override = 60
 
@@ -251,7 +256,8 @@ class TestRQRateLimiter:
 
     @staticmethod
     def test_check_backend_health_returns_true_when_workers_exist(limiter):
-        """Verify that ``_check_backend_health`` returns ``True`` when an RQ worker is listening on the queue."""
+        """Verify that ``_check_backend_health`` returns
+        ``True`` when an RQ worker is listening on the queue."""
         # Arrange
         mock_worker = MagicMock()
         mock_worker.queue_names.return_value = [limiter.queue.name]
@@ -267,7 +273,8 @@ class TestRQRateLimiter:
 
     @staticmethod
     def test_check_backend_health_returns_false_when_no_workers(limiter):
-        """Verify that ``_check_backend_health`` returns ``False`` when no RQ workers exist."""
+        """Verify that ``_check_backend_health`` returns
+        ``False`` when no RQ workers exist."""
         # Act
         with patch("rq.Worker.all", return_value=[]):
             result = limiter._check_backend_health()
@@ -277,7 +284,8 @@ class TestRQRateLimiter:
 
     @staticmethod
     def test_check_backend_health_returns_false_when_queue_mismatch(limiter):
-        """Verify that ``_check_backend_health`` returns ``False`` when workers listen on a different queue."""
+        """Verify that ``_check_backend_health`` returns
+        ``False`` when workers listen on a different queue."""
         # Arrange
         mock_worker = MagicMock()
         mock_worker.queue_names.return_value = ["other_queue"]
@@ -297,12 +305,14 @@ class TestRQRateLimiter:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class TestRQDispatchObservability:
     """Observability tests for the ``_dispatch_task`` log emissions."""
 
     @staticmethod
     def test_dispatch_generic_worker_emits_debug_log(limiter, payload, task_id, caplog):
-        """Verify that dispatching via the generic worker emits a DEBUG log with limiter id, task id, and func path."""
+        """Verify that dispatching via the generic worker emits
+        a DEBUG log with limiter id, task id, and func path."""
         # Arrange
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=True)
 
@@ -327,7 +337,8 @@ class TestRQDispatchObservability:
 
     @staticmethod
     def test_dispatch_custom_task_emits_debug_log(limiter, payload, task_id, caplog):
-        """Verify that dispatching via a custom task path emits a DEBUG log with limiter id, task id, and func path."""
+        """Verify that dispatching via a custom task path emits
+        a DEBUG log with limiter id, task id, and func path."""
         # Arrange
         func_path = "myapp.tasks.custom"
         enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=False)
@@ -357,6 +368,7 @@ class TestRQDispatchObservability:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.signature
 class TestRQScheduleTaskSignatures:
     """Signature tests for ``RQRateLimiter.schedule_task()`` default parameter values."""
 

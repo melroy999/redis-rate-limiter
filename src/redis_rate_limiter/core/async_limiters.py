@@ -855,8 +855,8 @@ class AbstractAsyncDistributedRateLimiter(
             if hasattr(self, "refresh_config"):
                 await self.refresh_config()
 
-            if hasattr(self, "_paused_until") and time.time() < self._paused_until:
-                remaining = self._paused_until - time.time()
+            if hasattr(self, "_drain_paused_until") and time.time() < self._drain_paused_until:
+                remaining = self._drain_paused_until - time.time()
                 logger.debug(
                     "Drain deferred (async): limiter=%s is paused for %.3fs.",
                     self.id,

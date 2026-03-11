@@ -108,6 +108,7 @@ def read_registry_config(redis_client, limiter_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestConfigure:
     """Test suite for the ``configure()`` class method."""
 
@@ -142,6 +143,7 @@ class TestConfigure:
         ManagedTestRateLimiter._reset()
 
 
+@pytest.mark.behavior
 class TestCreate:
     """Test suite for the ``create()`` class method."""
 
@@ -232,7 +234,8 @@ class TestCreate:
 
     @staticmethod
     def test_create_persist_writes_registry_config(redis_client, limiter_id):
-        """Verify that ``create()`` with ``persist=True`` writes the limiter configuration to the Redis registry."""
+        """Verify that ``create()`` with ``persist=True`` writes
+        the limiter configuration to the Redis registry."""
         # Act
         create_test_limiter(limiter_id)
 
@@ -246,7 +249,8 @@ class TestCreate:
 
     @staticmethod
     def test_create_persist_increments_version(redis_client, limiter_id):
-        """Verify that repeated ``create()`` calls with ``override`` increment the Redis version counter."""
+        """Verify that repeated ``create()`` calls with
+        ``override`` increment the Redis version counter."""
         # Arrange
         create_test_limiter(limiter_id)
         initial_version = int(
@@ -273,7 +277,8 @@ class TestCreate:
 
     @staticmethod
     def test_create_without_persist_skips_registry_write(redis_client, limiter_id):
-        """Verify that ``create()`` with ``persist=False`` does not write to the Redis registry."""
+        """Verify that ``create()`` with ``persist=False`` does
+        not write to the Redis registry."""
         # Act
         create_test_limiter(limiter_id, persist=False)
 
@@ -283,12 +288,14 @@ class TestCreate:
         ), "persist=False should skip config registry write"
 
 
+@pytest.mark.behavior
 class TestGet:
     """Test suite for the ``get()`` class method."""
 
     @staticmethod
     def test_get_without_configure_raises(limiter_id):
-        """Verify that ``get()`` fails when ``configure()`` has not been called and the cache misses."""
+        """Verify that ``get()`` fails when ``configure()`` has
+        not been called and the cache misses."""
         # Arrange
         ManagedTestRateLimiter._reset()
 
@@ -310,7 +317,8 @@ class TestGet:
 
     @staticmethod
     def test_get_hydrates_from_redis_on_cache_miss(limiter_id):
-        """Verify that ``get()`` hydrates the limiter configuration from Redis when the cache misses."""
+        """Verify that ``get()`` hydrates the limiter
+        configuration from Redis when the cache misses."""
         # Arrange
         create_test_limiter(limiter_id)
         ManagedTestRateLimiter._instances.clear()
@@ -328,7 +336,8 @@ class TestGet:
 
     @staticmethod
     def test_get_hydration_loads_current_config_version(redis_client, limiter_id):
-        """Verify that the hydrated limiter tracks the current persisted configuration version."""
+        """Verify that the hydrated limiter tracks the current
+        persisted configuration version."""
         # Arrange
         create_test_limiter(limiter_id)
         expected_version = int(
@@ -346,7 +355,8 @@ class TestGet:
 
     @staticmethod
     def test_get_nonexistent_limiter_raises_value_error():
-        """Verify that ``get()`` raises a ValueError when the limiter does not exist in any location."""
+        """Verify that ``get()`` raises a ValueError when the
+        limiter does not exist in any location."""
         missing_limiter_id = "limiter_id_for_get_nonexistent_limiter_test"
 
         # Act & Assert
@@ -354,6 +364,7 @@ class TestGet:
             ManagedTestRateLimiter.get(missing_limiter_id)
 
 
+@pytest.mark.behavior
 class TestUpdate:
     """Test suite for the ``update()`` class method."""
 
@@ -404,7 +415,8 @@ class TestUpdate:
 
     @staticmethod
     def test_update_persists_new_config_and_bumps_version(redis_client, limiter_id):
-        """Verify that ``update()`` writes the new configuration and increments the version counter."""
+        """Verify that ``update()`` writes the new configuration
+        and increments the version counter."""
         # Arrange
         create_test_limiter(limiter_id)
         initial_version = int(
@@ -430,7 +442,7 @@ class TestUpdate:
         """Verify that changing the window sets a transition pause for safe rollover."""
         # Arrange
         limiter = create_test_limiter(limiter_id)
-        assert limiter._paused_until == 0.0, "pause should start disabled"
+        assert limiter._drain_paused_until == 0.0, "pause should start disabled"
         previous_window = limiter.window
 
         # Act
@@ -438,16 +450,17 @@ class TestUpdate:
 
         # Assert
         assert limiter.window == 30, "window should update to requested value"
-        assert limiter._paused_until > time.time(), (
+        assert limiter._drain_paused_until > time.time(), (
             "window update should set a future pause timestamp"
         )
-        assert limiter._paused_until <= time.time() + previous_window + 1, (
+        assert limiter._drain_paused_until <= time.time() + previous_window + 1, (
             "window update pause should not exceed old window plus small tolerance"
         )
 
     @staticmethod
     def test_update_preserves_unspecified_fields(limiter_id):
-        """Verify that ``update()`` keeps fields unchanged when no override is provided for them."""
+        """Verify that ``update()`` keeps fields unchanged when
+        no override is provided for them."""
         # Arrange
         create_test_limiter(
             limiter_id,
@@ -489,7 +502,8 @@ class TestUpdate:
 
     @staticmethod
     def test_get_status_reflects_updated_config(limiter_id):
-        """Verify that ``get_status()`` returns updated values after ``update()`` modifies the configuration."""
+        """Verify that ``get_status()`` returns updated values
+        after ``update()`` modifies the configuration."""
         # Arrange
         create_test_limiter(limiter_id, limit=10, max_concurrency=5)
 
@@ -507,6 +521,7 @@ class TestUpdate:
         )
 
 
+@pytest.mark.behavior
 class TestRefreshConfig:
     """Test suite for the ``refresh_config()`` instance method."""
 
@@ -526,7 +541,8 @@ class TestRefreshConfig:
 
     @staticmethod
     def test_refresh_config_applies_remote_change(redis_client, limiter_id):
-        """Verify that ``refresh_config()`` applies a newer configuration written by another worker."""
+        """Verify that ``refresh_config()`` applies a newer
+        configuration written by another worker."""
         # Arrange
         limiter = create_test_limiter(limiter_id)
         new_config = {
@@ -555,7 +571,8 @@ class TestRefreshConfig:
 
     @staticmethod
     def test_refresh_config_window_change_sets_pause_until(redis_client, limiter_id):
-        """Verify that ``refresh_config()`` sets a pause when the remote configuration changes the window size."""
+        """Verify that ``refresh_config()`` sets a pause when the
+        remote configuration changes the window size."""
         # Arrange
         limiter = create_test_limiter(limiter_id)
         new_config = {
@@ -578,7 +595,7 @@ class TestRefreshConfig:
         # Assert
         assert changed is True, "refresh should report config change"
         assert limiter.window == 30, "refresh should apply updated window"
-        assert limiter._paused_until > time.time(), (
+        assert limiter._drain_paused_until > time.time(), (
             "window change via refresh should set a future pause timestamp"
         )
 
@@ -632,7 +649,8 @@ class TestRefreshConfig:
     def test_refresh_config_returns_false_when_registry_config_missing(
         redis_client, limiter_id
     ):
-        """Verify that ``refresh_config()`` returns False when the version exists but the registry configuration is missing."""
+        """Verify that ``refresh_config()`` returns False when the
+        version exists but the registry configuration is missing."""
         # Arrange
         limiter = create_test_limiter(limiter_id)
         original_version = limiter._config_version
@@ -668,6 +686,7 @@ class TestRefreshConfig:
         )
 
 
+@pytest.mark.behavior
 class TestResetAndConstruction:
     """Test suite for ``_reset()`` and direct construction guards."""
 
@@ -693,7 +712,8 @@ class TestResetAndConstruction:
 
     @staticmethod
     def test_direct_construction_raises_runtime_error(redis_client):
-        """Verify that direct ``__init__`` invocation, bypassing ``create()``/``get()``, raises a ``RuntimeError``."""
+        """Verify that direct ``__init__`` invocation, bypassing
+        ``create()``/``get()``, raises a ``RuntimeError``."""
         # Act & Assert
         with pytest.raises(RuntimeError, match="Direct.*construction is not supported"):
             ManagedTestRateLimiter(
@@ -706,7 +726,8 @@ class TestResetAndConstruction:
 
     @staticmethod
     def test_subclass_isolation_separate_instances(redis_client):
-        """Verify that ``__init_subclass__`` isolates ``_instances`` and ``_redis_client`` per subclass."""
+        """Verify that ``__init_subclass__`` isolates
+        ``_instances`` and ``_redis_client`` per subclass."""
 
         class IsolatedLimiterA(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
             @classmethod
@@ -790,6 +811,7 @@ class TestResetAndConstruction:
         )
 
 
+@pytest.mark.behavior
 class TestManagedMixinInternals:
     """Tests for internal class machinery in ``ManagedRateLimiterMixin``."""
 
@@ -864,6 +886,7 @@ class TestManagedMixinInternals:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class TestConfigureObservability:
     """Observability tests for the ``configure()`` class method log emission."""
 
@@ -886,12 +909,14 @@ class TestConfigureObservability:
         )
 
 
+@pytest.mark.observability
 class TestCreateObservability:
     """Observability tests for the ``create()`` class method log emission."""
 
     @staticmethod
     def test_create_emits_info_log(limiter_id, caplog):
-        """Verify that ``create()`` emits an INFO log with the limiter id and persist flag."""
+        """Verify that ``create()`` emits an INFO log with the
+        limiter id and persist flag."""
         # Act
         with caplog.at_level(logging.INFO, logger="redis_rate_limiter.core.managed"):
             create_test_limiter(limiter_id)
@@ -910,12 +935,14 @@ class TestCreateObservability:
         )
 
 
+@pytest.mark.observability
 class TestGetObservability:
     """Observability tests for the ``get()`` class method log emission."""
 
     @staticmethod
     def test_get_cache_hit_emits_debug_log(limiter_id, caplog):
-        """Verify that ``get()`` emits a DEBUG log when the instance is resolved from the local cache."""
+        """Verify that ``get()`` emits a DEBUG log when the
+        instance is resolved from the local cache."""
         # Arrange
         create_test_limiter(limiter_id)
 
@@ -937,7 +964,8 @@ class TestGetObservability:
 
     @staticmethod
     def test_get_hydration_emits_debug_log(limiter_id, caplog):
-        """Verify that ``get()`` emits a DEBUG log when the instance is hydrated from Redis."""
+        """Verify that ``get()`` emits a DEBUG log when the
+        instance is hydrated from Redis."""
         # Arrange
         create_test_limiter(limiter_id)
         ManagedTestRateLimiter._instances.clear()
@@ -959,12 +987,14 @@ class TestGetObservability:
         )
 
 
+@pytest.mark.observability
 class TestUpdateObservability:
     """Observability tests for the ``update()`` class method log emission."""
 
     @staticmethod
     def test_update_emits_info_log(limiter_id, caplog):
-        """Verify that ``update()`` emits an INFO log with the limiter id and overrides."""
+        """Verify that ``update()`` emits an INFO log with the
+        limiter id and overrides."""
         # Arrange
         create_test_limiter(limiter_id)
 
@@ -986,12 +1016,14 @@ class TestUpdateObservability:
         )
 
 
+@pytest.mark.observability
 class TestRefreshConfigObservability:
     """Observability tests for the ``refresh_config()`` instance method log emission."""
 
     @staticmethod
     def test_refresh_config_success_emits_info_log(redis_client, limiter_id, caplog):
-        """Verify that a successful ``refresh_config()`` emits an INFO log with the limiter id and version."""
+        """Verify that a successful ``refresh_config()`` emits an
+        INFO log with the limiter id and version."""
         # Arrange
         limiter = create_test_limiter(limiter_id)
         new_config = {
@@ -1024,7 +1056,8 @@ class TestRefreshConfigObservability:
     def test_refresh_config_corrupted_data_emits_warning_log(
         redis_client, limiter_id, caplog
     ):
-        """Verify that ``refresh_config()`` emits a WARNING log when the persisted configuration is malformed."""
+        """Verify that ``refresh_config()`` emits a WARNING log
+        when the persisted configuration is malformed."""
         # Arrange
         limiter = create_test_limiter(limiter_id)
         redis_client.hset(
@@ -1050,6 +1083,7 @@ class TestRefreshConfigObservability:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.signature
 class TestCreateSignatures:
     """Signature tests for the ``create()`` class method default parameter values."""
 

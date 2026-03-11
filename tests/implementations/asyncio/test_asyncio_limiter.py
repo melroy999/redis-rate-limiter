@@ -1,21 +1,58 @@
 """Tests for the AsyncIO task limiter backend.
 
 Fixture dependencies:
-    - ``limiter``, ``_reset_asyncio_limiter_class_state``: from ``tests/implementations/asyncio/conftest.py``.
+    - ``limiter``, ``_reset_asyncio_limiter_class_state``:
+      from ``tests/implementations/asyncio/conftest.py``.
 """
 
 import asyncio
 import logging
 
+import pytest
+
+from redis_rate_limiter.backends.asyncio import AsyncIOTaskLimiter
 from tests.helpers.utils import assert_log_emitted
 
 
+@pytest.mark.behavior
+class TestAsyncIOTaskLimiterClassApi:
+    """AsyncIO-specific tests for class API and backend context behaviour."""
+
+    @staticmethod
+    async def test_configure_without_max_tasks_raises_error(async_redis_client):
+        """Verify that ``configure`` raises an error when
+        the ``max_tasks`` argument is not provided."""
+        # Arrange
+        AsyncIOTaskLimiter._reset()
+
+        # Act & Assert
+        with pytest.raises(RuntimeError, match="max_tasks"):
+            AsyncIOTaskLimiter.configure(async_redis_client)
+
+    @staticmethod
+    async def test_reset_clears_backend_context_to_none():
+        """Verify that ``_reset()`` sets the backend
+        attribute to exactly ``None``."""
+        # Act
+        AsyncIOTaskLimiter._reset()
+
+        # Assert
+        # _has_backend_context uses ``is not None``, so a falsy
+        # non-None value like 0 would incorrectly signal that
+        # max_tasks is configured.
+        assert AsyncIOTaskLimiter._max_tasks is None, (
+            "_max_tasks must be None after reset, not another falsy value"
+        )
+
+
+@pytest.mark.behavior
 class TestAsyncIOTaskLimiter:
     """Tests for the ``AsyncIOTaskLimiter`` backend."""
 
     @staticmethod
     async def test_schedule_task_returns_success(limiter):
-        """Verify that scheduling a task returns a success flag and a task identifier."""
+        """Verify that scheduling a task returns a success
+        flag and a task identifier."""
         # Act
         scheduled, task_id = await limiter.schedule_task(
             "tests.helpers.tasks.async_noop_task", {"key": "value"}
@@ -27,7 +64,8 @@ class TestAsyncIOTaskLimiter:
 
     @staticmethod
     async def test_schedule_duplicate_task_returns_false(limiter):
-        """Verify that scheduling the same task twice returns ``False`` on the second attempt."""
+        """Verify that scheduling the same task twice
+        returns ``False`` on the second attempt."""
         # Arrange
         await limiter.schedule_task(
             "tests.helpers.tasks.async_noop_task", {"key": "value"}
@@ -72,7 +110,7 @@ class TestAsyncIOTaskLimiter:
         """Verify that ``get_buffer_count`` returns the correct count after scheduling.
         """
         # Arrange
-        limiter._paused_until = 5_000_000_000.0
+        limiter._drain_paused_until = 5_000_000_000.0
         await limiter.schedule_task("tests.helpers.tasks.async_noop_task", {"key": "a"})
         await limiter.schedule_task(
             "tests.helpers.tasks.async_noop_task_2", {"key": "b"}
@@ -136,7 +174,8 @@ class TestAsyncIOTaskLimiter:
     async def test_dispatch_sync_function_raises_type_error_with_message(
         limiter, caplog
     ):
-        """Verify that dispatching a synchronous function produces a TypeError with an informative message."""
+        """Verify that dispatching a synchronous function
+        produces a TypeError with an informative message."""
         # Act
         with caplog.at_level(
             logging.ERROR, logger="redis_rate_limiter.backends.asyncio.limiter"
@@ -190,12 +229,15 @@ class TestAsyncIOTaskLimiter:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class TestAsyncIODispatchObservability:
     """Observability tests for the ``_dispatch_task`` log emissions."""
 
     @staticmethod
     async def test_dispatch_task_emits_debug_log(limiter, caplog):
-        """Verify that ``_dispatch_task`` emits a DEBUG log with limiter id, task id, func path, and active count."""
+        """Verify that ``_dispatch_task`` emits a DEBUG log
+        with limiter id, task id, func path, and active
+        count."""
         # Act
         with caplog.at_level(
             logging.DEBUG, logger="redis_rate_limiter.backends.asyncio.limiter"
@@ -214,12 +256,15 @@ class TestAsyncIODispatchObservability:
                 "func_path=tests.helpers.tasks.async_noop_task",
                 "active_count=1",
             ],
-            message="should emit a debug log containing the limiter id, task id, func path, and active count",
+            message="should emit a debug log containing "
+            "the limiter id, task id, func path, "
+            "and active count",
         )
 
     @staticmethod
     async def test_task_exception_emits_error_log(limiter, caplog):
-        """Verify that ``_dispatch_task`` emits an ERROR log when the dispatched task raises an exception."""
+        """Verify that ``_dispatch_task`` emits an ERROR log
+        when the dispatched task raises an exception."""
         # Act
         with caplog.at_level(
             logging.ERROR, logger="redis_rate_limiter.backends.asyncio.limiter"
@@ -239,7 +284,9 @@ class TestAsyncIODispatchObservability:
                 "task_id=sync-err-task",
                 "func_path=tests.helpers.tasks.noop_task",
             ],
-            message="should emit an error log containing the limiter id, task id, and func path on task exception",
+            message="should emit an error log containing "
+            "the limiter id, task id, and func path "
+            "on task exception",
         )
 
     @staticmethod
@@ -267,14 +314,17 @@ class TestAsyncIODispatchObservability:
                 f"limiter={limiter.id}",
                 "Cancelling",
             ],
-            message="should emit an info log with the limiter id when cancelling active tasks",
+            message="should emit an info log with the "
+            "limiter id when cancelling active tasks",
         )
 
     @staticmethod
     async def test_dispatch_task_normal_execution_does_not_emit_error_log(
         limiter, caplog
     ):
-        """Verify that ``_dispatch_task`` does not emit error logs when the target function executes successfully."""
+        """Verify that ``_dispatch_task`` does not emit
+        error logs when the target function executes
+        successfully."""
         # Act
         with caplog.at_level(
             logging.ERROR, logger="redis_rate_limiter.backends.asyncio.limiter"

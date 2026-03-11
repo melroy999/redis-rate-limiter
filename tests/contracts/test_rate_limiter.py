@@ -106,6 +106,9 @@ class RateLimiterContractTest:
         limiter, async_redis_client, func_path, payload
     ):
         """Contract: scheduled tasks must be marked as in-flight within Redis."""
+        # Arrange
+        limiter._drain_paused_until = 5_000_000_000.0
+
         # Act
         success, task_id = await limiter.schedule_task(func_path, payload)
 
@@ -121,6 +124,9 @@ class RateLimiterContractTest:
         limiter, async_redis_client, func_path, payload
     ):
         """Contract: scheduled tasks must be appended to the buffer."""
+        # Arrange
+        limiter._drain_paused_until = 5_000_000_000.0
+
         # Act
         success, task_id = await limiter.schedule_task(func_path, payload)
 
@@ -131,8 +137,11 @@ class RateLimiterContractTest:
 
     @staticmethod
     async def test_schedule_duplicate_task_returns_false(limiter, func_path, payload):
-        """Contract: scheduling identical tasks must return ``False`` for the
-        duplicate."""
+        """Contract: scheduling identical tasks must return
+        ``False`` for the duplicate."""
+        # Arrange
+        limiter._drain_paused_until = 5_000_000_000.0
+
         # Act
         success_1, task_id_1 = await limiter.schedule_task(func_path, payload)
         success_2, task_id_2 = await limiter.schedule_task(func_path, payload)
@@ -290,8 +299,7 @@ class RateLimiterContractTest:
         budget, concurrency, buffer depth, and window countdown.
         """
         # Arrange
-        # Pause the drain loop to prevent it from racing with our consume() call.
-        limiter._paused_until = 5_000_000_000.0
+        limiter._drain_paused_until = 5_000_000_000.0
 
         # Schedule three distinct tasks so remaining_tasks=2 after one consume.
         await limiter.schedule_task(func_path, payload)

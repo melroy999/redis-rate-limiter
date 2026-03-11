@@ -52,7 +52,7 @@ class DrainBehaviorTests:
         """Verify that ``drain()`` defers execution and schedules
         a follow-up when the limiter is paused."""
         # Arrange
-        mock_target._paused_until = time.time() + 0.2
+        mock_target._drain_paused_until = time.time() + 0.2
         consume_mock = MagicMock()
 
         # Act
@@ -621,7 +621,7 @@ class DrainObservabilityTests:
     async def test_drain_paused_emits_debug_log(limiter, mock_target, caplog):
         """Verify that ``drain()`` emits a debug log when deferred due to pause."""
         # Arrange
-        mock_target._paused_until = time.time() + 0.2
+        mock_target._drain_paused_until = time.time() + 0.2
 
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):

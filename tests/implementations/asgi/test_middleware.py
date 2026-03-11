@@ -1,10 +1,12 @@
 """Tests for the ASGI rate limiting middleware.
 
 Fixture dependencies:
-    - ``limiter``, ``_reset_asgi_limiter_class_state``: from ``tests/implementations/asgi/conftest.py``.
+    - ``limiter``, ``_reset_asgi_limiter_class_state``:
+      from ``tests/implementations/asgi/conftest.py``.
 
-Direct static-method tests for ``_send_blocked`` and ``_send_error`` use
-``AsyncMock`` as the ASGI ``send`` callable and do not require fixtures.
+Direct static-method tests for ``_send_blocked`` and
+``_send_error`` use ``AsyncMock`` as the ASGI ``send`` callable
+and do not require fixtures.
 """
 
 import inspect
@@ -49,6 +51,7 @@ async def _capture_response(middleware, scope):
     return messages
 
 
+@pytest.mark.behavior
 class TestRateLimitMiddleware:
     """Tests for the ``RateLimitMiddleware`` ASGI wrapper."""
 
@@ -133,7 +136,8 @@ class TestRateLimitMiddleware:
 
     @staticmethod
     async def test_custom_on_blocked_callback(limiter):
-        """Verify that ``on_blocked`` callback is invoked instead of the default 429."""
+        """Verify that ``on_blocked`` callback is invoked
+        instead of the default 429."""
         # Arrange
         callback_invoked = False
 
@@ -210,7 +214,8 @@ class TestRateLimitMiddleware:
 
     @staticmethod
     async def test_key_func_none_bypasses_rate_limiting(limiter):
-        """Verify that returning ``None`` from ``key_func`` bypasses rate limiting."""
+        """Verify that returning ``None`` from ``key_func``
+        bypasses rate limiting."""
 
         # Arrange
         forwarded_scope = None
@@ -257,7 +262,8 @@ class TestRateLimitMiddleware:
 
     @staticmethod
     async def test_fail_open_allows_on_error(limiter):
-        """Verify that ``fail_open`` mode allows the request when ``acquire`` raises."""
+        """Verify that ``fail_open`` mode allows the request
+        when ``acquire`` raises."""
         # Arrange
         app_invoked = False
         forwarded_receive = None
@@ -297,7 +303,8 @@ class TestRateLimitMiddleware:
 
     @staticmethod
     async def test_fail_closed_returns_503_on_error(limiter):
-        """Verify that ``fail_closed`` mode returns 503 when ``acquire`` raises."""
+        """Verify that ``fail_closed`` mode returns 503
+        when ``acquire`` raises."""
 
         # Arrange
         async def inner_app(scope, receive, send):
@@ -321,7 +328,8 @@ class TestRateLimitMiddleware:
 
     @staticmethod
     async def test_wrap_send_preserves_existing_headers(limiter):
-        """Verify that ``_wrap_send`` preserves original response headers from the inner app."""
+        """Verify that ``_wrap_send`` preserves original response
+        headers from the inner app."""
 
         # Arrange
         async def inner_app(scope, receive, send):
@@ -349,7 +357,8 @@ class TestRateLimitMiddleware:
 
     @staticmethod
     async def test_wrap_send_header_values_reflect_acquire_result(limiter):
-        """Verify that rate limit header values match the ``acquire()`` result."""
+        """Verify that rate limit header values match the
+        ``acquire()`` result."""
 
         # Arrange
         async def inner_app(scope, receive, send):
@@ -385,7 +394,8 @@ class TestRateLimitMiddleware:
 
     @staticmethod
     async def test_inner_app_receives_working_receive_callable(limiter):
-        """Verify that the inner app receives the original ``receive`` callable, not ``None``."""
+        """Verify that the inner app receives the original
+        ``receive`` callable, not ``None``."""
         # Arrange
         received_body = None
 
@@ -410,7 +420,8 @@ class TestRateLimitMiddleware:
 
     @staticmethod
     async def test_wrap_send_handles_missing_headers_key(limiter):
-        """Verify that ``_wrap_send`` injects headers even when the response lacks a ``headers`` key."""
+        """Verify that ``_wrap_send`` injects headers even when
+        the response lacks a ``headers`` key."""
 
         # Arrange
         async def inner_app(scope, receive, send):
@@ -431,8 +442,10 @@ class TestRateLimitMiddleware:
         )
 
 
+@pytest.mark.behavior
 class TestSendBlockedResponse:
-    """Tests for ``RateLimitMiddleware._send_blocked`` response structure and arithmetic."""
+    """Tests for ``RateLimitMiddleware._send_blocked``
+    response structure and arithmetic."""
 
     @staticmethod
     @pytest.mark.parametrize(
@@ -443,7 +456,8 @@ class TestSendBlockedResponse:
     async def test_send_blocked_retry_after_ceiling_division(
         reset_ms, expected_retry_after
     ):
-        """Verify that ``_send_blocked`` computes ``Retry-After`` via ceiling division."""
+        """Verify that ``_send_blocked`` computes
+        ``Retry-After`` via ceiling division."""
         # Arrange
         send = AsyncMock()
 
@@ -459,7 +473,8 @@ class TestSendBlockedResponse:
 
     @staticmethod
     async def test_send_blocked_response_structure():
-        """Verify that ``_send_blocked`` produces a well-formed 429 response with correct headers."""
+        """Verify that ``_send_blocked`` produces a well-formed
+        429 response with correct headers."""
         # Arrange
         send = AsyncMock()
         reset_ms = 2000
@@ -495,12 +510,15 @@ class TestSendBlockedResponse:
         )
 
 
+@pytest.mark.behavior
 class TestSendErrorResponse:
-    """Tests for ``RateLimitMiddleware._send_error`` response structure."""
+    """Tests for ``RateLimitMiddleware._send_error``
+    response structure."""
 
     @staticmethod
     async def test_send_error_response_structure():
-        """Verify that ``_send_error`` produces a well-formed 503 response."""
+        """Verify that ``_send_error`` produces a well-formed
+        503 response."""
         # Arrange
         send = AsyncMock()
 
@@ -536,12 +554,14 @@ class TestSendErrorResponse:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class TestMiddlewareObservability:
     """Observability tests for the ``RateLimitMiddleware`` log emissions."""
 
     @staticmethod
     async def test_acquire_error_emits_exception_log(limiter, caplog):
-        """Verify that the middleware emits an ERROR log with limiter id and key when ``acquire`` raises."""
+        """Verify that the middleware emits an ERROR log with
+        limiter id and key when ``acquire`` raises."""
 
         # Arrange
         async def inner_app(scope, receive, send):
@@ -580,15 +600,17 @@ class TestMiddlewareObservability:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.signature
 class TestMiddlewareSignatures:
     """Signature tests for ``RateLimitMiddleware`` default parameter values."""
 
     @staticmethod
     def test_middleware_init_default_parameters():
-        """Verify that ``on_error`` and ``on_blocked`` have the expected defaults.
+        """Verify that ``on_error`` and ``on_blocked`` have
+        the expected defaults.
 
-        Mutation target: ``on_error`` and ``on_blocked`` default values in
-        ``RateLimitMiddleware.__init__``.
+        Mutation target: ``on_error`` and ``on_blocked`` default
+        values in ``RateLimitMiddleware.__init__``.
         """
         # Arrange & Act
         sig = inspect.signature(RateLimitMiddleware.__init__)

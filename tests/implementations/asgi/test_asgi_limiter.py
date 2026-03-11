@@ -1,7 +1,8 @@
 """Tests for the ASGI rate limiter backend.
 
 Fixture dependencies:
-    - ``limiter``, ``_reset_asgi_limiter_class_state``: from ``tests/implementations/asgi/conftest.py``.
+    - ``limiter``, ``_reset_asgi_limiter_class_state``:
+      from ``tests/implementations/asgi/conftest.py``.
 """
 
 import logging
@@ -13,6 +14,7 @@ from redis_rate_limiter.backends.asgi import ASGIRateLimiter
 from tests.helpers.utils import assert_log_emitted
 
 
+@pytest.mark.behavior
 class TestASGIRateLimiter:
     """Tests for the ``ASGIRateLimiter`` ``acquire`` method."""
 
@@ -40,7 +42,8 @@ class TestASGIRateLimiter:
 
     @staticmethod
     async def test_acquire_denied_at_limit(limiter):
-        """Verify that ``acquire`` returns ``allowed=False`` when the limit is exceeded."""
+        """Verify that ``acquire`` returns ``allowed=False``
+        when the limit is exceeded."""
         # Arrange
         for _ in range(10):
             await limiter.acquire("user_3")
@@ -82,7 +85,8 @@ class TestASGIRateLimiter:
 
     @staticmethod
     async def test_acquire_returns_window_counters(limiter):
-        """Verify that ``val_previous`` and ``val_current`` are returned."""
+        """Verify that ``val_previous`` and ``val_current``
+        are returned."""
         # Act
         result = await limiter.acquire("user_5")
 
@@ -98,7 +102,8 @@ class TestASGIRateLimiter:
 
     @staticmethod
     async def test_acquire_skips_refresh_within_interval(limiter):
-        """Verify that ``acquire`` does not trigger ``refresh_config`` when the interval has not elapsed."""
+        """Verify that ``acquire`` does not trigger
+        ``refresh_config`` when the interval has not elapsed."""
         # Arrange
         fixed_now = 100.0
         limiter._last_refresh = fixed_now - 1.0
@@ -120,7 +125,8 @@ class TestASGIRateLimiter:
 
     @staticmethod
     async def test_acquire_refreshes_config_at_interval_boundary(limiter):
-        """Verify that ``acquire`` triggers ``refresh_config`` when elapsed time equals the refresh interval."""
+        """Verify that ``acquire`` triggers ``refresh_config``
+        when elapsed time equals the refresh interval."""
         # Arrange
         fixed_now = 100.0
         limiter._last_refresh = fixed_now - limiter._refresh_interval
@@ -156,12 +162,14 @@ class TestASGIRateLimiter:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class TestASGIStartObservability:
     """Observability tests for the ``start()`` log emission."""
 
     @staticmethod
     async def test_start_emits_info_log(limiter_id, caplog):
-        """Verify that ``start()`` emits an INFO log with the limiter id, limit, and window."""
+        """Verify that ``start()`` emits an INFO log with the
+        limiter id, limit, and window."""
         # Arrange & Act
         with caplog.at_level(
             logging.INFO, logger="redis_rate_limiter.backends.asgi.limiter"
@@ -186,12 +194,14 @@ class TestASGIStartObservability:
         )
 
 
+@pytest.mark.observability
 class TestASGIAcquireObservability:
     """Observability tests for the ``acquire`` log emissions."""
 
     @staticmethod
     async def test_acquire_failure_emits_error_log(limiter, caplog):
-        """Verify that ``acquire`` emits an ERROR log with limiter id and key on script failure."""
+        """Verify that ``acquire`` emits an ERROR log with
+        limiter id and key on script failure."""
         # Act
         with caplog.at_level(
             logging.ERROR, logger="redis_rate_limiter.backends.asgi.limiter"
@@ -219,6 +229,7 @@ class TestASGIAcquireObservability:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.signature
 class TestASGILimiterClassVariables:
     """Verify class-level configuration defaults on ``ASGIRateLimiter``."""
 
