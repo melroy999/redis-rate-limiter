@@ -35,15 +35,8 @@ from tests.integration.conftest import consume_and_complete, precise_sleep
 
 @pytest.fixture
 def integration_limiter(redis_client, limiter_id):
-    """Create a rate limiter with an explicit configuration for integration tests.
-
-    Config:
-        - limit: 5 requests
-        - window: 60 seconds
-        - max_concurrency: 2 simultaneous tasks
-        - max_age: 3600 seconds (1 hour)
-        - lease_duration: 30 seconds
-    """
+    """Create a rate limiter for integration tests."""
+    # Setup
     limiter = StubRateLimiter(
         redis_client=redis_client,
         limiter_id=f"{limiter_id}_integration_default",
@@ -56,14 +49,15 @@ def integration_limiter(redis_client, limiter_id):
 
     yield limiter
 
-    # Teardown: stop the subscriber thread.
+    # Teardown
     limiter.shutdown()
 
 
 def wait_until_task_is_expired(
     redis_client, limiter: AbstractDistributedRateLimiter
 ) -> None:
-    """Wait until the oldest queued task is guaranteed to have expired according to Redis server time.
+    """Wait until the oldest queued task is guaranteed to
+    have expired according to Redis server time.
 
     The ``consume.lua`` script computes task age in integer seconds using
     the Redis server clock and expires a task only when its age exceeds
@@ -91,26 +85,13 @@ def wait_until_task_is_expired(
 def position_at_window_percentage(
     limiter, target_pct: float, verbose: bool = False
 ) -> float:
-    """Sleep until the current time is positioned at ``target_pct`` through a rate limit window.
+    """Sleep until the current time is positioned at
+    ``target_pct`` through a rate limit window.
 
-    This function uses ``redis_client.time()`` to compute the exact Redis
-    window boundaries and then sleeps until the nearest occurrence of
-    ``target_pct``. The function is free of side effects: it does not
-    consume any tasks, thereby leaving the caller in full control of
-    when consumption begins.
-
-    An empty-window wait is not required because each test uses a unique
-    limiter ID (uuid4) with a flushed Redis instance; as such,
-    ``previous_count`` is always 0.
-
-    Args:
-        limiter: The rate limiter instance.
-        target_pct: The target position expressed as a fraction (0.0 to 1.0,
-            e.g., 0.8 for 80%).
-        verbose: Whether to print debug information.
-
-    Returns:
-        The actual position as a fraction, verified via ``redis_client.time()``.
+    An empty-window wait is not required because each
+    test uses a unique limiter ID (uuid4) with a flushed
+    Redis instance; as such, ``previous_count`` is
+    always 0.
     """
     window = limiter.window
     window_ms = int(window * 1000)
@@ -150,7 +131,8 @@ def position_at_window_percentage(
     if verbose:
         print("\n  [DEBUG] Position after sleep:")
         print(
-            f"    Position in window: {actual_pct * 100:.1f}% (target: {target_pct * 100:.0f}%)"
+            f"    Position in window: {actual_pct * 100:.1f}% "
+            f"(target: {target_pct * 100:.0f}%)"
         )
 
     return actual_pct
@@ -161,18 +143,16 @@ def position_at_window_percentage(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestRateLimitingIntegration:
     """Integration tests for rate limiting behaviour with Redis."""
 
     @staticmethod
     def test_basic_rate_limit_enforcement(integration_limiter, func_path):
-        """Verify that the rate limiter enforces the configured limit.
+        """Verify that the rate limiter enforces the
+        configured limit.
 
         Limiter config: limit=5, window=60.
-        Ten tasks are scheduled, consumption proceeds up to the limit
-        (with concurrency slots released after each consume to isolate
-        rate limiting behaviour), and the remaining tasks are verified
-        to be queued.
         """
         # Arrange
         for i in range(10):
@@ -180,7 +160,6 @@ class TestRateLimitingIntegration:
             assert success is True, f"task {i} should be scheduled successfully"
 
         # Act
-        # Concurrency slots are released after each consume to isolate rate limiting behaviour.
         results = [consume_and_complete(integration_limiter) for _ in range(10)]
         consumed_count = sum(1 for r in results if r["success"])
 
@@ -196,11 +175,10 @@ class TestRateLimitingIntegration:
 
     @staticmethod
     def test_concurrency_limit_enforcement(integration_limiter, func_path):
-        """Verify that concurrency limits are enforced independently of the rate limit.
+        """Verify that concurrency limits are enforced
+        independently of the rate limit.
 
         Limiter config: max_concurrency=2.
-        It is verified that only 2 tasks are consumed simultaneously,
-        even when the rate limit would permit additional consumption.
         """
         # Arrange
         for i in range(5):
@@ -241,7 +219,6 @@ class TestRateLimitingIntegration:
             integration_limiter.schedule_task(func_path, {"index": i})
 
         # Act
-        # Concurrency slots are released after each consume to isolate rate limiting behaviour.
         results = [consume_and_complete(integration_limiter) for _ in range(num_tasks)]
 
         # Assert
@@ -285,13 +262,8 @@ class TestRateLimitingIntegration:
     def test_bulk_deduplication_only_buffers_one_task(
         integration_limiter, redis_client, func_path
     ):
-        """Verify that deduplication is maintained under repeated scheduling pressure.
-
-        Fifty identical tasks (sharing the same func_path and payload) are
-        scheduled. Only the first is expected to succeed; the remaining 49
-        should be rejected as duplicates, and the buffer should contain
-        exactly one task.
-        """
+        """Verify that deduplication is maintained under
+        repeated scheduling pressure."""
         # Arrange
         payload = {"user_id": 1}
         num_duplicates = 50
@@ -318,12 +290,8 @@ class TestRateLimitingIntegration:
 
     @staticmethod
     def test_bulk_scheduling_unique_tasks(integration_limiter, redis_client, func_path):
-        """Verify the bulk scheduling of unique tasks at scale.
-
-        One hundred tasks with unique payloads are scheduled. All are
-        expected to succeed, produce unique task IDs, and populate the
-        buffer with all 100 entries.
-        """
+        """Verify the bulk scheduling of unique tasks at
+        scale."""
         # Arrange
         num_tasks = 100
 
@@ -340,7 +308,8 @@ class TestRateLimitingIntegration:
         )
         task_ids = [r[1] for r in results]
         assert len(set(task_ids)) == num_tasks, (
-            f"all task IDs should be unique, got {len(set(task_ids))} unique out of {num_tasks}"
+            "all task IDs should be unique, "
+            f"got {len(set(task_ids))} unique out of {num_tasks}"
         )
         buffer_size = redis_client.zcard(integration_limiter.buffer_key)
         assert buffer_size == num_tasks, (
@@ -351,17 +320,14 @@ class TestRateLimitingIntegration:
     def test_task_lifecycle_releases_slot_on_error(
         integration_limiter, redis_client, func_path
     ):
-        """Verify that the concurrency slot is released when a task encounters an error during execution.
-
-        The full chain is exercised: schedule, consume, lifecycle error,
-        cleanup, and subsequent slot availability for the next consume.
-        """
+        """Verify that the concurrency slot is released
+        when a task encounters an error during
+        execution."""
         # Arrange
         integration_limiter.schedule_task(func_path, {"index": 0})
         integration_limiter.schedule_task(func_path, {"index": 1})
 
         # Act
-        # Consume a task and simulate an error within its lifecycle.
         result = integration_limiter.consume()
         assert result["success"] is True, "first consume should succeed"
         task_id = result["task"]["id"]
@@ -373,7 +339,8 @@ class TestRateLimitingIntegration:
         # Assert
         active_slots = redis_client.zcard(integration_limiter.concurrency_key)
         assert active_slots == 0, (
-            f"concurrency slot should be released after error, got {active_slots} active"
+            "concurrency slot should be released after error, "
+            f"got {active_slots} active"
         )
         next_result = consume_and_complete(integration_limiter)
         assert next_result["success"] is True, (
@@ -383,7 +350,8 @@ class TestRateLimitingIntegration:
     @staticmethod
     @pytest.mark.slow
     def test_expired_task_moved_to_dlq(redis_client, func_path, limiter_id):
-        """Verify that expired queued tasks are moved to the DLQ and reported as expired."""
+        """Verify that expired queued tasks are moved to the
+        DLQ and reported as expired."""
         # Arrange
         limiter = StubRateLimiter(
             redis_client=redis_client,
@@ -430,7 +398,8 @@ class TestRateLimitingIntegration:
     def test_per_task_max_age_override_expires_sooner(
         redis_client, func_path, limiter_id
     ):
-        """Verify that a per-task max_age override can cause expiration earlier than the global max_age."""
+        """Verify that a per-task max_age override can cause
+        expiration earlier than the global max_age."""
         # Arrange
         limiter = StubRateLimiter(
             redis_client=redis_client,
@@ -464,7 +433,9 @@ class TestRateLimitingIntegration:
 
     @staticmethod
     def test_per_task_max_age_stored_in_buffer(redis_client, func_path, limiter_id):
-        """Verify that ``schedule_task()`` with ``max_age`` stores the ``__meta_max_age`` field in the buffered payload."""
+        """Verify that ``schedule_task()`` with ``max_age``
+        stores the ``__meta_max_age`` field in the
+        buffered payload."""
         # Arrange
         limiter = StubRateLimiter(
             redis_client=redis_client,
@@ -494,7 +465,8 @@ class TestRateLimitingIntegration:
     @staticmethod
     @pytest.mark.slow
     def test_expired_lease_cleaned_up_on_consume(redis_client, func_path, limiter_id):
-        """Verify that stale concurrency lease entries are cleaned during consumption."""
+        """Verify that stale concurrency lease entries are
+        cleaned during consumption."""
         # Arrange
         limiter = StubRateLimiter(
             redis_client=redis_client,
@@ -532,7 +504,8 @@ class TestRateLimitingIntegration:
     def test_get_status_reflects_live_state(
         integration_limiter, redis_client, func_path
     ):
-        """Verify that ``get_status()`` mirrors the current Redis-backed limiter state."""
+        """Verify that ``get_status()`` mirrors the current
+        Redis-backed limiter state."""
         # Arrange
         for idx in range(3):
             integration_limiter.schedule_task(func_path, {"index": idx})
@@ -566,6 +539,7 @@ class TestRateLimitingIntegration:
         ), "status lock state should match redis lock key presence"
 
 
+@pytest.mark.behavior
 @pytest.mark.slow
 @pytest.mark.skipif(
     sys.platform == "win32",
@@ -611,18 +585,16 @@ class TestSlidingWindowBehavior:
 
     @pytest.fixture
     def sliding_window_limiter(self, redis_client, limiter_id):
-        """Create a rate limiter with production-realistic settings for sliding window behaviour tests.
-
-        Config:
-            - limit: 25 requests per window (production setting)
-            - window: 1.0 seconds (production setting; less timing-sensitive than 0.5s)
-            - max_concurrency: 50 (set high to isolate rate limiting behaviour)
-        """
+        """Create a rate limiter for sliding window
+        behaviour tests."""
+        # Setup
         limiter = StubRateLimiter(
             redis_client=redis_client,
             limiter_id=f"{limiter_id}_sliding_window",
             limit=25,
+            # 1.0s is less timing-sensitive than 0.5s.
             window=1.0,
+            # Set high to isolate rate limiting behaviour.
             max_concurrency=100,
             max_age=3600,
             lease_duration=30,
@@ -630,7 +602,7 @@ class TestSlidingWindowBehavior:
 
         yield limiter
 
-        # Teardown: stop the subscriber thread.
+        # Teardown
         limiter.shutdown()
 
     @staticmethod
@@ -696,7 +668,8 @@ class TestSlidingWindowBehavior:
         print(f"    Duration: {actual_duration:.2f}s ({num_windows} windows)")
         print(f"    Total consumed: {total_consumed}")
         print(
-            f"    Observed rate: {observed_rate:.1f} requests/window (expected: {limit})"
+            f"    Observed rate: {observed_rate:.1f} "
+            f"requests/window (expected: {limit})"
         )
         print(
             f"    Max burst in any {window}s window: "
@@ -734,7 +707,8 @@ class TestSlidingWindowBehavior:
     def test_burst_at_window_boundary_after_empty_window(
         sliding_window_limiter, func_path, request
     ):
-        """Verify burst behaviour when consuming across a boundary following an empty window.
+        """Verify burst behaviour when consuming across a
+        boundary following an empty window.
 
         The sliding window counter permits up to 2x the limit when:
         1. The previous window is empty (i.e., no consumption occurred).
@@ -794,7 +768,8 @@ class TestSlidingWindowBehavior:
                     for i in range(min(9, len(timestamps) - 1))
                 ]
                 print(
-                    f"\n  [DEBUG] First 10 consumption gaps (ms): {[f'{g * 1000:.1f}' for g in first_10_gaps]}"
+                    "\n  [DEBUG] First 10 consumption gaps (ms): "
+                    f"{[f'{g * 1000:.1f}' for g in first_10_gaps]}"
                 )
                 print(f"    Fastest gap: {min(first_10_gaps) * 1000:.1f}ms")
                 print(f"    Slowest gap in first 10: {max(first_10_gaps) * 1000:.1f}ms")
@@ -808,10 +783,14 @@ class TestSlidingWindowBehavior:
                 ]
                 print("\n  [DEBUG] Max burst window analysis:")
                 print(
-                    f"    Started at index {max_burst_start_idx}, consumed {max_burst_in_window} tokens"
+                    f"    Started at index {max_burst_start_idx}, "
+                    f"consumed {max_burst_in_window} tokens"
                 )
                 print(
-                    f"    Time span: {burst_timestamps[0] - timestamps[0]:.3f}s to {burst_timestamps[-1] - timestamps[0]:.3f}s into test"
+                    f"    Time span: "
+                    f"{burst_timestamps[0] - timestamps[0]:.3f}s to "
+                    f"{burst_timestamps[-1] - timestamps[0]:.3f}s "
+                    f"into test"
                 )
                 if len(burst_timestamps) >= 2:
                     burst_gaps = [
@@ -819,10 +798,12 @@ class TestSlidingWindowBehavior:
                         for i in range(len(burst_timestamps) - 1)
                     ]
                     print(
-                        f"    Average gap in burst window: {sum(burst_gaps) / len(burst_gaps) * 1000:.1f}ms"
+                        f"    Average gap in burst window: "
+                        f"{sum(burst_gaps) / len(burst_gaps) * 1000:.1f}ms"
                     )
                     print(
-                        f"    Burst window duration: {burst_timestamps[-1] - burst_timestamps[0]:.3f}s"
+                        f"    Burst window duration: "
+                        f"{burst_timestamps[-1] - burst_timestamps[0]:.3f}s"
                     )
 
         # Always report a summary (visible even without the -v flag).
@@ -850,7 +831,9 @@ class TestSlidingWindowBehavior:
     def test_drain_retry_delay_reflects_token_recovery_not_window_reset(
         redis_client, limiter_id, func_path
     ):
-        """Verify that the drain schedules its retry at the token recovery interval, not at the window reset time.
+        """Verify that the drain schedules its retry at the
+        token recovery interval, not at the window
+        reset time.
 
         After the rate limit is exhausted in window N and the boundary
         into window N+1 is crossed, the previous window's count
@@ -879,11 +862,9 @@ class TestSlidingWindowBehavior:
             jitter_enabled=False,  # Isolate the base delay calculation from jitter.
         )
 
-        # Schedule a sufficient number of tasks to keep the buffer populated after exhaustion.
         for i in range(limit * 3):
             limiter.schedule_task(func_path, {"index": i})
 
-        # Exhaust the rate limit, releasing concurrency after each consume.
         for _ in range(limit):
             result = consume_and_complete(limiter)
             assert result["success"] is True, (

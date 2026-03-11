@@ -61,7 +61,7 @@ def limiter(redis_client, limiter_id, _reset_limiter_class_state):
     Yields:
         A configured CeleryRateLimiter instance ready for testing.
     """
-    # Setup.
+    # Setup
     test_limiter = CeleryRateLimiter.create(
         limiter_id=limiter_id,
         limit=5,
@@ -74,7 +74,7 @@ def limiter(redis_client, limiter_id, _reset_limiter_class_state):
 
     yield test_limiter
 
-    # Teardown: stop background threads, then clear all Redis keys.
+    # Teardown
     test_limiter.shutdown()
     keys = redis_client.keys(f"{limiter_id}:*")
     if keys:

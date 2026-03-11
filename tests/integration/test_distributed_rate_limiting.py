@@ -29,7 +29,10 @@ pytestmark = [
     pytest.mark.slow,
     pytest.mark.skipif(
         sys.platform == "win32",
-        reason="Windows timer resolution (~15ms) makes sub-second timing tests unreliable.",
+        reason=(
+            "Windows timer resolution (~15ms) makes "
+            "sub-second timing tests unreliable."
+        ),
     ),
 ]
 
@@ -150,12 +153,8 @@ class TestDistributedRateLimiting:
         limiter_id,
         func_path,
     ):
-        """The buffer depth increases when tasks are scheduled faster than the limit allows.
-
-        A producer thread schedules tasks at 2x the limit while a consumer
-        thread drains at the actual rate. After a full window, the buffer
-        should contain more tasks than when the test started.
-        """
+        """The buffer depth increases when tasks are
+        scheduled faster than the limit allows."""
         # Arrange
         limit = 25
         window = 1.0
@@ -207,12 +206,8 @@ class TestDistributedRateLimiting:
         limiter_id,
         func_path,
     ):
-        """The buffer eventually empties when the offered rate drops below the limit.
-
-        Pre-fill the buffer with tasks, then let consumers drain while a
-        producer schedules at 0.5x the limit. The buffer should reach zero
-        within a bounded duration.
-        """
+        """The buffer eventually empties when the offered
+        rate drops below the limit."""
         # Arrange
         limit = 25
         window = 1.0
@@ -268,7 +263,8 @@ class TestDistributedRateLimiting:
         # Assert
         buffer_count = redis_client.zcard(f"{limiter_id}:buffer")
         assert buffer_count == 0, (
-            f"buffer should have drained under 0.5x offered load, got {buffer_count} remaining"
+            "buffer should have drained under 0.5x offered "
+            f"load, got {buffer_count} remaining"
         )
 
     @staticmethod
@@ -277,11 +273,12 @@ class TestDistributedRateLimiting:
         limiter_id,
         func_path,
     ):
-        """Under sine-wave traffic, the consumed rate per window never exceeds 2x the limit.
+        """Under sine-wave traffic, the consumed rate per
+        window never exceeds 2x the limit.
 
-        A producer schedules tasks following a sine-wave pattern while multiple
-        consumers drain. The sliding window algorithm guarantees that the total
-        throughput in any window-sized interval stays within the 2x burst bound.
+        The sliding window algorithm guarantees that the
+        total throughput in any window-sized interval stays
+        within the 2x burst bound.
         """
         # Arrange
         limit = 25
