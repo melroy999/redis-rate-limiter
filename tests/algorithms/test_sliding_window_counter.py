@@ -42,6 +42,7 @@ import pytest
 from tests.algorithms.sliding_window_counter import is_allowed, sliding_window_estimate
 
 
+@pytest.mark.behavior
 class TestWeightCalculation:
     """Tests for the weight calculation that distinguishes the counter algorithm.
 
@@ -187,6 +188,7 @@ class TestWeightCalculation:
         )
 
 
+@pytest.mark.behavior
 class TestEstimateFormula:
     """Tests for the combined estimate calculation formula."""
 
@@ -265,6 +267,7 @@ class TestEstimateFormula:
         )
 
 
+@pytest.mark.behavior
 class TestRateLimitDecision:
     """Tests for the is_allowed decision function that governs rate limit admission."""
 
@@ -357,6 +360,7 @@ class TestRateLimitDecision:
         )
 
 
+@pytest.mark.behavior
 class TestBurstBoundProperty:
     """Tests verifying the 2x burst bound property of the algorithm.
 
@@ -520,6 +524,7 @@ class TestBurstBoundProperty:
         )
 
 
+@pytest.mark.behavior
 class TestSmoothingBehavior:
     """Tests demonstrating how the counter produces smoother rate limiting.
 

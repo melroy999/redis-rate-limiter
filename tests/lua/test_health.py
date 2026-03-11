@@ -8,6 +8,8 @@ Fixture dependencies:
     - ``base_key``, ``buffer_key``, ``concurrency_key``: from ``tests/lua/conftest.py``.
 """
 
+import pytest
+
 from tests.lua.conftest import (
     HEALTH_SOURCE,
     WINDOW_SIZE,
@@ -25,6 +27,7 @@ def _eval_health(
     )
 
 
+@pytest.mark.behavior
 class TestHealthReturnValues:
     """Tests for the ``health.lua`` return value structure and field accuracy."""
 
@@ -122,6 +125,7 @@ class TestHealthReturnValues:
         assert result[5] == 2, "buffer_count should reflect buffer set cardinality"
 
 
+@pytest.mark.behavior
 class TestHealthReadOnly:
     """Tests verifying that ``health.lua`` does not modify Redis state."""
 

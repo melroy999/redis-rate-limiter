@@ -62,6 +62,7 @@ def property_limiter(property_redis_client, module_limiter_id):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestSmartJitterProperties:
     """Property-based tests for the smart jitter mechanism.
 

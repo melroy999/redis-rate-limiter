@@ -6,6 +6,7 @@ These tests employ Hypothesis to verify the invariants of ``by_client_ip`` and
 No fixture dependencies (pure property-based tests).
 """
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -43,6 +44,7 @@ header_names = st.text(
 )
 
 
+@pytest.mark.behavior
 class TestByClientIpProperties:
     """Property-based tests verifying the invariants of ``by_client_ip``."""
 
@@ -80,6 +82,7 @@ class TestByClientIpProperties:
         )
 
 
+@pytest.mark.behavior
 class TestByHeaderProperties:
     """Property-based tests verifying the invariants of ``by_header``."""
 

@@ -9,6 +9,8 @@ Fixture dependencies:
     - ``base_key``: from ``tests/lua/conftest.py``.
 """
 
+import pytest
+
 from tests.lua.conftest import ACQUIRE_SOURCE, LIMIT, WINDOW_SIZE, get_window_keys
 
 
@@ -17,6 +19,7 @@ def _eval_acquire(redis_client, base_key, window_size=WINDOW_SIZE, limit=LIMIT):
     return redis_client.eval(ACQUIRE_SOURCE, 1, base_key, window_size, limit)
 
 
+@pytest.mark.behavior
 class TestAcquireReturnValues:
     """Tests for the ``acquire.lua`` return value structure and field correctness."""
 
@@ -91,6 +94,7 @@ class TestAcquireReturnValues:
         )
 
 
+@pytest.mark.behavior
 class TestAcquireBoundaryDecisions:
     """Tests for ``acquire.lua`` boundary conditions."""
 

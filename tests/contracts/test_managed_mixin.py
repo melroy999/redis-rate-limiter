@@ -38,6 +38,7 @@ class _BareMixin(ManagedRateLimiterMixin):
     """
 
 
+@pytest.mark.contract
 class TestAbstractBackendHooks:
     """Contract: unoverridden abstract hooks must raise ``NotImplementedError``."""
 
@@ -82,6 +83,7 @@ class TestAbstractBackendHooks:
             _BareMixin._configure_hint()
 
 
+@pytest.mark.contract
 class TestConfigureHintCompliance:
     """Contract: ``_configure_hint()`` must start with the backend class name."""
 

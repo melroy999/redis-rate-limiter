@@ -45,6 +45,7 @@ def property_limiter(property_redis_client, module_limiter_id):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestTokenRecoveryDelayProperties:
     """Property-based tests for the ``_calculate_token_recovery_delay`` calculation.
 

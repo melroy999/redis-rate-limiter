@@ -13,6 +13,7 @@ from hypothesis import strategies as st
 from tests.algorithms.sliding_window_counter import is_allowed, sliding_window_estimate
 
 
+@pytest.mark.behavior
 class TestSlidingWindowProperties:
     """Property-based tests for the sliding window counter invariants."""
 

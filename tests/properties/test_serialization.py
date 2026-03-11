@@ -53,6 +53,7 @@ def property_limiter(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestSerializationProperties:
     """Property-based tests verifying payload serialization invariants through Redis."""
 

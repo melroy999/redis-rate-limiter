@@ -49,6 +49,7 @@ def property_limiter(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestConcurrencyInvariantProperties:
     """Property-based tests verifying that the concurrency bound is never violated."""
 

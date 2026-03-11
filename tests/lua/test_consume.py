@@ -10,6 +10,8 @@ Fixture dependencies:
       ``dlq_key``: from ``tests/lua/conftest.py``.
 """
 
+import pytest
+
 from tests.lua.conftest import (
     CONSUME_SOURCE,
     LEASE_DURATION,
@@ -55,6 +57,7 @@ def _add_task_to_buffer(redis_client, buffer_key, task_json, priority=0):
     redis_client.zadd(buffer_key, {task_json: priority})
 
 
+@pytest.mark.behavior
 class TestConsumeReturnValues:
     """Tests for the ``consume.lua`` return value structure and field correctness."""
 
@@ -253,6 +256,7 @@ class TestConsumeReturnValues:
         )
 
 
+@pytest.mark.behavior
 class TestConsumeBoundaryDecisions:
     """Tests for ``consume.lua`` boundary conditions and branching logic."""
 
@@ -513,6 +517,7 @@ class TestConsumeBoundaryDecisions:
         )
 
 
+@pytest.mark.behavior
 class TestConsumeTelemetry:
     """Tests for ``consume.lua`` telemetry accuracy in the returned array."""
 

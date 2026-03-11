@@ -46,6 +46,7 @@ def property_limiter(property_redis_client, module_limiter_id):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestInflightTtlProperties:
     """Property-based tests for the ``_get_inflight_ttl`` calculation.
 

@@ -52,6 +52,7 @@ def property_limiter(property_redis_client, module_limiter_id):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestConfigRoundTripProperties:
     """Property-based tests for the configuration persist/apply round-trip.
 

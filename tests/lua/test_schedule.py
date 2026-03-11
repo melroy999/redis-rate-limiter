@@ -10,6 +10,8 @@ Fixture dependencies:
 
 import json
 
+import pytest
+
 from tests.lua.conftest import SCHEDULE_SOURCE
 
 
@@ -29,6 +31,7 @@ def _get_single_member_json(redis_client, buffer_key):
     return json.loads(members[0])
 
 
+@pytest.mark.behavior
 class TestSchedule:
     """Tests for the ``schedule.lua`` task scheduling and metadata injection."""
 

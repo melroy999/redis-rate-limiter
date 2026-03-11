@@ -40,6 +40,7 @@ class _BareAsyncLimiter(AbstractAsyncDistributedRateLimiter):
     """
 
 
+@pytest.mark.contract
 class TestAbstractDispatchHook:
     """Verifies that ``_dispatch_task`` enforces the override contract."""
 

@@ -8,6 +8,8 @@ Fixture dependencies:
     - ``concurrency_key``: from ``tests/lua/conftest.py``.
 """
 
+import pytest
+
 from tests.lua.conftest import LEASE_DURATION, RENEW_SOURCE, get_redis_timestamp
 
 
@@ -16,6 +18,7 @@ def _eval_renew(redis_client, concurrency_key, task_id, lease_duration=LEASE_DUR
     return redis_client.eval(RENEW_SOURCE, 1, concurrency_key, task_id, lease_duration)
 
 
+@pytest.mark.behavior
 class TestRenew:
     """Tests for the ``renew.lua`` lease renewal script."""
 

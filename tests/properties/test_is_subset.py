@@ -6,6 +6,7 @@ is_subset function with arbitrary nested dictionaries.
 No fixture dependencies (pure property-based tests).
 """
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -13,6 +14,7 @@ from tests.helpers.strategies import nested_dict
 from tests.helpers.utils import is_subset
 
 
+@pytest.mark.behavior
 class TestIsSubsetProperties:
     """Property-based tests verifying the mathematical invariants of is_subset."""
 
