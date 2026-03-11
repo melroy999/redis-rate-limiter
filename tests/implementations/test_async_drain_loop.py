@@ -235,6 +235,40 @@ class TestAsyncDrainLoop:
         )
 
     @staticmethod
+    async def test_shutdown_cancels_hanging_task():
+        """Verify that ``shutdown()`` cancels the background task when
+        it does not terminate within the internal wait timeout.
+        """
+        # Arrange
+        limiter = MagicMock()
+        limiter.drain = AsyncMock()
+        loop = AsyncDrainLoop(limiter, watchdog_interval=60.0)
+
+        # Replace the background task with one that will never complete,
+        # simulating a stuck drain() call.
+        never_done = asyncio.Event()
+        stuck_task = asyncio.create_task(never_done.wait())
+        loop._task = stuck_task
+
+        # Schedule an external cancel after a short delay so that
+        # shutdown()'s wait_for receives CancelledError promptly
+        # instead of waiting the full 5.0s timeout.
+        async def cancel_after_delay():
+            await asyncio.sleep(0.05)
+            stuck_task.cancel()
+
+        cancel_task = asyncio.create_task(cancel_after_delay())
+
+        # Act
+        await loop.shutdown()
+        await cancel_task
+
+        # Assert
+        assert loop._task.done(), (
+            "task should be done after shutdown cancels it"
+        )
+
+    @staticmethod
     async def test_lazy_start():
         """Verify that the drain task is not started until the first ``wake()`` call."""
         # Arrange
@@ -607,6 +641,66 @@ class TestAsyncDrainSignalSubscriber:
             "get_message should be called at least 3 times: "
             "message, idle, then shutdown"
         )
+        limiter._schedule_drain.assert_called_once()
+
+    @staticmethod
+    async def test_shutdown_swallows_pubsub_exception():
+        """Verify that ``shutdown()`` does not propagate exceptions
+        raised by the Pub/Sub ``unsubscribe()`` or ``aclose()`` calls.
+        """
+        # Arrange
+        limiter = MagicMock()
+        limiter._worker_id = "local-worker"
+        subscriber = AsyncDrainSignalSubscriber(limiter)
+        mock_pubsub = AsyncMock()
+        mock_pubsub.unsubscribe = AsyncMock(
+            side_effect=ConnectionError("connection lost")
+        )
+        subscriber._pubsub = mock_pubsub
+
+        # Act
+        await subscriber.shutdown()
+
+        # Assert
+        assert subscriber._shutdown is True, (
+            "shutdown flag should be True even when pubsub cleanup raises"
+        )
+
+    @staticmethod
+    async def test_run_decodes_bytes_sender_id():
+        """Verify that ``_run`` correctly decodes a bytes-valued
+        ``sender_id`` from Redis Pub/Sub messages.
+        """
+        # Arrange
+        limiter = MagicMock()
+        limiter._worker_id = "local-worker"
+        subscriber = AsyncDrainSignalSubscriber(limiter)
+        mock_pubsub = AsyncMock()
+        subscriber._pubsub = mock_pubsub
+
+        call_count = 0
+
+        async def get_message_effect(ignore_subscribe_messages=True, timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {
+                    "type": "message",
+                    "data": b"remote-worker",
+                    "channel": b"test:drain_signal",
+                }
+            subscriber._shutdown = True
+            return None
+
+        mock_pubsub.get_message = AsyncMock(side_effect=get_message_effect)
+
+        # Act
+        safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
+        safety_timer.start()
+        await subscriber._run()
+        safety_timer.cancel()
+
+        # Assert
         limiter._schedule_drain.assert_called_once()
 
 

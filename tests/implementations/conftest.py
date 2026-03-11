@@ -78,6 +78,14 @@ class AsyncStubRateLimiter(AbstractAsyncDistributedRateLimiter):
         pass
 
 
+class AsyncStubWithHealthCheck(AsyncStubRateLimiter):
+    """Async stub that overrides ``_check_backend_health()`` to trigger
+    health monitor creation in ``__init__``."""
+
+    async def _check_backend_health(self) -> bool:
+        return True
+
+
 class AsyncTrackingRateLimiter(AsyncStubRateLimiter):
     """Async concrete rate limiter that records all dispatch and drain
     scheduling invocations."""

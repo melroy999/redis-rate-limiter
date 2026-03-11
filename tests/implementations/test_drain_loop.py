@@ -534,6 +534,26 @@ class TestDrainSignalSubscriber:
         )
         limiter._schedule_drain.assert_called_once()
 
+    @staticmethod
+    def test_shutdown_swallows_pubsub_exception():
+        """Verify that ``shutdown()`` does not propagate exceptions
+        raised by the Pub/Sub ``unsubscribe()`` or ``close()`` calls.
+        """
+        # Arrange
+        limiter = MagicMock()
+        subscriber = DrainSignalSubscriber(limiter)
+        mock_pubsub = MagicMock()
+        mock_pubsub.unsubscribe.side_effect = ConnectionError("connection lost")
+        subscriber._pubsub = mock_pubsub
+
+        # Act
+        subscriber.shutdown()
+
+        # Assert
+        assert subscriber._shutdown is True, (
+            "shutdown flag should be True even when pubsub cleanup raises"
+        )
+
 
 @pytest.mark.behavior
 class TestWatchdogInterval:

@@ -263,6 +263,42 @@ class TestSyncEvalScript:
                 "evalsha should not retry on non-NoScriptError exceptions"
             )
 
+    @staticmethod
+    def test_eval_script_lazy_registers_missing_script(redis_client):
+        """Verify that ``_eval_script`` lazily registers a script
+        that was not pre-registered.
+        """
+        # Arrange
+        limiter = _BareSyncLimiter(
+            redis_client=redis_client,
+            limiter_id="eval_script_lazy_sync",
+            limit=5,
+            window=60,
+        )
+        assert "health.lua" not in limiter._script_shas, (
+            "script should not be pre-registered"
+        )
+
+        # Act
+        result = limiter._eval_script(
+            "health.lua",
+            3,
+            "eval_script_lazy_sync",
+            "eval_script_lazy_sync:buffer",
+            "eval_script_lazy_sync:concurrency",
+            60,
+            5,
+            2,
+        )
+
+        # Assert
+        assert "health.lua" in limiter._script_shas, (
+            "script should be registered after lazy _eval_script call"
+        )
+        assert result is not None, (
+            "eval_script should return the script result after lazy registration"
+        )
+
 
 @pytest.mark.behavior
 class TestAsyncEvalScript:
@@ -373,6 +409,42 @@ class TestAsyncEvalScript:
             assert mock_eval.call_count == 1, (
                 "evalsha should not retry on non-NoScriptError exceptions"
             )
+
+    @staticmethod
+    async def test_eval_script_lazy_registers_missing_script(async_redis_client):
+        """Verify that the async ``_eval_script`` lazily registers
+        a script that was not pre-registered.
+        """
+        # Arrange
+        limiter = _BareAsyncLimiter(
+            redis_client=async_redis_client,
+            limiter_id="eval_script_lazy_async",
+            limit=5,
+            window=60,
+        )
+        assert "health.lua" not in limiter._script_shas, (
+            "script should not be pre-registered"
+        )
+
+        # Act
+        result = await limiter._eval_script(
+            "health.lua",
+            3,
+            "eval_script_lazy_async",
+            "eval_script_lazy_async:buffer",
+            "eval_script_lazy_async:concurrency",
+            60,
+            5,
+            2,
+        )
+
+        # Assert
+        assert "health.lua" in limiter._script_shas, (
+            "script should be registered after lazy _eval_script call"
+        )
+        assert result is not None, (
+            "eval_script should return the script result after lazy registration"
+        )
 
 
 # ---------------------------------------------------------------------------

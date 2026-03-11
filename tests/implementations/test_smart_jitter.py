@@ -118,7 +118,19 @@ class SmartJitterTests:
             "redis_rate_limiter.core.limiters.random.random",
             side_effect=iter(random_values),
         ):
-            medium_load_jitters = [
+            medium_low_load_jitters = [
+                limiter._calculate_smart_jitter(
+                    remaining_tasks=25,
+                    remaining_tokens=0,
+                    active_concurrency=2,
+                )
+                for _ in range(samples)
+            ]
+        with patch(
+            "redis_rate_limiter.core.limiters.random.random",
+            side_effect=iter(random_values),
+        ):
+            medium_high_load_jitters = [
                 limiter._calculate_smart_jitter(
                     remaining_tasks=50,
                     remaining_tokens=0,
@@ -141,20 +153,22 @@ class SmartJitterTests:
 
         # Assert
         avg_low = sum(low_load_jitters) / len(low_load_jitters)
-        avg_medium = sum(medium_load_jitters) / len(medium_load_jitters)
+        avg_med_low = sum(medium_low_load_jitters) / len(medium_low_load_jitters)
+        avg_med_high = sum(medium_high_load_jitters) / len(medium_high_load_jitters)
         avg_high = sum(high_load_jitters) / len(high_load_jitters)
 
         monotonicity_violations = [
-            (idx, low, medium, high)
-            for idx, (low, medium, high) in enumerate(
+            (idx, lo, ml, mh, hi)
+            for idx, (lo, ml, mh, hi) in enumerate(
                 zip(
                     low_load_jitters,
-                    medium_load_jitters,
+                    medium_low_load_jitters,
+                    medium_high_load_jitters,
                     high_load_jitters,
                     strict=True,
                 )
             )
-            if not (low <= medium <= high)
+            if not (lo <= ml <= mh <= hi)
         ]
         first_violation = (
             monotonicity_violations[0] if monotonicity_violations else None
@@ -162,8 +176,8 @@ class SmartJitterTests:
         assert not monotonicity_violations, (
             f"paired jitter monotonicity violated for load pressure; "
             f"violations={len(monotonicity_violations)}, first={first_violation}, "
-            f"avg_low={avg_low:.4f}, avg_medium={avg_medium:.4f}, "
-            f"avg_high={avg_high:.4f}"
+            f"avg_low={avg_low:.4f}, avg_med_low={avg_med_low:.4f}, "
+            f"avg_med_high={avg_med_high:.4f}, avg_high={avg_high:.4f}"
         )
 
     async def test_jitter_is_randomized(self, limiter):

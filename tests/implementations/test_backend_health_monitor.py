@@ -17,7 +17,9 @@ Fixture dependencies:
       from ``tests/implementations/conftest.py``.
 """
 
+import asyncio
 import logging
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -335,6 +337,22 @@ class TestSyncHealthMonitorLifecycle:
         # Assert
         assert result is True, "base mixin health check should always return true"
 
+    @staticmethod
+    def test_run_loop_executes_health_check(mock_limiter):
+        """Verify that the ``_run`` loop invokes ``_check_backend_health``
+        at least once before shutdown.
+        """
+        # Arrange
+        monitor = BackendHealthMonitor(mock_limiter, interval=0.01)
+
+        # Act
+        monitor.start()
+        time.sleep(0.05)
+        monitor.shutdown()
+
+        # Assert
+        mock_limiter._check_backend_health.assert_called()
+
 
 # ---------------------------------------------------------------------------
 # Async-specific tests
@@ -453,3 +471,103 @@ class TestAsyncHealthMonitorLifecycle:
 
         # Assert
         assert result is True, "async base class health check should always return true"
+
+    @staticmethod
+    async def test_monitor_created_when_health_check_overridden(
+        async_redis_client, limiter_id
+    ):
+        """Verify that ``_backend_health_monitor`` is created when
+        a subclass overrides ``_check_backend_health``.
+        """
+        # Arrange
+        from tests.implementations.conftest import AsyncStubWithHealthCheck
+
+        limiter = AsyncStubWithHealthCheck(
+            redis_client=async_redis_client,
+            limiter_id=f"{limiter_id}_async_health_check",
+            limit=5,
+            window=60,
+            max_concurrency=2,
+        )
+
+        # Assert
+        try:
+            assert limiter._backend_health_monitor is not None, (
+                "health monitor should be created when _check_backend_health is overridden"
+            )
+        finally:
+            await limiter.shutdown()
+
+    @staticmethod
+    async def test_monitor_started_during_initialize(
+        async_redis_client, limiter_id
+    ):
+        """Verify that the health monitor task is running after ``start()``."""
+        # Arrange
+        from tests.implementations.conftest import AsyncStubWithHealthCheck
+
+        limiter = AsyncStubWithHealthCheck(
+            redis_client=async_redis_client,
+            limiter_id=f"{limiter_id}_async_health_started",
+            limit=5,
+            window=60,
+            max_concurrency=2,
+        )
+
+        # Act
+        await limiter.start()
+
+        # Assert
+        try:
+            monitor = limiter._backend_health_monitor
+            assert monitor is not None, "health monitor should exist"
+            assert monitor._task is not None, (
+                "health monitor task should be started after initialize"
+            )
+        finally:
+            await limiter.shutdown()
+
+    @staticmethod
+    async def test_shutdown_stops_health_monitor(
+        async_redis_client, limiter_id
+    ):
+        """Verify that ``shutdown()`` stops the health monitor task."""
+        # Arrange
+        from tests.implementations.conftest import AsyncStubWithHealthCheck
+
+        limiter = AsyncStubWithHealthCheck(
+            redis_client=async_redis_client,
+            limiter_id=f"{limiter_id}_async_health_shutdown",
+            limit=5,
+            window=60,
+            max_concurrency=2,
+        )
+        await limiter.start()
+        monitor = limiter._backend_health_monitor
+
+        # Act
+        await limiter.shutdown()
+
+        # Assert
+        assert monitor is not None, "health monitor should have been created"
+        assert monitor._task.done(), (
+            "health monitor task should be done after limiter shutdown"
+        )
+
+    @staticmethod
+    async def test_run_loop_executes_health_check(mock_limiter):
+        """Verify that the ``_run`` loop invokes ``_check_backend_health``
+        at least once before shutdown.
+        """
+        # Arrange
+        monitor = AsyncBackendHealthMonitor(mock_limiter, interval=0.01)
+
+        # Act
+        monitor.start()
+        await asyncio.sleep(0.05)
+        await monitor.shutdown()
+
+        # Assert
+        mock_limiter._check_backend_health.assert_called(), (
+            "health check should have been called at least once during the run loop"
+        )
