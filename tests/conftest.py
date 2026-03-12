@@ -29,6 +29,8 @@ import pytest
 import redis
 import redis.asyncio
 
+pytest_plugins = ["tests.plugins.mutmut_defaults_patch"]
+
 # Redis configuration is derived from environment variables.
 # The default values target localhost:6379, but may be overridden for Docker Compose.
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
