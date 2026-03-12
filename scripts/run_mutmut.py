@@ -456,16 +456,16 @@ def _write_killed_by_temp_file(
     os.makedirs(_KILLED_BY_DIR, exist_ok=True)
     path = os.path.join(_KILLED_BY_DIR, f"{os.getpid()}.json")
     with open(path, "w") as f:
-        json.dump(
-            {
-                "mutant_name": mutant_name,
-                "killed_by": collector.killed_by,
-                "tests_run": collector.tests_run,
-                "tests_targeted": collector.tests_targeted,
-                "partial": partial,
-            },
-            f,
-        )
+        payload: dict[str, object] = {
+            "mutant_name": mutant_name,
+            "killed_by": collector.killed_by,
+            "tests_run": collector.tests_run,
+            "tests_targeted": collector.tests_targeted,
+            "partial": partial,
+        }
+        if collector.current_test is not None:
+            payload["killed_during"] = collector.current_test
+        json.dump(payload, f)
 
 
 class KilledByCollector:
@@ -476,6 +476,9 @@ class KilledByCollector:
     tests pytest collected for the run; ``tests_run`` counts how many
     completed their call phase before the failure (or process kill).
 
+    ``current_test`` tracks which test is mid-execution so the SIGXCPU
+    handler can report where the process was killed.
+
     When a ``mutant_name`` is provided, the collector flushes killed-by
     data to the temp file after the failure so that partial data
     survives a SIGXCPU process kill.
@@ -485,15 +488,21 @@ class KilledByCollector:
         self.killed_by: list[str] = []
         self.tests_run: int = 0
         self.tests_targeted: int = 0
+        self.current_test: str | None = None
         self._mutant_name = mutant_name
 
     def pytest_collection_modifyitems(self, items) -> None:  # type: ignore[no-untyped-def]
         """Record the number of tests pytest will execute for this run."""
         self.tests_targeted = len(items)
 
+    def pytest_runtest_call(self, item) -> None:  # type: ignore[no-untyped-def]
+        """Track the test that is about to execute its call phase."""
+        self.current_test = item.nodeid
+
     def pytest_runtest_makereport(self, item, call) -> None:  # type: ignore[no-untyped-def]
         if call.when == "call":
             self.tests_run += 1
+            self.current_test = None
             if call.excinfo is not None:
                 self.killed_by.append(item.nodeid)
                 # Flush incrementally so partial data survives SIGXCPU.
@@ -553,18 +562,22 @@ def _append_killed_by(
     tests_run: int = 0,
     tests_targeted: int = 0,
     partial: bool = False,
+    killed_during: str | None = None,
 ) -> None:
     """Accumulate a killed-by entry in memory.
 
     Called in the parent process after reading the child's temp file.
     Data is written to disk once at exit via ``_flush_killed_by``.
     """
-    _killed_by_data[mutant_name] = {
+    entry: dict[str, object] = {
         "killed_by": test_nodeids,
         "tests_run": tests_run,
         "tests_targeted": tests_targeted,
         "partial": partial,
     }
+    if killed_during is not None:
+        entry["killed_during"] = killed_during
+    _killed_by_data[mutant_name] = entry
 
 
 def _flush_killed_by() -> None:
@@ -595,10 +608,11 @@ def _patched_sfmd_register_result(self, *, pid, exit_code):  # type: ignore[no-u
             tests_run = data.get("tests_run", 0)
             tests_targeted = data.get("tests_targeted", 0)
             partial = data.get("partial", False)
+            killed_during = data.get("killed_during")
             if killed_by or tests_targeted:
                 _append_killed_by(
                     key, killed_by, tests_run,
-                    tests_targeted, partial,
+                    tests_targeted, partial, killed_during,
                 )
         except (json.JSONDecodeError, OSError):
             pass
