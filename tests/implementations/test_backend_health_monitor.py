@@ -121,8 +121,11 @@ class HealthMonitorObservabilityTests:
     """Observability tests for state-transition log emissions.
 
     Subclasses must provide the same customization points as
-    ``HealthMonitorBehaviorTests``.
+    ``HealthMonitorBehaviorTests`` and must set ``_log_label``
+    to the expected log prefix (e.g., ``"[BackendHealthMonitor]"``).
     """
+
+    _log_label: str
 
     @staticmethod
     async def run_once(monitor):
@@ -144,6 +147,7 @@ class HealthMonitorObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="WARNING",
+            label=self._log_label,
             required_fragments=[f"limiter={monitor._limiter.id}"],
             message="should emit a warning log on transition to unhealthy",
         )
@@ -163,6 +167,7 @@ class HealthMonitorObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="INFO",
+            label=self._log_label,
             required_fragments=[f"limiter={monitor._limiter.id}"],
             message="should emit an info log on recovery to healthy",
         )
@@ -203,6 +208,7 @@ class HealthMonitorObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="WARNING",
+            label=self._log_label,
             required_fragments=[f"limiter={monitor._limiter.id}"],
             message="should emit a warning log when health check raises an exception",
         )
@@ -238,6 +244,8 @@ class TestSyncHealthMonitor(
     HealthMonitorBehaviorTests, HealthMonitorObservabilityTests
 ):
     """Sync health monitor behavior exercised through the unified mixin."""
+
+    _log_label = "[BackendHealthMonitor]"
 
     @staticmethod
     async def run_once(monitor):
@@ -362,6 +370,8 @@ class TestAsyncHealthMonitor(
     HealthMonitorBehaviorTests, HealthMonitorObservabilityTests
 ):
     """Async health monitor behavior exercised natively."""
+
+    _log_label = "[AsyncBackendHealthMonitor]"
 
     @staticmethod
     async def run_once(monitor):

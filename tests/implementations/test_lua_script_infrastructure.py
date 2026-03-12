@@ -572,6 +572,7 @@ class TestSyncEvalScriptObservability:
         assert_log_emitted(
             caplog.records,
             level="WARNING",
+            label="[_BareSyncLimiter]",
             required_fragments=[f"limiter={limiter.id}", "script=health.lua"],
             message=(
                 "should emit a warning log containing the limiter"
@@ -636,6 +637,7 @@ class TestAsyncEvalScriptObservability:
         assert_log_emitted(
             caplog.records,
             level="WARNING",
+            label="[_BareAsyncLimiter]",
             required_fragments=[f"limiter={limiter.id}", "script=health.lua"],
             message=(
                 "should emit a warning log containing the limiter"

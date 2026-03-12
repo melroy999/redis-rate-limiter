@@ -904,7 +904,8 @@ class TestConfigureObservability:
         assert_log_emitted(
             caplog.records,
             level="INFO",
-            required_fragments=["AsyncManagedTestRateLimiter", "configured"],
+            label="[AsyncManagedTestRateLimiter]",
+            required_fragments=["Configured"],
             message="should emit an info log confirming configuration",
         )
 
@@ -925,9 +926,9 @@ class TestCreateObservability:
         assert_log_emitted(
             caplog.records,
             level="INFO",
+            label="[AsyncManagedTestRateLimiter]",
             required_fragments=[
-                "AsyncManagedTestRateLimiter",
-                "created",
+                "Created",
                 f"limiter={limiter_id}",
                 "persist=True",
             ],
@@ -955,9 +956,9 @@ class TestGetObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[AsyncManagedTestRateLimiter]",
             required_fragments=[
-                "AsyncManagedTestRateLimiter",
-                "resolved from local cache",
+                "Resolved from local cache",
                 f"limiter={limiter_id}",
             ],
             message="should emit a debug log for local cache resolution",
@@ -979,9 +980,9 @@ class TestGetObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[AsyncManagedTestRateLimiter]",
             required_fragments=[
-                "AsyncManagedTestRateLimiter",
-                "hydrated from Redis",
+                "Hydrated from Redis",
                 f"limiter={limiter_id}",
             ],
             message="should emit a debug log for Redis hydration",
@@ -1007,9 +1008,9 @@ class TestUpdateObservability:
         assert_log_emitted(
             caplog.records,
             level="INFO",
+            label="[AsyncManagedTestRateLimiter]",
             required_fragments=[
-                "AsyncManagedTestRateLimiter",
-                "updated",
+                "Updated",
                 f"limiter={limiter_id}",
                 "overrides={'limit': 50}",
             ],
@@ -1055,6 +1056,7 @@ class TestRefreshConfigObservability:
         assert_log_emitted(
             caplog.records,
             level="INFO",
+            label="[AsyncManagedTestRateLimiter]",
             required_fragments=[f"limiter={limiter_id}", "version=2"],
             message="should emit an info log with limiter "
             "id and version on successful refresh",
@@ -1084,6 +1086,7 @@ class TestRefreshConfigObservability:
         assert_log_emitted(
             caplog.records,
             level="WARNING",
+            label="[AsyncManagedTestRateLimiter]",
             required_fragments=[f"limiter={limiter_id}", "error="],
             message="should emit a warning log with "
             "limiter id and error details on "

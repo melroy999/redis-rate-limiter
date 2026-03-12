@@ -280,6 +280,7 @@ class TestTaskLifecycleObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[TaskLifecycle]",
             required_fragments=[
                 f"limiter={mock_limiter.id}",
                 f"task_id={task_id}",
@@ -318,6 +319,7 @@ class TestTaskLifecycleObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[TaskLifecycle]",
             required_fragments=["removed_inflight=False"],
             message="empty task_id should log removed_inflight=False",
         )
@@ -337,6 +339,7 @@ class TestTaskLifecycleObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[TaskLifecycle]",
             required_fragments=[
                 f"limiter={mock_limiter.id}",
                 f"task_id={task_id}",
@@ -474,6 +477,7 @@ class TestHeartbeatLoopObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[TaskLifecycle]",
             required_fragments=[
                 f"limiter={mock_limiter.id}",
                 f"task_id={task_id}",
@@ -501,6 +505,7 @@ class TestHeartbeatLoopObservability:
         assert_log_emitted(
             caplog.records,
             level="INFO",
+            label="[TaskLifecycle]",
             required_fragments=[
                 f"task {task_id}",
                 f"limiter {mock_limiter.id}",
@@ -532,6 +537,7 @@ class TestHeartbeatLoopObservability:
         assert_log_emitted(
             caplog.records,
             level="CRITICAL",
+            label="[TaskLifecycle]",
             required_fragments=[
                 f"task {task_id}",
                 "flagged as unhealthy",
@@ -565,6 +571,7 @@ class TestHeartbeatLoopObservability:
         assert_log_emitted(
             caplog.records,
             level="CRITICAL",
+            label="[TaskLifecycle]",
             required_fragments=[
                 f"task {task_id}",
                 "terminating worker",
@@ -645,6 +652,7 @@ class TestExtendLeaseObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[StubRateLimiter]",
             required_fragments=[
                 f"limiter={stub_limiter.id}",
                 "task_id=nonexistent",
@@ -676,6 +684,7 @@ class TestExtendLeaseObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[StubRateLimiter]",
             required_fragments=[
                 f"limiter={stub_limiter.id}",
                 f"task_id={task_id}",

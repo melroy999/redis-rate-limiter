@@ -14,7 +14,7 @@ def import_string(import_path: str) -> Callable[..., Any]:
         raise TypeError(f"Object at {import_path} is not callable.")
 
     logger.debug(
-        "Dynamic import resolved for worker execution: import_path=%s, module=%s, callable=%s.",
+        "[ImportResolver] Dynamic import resolved: import_path=%s, module=%s, callable=%s.",
         import_path,
         module_path,
         func_name,
@@ -85,7 +85,7 @@ def resolve_import_path(fn: Callable[..., Any]) -> str:
         )
 
     logger.debug(
-        "Callable resolved to import path: callable=%r, import_path=%s.",
+        "[ImportResolver] Callable resolved to import path: callable=%r, import_path=%s.",
         fn,
         import_path,
     )

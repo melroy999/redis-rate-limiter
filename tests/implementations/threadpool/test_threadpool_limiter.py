@@ -261,6 +261,7 @@ class TestThreadPoolDispatchObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[ThreadPoolRateLimiter]",
             required_fragments=[
                 f"limiter={limiter.id}",
                 f"task_id={task_id}",

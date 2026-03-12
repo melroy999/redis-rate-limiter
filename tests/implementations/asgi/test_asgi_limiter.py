@@ -185,6 +185,7 @@ class TestASGIStartObservability:
         assert_log_emitted(
             caplog.records,
             level="INFO",
+            label="[ASGIRateLimiter]",
             required_fragments=[
                 f"id={instance.id}",
                 "limit=10",
@@ -216,6 +217,7 @@ class TestASGIAcquireObservability:
         assert_log_emitted(
             caplog.records,
             level="ERROR",
+            label="[ASGIRateLimiter]",
             required_fragments=[
                 f"limiter={limiter.id}",
                 "key=user_error",

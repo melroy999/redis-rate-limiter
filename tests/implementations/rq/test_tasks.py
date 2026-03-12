@@ -98,6 +98,7 @@ class TestGenericWorkerTaskObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[RQGenericWorker]",
             required_fragments=[
                 "limiter=worker_limiter",
                 "func_path=json.dumps",

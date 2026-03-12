@@ -615,10 +615,14 @@ class DrainObservabilityTests:
     Mirrors the behavioral scenarios in ``DrainBehaviorTests``
     but asserts exclusively on log output. Uses the same fixture
     mixins for variant-specific customization points.
+
+    Subclasses must set ``_log_label`` to the expected log prefix
+    (e.g., ``"[DistributedRateLimiter]"``).
     """
 
-    @staticmethod
-    async def test_drain_paused_emits_debug_log(limiter, mock_target, caplog):
+    _log_label: str
+
+    async def test_drain_paused_emits_debug_log(self, limiter, mock_target, caplog):
         """Verify that ``drain()`` emits a debug log when deferred due to pause."""
         # Arrange
         mock_target._drain_paused_until = time.time() + 0.2
@@ -632,6 +636,7 @@ class DrainObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label=self._log_label,
             required_fragments=[f"limiter={limiter.id}", "paused"],
             message=(
                 "should emit a debug log indicating the drain is deferred due to pause"
@@ -659,6 +664,7 @@ class DrainObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label=self._log_label,
             required_fragments=[f"limiter={limiter.id}", "delay_s=12.000"],
             message=(
                 "should emit a debug log for the backup drain with limiter id and delay"
@@ -701,6 +707,7 @@ class DrainObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="INFO",
+            label=self._log_label,
             required_fragments=[
                 f"limiter={limiter.id}",
                 "task_id=task-1",
@@ -714,6 +721,7 @@ class DrainObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label=self._log_label,
             required_fragments=[f"limiter={limiter.id}", "follow-up"],
             message="should emit a debug log for follow-up drain scheduling",
         )
@@ -743,6 +751,7 @@ class DrainObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="ERROR",
+            label=self._log_label,
             required_fragments=[f"limiter={limiter.id}", "attempt #1"],
             message=(
                 "should emit an error log containing the "
@@ -780,6 +789,7 @@ class DrainObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="CRITICAL",
+            label=self._log_label,
             required_fragments=[
                 f"limiter={limiter.id}",
                 "Recovery scheduling also failed",
@@ -822,6 +832,7 @@ class DrainObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="WARNING",
+            label=self._log_label,
             required_fragments=[f"limiter={limiter.id}", "DLQ"],
             message=(
                 "should emit a warning log indicating "
@@ -860,6 +871,7 @@ class DrainObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label=self._log_label,
             required_fragments=[
                 f"limiter={limiter.id}",
                 f"active={limiter.max_concurrency}",
@@ -911,6 +923,7 @@ class DrainObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="INFO",
+            label=self._log_label,
             required_fragments=[
                 f"limiter={limiter.id}",
                 "delay_s=0.250",
@@ -923,9 +936,8 @@ class DrainObservabilityTests:
             ),
         )
 
-    @staticmethod
     async def test_publish_drain_signal_emits_debug_log_on_failure(
-        limiter, mock_target, caplog
+        self, limiter, mock_target, caplog
     ):
         """Verify that ``_publish_drain_signal()`` emits a
         debug log when Redis publish fails."""
@@ -941,6 +953,7 @@ class DrainObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label=self._log_label,
             required_fragments=[
                 f"limiter={limiter.id}",
                 "Failed to publish drain signal",
@@ -1007,6 +1020,8 @@ class TestSyncDrainBehavior(_SyncDrainFixture, DrainBehaviorTests):
 class TestSyncDrainObservability(_SyncDrainFixture, DrainObservabilityTests):
     """Sync drain observability via the async adapter."""
 
+    _log_label = "[TrackingRateLimiter]"
+
 
 @pytest.mark.behavior
 class TestAsyncDrainBehavior(_AsyncDrainFixture, DrainBehaviorTests):
@@ -1016,6 +1031,8 @@ class TestAsyncDrainBehavior(_AsyncDrainFixture, DrainBehaviorTests):
 @pytest.mark.observability
 class TestAsyncDrainObservability(_AsyncDrainFixture, DrainObservabilityTests):
     """Async drain observability exercised natively."""
+
+    _log_label = "[AsyncTrackingRateLimiter]"
 
 
 # ---------------------------------------------------------------------------

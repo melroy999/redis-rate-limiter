@@ -644,11 +644,15 @@ class RateLimiterObservabilityTests:
     These tests verify logging behavior and are separated from the behavioral
     tests in ``RateLimiterImplementationTests`` per the separation of concerns
     guideline (Section 4.1).
+
+    Subclasses must set ``_log_label`` to the expected log prefix
+    (e.g., ``"[DistributedRateLimiter]"``).
     """
 
-    @staticmethod
+    _log_label: str
+
     async def test_schedule_single_task_emits_expected_logs(
-        limiter, func_path, payload, caplog
+        self, limiter, func_path, payload, caplog
     ):
         """Verify that scheduling a single task emits the expected
         debug and info logs."""
@@ -659,26 +663,27 @@ class RateLimiterObservabilityTests:
         # Assert
         assert_log_emitted(
             caplog.records,
-            "DEBUG",
-            [
+            level="DEBUG",
+            label=self._log_label,
+            required_fragments=[
                 f"limiter={limiter.id}",
                 f"task_id={task_id}",
                 f"func_path={func_path}",
                 "priority=100",
             ],
-            "should emit a debug log for the scheduling attempt "
+            message="should emit a debug log for the scheduling attempt "
             "with limiter id, task id, func path, and priority",
         )
         assert_log_emitted(
             caplog.records,
-            "INFO",
-            [f"limiter={limiter.id}", f"task_id={task_id}", f"func_path={func_path}"],
-            "should emit an info log for the successfully scheduled task",
+            level="INFO",
+            label=self._log_label,
+            required_fragments=[f"limiter={limiter.id}", f"task_id={task_id}", f"func_path={func_path}"],
+            message="should emit an info log for the successfully scheduled task",
         )
 
-    @staticmethod
     async def test_schedule_duplicate_task_emits_debug_log(
-        limiter, func_path, payload, caplog
+        self, limiter, func_path, payload, caplog
     ):
         """Verify that scheduling a duplicate task emits a debug
         log indicating the skip."""
@@ -692,9 +697,10 @@ class RateLimiterObservabilityTests:
         # Assert
         assert_log_emitted(
             caplog.records,
-            "DEBUG",
-            [f"limiter={limiter.id}", f"task_id={task_id}", "already in-flight"],
-            "should emit a debug log for the skipped duplicate "
+            level="DEBUG",
+            label=self._log_label,
+            required_fragments=[f"limiter={limiter.id}", f"task_id={task_id}", "already in-flight"],
+            message="should emit a debug log for the skipped duplicate "
             "with limiter id and task id",
         )
 
@@ -735,6 +741,8 @@ class TestSyncRateLimiterObservability(
 ):
     """Sync rate limiter observability exercised through the async adapter."""
 
+    _log_label = "[StubRateLimiter]"
+
 
 @pytest.mark.behavior
 class TestAsyncRateLimiterImplementation(
@@ -748,6 +756,8 @@ class TestAsyncRateLimiterObservability(
     _AsyncLimiterFixture, RateLimiterObservabilityTests
 ):
     """Async rate limiter observability exercised natively."""
+
+    _log_label = "[AsyncStubRateLimiter]"
 
 
 # ---------------------------------------------------------------------------

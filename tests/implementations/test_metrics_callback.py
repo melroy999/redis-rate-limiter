@@ -246,16 +246,18 @@ class MetricsCallbackObservabilityTests:
     These tests verify logging behavior and are separated from the behavioral
     tests in ``MetricsCallbackTests`` per the separation of concerns guideline
     (Section 4.1). Subclasses must provide the same ``limiter`` and ``callback``
-    fixtures as ``MetricsCallbackTests``.
+    fixtures as ``MetricsCallbackTests`` and must set ``_log_label`` to the
+    expected log prefix (e.g., ``"[DistributedRateLimiter]"``).
     """
+
+    _log_label: str
 
     @pytest.fixture
     def callback(self):
         """Provide a mock callback for capturing metric emissions."""
         return MagicMock()
 
-    @staticmethod
-    async def test_consume_emits_attempt_and_result_debug_logs(limiter, caplog):
+    async def test_consume_emits_attempt_and_result_debug_logs(self, limiter, caplog):
         """Verify that consume emits debug logs for the attempt start and result."""
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
@@ -264,21 +266,22 @@ class MetricsCallbackObservabilityTests:
         # Assert
         assert_log_emitted(
             caplog.records,
-            "DEBUG",
-            ["Consume attempt started", f"limiter={limiter.id}"],
-            "should emit a debug log for the consume attempt with the limiter id",
+            level="DEBUG",
+            label=self._log_label,
+            required_fragments=["Consume attempt started", f"limiter={limiter.id}"],
+            message="should emit a debug log for the consume attempt with the limiter id",
         )
         assert_log_emitted(
             caplog.records,
-            "DEBUG",
-            [f"limiter={limiter.id}", "success=False", "remaining_tokens=10"],
-            "should emit a debug log for the consume result"
+            level="DEBUG",
+            label=self._log_label,
+            required_fragments=[f"limiter={limiter.id}", "success=False", "remaining_tokens=10"],
+            message="should emit a debug log for the consume result"
             " with limiter id, success, and remaining tokens",
         )
 
-    @staticmethod
     async def test_callback_exception_during_consume_emits_warning_log(
-        limiter, callback, caplog
+        self, limiter, callback, caplog
     ):
         """Verify that a callback exception during consume emits a warning log."""
         # Arrange
@@ -291,18 +294,18 @@ class MetricsCallbackObservabilityTests:
         # Assert
         assert_log_emitted(
             caplog.records,
-            "WARNING",
-            [
+            level="WARNING",
+            label=self._log_label,
+            required_fragments=[
                 "Metrics callback raised an exception",
                 f"limiter={limiter.id}",
                 "event=consume",
             ],
-            "should emit a warning log when the metrics callback raises during consume",
+            message="should emit a warning log when the metrics callback raises during consume",
         )
 
-    @staticmethod
     async def test_callback_exception_during_schedule_emits_warning_log(
-        limiter, callback, func_path, caplog
+        self, limiter, callback, func_path, caplog
     ):
         """Verify that a callback exception during schedule emits a warning log."""
         # Arrange
@@ -315,13 +318,14 @@ class MetricsCallbackObservabilityTests:
         # Assert
         assert_log_emitted(
             caplog.records,
-            "WARNING",
-            [
+            level="WARNING",
+            label=self._log_label,
+            required_fragments=[
                 "Metrics callback raised an exception",
                 f"limiter={limiter.id}",
                 "event=schedule",
             ],
-            "should emit a warning log when the callback raises during schedule",
+            message="should emit a warning log when the callback raises during schedule",
         )
 
 
@@ -333,6 +337,8 @@ class MetricsCallbackObservabilityTests:
 @pytest.mark.behavior
 class TestSyncMetricsCallback(MetricsCallbackTests, MetricsCallbackObservabilityTests):
     """Sync rate limiter metrics callback exercised through the async adapter."""
+
+    _log_label = "[StubRateLimiter]"
 
     @pytest.fixture
     def limiter(self, redis_client, callback, limiter_id):
@@ -369,6 +375,8 @@ class TestSyncMetricsCallback(MetricsCallbackTests, MetricsCallbackObservability
 @pytest.mark.behavior
 class TestAsyncMetricsCallback(MetricsCallbackTests, MetricsCallbackObservabilityTests):
     """Async rate limiter metrics callback exercised natively."""
+
+    _log_label = "[AsyncStubRateLimiter]"
 
     @pytest.fixture
     async def limiter(self, async_redis_client, callback, limiter_id):

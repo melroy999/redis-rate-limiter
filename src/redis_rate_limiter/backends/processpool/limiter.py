@@ -132,7 +132,7 @@ class ProcessPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimi
 
         future.add_done_callback(_on_done)
         logger.debug(
-            "Task submitted to process pool: limiter=%s, task_id=%s, func_path=%s, local_dispatched=%d.",
+            "[ProcessPoolRateLimiter] Task submitted to process pool: limiter=%s, task_id=%s, func_path=%s, local_dispatched=%d.",
             self.id,
             task_id,
             func_path,

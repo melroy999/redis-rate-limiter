@@ -71,11 +71,13 @@ class WindowChangeObservabilityTests:
     """Unified tests for the window-change detection log in ``_apply_config_overrides``.
 
     Subclasses must provide a ``limiter`` fixture that returns either a
-    ``SyncToAsyncLimiterAdapter``-wrapped sync limiter or a native async limiter.
+    ``SyncToAsyncLimiterAdapter``-wrapped sync limiter or a native async limiter,
+    and must set ``_log_label`` to the expected log prefix.
     """
 
-    @staticmethod
-    async def test_window_change_emits_info_log(limiter, caplog):
+    _log_label: str
+
+    async def test_window_change_emits_info_log(self, limiter, caplog):
         """Verify that changing the window via
         ``_apply_config_overrides`` emits an INFO log.
         """
@@ -92,6 +94,7 @@ class WindowChangeObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="INFO",
+            label=self._log_label,
             required_fragments=[
                 f"limiter={limiter.id}",
                 f"new_window={new_window:g}",
@@ -108,12 +111,14 @@ class EmitMetricObservabilityTests:
     """Unified tests for the ``_emit_metric`` warning log when the callback raises.
 
     Subclasses must provide a ``limiter_with_failing_callback`` fixture that
-    returns a limiter configured with a callback that raises ``RuntimeError``.
+    returns a limiter configured with a callback that raises ``RuntimeError``,
+    and must set ``_log_label`` to the expected log prefix.
     """
 
-    @staticmethod
+    _log_label: str
+
     async def test_emit_metric_logs_warning_on_callback_exception(
-        limiter_with_failing_callback, caplog
+        self, limiter_with_failing_callback, caplog
     ):
         """Verify that ``_emit_metric`` emits a WARNING log when the callback raises."""
         # Arrange
@@ -129,6 +134,7 @@ class EmitMetricObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="WARNING",
+            label=self._log_label,
             required_fragments=[
                 f"limiter={limiter.id}",
                 "event=consume",
@@ -170,6 +176,8 @@ class TestAsyncInitialDefaults(InitialDefaultTests):
 class TestSyncWindowChangeLogging(WindowChangeObservabilityTests):
     """Sync rate limiter window-change logging exercised through the async adapter."""
 
+    _log_label = "[StubRateLimiter]"
+
     @pytest.fixture
     def limiter(self, stub_limiter):
         """Wrap the sync generic limiter in an async adapter."""
@@ -179,6 +187,8 @@ class TestSyncWindowChangeLogging(WindowChangeObservabilityTests):
 @pytest.mark.observability
 class TestAsyncWindowChangeLogging(WindowChangeObservabilityTests):
     """Async rate limiter window-change logging exercised natively."""
+
+    _log_label = "[AsyncStubRateLimiter]"
 
     @pytest.fixture
     def limiter(self, async_stub_limiter):
@@ -191,6 +201,8 @@ class TestSyncEmitMetricLogging(EmitMetricObservabilityTests):
     """Sync rate limiter ``_emit_metric`` logging exercised
     through the async adapter.
     """
+
+    _log_label = "[StubRateLimiter]"
 
     @pytest.fixture
     def limiter_with_failing_callback(self, redis_client, limiter_id):
@@ -215,6 +227,8 @@ class TestSyncEmitMetricLogging(EmitMetricObservabilityTests):
 @pytest.mark.observability
 class TestAsyncEmitMetricLogging(EmitMetricObservabilityTests):
     """Async rate limiter ``_emit_metric`` logging exercised natively."""
+
+    _log_label = "[AsyncStubRateLimiter]"
 
     @pytest.fixture
     async def limiter_with_failing_callback(self, async_redis_client, limiter_id):

@@ -327,6 +327,7 @@ class TestRQDispatchObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[RQRateLimiter]",
             required_fragments=[
                 f"limiter={limiter.id}",
                 f"task_id={task_id}",
@@ -354,6 +355,7 @@ class TestRQDispatchObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[RQRateLimiter]",
             required_fragments=[
                 f"limiter={limiter.id}",
                 f"task_id={task_id}",

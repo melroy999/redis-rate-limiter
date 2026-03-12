@@ -75,7 +75,8 @@ class AbstractRateLimiter:
             self._drain_paused_until = time.time() + pause_duration
             self.window = float(new_window)
             logger.info(
-                "Window change detected: limiter=%s, new_window=%g, paused_for_s=%g.",
+                "[%s] Window change detected: limiter=%s, new_window=%g, paused_for_s=%g.",
+                type(self).__name__,
                 self.id,
                 new_window,
                 pause_duration,
@@ -118,7 +119,8 @@ class AbstractSyncRateLimiter(AbstractRateLimiter):
         sha = str(self.redis.script_load(self._script_sources[script_name]))
         self._script_shas[script_name] = sha
         logger.debug(
-            "Lua script registered: limiter=%s, script=%s, sha=%s.",
+            "[%s] Lua script registered: limiter=%s, script=%s, sha=%s.",
+            type(self).__name__,
             self.id,
             script_name,
             sha,
@@ -151,7 +153,8 @@ class AbstractSyncRateLimiter(AbstractRateLimiter):
             return self.redis.evalsha(sha, num_keys, *args)
         except redis.exceptions.NoScriptError:
             logger.warning(
-                "Lua script cache miss; reloading: limiter=%s, script=%s.",
+                "[%s] Lua script cache miss; reloading: limiter=%s, script=%s.",
+                type(self).__name__,
                 self.id,
                 script_name,
             )
@@ -195,7 +198,8 @@ class AbstractAsyncRateLimiter(AbstractRateLimiter):
         sha = str(await self.redis.script_load(self._script_sources[script_name]))
         self._script_shas[script_name] = sha
         logger.debug(
-            "Lua script registered (async): limiter=%s, script=%s, sha=%s.",
+            "[%s] Lua script registered: limiter=%s, script=%s, sha=%s.",
+            type(self).__name__,
             self.id,
             script_name,
             sha,
@@ -228,7 +232,8 @@ class AbstractAsyncRateLimiter(AbstractRateLimiter):
             # fmt: on
         except redis.exceptions.NoScriptError:
             logger.warning(
-                "Lua script cache miss; reloading (async): limiter=%s, script=%s.",
+                "[%s] Lua script cache miss; reloading: limiter=%s, script=%s.",
+                type(self).__name__,
                 self.id,
                 script_name,
             )

@@ -97,11 +97,13 @@ class DistributedLockObservabilityTests:
     Subclasses must provide:
         - ``create_lock``: a factory ``(lock_key, **kwargs) -> lock`` that
           returns an async-compatible lock (either adapter-wrapped or native).
+        - ``_log_label``: the expected log prefix (e.g., ``"[DistributedLock]"``).
     """
 
-    @staticmethod
+    _log_label: str
+
     async def test_lock_acquisition_emits_debug_log(
-        async_redis_client, lock_key, create_lock, caplog
+        self, async_redis_client, lock_key, create_lock, caplog
     ):
         """Verify that a successful lock acquisition emits a debug log."""
         # Arrange
@@ -116,6 +118,7 @@ class DistributedLockObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label=self._log_label,
             required_fragments=[
                 f"key={lock_key}",
                 "token=",
@@ -128,9 +131,8 @@ class DistributedLockObservabilityTests:
             ),
         )
 
-    @staticmethod
     async def test_lock_release_emits_debug_log(
-        async_redis_client, lock_key, create_lock, caplog
+        self, async_redis_client, lock_key, create_lock, caplog
     ):
         """Verify that a successful lock release emits a debug log."""
         # Arrange
@@ -145,13 +147,13 @@ class DistributedLockObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label=self._log_label,
             required_fragments=[f"key={lock_key}", "token=", "released"],
             message="should emit a debug log for lock release with key and token",
         )
 
-    @staticmethod
     async def test_lock_contention_emits_debug_log(
-        async_redis_client, lock_key, create_lock, caplog
+        self, async_redis_client, lock_key, create_lock, caplog
     ):
         """Verify that a contention event emits a debug log
         when the lock is already held."""
@@ -173,13 +175,13 @@ class DistributedLockObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label=self._log_label,
             required_fragments=[f"key={lock_key}", "contended"],
             message="should emit a debug log for lock contention with key",
         )
 
-    @staticmethod
     async def test_lock_expired_before_release_emits_debug_log(
-        async_redis_client, lock_key, create_lock, caplog
+        self, async_redis_client, lock_key, create_lock, caplog
     ):
         """Verify that an expired-before-release event emits a debug log."""
         # Arrange
@@ -197,6 +199,7 @@ class DistributedLockObservabilityTests:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label=self._log_label,
             required_fragments=[f"key={lock_key}", "expired before release"],
             message="should emit a debug log for lock expired before release with key",
         )
@@ -518,6 +521,8 @@ class TestSyncDistributedLockImplementation(DistributedLockImplementationTests):
 class TestSyncDistributedLockObservability(DistributedLockObservabilityTests):
     """Sync DistributedLock observability exercised through the async adapter."""
 
+    _log_label = "[DistributedLock]"
+
     @pytest.fixture
     def create_lock(self, redis_client):
         """Factory that creates sync locks wrapped in the async adapter."""
@@ -563,6 +568,8 @@ class TestAsyncDistributedLockImplementation(DistributedLockImplementationTests)
 @pytest.mark.observability
 class TestAsyncDistributedLockObservability(DistributedLockObservabilityTests):
     """Async DistributedLock observability exercised natively."""
+
+    _log_label = "[AsyncDistributedLock]"
 
     @pytest.fixture
     def create_lock(self, async_redis_client):

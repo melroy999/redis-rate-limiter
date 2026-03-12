@@ -355,6 +355,7 @@ class TestAsyncTaskLifecycleObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[AsyncTaskLifecycle]",
             required_fragments=[
                 f"limiter={mock_limiter.id}",
                 f"task_id={task_id}",
@@ -394,6 +395,7 @@ class TestAsyncTaskLifecycleObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[AsyncTaskLifecycle]",
             required_fragments=["removed_inflight=False"],
             message="empty task_id should log removed_inflight=False",
         )
@@ -414,6 +416,7 @@ class TestAsyncTaskLifecycleObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[AsyncTaskLifecycle]",
             required_fragments=[
                 f"limiter={mock_limiter.id}",
                 f"task_id={task_id}",
@@ -575,6 +578,7 @@ class TestAsyncHeartbeatLoopObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[AsyncTaskLifecycle]",
             required_fragments=[
                 f"limiter={mock_limiter.id}",
                 f"task_id={task_id}",
@@ -603,6 +607,7 @@ class TestAsyncHeartbeatLoopObservability:
         assert_log_emitted(
             caplog.records,
             level="INFO",
+            label="[AsyncTaskLifecycle]",
             required_fragments=[
                 f"task {task_id}",
                 f"limiter {mock_limiter.id}",
@@ -637,6 +642,7 @@ class TestAsyncHeartbeatLoopObservability:
         assert_log_emitted(
             caplog.records,
             level="CRITICAL",
+            label="[AsyncTaskLifecycle]",
             required_fragments=[
                 f"task {task_id}",
                 "flagged as unhealthy",
@@ -674,6 +680,7 @@ class TestAsyncHeartbeatLoopObservability:
         assert_log_emitted(
             caplog.records,
             level="CRITICAL",
+            label="[AsyncTaskLifecycle]",
             required_fragments=[
                 f"task {task_id}",
                 "terminating worker",
@@ -763,6 +770,7 @@ class TestAsyncExtendLeaseObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[AsyncStubRateLimiter]",
             required_fragments=[
                 f"limiter={async_stub_limiter.id}",
                 "task_id=nonexistent",
@@ -797,6 +805,7 @@ class TestAsyncExtendLeaseObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[AsyncStubRateLimiter]",
             required_fragments=[
                 f"limiter={async_stub_limiter.id}",
                 f"task_id={task_id}",

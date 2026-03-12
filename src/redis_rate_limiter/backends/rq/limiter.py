@@ -160,7 +160,7 @@ class RQRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
                 },
             )
             logger.debug(
-                "RQ job sent to generic worker: limiter=%s, task_id=%s, func_path=%s.",
+                "[RQRateLimiter] Job sent to generic worker: limiter=%s, task_id=%s, func_path=%s.",
                 self.id,
                 task_id,
                 func_path,
@@ -170,7 +170,7 @@ class RQRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
                 func_path, args=[data], kwargs={"_rate_limit_task_id": task_id}
             )
             logger.debug(
-                "RQ job sent to custom worker: limiter=%s, task_id=%s, func_path=%s.",
+                "[RQRateLimiter] Job sent to custom worker: limiter=%s, task_id=%s, func_path=%s.",
                 self.id,
                 task_id,
                 func_path,

@@ -126,7 +126,7 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
                     await target_func(**payload)
             except Exception:
                 logger.exception(
-                    "Task raised an exception: limiter=%s, task_id=%s, func_path=%s.",
+                    "[AsyncIOTaskLimiter] Task raised an exception: limiter=%s, task_id=%s, func_path=%s.",
                     self.id,
                     task_id,
                     func_path,
@@ -139,7 +139,7 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
         self._active_tasks.add(task)
 
         logger.debug(
-            "Task submitted to event loop: limiter=%s, task_id=%s, func_path=%s, active_count=%d.",
+            "[AsyncIOTaskLimiter] Task submitted to event loop: limiter=%s, task_id=%s, func_path=%s, active_count=%d.",
             self.id,
             task_id,
             func_path,
@@ -156,7 +156,7 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
 
         if self._active_tasks:
             logger.info(
-                "Cancelling %d active tasks: limiter=%s.",
+                "[AsyncIOTaskLimiter] Cancelling %d active tasks: limiter=%s.",
                 len(self._active_tasks),
                 self.id,
             )

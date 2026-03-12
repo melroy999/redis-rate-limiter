@@ -308,9 +308,10 @@ class TestImportStringObservability:
         # Assert
         assert_log_emitted(
             caplog.records,
-            "DEBUG",
-            ["import_path=json.dumps", "module=json", "callable=dumps"],
-            "should emit a debug log for the resolved import"
+            level="DEBUG",
+            label="[ImportResolver]",
+            required_fragments=["import_path=json.dumps", "module=json", "callable=dumps"],
+            message="should emit a debug log for the resolved import"
             " with import path, module, and callable",
         )
 
@@ -331,7 +332,8 @@ class TestResolveImportPathObservability:
         # Assert
         assert_log_emitted(
             caplog.records,
-            "DEBUG",
-            ["callable=", "import_path=json.dumps"],
-            "should emit a debug log with the callable and resolved import path",
+            level="DEBUG",
+            label="[ImportResolver]",
+            required_fragments=["callable=", "import_path=json.dumps"],
+            message="should emit a debug log with the callable and resolved import path",
         )

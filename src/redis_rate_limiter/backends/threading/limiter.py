@@ -125,7 +125,7 @@ class ThreadPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimit
 
         self.executor.submit(_run_task)
         logger.debug(
-            "Task submitted to thread pool: limiter=%s, task_id=%s, func_path=%s, local_dispatched=%d.",
+            "[ThreadPoolRateLimiter] Task submitted to thread pool: limiter=%s, task_id=%s, func_path=%s, local_dispatched=%d.",
             self.id,
             task_id,
             func_path,

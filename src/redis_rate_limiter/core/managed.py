@@ -199,7 +199,7 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
         """Configure the shared Redis client and backend context for class-level API usage."""
         cls._redis_client = redis_client
         cls._configure_backend(**backend_context)
-        logger.info("%s configured.", cls.__name__)
+        logger.info("[%s] Configured.", cls.__name__)
 
     def __init__(
         self,
@@ -259,7 +259,7 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
             cls._persist_config(instance)
 
         logger.info(
-            "%s created: limiter=%s, config=%s, persist=%s.",
+            "[%s] Created: limiter=%s, config=%s, persist=%s.",
             cls.__name__,
             limiter_id,
             config,
@@ -283,7 +283,7 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
         """
         if limiter_id in cls._instances:
             logger.debug(
-                "%s resolved from local cache: limiter=%s.",
+                "[%s] Resolved from local cache: limiter=%s.",
                 cls.__name__,
                 limiter_id,
             )
@@ -318,7 +318,7 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
 
         cls._instances[limiter_id] = instance
         logger.debug(
-            "%s hydrated from Redis: limiter=%s.",
+            "[%s] Hydrated from Redis: limiter=%s.",
             cls.__name__,
             limiter_id,
         )
@@ -345,7 +345,7 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
         cls._persist_config(instance)
 
         logger.info(
-            "%s updated: limiter=%s, overrides=%s.",
+            "[%s] Updated: limiter=%s, overrides=%s.",
             cls.__name__,
             limiter_id,
             overrides,
@@ -390,7 +390,8 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
             config = self._parse_raw_config(raw_config)
         except (json.JSONDecodeError, TypeError) as error:
             logger.warning(
-                "Config refresh skipped due to malformed persisted config: limiter=%s, error=%s.",
+                "[%s] Config refresh skipped due to malformed persisted config: limiter=%s, error=%s.",
+                type(self).__name__,
                 self.id,
                 error,
             )
@@ -399,7 +400,8 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
         self._apply_config_overrides(config)
         self._config_version = remote_version
         logger.info(
-            "Config refreshed: limiter=%s, version=%d.",
+            "[%s] Config refreshed: limiter=%s, version=%d.",
+            type(self).__name__,
             self.id,
             remote_version,
         )
@@ -436,7 +438,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         """Configure the shared async Redis client and backend context for class-level API usage."""
         cls._redis_client = redis_client
         cls._configure_backend(**backend_context)
-        logger.info("%s configured.", cls.__name__)
+        logger.info("[%s] Configured.", cls.__name__)
 
     def __init__(
         self,
@@ -499,7 +501,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
             await cls._persist_config(instance)
 
         logger.info(
-            "%s created: limiter=%s, config=%s, persist=%s.",
+            "[%s] Created: limiter=%s, config=%s, persist=%s.",
             cls.__name__,
             limiter_id,
             config,
@@ -526,7 +528,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         """
         if limiter_id in cls._instances:
             logger.debug(
-                "%s resolved from local cache: limiter=%s.",
+                "[%s] Resolved from local cache: limiter=%s.",
                 cls.__name__,
                 limiter_id,
             )
@@ -570,7 +572,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
 
         cls._instances[limiter_id] = instance
         logger.debug(
-            "%s hydrated from Redis: limiter=%s.",
+            "[%s] Hydrated from Redis: limiter=%s.",
             cls.__name__,
             limiter_id,
         )
@@ -596,7 +598,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         await cls._persist_config(instance)
 
         logger.info(
-            "%s updated: limiter=%s, overrides=%s.",
+            "[%s] Updated: limiter=%s, overrides=%s.",
             cls.__name__,
             limiter_id,
             overrides,
@@ -651,7 +653,8 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
             config = self._parse_raw_config(raw_config)
         except (json.JSONDecodeError, TypeError) as error:
             logger.warning(
-                "Config refresh skipped due to malformed persisted config: limiter=%s, error=%s.",
+                "[%s] Config refresh skipped due to malformed persisted config: limiter=%s, error=%s.",
+                type(self).__name__,
                 self.id,
                 error,
             )
@@ -660,7 +663,8 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         self._apply_config_overrides(config)
         self._config_version = remote_version
         logger.info(
-            "Config refreshed (async): limiter=%s, version=%d.",
+            "[%s] Config refreshed: limiter=%s, version=%d.",
+            type(self).__name__,
             self.id,
             remote_version,
         )

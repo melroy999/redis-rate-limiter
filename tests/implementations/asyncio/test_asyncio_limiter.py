@@ -250,6 +250,7 @@ class TestAsyncIODispatchObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[AsyncIOTaskLimiter]",
             required_fragments=[
                 f"limiter={limiter.id}",
                 "task_id=test-task-id",
@@ -279,6 +280,7 @@ class TestAsyncIODispatchObservability:
         assert_log_emitted(
             caplog.records,
             level="ERROR",
+            label="[AsyncIOTaskLimiter]",
             required_fragments=[
                 f"limiter={limiter.id}",
                 "task_id=sync-err-task",
@@ -310,6 +312,7 @@ class TestAsyncIODispatchObservability:
         assert_log_emitted(
             caplog.records,
             level="INFO",
+            label="[AsyncIOTaskLimiter]",
             required_fragments=[
                 f"limiter={limiter.id}",
                 "Cancelling",

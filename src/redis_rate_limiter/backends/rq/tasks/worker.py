@@ -21,7 +21,7 @@ def generic_rate_limited_worker(limiter_id: str, func_path: str, payload: dict) 
     """
     # The limiter_id parameter must be present in the signature for routing purposes.
     logger.debug(
-        "Generic worker executing task: limiter=%s, func_path=%s.",
+        "[RQGenericWorker] Executing task: limiter=%s, func_path=%s.",
         limiter_id,
         func_path,
     )

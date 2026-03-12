@@ -326,6 +326,7 @@ class TestCeleryDispatchObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[CeleryRateLimiter]",
             required_fragments=[
                 f"limiter={limiter.id}",
                 f"task_id={task_id}",
@@ -354,6 +355,7 @@ class TestCeleryDispatchObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[CeleryRateLimiter]",
             required_fragments=[
                 f"limiter={limiter.id}",
                 f"task_id={task_id}",

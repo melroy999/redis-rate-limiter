@@ -85,7 +85,7 @@ class RateLimitMiddleware:
             result = await self.limiter.acquire(key)
         except Exception:
             logger.exception(
-                "Rate limit check failed: limiter=%s, key=%s.",
+                "[RateLimitMiddleware] Rate limit check failed: limiter=%s, key=%s.",
                 self.limiter.id,
                 key,
             )

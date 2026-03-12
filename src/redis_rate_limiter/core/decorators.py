@@ -54,7 +54,7 @@ def rate_limited(
             limiter = limiter_getter(_limiter_id)
             task_id = kwargs.pop("_rate_limit_task_id")
             logger.debug(
-                "Rate-limited decorator entered: limiter=%s, task_id=%s, func=%s.",
+                "[RateLimited] Decorator entered: limiter=%s, task_id=%s, func=%s.",
                 _limiter_id,
                 task_id,
                 func.__qualname__,
@@ -64,7 +64,7 @@ def rate_limited(
                 result = func(*args, **kwargs)
 
             logger.debug(
-                "Task execution completed under rate-limited lifecycle: limiter=%s, task_id=%s, func=%s.",
+                "[RateLimited] Task execution completed: limiter=%s, task_id=%s, func=%s.",
                 _limiter_id,
                 task_id,
                 func.__qualname__,

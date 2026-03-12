@@ -98,7 +98,7 @@ class ASGIRateLimiter(AsyncManagedRateLimiter, AbstractAsyncRateLimiter):
         # Eagerly preload the Lua script so the first acquire() avoids a lazy registration round-trip.
         await self._register_script("acquire.lua")
         logger.info(
-            "ASGI rate limiter initialized: id=%s, limit=%d, window_s=%g.",
+            "[ASGIRateLimiter] Initialized: id=%s, limit=%d, window_s=%g.",
             self.id,
             self.limit,
             self.window,
@@ -144,7 +144,7 @@ class ASGIRateLimiter(AsyncManagedRateLimiter, AbstractAsyncRateLimiter):
             )
         except Exception:
             logger.exception(
-                "Acquire failed: limiter=%s, key=%s.",
+                "[ASGIRateLimiter] Acquire failed: limiter=%s, key=%s.",
                 self.id,
                 key,
             )

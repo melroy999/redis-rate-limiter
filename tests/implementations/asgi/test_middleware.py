@@ -587,6 +587,7 @@ class TestMiddlewareObservability:
         assert_log_emitted(
             caplog.records,
             level="ERROR",
+            label="[RateLimitMiddleware]",
             required_fragments=[
                 f"limiter={limiter.id}",
                 "key=127.0.0.1",

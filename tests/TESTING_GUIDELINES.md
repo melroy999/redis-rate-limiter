@@ -328,6 +328,7 @@ from tests.helpers.utils import assert_log_emitted
 assert_log_emitted(
     caplog.records,
     level="INFO",
+    label="[CeleryRateLimiter]",
     required_fragments=[f"limiter={limiter.id}", f"task_id={task_id}"],
     message="should emit an info log for the dispatched task",
 )

@@ -343,6 +343,7 @@ class TestProcessPoolDispatchObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[ProcessPoolRateLimiter]",
             required_fragments=[
                 f"limiter={limiter.id}",
                 f"task_id={task_id}",

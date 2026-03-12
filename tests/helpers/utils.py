@@ -98,19 +98,16 @@ def dict_equals_approx(left, right, relative_tolerance=1e-9, absolute_tolerance=
 def assert_log_emitted(
     caplog_records: list,
     level: str,
+    label: str,
     required_fragments: list[str],
     message: str,
 ) -> None:
-    """Assert that at least one log record matches the given level and contains all required fragments.
-
-    Args:
-        caplog_records: The list of captured log records (typically ``caplog.records``).
-        level: The expected log level name (e.g., ``"DEBUG"``, ``"INFO"``, ``"WARNING"``).
-        required_fragments: Substrings that must all appear in the matching record's message.
-        message: The assertion failure message.
+    """Assert that at least one log record matches the given level, starts with ``label``, and
+    contains all ``required_fragments`` as substrings.
     """
     assert any(
         record.levelname == level
+        and record.message.startswith(label)
         and all(fragment in record.message for fragment in required_fragments)
         for record in caplog_records
     ), message

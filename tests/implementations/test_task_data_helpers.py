@@ -184,6 +184,7 @@ class TestCleanupInflightKey:
         assert_log_emitted(
             caplog.records,
             level="WARNING",
+            label="[StubRateLimiter]",
             required_fragments=[
                 f"limiter={stub_limiter.id}",
                 "task_id=cleanup-test",
@@ -262,6 +263,7 @@ class TestAsyncCleanupInflightKey:
         assert_log_emitted(
             caplog.records,
             level="WARNING",
+            label="[AsyncStubRateLimiter]",
             required_fragments=[
                 f"limiter={async_stub_limiter.id}",
                 "task_id=cleanup-test",
@@ -335,6 +337,7 @@ class TestCleanupInflightKeyObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[StubRateLimiter]",
             required_fragments=[
                 f"limiter={stub_limiter.id}",
                 "task_id=cleanup-del",
@@ -375,6 +378,7 @@ class TestAsyncCleanupInflightKeyObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[AsyncStubRateLimiter]",
             required_fragments=[
                 f"limiter={async_stub_limiter.id}",
                 "task_id=cleanup-del",

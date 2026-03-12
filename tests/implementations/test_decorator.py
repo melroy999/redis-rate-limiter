@@ -404,28 +404,30 @@ class TestRateLimitedDecoratorObservability:
         # Assert
         assert_log_emitted(
             caplog.records,
-            "DEBUG",
-            [
-                "decorator entered",
+            level="DEBUG",
+            label="[RateLimited]",
+            required_fragments=[
+                "Decorator entered",
                 f"limiter={limiter_id}",
                 f"task_id={task_id}",
                 "func=",
                 "wrapped_function",
             ],
-            "should emit a debug log for the decorator entry"
+            message="should emit a debug log for the decorator entry"
             " with limiter id, task id, and func qualname",
         )
         assert_log_emitted(
             caplog.records,
-            "DEBUG",
-            [
+            level="DEBUG",
+            label="[RateLimited]",
+            required_fragments=[
                 "execution completed",
                 f"limiter={limiter_id}",
                 f"task_id={task_id}",
                 "func=",
                 "wrapped_function",
             ],
-            "should emit a debug log for the task completion"
+            message="should emit a debug log for the task completion"
             " with limiter id, task id, and func qualname",
         )
 

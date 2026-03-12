@@ -191,14 +191,14 @@ class DistributedLock:
 
         if self.acquired:
             logger.debug(
-                "Dispatch lock acquired: key=%s, token=%s, timeout_ms=%d.",
+                "[DistributedLock] Dispatch lock acquired: key=%s, token=%s, timeout_ms=%d.",
                 self.lock_key,
                 self.token,
                 self.timeout_ms,
             )
         else:
             logger.debug(
-                "Dispatch lock contended: key=%s (another drainer holds the lock or worker is in cooldown).",
+                "[DistributedLock] Dispatch lock contended: key=%s (another drainer holds the lock or worker is in cooldown).",
                 self.lock_key,
             )
         return bool(self.acquired)
@@ -228,13 +228,13 @@ class DistributedLock:
 
             if result:
                 logger.debug(
-                    "Dispatch lock released: key=%s, token=%s.",
+                    "[DistributedLock] Dispatch lock released: key=%s, token=%s.",
                     self.lock_key,
                     self.token,
                 )
             else:
                 logger.debug(
-                    "Dispatch lock already expired before release: key=%s, token=%s.",
+                    "[DistributedLock] Dispatch lock already expired before release: key=%s, token=%s.",
                     self.lock_key,
                     self.token,
                 )
@@ -274,7 +274,7 @@ class TaskLifecycle:
 
                 if not self.is_healthy:
                     logger.info(
-                        "Heartbeat connection restored for task %s on limiter %s.",
+                        "[TaskLifecycle] Heartbeat connection restored for task %s on limiter %s.",
                         self.task_id,
                         self.limiter.id,
                     )
@@ -284,7 +284,7 @@ class TaskLifecycle:
 
                 if self.on_failure_action == "kill":
                     logger.critical(
-                        "Heartbeat failed for task %s: %s - terminating worker.",
+                        "[TaskLifecycle] Heartbeat failed for task %s: %s - terminating worker.",
                         self.task_id,
                         e,
                     )
@@ -292,7 +292,7 @@ class TaskLifecycle:
                     break
                 else:
                     logger.critical(
-                        "Heartbeat failed for task %s: %s - flagged as unhealthy.",
+                        "[TaskLifecycle] Heartbeat failed for task %s: %s - flagged as unhealthy.",
                         self.task_id,
                         e,
                     )
@@ -302,7 +302,7 @@ class TaskLifecycle:
         self._thread = Thread(target=self._heartbeat_loop, daemon=True)
         self._thread.start()
         logger.debug(
-            "Task lifecycle entered: limiter=%s, task_id=%s, heartbeat_interval_s=%.3f.",
+            "[TaskLifecycle] Task lifecycle entered: limiter=%s, task_id=%s, heartbeat_interval_s=%.3f.",
             self.limiter.id,
             self.task_id,
             self.interval,
@@ -331,7 +331,7 @@ class TaskLifecycle:
                 # fmt: on
 
             logger.debug(
-                "Concurrency slot released and inflight key cleared: limiter=%s, task_id=%s, removed_concurrency=%s, removed_inflight=%s.",
+                "[TaskLifecycle] Concurrency slot released and inflight key cleared: limiter=%s, task_id=%s, removed_concurrency=%s, removed_inflight=%s.",
                 self.limiter.id,
                 self.task_id,
                 removed_concurrency == 1,
@@ -339,7 +339,7 @@ class TaskLifecycle:
             )
         finally:
             logger.debug(
-                "Task lifecycle exited, triggering follow-up consume: limiter=%s, task_id=%s.",
+                "[TaskLifecycle] Task lifecycle exited, triggering follow-up consume: limiter=%s, task_id=%s.",
                 self.limiter.id,
                 self.task_id,
             )
@@ -425,7 +425,7 @@ class DrainLoop:
                 self._limiter.drain()
             except Exception:
                 logger.exception(
-                    "Unhandled exception escaped drain() in DrainLoop: limiter=%s.",
+                    "[DrainLoop] Unhandled exception escaped drain(): limiter=%s.",
                     self._limiter.id,
                 )
 
@@ -468,7 +468,7 @@ class DrainSignalSubscriber:
                 if self._shutdown:
                     return
                 logger.exception(
-                    "Drain signal subscriber error: limiter=%s.",
+                    "[DrainSignalSubscriber] Drain signal subscriber error: limiter=%s.",
                     self._limiter.id,
                 )
                 time.sleep(1.0)
@@ -523,7 +523,7 @@ class BackendHealthMonitor:
             healthy = self._limiter._check_backend_health()
         except Exception:
             logger.debug(
-                "Backend health check raised an exception: limiter=%s.",
+                "[BackendHealthMonitor] Backend health check raised an exception: limiter=%s.",
                 self._limiter.id,
                 exc_info=True,
             )
@@ -531,14 +531,14 @@ class BackendHealthMonitor:
 
         if self._healthy and not healthy:
             logger.warning(
-                "Backend health check failed: limiter=%s. "
+                "[BackendHealthMonitor] Backend health check failed: limiter=%s. "
                 "Workers may be unavailable; dispatched tasks will not "
                 "complete until the backend recovers.",
                 self._limiter.id,
             )
         elif not self._healthy and healthy:
             logger.info(
-                "Backend health check recovered: limiter=%s. "
+                "[BackendHealthMonitor] Backend health check recovered: limiter=%s. "
                 "Workers are available again.",
                 self._limiter.id,
             )
@@ -794,7 +794,8 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
 
         rounded_jitter = round(jitter, 3)
         logger.debug(
-            "Smart jitter calculated: limiter=%s, remaining_tasks=%d, remaining_tokens=%d, active_concurrency=%d, load_pressure=%.3f, concurrency_pressure=%.3f, jitter_s=%.3f.",
+            "[%s] Smart jitter calculated: limiter=%s, remaining_tasks=%d, remaining_tokens=%d, active_concurrency=%d, load_pressure=%.3f, concurrency_pressure=%.3f, jitter_s=%.3f.",
+            type(self).__name__,
             self.id,
             remaining_tasks,
             remaining_tokens,
@@ -826,7 +827,8 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
             self.metrics_callback(event, data)
         except Exception as e:
             logger.warning(
-                "Metrics callback raised an exception: limiter=%s, event=%s, error=%s.",
+                "[%s] Metrics callback raised an exception: limiter=%s, event=%s, error=%s.",
+                type(self).__name__,
                 self.id,
                 event,
                 e,
@@ -860,7 +862,8 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
         throughput. The ``DrainLoop`` naturally coalesces multiple backup requests.
         """
         logger.debug(
-            "Backup drain scheduled: limiter=%s, delay_s=%.3f.",
+            "[%s] Backup drain scheduled: limiter=%s, delay_s=%.3f.",
+            type(self).__name__,
             self.id,
             self._token_interval,
         )
@@ -977,7 +980,8 @@ class AbstractDistributedRateLimiter(
         )
 
         logger.info(
-            "Rate limiter initialized: id=%s, limit=%d, window_s=%g, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s, drain_enabled=%s, backend_health_monitor=%s.",
+            "[%s] Rate limiter initialized: id=%s, limit=%d, window_s=%g, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s, drain_enabled=%s, backend_health_monitor=%s.",
+            type(self).__name__,
             self.id,
             self.limit,
             self.window,
@@ -1025,7 +1029,8 @@ class AbstractDistributedRateLimiter(
         try:
             removed = self.redis.delete(inflight_key)
             logger.debug(
-                "Inflight cleanup attempted: limiter=%s, task_id=%s, inflight_key=%s, removed=%s.",
+                "[%s] Inflight cleanup attempted: limiter=%s, task_id=%s, inflight_key=%s, removed=%s.",
+                type(self).__name__,
                 self.id,
                 task_id,
                 inflight_key,
@@ -1033,7 +1038,8 @@ class AbstractDistributedRateLimiter(
             )
         except Exception as cleanup_error:
             logger.warning(
-                "Failed to cleanup inflight key after schedule failure: limiter=%s, task_id=%s, inflight_key=%s, error=%s.",
+                "[%s] Failed to cleanup inflight key after schedule failure: limiter=%s, task_id=%s, inflight_key=%s, error=%s.",
+                type(self).__name__,
                 self.id,
                 task_id,
                 inflight_key,
@@ -1065,7 +1071,8 @@ class AbstractDistributedRateLimiter(
         task_signature = self._get_task_signature_str(func_path, payload)
         task_id = hashlib.md5(task_signature.encode()).hexdigest()
         logger.debug(
-            "Scheduling task attempt: limiter=%s, task_id=%s, func_path=%s, priority=%d, max_age=%s.",
+            "[%s] Scheduling task attempt: limiter=%s, task_id=%s, func_path=%s, priority=%d, max_age=%s.",
+            type(self).__name__,
             self.id,
             task_id,
             func_path,
@@ -1079,7 +1086,8 @@ class AbstractDistributedRateLimiter(
         inflight_ttl = self._get_inflight_ttl(max_age_override=max_age)
         if not self.redis.set(inflight_key, "1", ex=inflight_ttl, nx=True):
             logger.debug(
-                "Task already in-flight, skipping schedule: limiter=%s, task_id=%s, inflight_key=%s, inflight_ttl_s=%d.",
+                "[%s] Task already in-flight, skipping schedule: limiter=%s, task_id=%s, inflight_key=%s, inflight_ttl_s=%d.",
+                type(self).__name__,
                 self.id,
                 task_id,
                 inflight_key,
@@ -1102,7 +1110,8 @@ class AbstractDistributedRateLimiter(
                 max_age or "",
             )
             logger.info(
-                "Task scheduled: limiter=%s, task_id=%s, func_path=%s, priority=%d.",
+                "[%s] Task scheduled: limiter=%s, task_id=%s, func_path=%s, priority=%d.",
+                type(self).__name__,
                 self.id,
                 task_id,
                 func_path,
@@ -1131,7 +1140,7 @@ class AbstractDistributedRateLimiter(
         Raises:
             RuntimeError: If the required Lua scripts cannot be (re)loaded.
         """
-        logger.debug("Consume attempt started: limiter=%s.", self.id)
+        logger.debug("[%s] Consume attempt started: limiter=%s.", type(self).__name__, self.id)
 
         # fmt: off
         result = cast(  # pragma: no mutate
@@ -1173,7 +1182,8 @@ class AbstractDistributedRateLimiter(
         }
         task_id = consume_result["task"]["id"] if consume_result["task"] else None
         logger.debug(
-            "Consume result: limiter=%s, success=%s, expired=%s, task_id=%s, remaining_tokens=%d, active_concurrency=%d, remaining_tasks=%d, reset_in_ms=%d.",
+            "[%s] Consume result: limiter=%s, success=%s, expired=%s, task_id=%s, remaining_tokens=%d, active_concurrency=%d, remaining_tasks=%d, reset_in_ms=%d.",
+            type(self).__name__,
             self.id,
             consume_result["success"],
             consume_result["expired"],
@@ -1232,7 +1242,8 @@ class AbstractDistributedRateLimiter(
         # fmt: on
 
         logger.debug(
-            "Lease extension result: limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
+            "[%s] Lease extension result: limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
+            type(self).__name__,
             self.id,
             task_id,
             duration,
@@ -1271,7 +1282,8 @@ class AbstractDistributedRateLimiter(
             if hasattr(self, "_drain_paused_until") and time.time() < self._drain_paused_until:
                 remaining = self._drain_paused_until - time.time()
                 logger.debug(
-                    "Drain deferred: limiter=%s is paused for %.3fs for window transition.",
+                    "[%s] Drain deferred: limiter=%s is paused for %.3fs for window transition.",
+                    type(self).__name__,
                     self.id,
                     remaining,
                 )
@@ -1287,7 +1299,8 @@ class AbstractDistributedRateLimiter(
                 0.1 * (2 ** (self._consecutive_drain_failures - 1)),
             )
             logger.error(
-                "Drain failed (attempt #%d), scheduling recovery in %.3fs: limiter=%s.",
+                "[%s] Drain failed (attempt #%d), scheduling recovery in %.3fs: limiter=%s.",
+                type(self).__name__,
                 self._consecutive_drain_failures,
                 delay,
                 self.id,
@@ -1297,8 +1310,9 @@ class AbstractDistributedRateLimiter(
                 self._schedule_drain(delay=delay)
             except Exception:
                 logger.critical(
-                    "Recovery scheduling also failed: limiter=%s. "
+                    "[%s] Recovery scheduling also failed: limiter=%s. "
                     "Drain loop will resume on next trigger_consume() or task completion.",
+                    type(self).__name__,
                     self.id,
                     exc_info=True,
                 )
@@ -1310,14 +1324,15 @@ class AbstractDistributedRateLimiter(
         and recover from exceptions without duplicating the pause and configuration-refresh
         preamble.
         """
-        logger.debug("Drain loop start: limiter=%s.", self.id)
+        logger.debug("[%s] Drain loop start: limiter=%s.", type(self).__name__, self.id)
 
         # Check local execution capacity before acquiring the distributed lock.
         # This prevents acquiring Redis concurrency slots for tasks that would
         # only be queued in the local execution environment (e.g., a thread pool).
         if not self._has_local_capacity():
             logger.debug(
-                "Drain deferred: local execution capacity reached for limiter=%s.",
+                "[%s] Drain deferred: local execution capacity reached for limiter=%s.",
+                type(self).__name__,
                 self.id,
             )
             self._schedule_drain(delay=self._token_interval)
@@ -1326,7 +1341,8 @@ class AbstractDistributedRateLimiter(
         # Acquire the execution lock to avoid the thundering herd problem.
         with self.execution_lock() as acquired:
             logger.debug(
-                "Drain lock acquisition result: limiter=%s, acquired=%s.",
+                "[%s] Drain lock acquisition result: limiter=%s, acquired=%s.",
+                type(self).__name__,
                 self.id,
                 acquired,
             )
@@ -1334,7 +1350,8 @@ class AbstractDistributedRateLimiter(
                 # Another drainer is already executing an attempt. A backup drain
                 # is scheduled so that the loop is not lost if the holder fails.
                 logger.debug(
-                    "Drain skipped because lock is held by another drainer: limiter=%s.",
+                    "[%s] Drain skipped because lock is held by another drainer: limiter=%s.",
+                    type(self).__name__,
                     self.id,
                 )
                 self._schedule_backup_drain()
@@ -1344,7 +1361,8 @@ class AbstractDistributedRateLimiter(
 
             if result["expired"]:
                 logger.warning(
-                    "Expired task moved to DLQ during consume: limiter=%s.",
+                    "[%s] Expired task moved to DLQ during consume: limiter=%s.",
+                    type(self).__name__,
                     self.id,
                 )
 
@@ -1358,7 +1376,8 @@ class AbstractDistributedRateLimiter(
                     task_id=task_id,
                 )
                 logger.info(
-                    "Task dispatched: limiter=%s, task_id=%s, func_path=%s.",
+                    "[%s] Task dispatched: limiter=%s, task_id=%s, func_path=%s.",
+                    type(self).__name__,
                     self.id,
                     task_id,
                     task["func_path"],
@@ -1368,7 +1387,8 @@ class AbstractDistributedRateLimiter(
                 # This prevents the dispatcher from running indefinitely.
                 if result["remaining_tasks"] > 0:
                     logger.debug(
-                        "More tasks remain, scheduling immediate follow-up drain: limiter=%s, remaining_tasks=%d.",
+                        "[%s] More tasks remain, scheduling immediate follow-up drain: limiter=%s, remaining_tasks=%d.",
+                        type(self).__name__,
                         self.id,
                         result["remaining_tasks"],
                     )
@@ -1376,12 +1396,13 @@ class AbstractDistributedRateLimiter(
 
             elif result["remaining_tasks"] == 0:
                 # Stop: no remaining tasks. The next drain will be triggered when a new task is added.
-                logger.debug("Drain stopped: buffer empty for limiter=%s.", self.id)
+                logger.debug("[%s] Drain stopped: buffer empty for limiter=%s.", type(self).__name__, self.id)
 
             elif result["active_concurrency"] >= self.max_concurrency:
                 # Stop: the next drain will be triggered upon worker completion.
                 logger.debug(
-                    "Drain stopped: concurrency at capacity for limiter=%s (active=%d, max=%d).",
+                    "[%s] Drain stopped: concurrency at capacity for limiter=%s (active=%d, max=%d).",
+                    type(self).__name__,
                     self.id,
                     result["active_concurrency"],
                     self.max_concurrency,
@@ -1415,7 +1436,8 @@ class AbstractDistributedRateLimiter(
 
                 delay_seconds = round(max(0.001, base_delay + jitter), 3)
                 logger.info(
-                    "Rate limited, scheduling retry: limiter=%s, delay_s=%.3f, base_delay_s=%.3f, jitter_s=%.3f, remaining_tasks=%d, val_previous=%d, val_current=%d, fallback=%s.",
+                    "[%s] Rate limited, scheduling retry: limiter=%s, delay_s=%.3f, base_delay_s=%.3f, jitter_s=%.3f, remaining_tasks=%d, val_previous=%d, val_current=%d, fallback=%s.",
+                    type(self).__name__,
                     self.id,
                     delay_seconds,
                     base_delay,
@@ -1458,7 +1480,7 @@ class AbstractDistributedRateLimiter(
         so that other workers sharing the same limiter identifier can also
         attempt to consume.
         """
-        logger.debug("Trigger consume scheduling drain: limiter=%s.", self.id)
+        logger.debug("[%s] Trigger consume scheduling drain: limiter=%s.", type(self).__name__, self.id)
         self._schedule_drain()
         self._publish_drain_signal()
 
@@ -1474,7 +1496,8 @@ class AbstractDistributedRateLimiter(
             self.redis.publish(self._drain_signal_channel, self._worker_id)
         except Exception:
             logger.debug(
-                "Failed to publish drain signal: limiter=%s.",
+                "[%s] Failed to publish drain signal: limiter=%s.",
+                type(self).__name__,
                 self.id,
             )
 

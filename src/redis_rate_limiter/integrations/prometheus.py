@@ -141,7 +141,7 @@ class PrometheusMetricsExporter:
             self._handle_schedule(data)
         else:
             logger.debug(
-                "Ignoring unknown metrics event: limiter=%s, event=%s.",
+                "[PrometheusMetricsExporter] Ignoring unknown metrics event: limiter=%s, event=%s.",
                 self._limiter_id,
                 event,
             )

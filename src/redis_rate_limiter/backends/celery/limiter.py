@@ -157,7 +157,7 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
                 },
             )
             logger.debug(
-                "Celery task sent to generic worker: limiter=%s, task_id=%s, func_path=%s.",
+                "[CeleryRateLimiter] Task sent to generic worker: limiter=%s, task_id=%s, func_path=%s.",
                 self.id,
                 task_id,
                 func_path,
@@ -167,7 +167,7 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
                 func_path, args=[data], kwargs={"_rate_limit_task_id": task_id}
             )
             logger.debug(
-                "Celery task sent to custom worker: limiter=%s, task_id=%s, func_path=%s.",
+                "[CeleryRateLimiter] Task sent to custom worker: limiter=%s, task_id=%s, func_path=%s.",
                 self.id,
                 task_id,
                 func_path,

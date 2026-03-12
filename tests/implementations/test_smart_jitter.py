@@ -351,11 +351,13 @@ class SmartJitterTests:
 class SmartJitterObservabilityTests:
     """Observability tests for the adaptive jitter implementation.
 
-    Subclasses must provide the same ``limiter`` fixture as ``SmartJitterTests``.
+    Subclasses must provide the same ``limiter`` fixture as ``SmartJitterTests``
+    and must set ``_log_label`` to the expected log prefix.
     """
 
-    @staticmethod
-    async def test_custom_jitter_emits_debug_log(limiter, caplog):
+    _log_label: str
+
+    async def test_custom_jitter_emits_debug_log(self, limiter, caplog):
         """Verify that ``_calculate_smart_jitter()`` emits a
         debug log with the input parameters and computed jitter.
         """
@@ -381,8 +383,9 @@ class SmartJitterObservabilityTests:
         # Assert
         assert_log_emitted(
             caplog.records,
-            "DEBUG",
-            [
+            level="DEBUG",
+            label=self._log_label,
+            required_fragments=[
                 f"limiter={limiter.id}",
                 "remaining_tasks=100",
                 "remaining_tokens=0",
@@ -391,7 +394,7 @@ class SmartJitterObservabilityTests:
                 "concurrency_pressure=0.600",
                 "jitter_s=0.283",
             ],
-            "should emit a debug log containing the limiter id,"
+            message="should emit a debug log containing the limiter id,"
             " input parameters, computed pressures, and jitter",
         )
 
@@ -404,6 +407,8 @@ class SmartJitterObservabilityTests:
 @pytest.mark.behavior
 class TestSyncSmartJitter(SmartJitterTests, SmartJitterObservabilityTests):
     """Sync rate limiter smart jitter exercised through the async adapter."""
+
+    _log_label = "[StubRateLimiter]"
 
     @pytest.fixture
     def limiter(self, redis_client, limiter_id):
@@ -422,6 +427,8 @@ class TestSyncSmartJitter(SmartJitterTests, SmartJitterObservabilityTests):
 @pytest.mark.behavior
 class TestAsyncSmartJitter(SmartJitterTests, SmartJitterObservabilityTests):
     """Async rate limiter smart jitter exercised natively."""
+
+    _log_label = "[AsyncStubRateLimiter]"
 
     @pytest.fixture
     async def limiter(self, async_redis_client, limiter_id):

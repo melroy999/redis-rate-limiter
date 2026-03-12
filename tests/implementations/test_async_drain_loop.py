@@ -784,6 +784,7 @@ class TestAsyncDrainLoopObservability:
         assert_log_emitted(
             caplog.records,
             level="ERROR",
+            label="[AsyncDrainLoop]",
             required_fragments=["limiter=test-resilience"],
             message=(
                 "should emit an error log containing the limiter id when drain raises"
@@ -877,6 +878,7 @@ class TestAsyncDrainSignalSubscriberObservability:
         assert_log_emitted(
             caplog.records,
             level="ERROR",
+            label="[AsyncDrainSignalSubscriber]",
             required_fragments=[
                 "limiter=test-subscriber-error",
             ],
