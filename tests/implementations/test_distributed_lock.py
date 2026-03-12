@@ -589,6 +589,190 @@ class TestAsyncContentionAwareCooldown(ContentionAwareCooldownTests):
 
 
 # ---------------------------------------------------------------------------
+# Boundary tests
+# ---------------------------------------------------------------------------
+
+
+class DistributedLockBoundaryTests:
+    """Boundary condition tests for ``DistributedLock`` initialization.
+
+    Verifies that the fairness mechanism remains inactive when any
+    required parameter is missing, even under contention. Subclasses
+    must provide a ``create_lock`` factory.
+    """
+
+    @staticmethod
+    async def test_no_cooldown_under_contention_when_worker_id_empty(
+        async_redis_client, lock_key, create_lock
+    ):
+        """Verify that no cooldown key is created under contention
+        when ``worker_id`` is empty.
+
+        Mutation target: ``worker_id`` guard in
+        ``DistributedLock._fairness_enabled``.
+        """
+        # Arrange
+        contention_key = f"{lock_key}:contention"
+        holder = create_lock(
+            lock_key,
+            timeout_ms=5000,
+            worker_id="",
+            cooldown_ms=200,
+            contention_key=contention_key,
+        )
+        contender = create_lock(
+            lock_key,
+            timeout_ms=5000,
+            worker_id="",
+            cooldown_ms=200,
+            contention_key=contention_key,
+        )
+
+        # Act
+        async with holder as acquired_holder:
+            assert acquired_holder is True, "holder should acquire successfully"
+            async with contender as acquired_contender:
+                assert acquired_contender is False, (
+                    "contender must fail while holder has the lock"
+                )
+
+        # Assert
+        assert await async_redis_client.exists(contention_key) == 0, (
+            "contention counter must not be incremented when worker_id is empty"
+        )
+
+    @staticmethod
+    async def test_no_cooldown_under_contention_when_cooldown_ms_zero(
+        async_redis_client, lock_key, create_lock
+    ):
+        """Verify that no cooldown key is created under contention
+        when ``cooldown_ms`` is zero."""
+        # Arrange
+        contention_key = f"{lock_key}:contention"
+        worker_id = "worker-X"
+        cooldown_key = f"{lock_key}:cd:{worker_id}"
+        holder = create_lock(
+            lock_key,
+            timeout_ms=5000,
+            worker_id=worker_id,
+            cooldown_ms=0,
+            contention_key=contention_key,
+        )
+        contender = create_lock(
+            lock_key,
+            timeout_ms=5000,
+            worker_id="worker-Y",
+            cooldown_ms=0,
+            contention_key=contention_key,
+        )
+
+        # Act
+        async with holder as acquired_holder:
+            assert acquired_holder is True, "holder should acquire successfully"
+            async with contender as acquired_contender:
+                assert acquired_contender is False, (
+                    "contender must fail while holder has the lock"
+                )
+
+        # Assert
+        assert await async_redis_client.exists(cooldown_key) == 0, (
+            "cooldown key must not be created when cooldown_ms is zero"
+        )
+        assert await async_redis_client.exists(contention_key) == 0, (
+            "contention counter must not be incremented when cooldown_ms is zero"
+        )
+
+    @staticmethod
+    async def test_no_cooldown_under_contention_when_contention_key_empty(
+        async_redis_client, lock_key, create_lock
+    ):
+        """Verify that no cooldown key is created under contention
+        when ``contention_key`` is empty.
+
+        Mutation target: ``contention_key`` guard in
+        ``DistributedLock._fairness_enabled``.
+        """
+        # Arrange
+        worker_id = "worker-X"
+        cooldown_key = f"{lock_key}:cd:{worker_id}"
+        holder = create_lock(
+            lock_key,
+            timeout_ms=5000,
+            worker_id=worker_id,
+            cooldown_ms=200,
+            contention_key="",
+        )
+        contender = create_lock(
+            lock_key,
+            timeout_ms=5000,
+            worker_id="worker-Y",
+            cooldown_ms=200,
+            contention_key="",
+        )
+
+        # Act
+        async with holder as acquired_holder:
+            assert acquired_holder is True, "holder should acquire successfully"
+            async with contender as acquired_contender:
+                assert acquired_contender is False, (
+                    "contender must fail while holder has the lock"
+                )
+
+        # Assert
+        assert await async_redis_client.exists(cooldown_key) == 0, (
+            "cooldown key must not be created when contention_key is empty"
+        )
+
+    @staticmethod
+    async def test_acquired_is_false_before_any_acquisition_attempt(
+        lock_key, create_lock
+    ):
+        """Verify that a newly created lock reports ``acquired``
+        as ``False`` before entering the context.
+
+        Mutation target: ``self.acquired = False`` in
+        ``DistributedLock.__init__``.
+        """
+        # Arrange & Act
+        lock = create_lock(lock_key, timeout_ms=1000)
+
+        # Assert
+        assert lock.acquired is False, (
+            "acquired must be False before any acquisition attempt"
+        )
+
+
+@pytest.mark.behavior
+class TestSyncDistributedLockBoundary(DistributedLockBoundaryTests):
+    """Sync lock boundary conditions via the async adapter."""
+
+    @pytest.fixture
+    def create_lock(self, redis_client):
+        """Factory that creates sync locks wrapped in the async adapter."""
+
+        def _factory(lock_key, **kwargs):
+            return SyncToAsyncLockAdapter(
+                DistributedLock(redis_client, lock_key, **kwargs)
+            )
+
+        return _factory
+
+
+@pytest.mark.behavior
+class TestAsyncDistributedLockBoundary(DistributedLockBoundaryTests):
+    """Async lock boundary conditions exercised natively."""
+
+    @pytest.fixture
+    def create_lock(self, async_redis_client):
+        """Factory that creates native async locks."""
+
+        def _factory(lock_key, **kwargs):
+            return AsyncDistributedLock(async_redis_client, lock_key, **kwargs)
+
+        return _factory
+
+
+# ---------------------------------------------------------------------------
 # Signature tests
 # ---------------------------------------------------------------------------
 

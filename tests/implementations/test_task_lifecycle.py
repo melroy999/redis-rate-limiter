@@ -118,7 +118,7 @@ class TestTaskLifecycleImplementation:
         redis_client.set(inflight_key, "1")
 
         # Act
-        with patch("threading.Thread"):
+        with patch("redis_rate_limiter.core.limiters.Thread"):
             with TaskLifecycle(mock_limiter, task_id):
                 # During execution, all five tasks should be present.
                 assert redis_client.zcard(mock_limiter.concurrency_key) == 5, (
@@ -155,7 +155,7 @@ class TestTaskLifecycleImplementation:
             side_effect=ConnectionError("Redis connection lost"),
         ) as mock_zrem:
             # Act & Assert
-            with patch("threading.Thread"):
+            with patch("redis_rate_limiter.core.limiters.Thread"):
                 with pytest.raises(ConnectionError, match="Redis connection lost"):
                     with TaskLifecycle(mock_limiter, task_id):
                         pass
@@ -176,7 +176,7 @@ class TestTaskLifecycleImplementation:
         limiter.extend_lease.return_value = None
 
         # Act
-        with patch("threading.Thread"):
+        with patch("redis_rate_limiter.core.limiters.Thread"):
             with TaskLifecycle(limiter, task_id=""):
                 pass
 
@@ -272,7 +272,7 @@ class TestTaskLifecycleObservability:
 
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
-            with patch("threading.Thread"):
+            with patch("redis_rate_limiter.core.limiters.Thread"):
                 with TaskLifecycle(mock_limiter, task_id):
                     pass
 
@@ -310,7 +310,7 @@ class TestTaskLifecycleObservability:
 
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
-            with patch("threading.Thread"):
+            with patch("redis_rate_limiter.core.limiters.Thread"):
                 with TaskLifecycle(limiter, task_id=""):
                     pass
 
@@ -329,7 +329,7 @@ class TestTaskLifecycleObservability:
         """
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
-            with patch("threading.Thread"):
+            with patch("redis_rate_limiter.core.limiters.Thread"):
                 with TaskLifecycle(mock_limiter, task_id):
                     pass
 
@@ -363,7 +363,7 @@ class TestHeartbeatLoop:
         calculated as ``lease_duration / 2``.
         """
         # Arrange & Act
-        with patch("threading.Thread"):
+        with patch("redis_rate_limiter.core.limiters.Thread"):
             lifecycle = TaskLifecycle(mock_limiter, task_id)
 
         # Assert
@@ -688,6 +688,69 @@ class TestExtendLeaseObservability:
                 " and renewed=True"
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# Boundary tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.behavior
+class TestTaskLifecycleBoundary:
+    """Boundary condition tests for ``TaskLifecycle`` thread management."""
+
+    @staticmethod
+    def test_heartbeat_thread_is_daemon(mock_limiter, task_id):
+        """Verify that the heartbeat thread is started as a daemon
+        so it does not prevent process shutdown.
+
+        Mutation target: ``daemon=True`` in
+        ``TaskLifecycle.__enter__``.
+        """
+        # Act
+        with TaskLifecycle(mock_limiter, task_id) as lifecycle:
+            thread = lifecycle._thread
+
+            # Assert
+            assert thread.daemon is True, (
+                "heartbeat thread must be a daemon thread"
+            )
+
+    @staticmethod
+    def test_heartbeat_thread_join_uses_timeout(mock_limiter, task_id):
+        """Verify that ``__exit__`` joins the heartbeat thread
+        with a bounded timeout to prevent indefinite blocking."""
+        # Arrange
+        mock_thread = MagicMock()
+        mock_thread.is_alive.return_value = True
+
+        with patch(
+            "redis_rate_limiter.core.limiters.Thread", return_value=mock_thread
+        ):
+            # Act
+            with TaskLifecycle(mock_limiter, task_id):
+                pass
+
+        # Assert
+        mock_thread.join.assert_called_once_with(timeout=1.0)
+
+    @staticmethod
+    def test_exit_skips_join_when_thread_is_not_alive(mock_limiter, task_id):
+        """Verify that ``__exit__`` does not join the heartbeat thread
+        when it has already terminated on its own."""
+        # Arrange
+        mock_thread = MagicMock()
+        mock_thread.is_alive.return_value = False
+
+        with patch(
+            "redis_rate_limiter.core.limiters.Thread", return_value=mock_thread
+        ):
+            # Act
+            with TaskLifecycle(mock_limiter, task_id):
+                pass
+
+        # Assert
+        mock_thread.join.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

@@ -365,6 +365,29 @@ class TestCeleryDispatchObservability:
 
 
 # ---------------------------------------------------------------------------
+# Boundary tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.behavior
+class TestCeleryHealthCheckBoundary:
+    """Boundary condition tests for ``_check_backend_health`` parameters."""
+
+    @staticmethod
+    def test_ping_uses_one_second_timeout(limiter):
+        """Verify that ``_check_backend_health`` calls
+        ``ping`` with ``timeout=1.0``."""
+        # Act
+        with patch.object(
+            limiter.app.control, "ping", return_value=[]
+        ) as mock_ping:
+            limiter._check_backend_health()
+
+        # Assert
+        mock_ping.assert_called_once_with(timeout=1.0)
+
+
+# ---------------------------------------------------------------------------
 # Signature tests
 # ---------------------------------------------------------------------------
 

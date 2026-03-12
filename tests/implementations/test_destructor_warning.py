@@ -20,7 +20,6 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.behavior
 class DestructorWarningTests:
     """Unified tests for ``__del__`` ResourceWarning emission.
 
@@ -268,3 +267,101 @@ class TestAsyncDestructorWarning(DestructorWarningTests):
     def shutdown_instruction(self):
         """Return the expected async shutdown instruction."""
         return "call await shutdown() to stop background tasks"
+
+
+# ---------------------------------------------------------------------------
+# Unified boundary tests
+# ---------------------------------------------------------------------------
+
+
+class DestructorWarningBoundaryTests:
+    """Boundary condition tests for ``__del__`` warning stacklevel.
+
+    Subclasses must provide the following fixtures:
+        - ``limiter_with_drain``: a limiter with ``drain_enabled=True`` that has
+          NOT been shut down.
+        - ``source_filename``: the basename of the source file that defines
+          ``__del__`` (e.g., ``"limiters.py"``).
+    """
+
+    @staticmethod
+    async def test_del_warning_stacklevel_points_to_source(
+        limiter_with_drain, source_filename
+    ):
+        """Verify that the warning's filename points to the source
+        module where ``__del__`` is defined, not the caller."""
+        # Arrange
+        limiter = limiter_with_drain
+
+        # Act
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            limiter.__del__()
+
+        # Assert
+        resource_warnings = [
+            w for w in caught if issubclass(w.category, ResourceWarning)
+        ]
+        assert len(resource_warnings) == 1, (
+            "exactly one ResourceWarning should be emitted"
+        )
+        assert resource_warnings[0].filename.endswith(source_filename), (
+            f"warning filename should point to {source_filename}, "
+            f"got {resource_warnings[0].filename}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Concrete boundary test cases
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.behavior
+class TestSyncDestructorWarningBoundary(DestructorWarningBoundaryTests):
+    """Sync rate limiter ``__del__`` stacklevel boundary tests."""
+
+    @pytest.fixture
+    def limiter_with_drain(self, redis_client, limiter_id):
+        """Create a sync limiter with drain enabled that has not been shut down."""
+        from tests.implementations.conftest import StubRateLimiter
+
+        limiter = StubRateLimiter(
+            redis_client=redis_client,
+            limiter_id=f"{limiter_id}_del_boundary_sync",
+            limit=5,
+            window=60,
+            max_concurrency=2,
+        )
+        yield limiter
+        limiter.shutdown()
+
+    @pytest.fixture
+    def source_filename(self):
+        """Return the expected source filename for the sync limiter."""
+        return "limiters.py"
+
+
+@pytest.mark.behavior
+class TestAsyncDestructorWarningBoundary(DestructorWarningBoundaryTests):
+    """Async rate limiter ``__del__`` stacklevel boundary tests."""
+
+    @pytest.fixture
+    async def limiter_with_drain(self, async_redis_client, limiter_id):
+        """Create an async limiter with drain enabled that has not been shut down."""
+        from tests.implementations.conftest import AsyncStubRateLimiter
+
+        limiter = AsyncStubRateLimiter(
+            redis_client=async_redis_client,
+            limiter_id=f"{limiter_id}_del_boundary_async",
+            limit=5,
+            window=60,
+            max_concurrency=2,
+        )
+        await limiter.start()
+        yield limiter
+        await limiter.shutdown()
+
+    @pytest.fixture
+    def source_filename(self):
+        """Return the expected source filename for the async limiter."""
+        return "async_limiters.py"

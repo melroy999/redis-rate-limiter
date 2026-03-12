@@ -338,3 +338,58 @@ class TestAsyncIODispatchObservability:
         assert not any(record.levelname == "ERROR" for record in caplog.records), (
             "target function should execute without error"
         )
+
+
+# ---------------------------------------------------------------------------
+# Boundary tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.behavior
+class TestAsyncIOTaskLimiterBoundary:
+    """Boundary condition tests for ``AsyncIOTaskLimiter`` capacity tracking."""
+
+    @staticmethod
+    async def test_active_count_accumulates_across_dispatches(limiter):
+        """Verify that dispatching multiple tasks increments
+        the active count additively, not by assignment."""
+        # Act
+        await limiter._dispatch_task(
+            "tests.helpers.tasks.slow_task", {}, "accum-task-1"
+        )
+        await limiter._dispatch_task(
+            "tests.helpers.tasks.slow_task", {}, "accum-task-2"
+        )
+
+        # Assert
+        assert limiter._active_count == 2, (
+            "active count should be 2 after two dispatches"
+        )
+
+    @staticmethod
+    async def test_active_count_decrements_by_one_on_completion(limiter):
+        """Verify that completing a task decrements the active
+        count by exactly one."""
+        # Arrange
+        await limiter._dispatch_task(
+            "tests.helpers.tasks.async_noop_task", {}, "decr-task-1"
+        )
+        await asyncio.gather(*list(limiter._active_tasks), return_exceptions=True)
+        assert limiter._active_count == 0, (
+            "active count should be 0 after completing the only task"
+        )
+
+    @staticmethod
+    async def test_active_tasks_contains_real_task_objects(limiter):
+        """Verify that ``_active_tasks`` contains actual
+        ``asyncio.Task`` instances, not ``None``."""
+        # Act
+        await limiter._dispatch_task(
+            "tests.helpers.tasks.slow_task", {}, "real-task-check"
+        )
+
+        # Assert
+        for entry in limiter._active_tasks:
+            assert isinstance(entry, asyncio.Task), (
+                "each entry in _active_tasks must be an asyncio.Task"
+            )

@@ -19,7 +19,6 @@ from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.behavior
 class TokenRecoveryDelayTests:
     """Unified tests for the sliding-window token recovery delay calculation.
 

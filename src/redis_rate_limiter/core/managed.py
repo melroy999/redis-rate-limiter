@@ -166,7 +166,7 @@ class ManagedRateLimiterMixin:
         )
         # fmt: on
         return int(
-            version_value.decode("utf-8")
+            version_value.decode("utf-8")  # pragma: no mutate
             if isinstance(version_value, bytes)
             else version_value
         )

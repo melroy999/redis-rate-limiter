@@ -40,7 +40,6 @@ from tests.helpers.utils import assert_log_emitted
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.behavior
 class HealthMonitorBehaviorTests:
     """Abstract test suite for ``_run_once()`` state-transition logic.
 
@@ -118,7 +117,6 @@ class HealthMonitorBehaviorTests:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.observability
 class HealthMonitorObservabilityTests:
     """Observability tests for state-transition log emissions.
 

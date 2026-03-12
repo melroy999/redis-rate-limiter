@@ -29,7 +29,6 @@ from tests.helpers.utils import assert_log_emitted
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.behavior
 class InitialDefaultTests:
     """Unified tests for the initial default values of freshly constructed limiters.
 
@@ -68,7 +67,6 @@ class InitialDefaultTests:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.observability
 class WindowChangeObservabilityTests:
     """Unified tests for the window-change detection log in ``_apply_config_overrides``.
 
@@ -106,7 +104,6 @@ class WindowChangeObservabilityTests:
         )
 
 
-@pytest.mark.observability
 class EmitMetricObservabilityTests:
     """Unified tests for the ``_emit_metric`` warning log when the callback raises.
 
@@ -265,4 +262,41 @@ class TestMixinInitSignatures:
         assert sig.parameters["max_age"].default == 3600, "max_age default must be 3600"
         assert sig.parameters["lease_duration"].default == 30, (
             "lease_duration default must be 30"
+        )
+
+    @staticmethod
+    def test_mixin_init_jitter_defaults():
+        """Verify that jitter percentage defaults are correct.
+
+        Mutation target: ``jitter_min_pct``, ``jitter_max_pct``,
+        and ``jitter_enabled`` default values in
+        ``DistributedRateLimiterMixin.__init__``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(DistributedRateLimiterMixin.__init__)
+
+        # Assert
+        assert sig.parameters["jitter_min_pct"].default == pytest.approx(0.02), (
+            "jitter_min_pct default must be 0.02"
+        )
+        assert sig.parameters["jitter_max_pct"].default == pytest.approx(0.08), (
+            "jitter_max_pct default must be 0.08"
+        )
+        assert sig.parameters["jitter_enabled"].default is True, (
+            "jitter_enabled default must be True"
+        )
+
+    @staticmethod
+    def test_mixin_init_drain_enabled_default():
+        """Verify that ``drain_enabled`` defaults to ``True``.
+
+        Mutation target: ``drain_enabled`` default value in
+        ``DistributedRateLimiterMixin.__init__``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(DistributedRateLimiterMixin.__init__)
+
+        # Assert
+        assert sig.parameters["drain_enabled"].default is True, (
+            "drain_enabled default must be True"
         )

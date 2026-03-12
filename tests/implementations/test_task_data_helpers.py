@@ -11,12 +11,16 @@ Fixture dependencies:
 """
 
 import inspect
+import json
 import logging
 from unittest.mock import patch
 
 import pytest
 
-from redis_rate_limiter.core.limiters import DistributedRateLimiterMixin
+from redis_rate_limiter.core.limiters import (
+    AbstractDistributedRateLimiter,
+    DistributedRateLimiterMixin,
+)
 from tests.helpers.utils import assert_log_emitted
 
 # ---------------------------------------------------------------------------
@@ -50,6 +54,47 @@ class TestTaskSignature:
             "task signature should be identical regardless of key insertion order"
         )
 
+    @staticmethod
+    def test_task_signature_contains_path_and_payload_keys(stub_limiter):
+        """Verify that the task signature JSON contains the
+        ``path`` and ``payload`` keys with correct values."""
+        # Arrange
+        func_path = "myapp.tasks.send"
+        payload = {"recipient": "alice"}
+
+        # Act
+        signature = stub_limiter._get_task_signature_str(func_path, payload)
+        parsed = json.loads(signature)
+
+        # Assert
+        assert parsed["path"] == func_path, (
+            "signature JSON must contain the func_path under the 'path' key"
+        )
+        assert parsed["payload"] == payload, (
+            "signature JSON must contain the payload under the 'payload' key"
+        )
+
+    @staticmethod
+    def test_task_signature_serializes_keys_in_sorted_order(stub_limiter):
+        """Verify that the task signature JSON uses sorted keys
+        so that ``path`` appears before ``payload``."""
+        # Arrange
+        # The outer dict has keys "path" and "payload". With sort_keys=True,
+        # "path" sorts before "payload", producing a deterministic byte order.
+        func_path = "myapp.tasks.send"
+        payload = {"z_last": 1, "a_first": 2}
+
+        # Act
+        signature = stub_limiter._get_task_signature_str(func_path, payload)
+
+        # Assert
+        expected = json.dumps(
+            {"path": func_path, "payload": payload}, sort_keys=True
+        )
+        assert signature == expected, (
+            "signature must match json.dumps with sort_keys=True"
+        )
+
 
 @pytest.mark.behavior
 class TestInflightTtl:
@@ -71,6 +116,25 @@ class TestInflightTtl:
         # Assert
         assert ttl == expected, (
             "default inflight TTL should be max_age + lease_duration + window"
+        )
+
+    @staticmethod
+    def test_inflight_ttl_uses_one_second_floor_per_component(stub_limiter):
+        """Verify that each TTL component applies a ``max(1.0, ...)``
+        floor when the configured value is zero."""
+        # Arrange
+        stub_limiter.max_age = 0
+        stub_limiter.lease_duration = 0
+        stub_limiter.window = 0
+
+        # Act
+        ttl = stub_limiter._get_inflight_ttl()
+
+        # Assert
+        # Each of the three components floors to 1.0: ceil(1.0+1.0+1.0) = 3.
+        assert ttl == 3, (
+            "inflight TTL should be 3 when all components"
+            " are zero (each floors to 1.0)"
         )
 
     @staticmethod
@@ -346,4 +410,19 @@ class TestTaskDataHelperSignatures:
         # Assert
         assert sig.parameters["max_age_override"].default is None, (
             "max_age_override default must be None"
+        )
+
+    @staticmethod
+    def test_schedule_task_default_priority_is_100():
+        """Verify that the ``priority`` parameter defaults to ``100``.
+
+        Mutation target: ``priority`` default value in
+        ``DistributedRateLimiterMixin.schedule_task``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(AbstractDistributedRateLimiter.schedule_task)
+
+        # Assert
+        assert sig.parameters["priority"].default == 100, (
+            "priority default must be 100"
         )

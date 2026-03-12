@@ -961,39 +961,20 @@ class AbstractDistributedRateLimiter(
             drain_enabled=drain_enabled,
         )
 
-        # Start the drain loop and signal subscriber.
-        if drain_enabled:
-            self._drain_loop: DrainLoop | None = DrainLoop(
-                self,
-                watchdog_interval=max(5.0, self.window * 2),
-            )
-            self._drain_signal_subscriber: DrainSignalSubscriber | None = (
-                DrainSignalSubscriber(self)
-            )
-            self._drain_signal_subscriber.start()
-        else:
-            self._drain_loop = None
-            self._drain_signal_subscriber = None
-
-        # Start the backend health monitor when the concrete subclass provides
-        # a custom health check (i.e., overrides the default no-op).
-        if (
-            drain_enabled
-            and type(self)._check_backend_health
-            is not DistributedRateLimiterMixin._check_backend_health
-        ):
-            self._backend_health_monitor: BackendHealthMonitor | None = (
-                BackendHealthMonitor(self, interval=float(self.lease_duration))
-            )
-            self._backend_health_monitor.start()
-        else:
-            self._backend_health_monitor = None
-
         # Register Lua scripts with the Redis server.
         self._register_script("consume.lua")
         self._register_script("schedule.lua")
         self._register_script("health.lua")
         self._register_script("renew.lua")
+
+        # Detect whether the concrete subclass provides a custom health check
+        # (i.e., overrides the default no-op) before starting any threads,
+        # so the log message can report the final configuration.
+        has_health_monitor = (
+            drain_enabled
+            and type(self)._check_backend_health
+            is not DistributedRateLimiterMixin._check_backend_health
+        )
 
         logger.info(
             "Rate limiter initialized: id=%s, limit=%d, window_s=%g, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s, drain_enabled=%s, backend_health_monitor=%s.",
@@ -1009,8 +990,31 @@ class AbstractDistributedRateLimiter(
             self.jitter_max_pct,
             "enabled" if self.metrics_callback else "disabled",
             self.drain_enabled,
-            "enabled" if self._backend_health_monitor else "disabled",
+            "enabled" if has_health_monitor else "disabled",
         )
+
+        # Start the drain loop and signal subscriber.
+        if drain_enabled:
+            self._drain_loop: DrainLoop | None = DrainLoop(
+                self,
+                watchdog_interval=max(5.0, self.window * 2),
+            )
+            self._drain_signal_subscriber: DrainSignalSubscriber | None = (
+                DrainSignalSubscriber(self)
+            )
+            self._drain_signal_subscriber.start()
+        else:
+            self._drain_loop = None
+            self._drain_signal_subscriber = None
+
+        # Start the backend health monitor.
+        if has_health_monitor:
+            self._backend_health_monitor: BackendHealthMonitor | None = (
+                BackendHealthMonitor(self, interval=float(self.lease_duration))
+            )
+            self._backend_health_monitor.start()
+        else:
+            self._backend_health_monitor = None
 
     # ---------------------------------------------------------------------------
     # Task scheduling

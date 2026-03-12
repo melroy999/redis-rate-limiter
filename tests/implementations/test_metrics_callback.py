@@ -27,7 +27,6 @@ from tests.implementations.conftest import AsyncStubRateLimiter, StubRateLimiter
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.behavior
 class MetricsCallbackTests:
     """Unified test suite for the metrics callback behavior.
 
@@ -241,7 +240,6 @@ class MetricsCallbackTests:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.observability
 class MetricsCallbackObservabilityTests:
     """Observability tests for the metrics callback feature.
 

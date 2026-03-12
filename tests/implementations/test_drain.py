@@ -1019,6 +1019,275 @@ class TestAsyncDrainObservability(_AsyncDrainFixture, DrainObservabilityTests):
 
 
 # ---------------------------------------------------------------------------
+# Boundary tests
+# ---------------------------------------------------------------------------
+
+
+class DrainBoundaryTests:
+    """Boundary condition tests for ``drain()`` decision logic.
+
+    Concrete test classes compose this mixin with a fixture mixin
+    (``_SyncDrainFixture`` or ``_AsyncDrainFixture``) that supplies
+    ``limiter``, ``mock_target``, ``lock_result``, and ``_mock_cls``.
+    """
+
+    async def test_drain_schedules_followup_when_exactly_one_task_remains(
+        self, limiter, mock_target
+    ):
+        """Verify that ``drain()`` schedules a follow-up when
+        exactly one task remains after dispatch."""
+        # Arrange
+        consume_result = {
+            "success": True,
+            "expired": False,
+            "task": {
+                "id": "task-boundary",
+                "func_path": "myapp.tasks.work",
+                "payload": {"x": 1},
+            },
+            "remaining_tokens": 4,
+            "active_concurrency": 1,
+            "reset_in_ms": 100,
+            "remaining_tasks": 1,
+        }
+
+        # Act
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+        ):
+            await limiter.drain()
+
+        # Assert
+        assert len(limiter.dispatched_tasks) == 1, (
+            "drain should dispatch the task"
+        )
+        assert limiter.scheduled_drains == [0.0], (
+            "drain should schedule an immediate follow-up"
+            " when exactly one task remains"
+        )
+
+    async def test_drain_delay_is_base_plus_jitter_rounded_to_three_decimals(
+        self, limiter, mock_target
+    ):
+        """Verify that the rate-limited retry delay equals
+        ``round(max(0.001, base_delay + jitter), 3)``."""
+        # Arrange
+        # val_previous=0 triggers the fallback path, so
+        # base_delay = reset_in_ms / 1000.0 = 0.123.
+        # Jitter is pinned because it uses random.random() internally.
+        pinned_jitter = 0.05
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "task": None,
+            "remaining_tokens": 0,
+            "active_concurrency": 1,
+            "reset_in_ms": 123,
+            "remaining_tasks": 4,
+            "val_previous": 0,
+            "val_current": 5,
+        }
+
+        # Act
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+            patch.object(
+                mock_target,
+                "_calculate_smart_jitter",
+                return_value=pinned_jitter,
+            ),
+        ):
+            await limiter.drain()
+
+        # Assert
+        assert len(limiter.scheduled_drains) == 1, (
+            "drain should schedule exactly one retry"
+        )
+        # base_delay = 0.123, jitter = 0.05, sum = 0.173.
+        expected_delay = round(0.123 + pinned_jitter, 3)
+        assert limiter.scheduled_drains[0] == expected_delay, (
+            f"delay should be round(base + jitter, 3) = {expected_delay},"
+            f" got {limiter.scheduled_drains[0]}"
+        )
+
+    async def test_drain_passes_consume_result_values_to_jitter_calculator(
+        self, limiter, mock_target
+    ):
+        """Verify that ``_calculate_smart_jitter`` receives the
+        actual consume result values, not defaults or None."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "task": None,
+            "remaining_tokens": 0,
+            "active_concurrency": 1,
+            "reset_in_ms": 250,
+            "remaining_tasks": 7,
+            "val_previous": 0,
+            "val_current": 5,
+        }
+
+        # Act
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+            patch.object(
+                mock_target,
+                "_calculate_smart_jitter",
+                return_value=0.0,
+            ) as mock_jitter,
+        ):
+            await limiter.drain()
+
+        # Assert
+        mock_jitter.assert_called_once_with(
+            remaining_tasks=7,
+            remaining_tokens=0,
+            active_concurrency=1,
+        )
+
+
+    async def test_drain_stops_when_concurrency_equals_max(
+        self, limiter, mock_target
+    ):
+        """Verify that ``drain()`` does not schedule a follow-up
+        when active concurrency equals max concurrency."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "task": None,
+            "remaining_tokens": 3,
+            "active_concurrency": mock_target.max_concurrency,
+            "reset_in_ms": 100,
+            "remaining_tasks": 5,
+        }
+
+        # Act
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+        ):
+            await limiter.drain()
+
+        # Assert
+        assert limiter.scheduled_drains == [], (
+            "drain should not schedule a follow-up when concurrency is at capacity"
+        )
+
+    async def test_drain_skips_jitter_on_token_recovery_path(
+        self, limiter, mock_target
+    ):
+        """Verify that jitter is not applied when the token recovery
+        delay is computed from previous-window decay (non-fallback)."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "task": None,
+            "remaining_tokens": 0,
+            "active_concurrency": 1,
+            "reset_in_ms": 500,
+            "remaining_tasks": 3,
+            "val_previous": 5,
+            "val_current": 3,
+        }
+
+        # Act
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+            patch.object(
+                mock_target,
+                "_calculate_smart_jitter",
+                return_value=0.1,
+            ) as mock_jitter,
+        ):
+            await limiter.drain()
+
+        # Assert
+        mock_jitter.assert_not_called()
+        assert len(limiter.scheduled_drains) == 1, (
+            "drain should schedule a recovery retry"
+        )
+
+    async def test_drain_schedules_recovery_when_remaining_tokens_exactly_zero(
+        self, limiter, mock_target
+    ):
+        """Verify that ``drain()`` enters the rate-limited recovery
+        path when ``remaining_tokens`` is exactly zero."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "task": None,
+            "remaining_tokens": 0,
+            "active_concurrency": 1,
+            "reset_in_ms": 200,
+            "remaining_tasks": 3,
+            "val_previous": 0,
+            "val_current": 5,
+        }
+
+        # Act
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+            patch.object(
+                mock_target,
+                "_calculate_smart_jitter",
+                return_value=0.0,
+            ),
+        ):
+            await limiter.drain()
+
+        # Assert
+        assert len(limiter.scheduled_drains) == 1, (
+            "drain should schedule a recovery when remaining_tokens is exactly zero"
+        )
+        assert limiter.scheduled_drains[0] > 0, (
+            "recovery delay should be positive"
+        )
+
+
+@pytest.mark.behavior
+class TestSyncDrainBoundary(_SyncDrainFixture, DrainBoundaryTests):
+    """Sync drain boundary conditions via the async adapter."""
+
+
+@pytest.mark.behavior
+class TestAsyncDrainBoundary(_AsyncDrainFixture, DrainBoundaryTests):
+    """Async drain boundary conditions exercised natively."""
+
+
+# ---------------------------------------------------------------------------
 # Drain-disabled tests
 # ---------------------------------------------------------------------------
 

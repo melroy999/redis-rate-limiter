@@ -25,7 +25,6 @@ from tests.implementations.conftest import AsyncStubRateLimiter, StubRateLimiter
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.behavior
 class SmartJitterTests:
     """Unified test suite for the adaptive jitter implementation.
 
@@ -349,7 +348,6 @@ class SmartJitterTests:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.observability
 class SmartJitterObservabilityTests:
     """Observability tests for the adaptive jitter implementation.
 

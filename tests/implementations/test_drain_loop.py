@@ -728,6 +728,81 @@ class TestDrainSignalSubscriberObservability:
 
 
 # ---------------------------------------------------------------------------
+# Boundary tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.behavior
+class TestDrainLoopBoundary:
+    """Boundary condition tests for ``DrainLoop`` internal parameters."""
+
+    @staticmethod
+    def test_shutdown_joins_thread_with_five_second_timeout():
+        """Verify that ``shutdown()`` joins the drain thread
+        with a 5.0 second timeout."""
+        # Arrange
+        limiter = MagicMock()
+        loop = DrainLoop(limiter, watchdog_interval=60.0)
+        mock_thread = MagicMock()
+        mock_thread.is_alive.return_value = False
+        loop._thread = mock_thread
+
+        # Act
+        loop.shutdown()
+
+        # Assert
+        mock_thread.join.assert_called_once_with(timeout=5.0)
+
+
+@pytest.mark.behavior
+class TestDrainSignalSubscriberBoundary:
+    """Boundary condition tests for ``DrainSignalSubscriber`` internal parameters."""
+
+    @staticmethod
+    def test_shutdown_joins_thread_with_five_second_timeout():
+        """Verify that ``shutdown()`` joins the subscriber thread
+        with a 5.0 second timeout."""
+        # Arrange
+        limiter = MagicMock()
+        subscriber = DrainSignalSubscriber(limiter)
+        mock_thread = MagicMock()
+        subscriber._thread = mock_thread
+
+        # Act
+        subscriber.shutdown()
+
+        # Assert
+        mock_thread.join.assert_called_once_with(timeout=5.0)
+
+    @staticmethod
+    def test_run_polls_with_half_second_timeout():
+        """Verify that ``_run()`` calls ``get_message`` with
+        ``timeout=0.5`` for responsive shutdown detection."""
+        # Arrange
+        limiter = MagicMock()
+        limiter._worker_id = "local-worker"
+        subscriber = DrainSignalSubscriber(limiter)
+        mock_pubsub = MagicMock()
+        subscriber._pubsub = mock_pubsub
+
+        call_count = 0
+
+        def get_message_effect(timeout=None):
+            nonlocal call_count
+            call_count += 1
+            subscriber._shutdown = True
+            return None
+
+        mock_pubsub.get_message.side_effect = get_message_effect
+
+        # Act
+        subscriber._run()
+
+        # Assert
+        mock_pubsub.get_message.assert_called_with(timeout=0.5)
+
+
+# ---------------------------------------------------------------------------
 # Signature tests
 # ---------------------------------------------------------------------------
 

@@ -564,9 +564,15 @@ The `async_redis_client` fixture in `tests/conftest.py` is function-scoped (not 
 | `@pytest.mark.filterwarnings("ignore::RuntimeWarning")` | Suppress expected RuntimeWarnings from async teardown (unawaited coroutines, unclosed event loops). | Apply at the test class or method level, never globally. Only for warnings that are expected consequences of the test's teardown, not warnings from the code under test. See Section 7.6. |
 | `@pytest.mark.skipif` | Skip tests based on platform, environment, or dependency availability. | Platform-specific tests (e.g., Windows timer resolution), optional dependency availability. |
 
-### 8.3 Custom Marker Registration
+### 8.3 Category Marker Policy
 
-All custom markers must be registered in `pyproject.toml` under `[tool.pytest.ini_options].markers` to prevent `PytestUnknownMarkWarning`. Currently only `slow` is registered. If a new custom marker is introduced, add it to the markers list with a description.
+Every concrete test class (i.e., classes whose name starts with `Test`) must carry exactly one category marker: `@pytest.mark.behavior`, `@pytest.mark.observability`, `@pytest.mark.signature`, `@pytest.mark.contract`, or `@pytest.mark.concurrency`. This ensures that all tests are reachable via marker-based selection (e.g., `pytest -m behavior`).
+
+Mixin base classes (names that do **not** start with `Test`, e.g., `DrainBehaviorTests`, `DistributedLockBoundaryTests`) must **not** carry category markers. The concrete subclass that inherits the mixin is responsible for applying the appropriate marker. Placing a marker on a mixin is redundant because pytest does not collect classes whose names do not start with `Test`.
+
+### 8.4 Custom Marker Registration
+
+All custom markers must be registered in `pyproject.toml` under `[tool.pytest.ini_options].markers` to prevent `PytestUnknownMarkWarning`.
 
 ## 9. Test Data and Constants
 

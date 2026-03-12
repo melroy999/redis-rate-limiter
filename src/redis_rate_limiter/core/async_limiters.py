@@ -617,12 +617,6 @@ class AbstractAsyncDistributedRateLimiter(
         await self._register_script("health.lua")
         await self._register_script("renew.lua")
 
-        if self._drain_signal_subscriber is not None:
-            await self._drain_signal_subscriber.start()
-
-        if self._backend_health_monitor is not None:
-            self._backend_health_monitor.start()
-
         logger.info(
             "Async rate limiter initialized: id=%s, limit=%d, window_s=%g, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s, drain_enabled=%s, backend_health_monitor=%s.",
             self.id,
@@ -639,6 +633,12 @@ class AbstractAsyncDistributedRateLimiter(
             self.drain_enabled,
             "enabled" if self._backend_health_monitor else "disabled",
         )
+
+        if self._drain_signal_subscriber is not None:
+            await self._drain_signal_subscriber.start()
+
+        if self._backend_health_monitor is not None:
+            self._backend_health_monitor.start()
 
     # ---------------------------------------------------------------------------
     # Task scheduling

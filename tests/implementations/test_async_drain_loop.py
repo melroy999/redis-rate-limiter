@@ -888,6 +888,45 @@ class TestAsyncDrainSignalSubscriberObservability:
 
 
 # ---------------------------------------------------------------------------
+# Boundary tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.behavior
+class TestAsyncDrainSignalSubscriberBoundary:
+    """Boundary condition tests for ``AsyncDrainSignalSubscriber`` internal parameters."""
+
+    @staticmethod
+    async def test_run_polls_with_expected_kwargs():
+        """Verify that ``_run()`` calls ``get_message`` with
+        ``ignore_subscribe_messages=True`` and ``timeout=0.5``."""
+        # Arrange
+        limiter = MagicMock()
+        limiter._worker_id = "local-worker"
+        subscriber = AsyncDrainSignalSubscriber(limiter)
+        mock_pubsub = AsyncMock()
+        subscriber._pubsub = mock_pubsub
+
+        call_count = 0
+
+        async def get_message_effect(ignore_subscribe_messages=True, timeout=None):
+            nonlocal call_count
+            call_count += 1
+            subscriber._shutdown = True
+            return None
+
+        mock_pubsub.get_message = AsyncMock(side_effect=get_message_effect)
+
+        # Act
+        await subscriber._run()
+
+        # Assert
+        mock_pubsub.get_message.assert_called_with(
+            ignore_subscribe_messages=True, timeout=0.5
+        )
+
+
+# ---------------------------------------------------------------------------
 # Signature tests
 # ---------------------------------------------------------------------------
 

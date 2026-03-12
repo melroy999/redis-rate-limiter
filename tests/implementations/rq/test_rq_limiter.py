@@ -364,6 +364,27 @@ class TestRQDispatchObservability:
 
 
 # ---------------------------------------------------------------------------
+# Boundary tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.behavior
+class TestRQHealthCheckBoundary:
+    """Boundary condition tests for ``_check_backend_health`` parameters."""
+
+    @staticmethod
+    def test_worker_all_receives_queue_connection(limiter):
+        """Verify that ``_check_backend_health`` passes the
+        queue connection to ``Worker.all``."""
+        # Act
+        with patch("rq.Worker.all", return_value=[]) as mock_all:
+            limiter._check_backend_health()
+
+        # Assert
+        mock_all.assert_called_once_with(connection=limiter.queue.connection)
+
+
+# ---------------------------------------------------------------------------
 # Signature tests
 # ---------------------------------------------------------------------------
 

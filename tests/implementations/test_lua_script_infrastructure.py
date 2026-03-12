@@ -264,6 +264,22 @@ class TestSyncEvalScript:
             )
 
     @staticmethod
+    def test_eval_script_passes_registered_sha_to_evalsha(limiter):
+        """Verify that ``_eval_script`` forwards the registered
+        SHA as the first argument to ``evalsha``."""
+        # Arrange
+        expected_sha = limiter._script_shas["health.lua"]
+
+        # Act
+        with patch.object(
+            limiter.redis, "evalsha", return_value=1
+        ) as mock_evalsha:
+            limiter._eval_script("health.lua", 0)
+
+        # Assert
+        mock_evalsha.assert_called_once_with(expected_sha, 0)
+
+    @staticmethod
     def test_eval_script_lazy_registers_missing_script(redis_client):
         """Verify that ``_eval_script`` lazily registers a script
         that was not pre-registered.
@@ -409,6 +425,25 @@ class TestAsyncEvalScript:
             assert mock_eval.call_count == 1, (
                 "evalsha should not retry on non-NoScriptError exceptions"
             )
+
+    @staticmethod
+    async def test_eval_script_passes_registered_sha_to_evalsha(limiter):
+        """Verify that the async ``_eval_script`` forwards the
+        registered SHA as the first argument to ``evalsha``."""
+        # Arrange
+        expected_sha = limiter._script_shas["health.lua"]
+
+        # Act
+        async def return_one(*args, **kwargs):
+            return 1
+
+        with patch.object(
+            limiter.redis, "evalsha", side_effect=return_one
+        ) as mock_evalsha:
+            await limiter._eval_script("health.lua", 0)
+
+        # Assert
+        mock_evalsha.assert_called_once_with(expected_sha, 0)
 
     @staticmethod
     async def test_eval_script_lazy_registers_missing_script(async_redis_client):

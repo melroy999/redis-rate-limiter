@@ -880,6 +880,60 @@ class TestManagedMixinInternals:
             "_parse_raw_config should decode bytes via utf-8 and return a dict"
         )
 
+    @staticmethod
+    def test_require_configured_raises_when_only_redis_is_set(redis_client):
+        """Verify that ``_require_configured`` raises when the Redis
+        client is set but the backend context is missing."""
+        # Arrange
+        ManagedTestRateLimiter._reset()
+        ManagedTestRateLimiter._redis_client = redis_client
+
+        # Act & Assert
+        with pytest.raises(RuntimeError, match="must be called before"):
+            ManagedTestRateLimiter._require_configured()
+
+    @staticmethod
+    def test_require_configured_raises_when_only_backend_is_set():
+        """Verify that ``_require_configured`` raises when the backend
+        context is set but the Redis client is missing."""
+        # Arrange
+        ManagedTestRateLimiter._reset()
+        ManagedTestRateLimiter._backend_label = "test"
+
+        # Act & Assert
+        with pytest.raises(RuntimeError, match="must be called before"):
+            ManagedTestRateLimiter._require_configured()
+
+    @staticmethod
+    def test_instance_context_is_forwarded_to_constructor(redis_client):
+        """Verify that ``create()`` forwards the result of
+        ``_get_instance_context()`` to the constructor."""
+        # Arrange
+        ManagedTestRateLimiter._reset()
+        ManagedTestRateLimiter.configure(redis_client, backend_label="test")
+
+        # Act
+        from unittest.mock import patch
+
+        with patch.object(
+            ManagedTestRateLimiter,
+            "_get_instance_context",
+            return_value={"max_age": 9999},
+        ):
+            limiter = ManagedTestRateLimiter.create(
+                "context_forwarding_test",
+                limit=1,
+                window=1,
+                max_concurrency=1,
+                override=True,
+                drain_enabled=False,
+            )
+
+        # Assert
+        assert limiter.max_age == 9999, (
+            "instance context values must be forwarded to the constructor"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Observability tests

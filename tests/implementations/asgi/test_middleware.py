@@ -596,6 +596,87 @@ class TestMiddlewareObservability:
 
 
 # ---------------------------------------------------------------------------
+# Boundary tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.behavior
+class TestMiddlewareBoundary:
+    """Boundary condition tests for ``RateLimitMiddleware`` argument forwarding."""
+
+    @staticmethod
+    async def test_allowed_path_forwards_original_scope_to_inner_app(limiter):
+        """Verify that the inner app receives the original
+        scope object on the allowed (rate limited) path."""
+        # Arrange
+        forwarded_scope = None
+
+        async def inner_app(scope, receive, send):
+            nonlocal forwarded_scope
+            forwarded_scope = scope
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"OK"})
+
+        middleware = RateLimitMiddleware(
+            inner_app, limiter=limiter, key_func=by_client_ip
+        )
+
+        original_scope = _make_scope()
+
+        # Act
+        await _capture_response(middleware, original_scope)
+
+        # Assert
+        assert forwarded_scope is original_scope, (
+            "inner app should receive the original scope object on the allowed path"
+        )
+
+    @staticmethod
+    async def test_on_blocked_receives_scope_and_result(limiter):
+        """Verify that the ``on_blocked`` callback receives the
+        original scope and a valid acquire result."""
+        # Arrange
+        received_scope = None
+        received_result = None
+
+        async def custom_blocked(scope, result, send):
+            nonlocal received_scope, received_result
+            received_scope = scope
+            received_result = result
+            await send({"type": "http.response.start", "status": 503, "headers": []})
+            await send({"type": "http.response.body", "body": b"Custom blocked"})
+
+        async def inner_app(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"OK"})
+
+        middleware = RateLimitMiddleware(
+            inner_app,
+            limiter=limiter,
+            key_func=by_client_ip,
+            on_blocked=custom_blocked,
+        )
+
+        scope = _make_scope(client_ip="10.0.0.99")
+        for _ in range(10):
+            await _capture_response(middleware, scope)
+
+        # Act
+        await _capture_response(middleware, scope)
+
+        # Assert
+        assert received_scope is scope, (
+            "on_blocked callback should receive the original scope object"
+        )
+        assert received_result is not None, (
+            "on_blocked callback should receive the acquire result, not None"
+        )
+        assert received_result["allowed"] is False, (
+            "acquire result passed to on_blocked should indicate a blocked request"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Signature tests
 # ---------------------------------------------------------------------------
 
