@@ -452,6 +452,7 @@ class TestAsyncHeartbeatLoop:
         )
 
     @staticmethod
+    @pytest.mark.timeout_safety_net
     async def test_heartbeat_loop_restores_health_on_recovery(
         async_redis_client, mock_limiter, task_id
     ):
@@ -467,6 +468,7 @@ class TestAsyncHeartbeatLoop:
             assert lifecycle.is_healthy, "lifecycle must restore health after recovery"
 
     @staticmethod
+    @pytest.mark.timeout_safety_net
     async def test_heartbeat_loop_flags_unhealthy_on_failure_warn_mode(
         async_redis_client, mock_limiter, task_id
     ):
@@ -490,6 +492,7 @@ class TestAsyncHeartbeatLoop:
             )
 
     @staticmethod
+    @pytest.mark.timeout_safety_net
     async def test_heartbeat_loop_terminates_worker_on_failure_kill_mode(
         async_redis_client, mock_limiter, task_id
     ):
@@ -532,6 +535,7 @@ class TestAsyncHeartbeatLoop:
         mock_limiter.trigger_consume.assert_called_once()
 
     @staticmethod
+    @pytest.mark.timeout_safety_net
     async def test_heartbeat_loop_calls_extend_lease_with_correct_parameters(
         async_redis_client, mock_limiter, task_id
     ):

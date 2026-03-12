@@ -439,6 +439,7 @@ class TestHeartbeatLoop:
         )
 
     @staticmethod
+    @pytest.mark.timeout_safety_net
     def test_heartbeat_loop_restores_health_on_recovery(
         redis_client, mock_limiter, task_id
     ):
@@ -454,6 +455,7 @@ class TestHeartbeatLoop:
             assert lifecycle.is_healthy, "lifecycle must restore health after recovery"
 
     @staticmethod
+    @pytest.mark.timeout_safety_net
     def test_heartbeat_loop_flags_unhealthy_on_failure_warn_mode(
         redis_client, mock_limiter, task_id
     ):
@@ -475,6 +477,7 @@ class TestHeartbeatLoop:
             )
 
     @staticmethod
+    @pytest.mark.timeout_safety_net
     def test_heartbeat_loop_terminates_worker_on_failure_kill_mode(
         redis_client, mock_limiter, task_id
     ):
@@ -495,6 +498,7 @@ class TestHeartbeatLoop:
                 mock_kill.assert_called_with(os.getpid(), signal.SIGTERM)
 
     @staticmethod
+    @pytest.mark.timeout_safety_net
     def test_heartbeat_loop_calls_extend_lease_with_correct_parameters(
         redis_client, mock_limiter, task_id
     ):

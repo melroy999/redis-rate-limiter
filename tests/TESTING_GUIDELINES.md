@@ -355,9 +355,11 @@ assert not any(
 |---|---|---|
 | Async operations that should complete promptly | `asyncio.wait_for(coro, timeout=N)` | `await asyncio.wait_for(loop.shutdown(), timeout=1.0)` |
 | Sync thread synchronization | `Event.wait(timeout=N)` | `fired = drain_called.wait(timeout=2.0)` |
-| Safety net for mutation-induced infinite loops | `threading.Timer` | `Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))` |
+| Shutdown timer for `_run()` loop tests | `shutdown_timer()` context manager | `with shutdown_timer(subscriber): subscriber._run()` |
 
-**Timer safety-net requirement**: every usage of the `threading.Timer` safety-net pattern must include a docstring or inline comment explaining which mutation it defends against. Without this documentation, the timer appears to be unnecessary complexity.
+**`shutdown_timer` usage**: use `shutdown_timer()` from `tests.helpers.utils` instead of inline `Timer` construction. Apply only to tests that call `_run()` directly (or `start()`+`shutdown()` where the Timer is the existing guard). Do NOT add to `shutdown()` / lifecycle / health-monitor tests; these already have bounded timeouts and adding a timer would mask mutations.
+
+**Priority marker**: tests with bounded shutdown mechanisms must be decorated with `@pytest.mark.timeout_safety_net`. This includes tests using `shutdown_timer()`, tests with bounded `Thread.join(timeout=)`, and tests using `TaskLifecycle` / `AsyncTaskLifecycle` context managers (whose `__exit__` / `__aexit__` has a bounded join). A `pytest_collection_modifyitems` hook in `tests/conftest.py` moves these tests to the front of the collection so they fail fast under mutmut's `-x` mode, preventing SIGXCPU.
 
 ### 5.5 `time.sleep()` Rules
 

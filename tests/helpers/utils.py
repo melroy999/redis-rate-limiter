@@ -7,8 +7,31 @@ import asyncio
 import logging
 import math
 import time
+from contextlib import contextmanager
+from threading import Timer
+from typing import Generator
 
 import pytest
+
+
+@contextmanager
+def shutdown_timer(
+    obj: object,
+    timeout: float = 0.5,
+    attr: str = "_shutdown",
+) -> Generator[Timer, None, None]:
+    """Set a shutdown flag after *timeout* seconds so that a ``_run()``
+    loop under test exits cleanly.
+
+    This is the primary shutdown mechanism for tests that invoke ``_run()``
+    directly rather than going through ``start()`` / ``shutdown()``.
+    """
+    timer = Timer(timeout, lambda: setattr(obj, attr, True))
+    timer.start()
+    try:
+        yield timer
+    finally:
+        timer.cancel()
 
 
 async def wait_for_key_expiry(

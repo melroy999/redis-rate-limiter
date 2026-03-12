@@ -31,6 +31,24 @@ import redis.asyncio
 
 pytest_plugins = ["tests.plugins.mutmut_defaults_patch"]
 
+
+def pytest_collection_modifyitems(items: list) -> None:
+    """Move tests marked ``@pytest.mark.timeout_safety_net`` to the front.
+
+    Without reordering, an unguarded test may run first under mutmut's
+    ``-x`` (fail-fast) mode, block on a long join or shutdown timeout,
+    and exhaust the CPU budget (SIGXCPU) before a guarded test gets a
+    chance to detect and kill the mutant.
+    """
+    early = []
+    rest = []
+    for item in items:
+        if item.get_closest_marker("timeout_safety_net"):
+            early.append(item)
+        else:
+            rest.append(item)
+    items[:] = early + rest
+
 # Redis configuration is derived from environment variables.
 # The default values target localhost:6379, but may be overridden for Docker Compose.
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")

@@ -49,6 +49,7 @@ markers = [
     "signature: tests method/API signatures and default values",
     "contract: runs a shared contract suite against a specific backend",
     "concurrency: tests thread/process safety",
+    "timeout_safety_net: tests with bounded shutdown mechanisms that should run first under mutmut -x",
 ]
 
 [tool.mutmut]

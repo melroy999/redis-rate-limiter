@@ -15,7 +15,6 @@ import asyncio
 import inspect
 import logging
 import time
-from threading import Timer
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -24,7 +23,7 @@ from redis_rate_limiter.core.async_limiters import (
     AsyncDrainLoop,
     AsyncDrainSignalSubscriber,
 )
-from tests.helpers.utils import assert_log_emitted
+from tests.helpers.utils import assert_log_emitted, shutdown_timer
 from tests.implementations.conftest import AsyncStubRateLimiter
 
 
@@ -373,6 +372,7 @@ class TestAsyncDrainSignalSubscriber:
     and message-processing behavior.
     """
 
+    @pytest.mark.timeout_safety_net
     @staticmethod
     async def test_subscriber_processes_remote_drain_signal():
         """Verify that the async subscriber calls
@@ -410,16 +410,14 @@ class TestAsyncDrainSignalSubscriber:
         subscriber = AsyncDrainSignalSubscriber(limiter)
 
         # Act
-        safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
-        safety_timer.start()
-        await subscriber.start()
-        try:
-            await asyncio.wait_for(drain_called.wait(), timeout=2.0)
-            signaled = True
-        except asyncio.TimeoutError:
-            signaled = False
-        await subscriber.shutdown()
-        safety_timer.cancel()
+        with shutdown_timer(subscriber):
+            await subscriber.start()
+            try:
+                await asyncio.wait_for(drain_called.wait(), timeout=2.0)
+                signaled = True
+            except asyncio.TimeoutError:
+                signaled = False
+            await subscriber.shutdown()
 
         # Assert
         assert signaled, (
@@ -427,6 +425,7 @@ class TestAsyncDrainSignalSubscriber:
             "upon receiving a remote drain signal"
         )
 
+    @pytest.mark.timeout_safety_net
     @staticmethod
     async def test_run_processes_message_in_main_task():
         """Verify that ``_run`` processes a remote message and
@@ -459,15 +458,14 @@ class TestAsyncDrainSignalSubscriber:
         mock_pubsub.get_message = AsyncMock(side_effect=get_message_effect)
 
         # Act
-        safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
-        safety_timer.start()
-        await subscriber._run()
-        safety_timer.cancel()
+        with shutdown_timer(subscriber):
+            await subscriber._run()
 
         # Assert
         mock_pubsub.get_message.assert_called()
         limiter._schedule_drain.assert_called_once()
 
+    @pytest.mark.timeout_safety_net
     @staticmethod
     async def test_subscriber_ignores_local_drain_signal():
         """Verify that the async subscriber ignores drain
@@ -501,12 +499,10 @@ class TestAsyncDrainSignalSubscriber:
         subscriber = AsyncDrainSignalSubscriber(limiter)
 
         # Act
-        safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
-        safety_timer.start()
-        await subscriber.start()
-        await asyncio.sleep(0.3)
-        await subscriber.shutdown()
-        safety_timer.cancel()
+        with shutdown_timer(subscriber):
+            await subscriber.start()
+            await asyncio.sleep(0.3)
+            await subscriber.shutdown()
 
         # Assert
         limiter._schedule_drain.assert_not_called()
@@ -538,6 +534,7 @@ class TestAsyncDrainSignalSubscriber:
             "task should not have been started without a start call"
         )
 
+    @pytest.mark.timeout_safety_net
     @staticmethod
     async def test_run_survives_exception_and_retries():
         """Verify that ``_run`` logs the exception and
@@ -564,10 +561,8 @@ class TestAsyncDrainSignalSubscriber:
         mock_pubsub.get_message = AsyncMock(side_effect=get_message_effect)
 
         # Act
-        safety_timer = Timer(2.0, lambda: setattr(subscriber, "_shutdown", True))
-        safety_timer.start()
-        await subscriber._run()
-        safety_timer.cancel()
+        with shutdown_timer(subscriber, timeout=2.0):
+            await subscriber._run()
 
         # Assert
         assert call_count >= 2, "get_message should be called again after exception"
@@ -596,6 +591,7 @@ class TestAsyncDrainSignalSubscriber:
         # Assert
         assert subscriber._shutdown is True, "_run should return without re-raising"
 
+    @pytest.mark.timeout_safety_net
     @staticmethod
     async def test_run_processes_message_then_idles_before_exit():
         """Verify that ``_run`` continues polling after
@@ -631,10 +627,8 @@ class TestAsyncDrainSignalSubscriber:
         mock_pubsub.get_message = AsyncMock(side_effect=get_message_effect)
 
         # Act
-        safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
-        safety_timer.start()
-        await subscriber._run()
-        safety_timer.cancel()
+        with shutdown_timer(subscriber):
+            await subscriber._run()
 
         # Assert
         assert call_count >= 3, (
@@ -666,6 +660,7 @@ class TestAsyncDrainSignalSubscriber:
             "shutdown flag should be True even when pubsub cleanup raises"
         )
 
+    @pytest.mark.timeout_safety_net
     @staticmethod
     async def test_run_decodes_bytes_sender_id():
         """Verify that ``_run`` correctly decodes a bytes-valued
@@ -695,10 +690,8 @@ class TestAsyncDrainSignalSubscriber:
         mock_pubsub.get_message = AsyncMock(side_effect=get_message_effect)
 
         # Act
-        safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
-        safety_timer.start()
-        await subscriber._run()
-        safety_timer.cancel()
+        with shutdown_timer(subscriber):
+            await subscriber._run()
 
         # Assert
         limiter._schedule_drain.assert_called_once()
@@ -796,6 +789,7 @@ class TestAsyncDrainLoopObservability:
 class TestAsyncDrainSignalSubscriberObservability:
     """Observability tests for ``AsyncDrainSignalSubscriber`` log emissions."""
 
+    @pytest.mark.timeout_safety_net
     @staticmethod
     async def test_run_normal_processing_does_not_emit_error_log(caplog):
         """Verify that ``_run`` does not emit error or critical
@@ -825,20 +819,19 @@ class TestAsyncDrainSignalSubscriberObservability:
         mock_pubsub.get_message = AsyncMock(side_effect=get_message_effect)
 
         # Act
-        safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
-        safety_timer.start()
-        with caplog.at_level(
-            logging.ERROR,
-            logger="redis_rate_limiter.core.async_limiters",
-        ):
-            await subscriber._run()
-        safety_timer.cancel()
+        with shutdown_timer(subscriber):
+            with caplog.at_level(
+                logging.ERROR,
+                logger="redis_rate_limiter.core.async_limiters",
+            ):
+                await subscriber._run()
 
         # Assert
         assert not any(
             record.levelname in ("ERROR", "CRITICAL") for record in caplog.records
         ), "no error logs should be emitted during normal processing"
 
+    @pytest.mark.timeout_safety_net
     @staticmethod
     async def test_run_exception_emits_error_log(caplog):
         """Verify that ``_run`` emits an ERROR log containing
@@ -865,14 +858,12 @@ class TestAsyncDrainSignalSubscriberObservability:
         mock_pubsub.get_message = AsyncMock(side_effect=get_message_effect)
 
         # Act
-        safety_timer = Timer(2.0, lambda: setattr(subscriber, "_shutdown", True))
-        safety_timer.start()
-        with caplog.at_level(
-            logging.ERROR,
-            logger="redis_rate_limiter.core.async_limiters",
-        ):
-            await subscriber._run()
-        safety_timer.cancel()
+        with shutdown_timer(subscriber, timeout=2.0):
+            with caplog.at_level(
+                logging.ERROR,
+                logger="redis_rate_limiter.core.async_limiters",
+            ):
+                await subscriber._run()
 
         # Assert
         assert_log_emitted(

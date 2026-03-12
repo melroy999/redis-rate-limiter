@@ -11,13 +11,13 @@ Fixture dependencies:
 import inspect
 import logging
 import time
-from threading import Event, Timer
+from threading import Event, Thread
 from unittest.mock import MagicMock
 
 import pytest
 
 from redis_rate_limiter.core.limiters import DrainLoop, DrainSignalSubscriber
-from tests.helpers.utils import assert_log_emitted
+from tests.helpers.utils import assert_log_emitted, shutdown_timer
 from tests.implementations.conftest import StubRateLimiter
 
 
@@ -110,6 +110,7 @@ class TestDrainLoop:
         limiter.drain.assert_called()
 
     @staticmethod
+    @pytest.mark.timeout_safety_net
     def test_shutdown_completes_promptly():
         """Verify that ``shutdown()`` completes well within
         its internal 5.0s join timeout.
@@ -126,14 +127,18 @@ class TestDrainLoop:
         loop.wake(0)
         drain_called.wait(timeout=2.0)
 
-        start = time.monotonic()
-        loop.shutdown()
-        elapsed = time.monotonic() - start
+        # shutdown() has an internal 5.0s join; mutations that break the
+        # _shutdown flag (e.g., None/False) cause the full 5s block, which
+        # triggers SIGXCPU under mutmut before the assertion can run.
+        shutdown_thread = Thread(target=loop.shutdown, daemon=True)
+        shutdown_thread.start()
+        shutdown_thread.join(timeout=1.0)
+        completed = not shutdown_thread.is_alive()
 
         # Assert
-        assert elapsed < 1.0, (
-            f"shutdown() took {elapsed:.2f}s; should complete promptly "
-            "when the condition is notified correctly"
+        assert completed, (
+            "shutdown() should complete within 1.0s; "
+            "a timeout indicates _shutdown assignment was mutated"
         )
         assert not loop._thread.is_alive(), "thread should be stopped after shutdown"
 
@@ -329,6 +334,7 @@ class TestDrainSignalSubscriber:
             "a remote drain signal"
         )
 
+    @pytest.mark.timeout_safety_net
     @staticmethod
     def test_run_processes_message_in_main_thread():
         """Verify that ``_run`` processes a remote message and
@@ -361,10 +367,8 @@ class TestDrainSignalSubscriber:
         mock_pubsub.get_message.side_effect = get_message_effect
 
         # Act
-        safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
-        safety_timer.start()
-        subscriber._run()
-        safety_timer.cancel()
+        with shutdown_timer(subscriber):
+            subscriber._run()
 
         # Assert
         mock_pubsub.get_message.assert_called()
@@ -429,6 +433,7 @@ class TestDrainSignalSubscriber:
         )
         subscriber.shutdown()
 
+    @pytest.mark.timeout_safety_net
     @staticmethod
     def test_run_survives_exception_and_retries():
         """Verify that ``_run`` logs the exception and
@@ -455,10 +460,8 @@ class TestDrainSignalSubscriber:
         mock_pubsub.get_message.side_effect = get_message_effect
 
         # Act
-        safety_timer = Timer(2.0, lambda: setattr(subscriber, "_shutdown", True))
-        safety_timer.start()
-        subscriber._run()
-        safety_timer.cancel()
+        with shutdown_timer(subscriber, timeout=2.0):
+            subscriber._run()
 
         # Assert
         assert call_count >= 2, "get_message should be called again after exception"
@@ -487,6 +490,7 @@ class TestDrainSignalSubscriber:
         # Assert
         assert subscriber._shutdown is True, "_run should return without re-raising"
 
+    @pytest.mark.timeout_safety_net
     @staticmethod
     def test_run_processes_message_then_idles_before_exit():
         """Verify that ``_run`` continues polling after
@@ -522,10 +526,8 @@ class TestDrainSignalSubscriber:
         mock_pubsub.get_message.side_effect = get_message_effect
 
         # Act
-        safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
-        safety_timer.start()
-        subscriber._run()
-        safety_timer.cancel()
+        with shutdown_timer(subscriber):
+            subscriber._run()
 
         # Assert
         assert call_count >= 3, (
@@ -639,6 +641,7 @@ class TestDrainLoopObservability:
 class TestDrainSignalSubscriberObservability:
     """Observability tests for ``DrainSignalSubscriber`` log emissions."""
 
+    @pytest.mark.timeout_safety_net
     @staticmethod
     def test_run_normal_processing_does_not_emit_error_log(caplog):
         """Verify that ``_run`` does not emit error or critical
@@ -668,20 +671,19 @@ class TestDrainSignalSubscriberObservability:
         mock_pubsub.get_message.side_effect = get_message_effect
 
         # Act
-        safety_timer = Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))
-        safety_timer.start()
-        with caplog.at_level(
-            logging.ERROR,
-            logger="redis_rate_limiter.core.limiters",
-        ):
-            subscriber._run()
-        safety_timer.cancel()
+        with shutdown_timer(subscriber):
+            with caplog.at_level(
+                logging.ERROR,
+                logger="redis_rate_limiter.core.limiters",
+            ):
+                subscriber._run()
 
         # Assert
         assert not any(
             record.levelname in ("ERROR", "CRITICAL") for record in caplog.records
         ), "no error logs should be emitted during normal processing"
 
+    @pytest.mark.timeout_safety_net
     @staticmethod
     def test_run_exception_emits_error_log(caplog):
         """Verify that ``_run`` emits an ERROR log containing
@@ -708,11 +710,9 @@ class TestDrainSignalSubscriberObservability:
         mock_pubsub.get_message.side_effect = get_message_effect
 
         # Act
-        safety_timer = Timer(2.0, lambda: setattr(subscriber, "_shutdown", True))
-        safety_timer.start()
-        with caplog.at_level(logging.ERROR, logger="redis_rate_limiter.core.limiters"):
-            subscriber._run()
-        safety_timer.cancel()
+        with shutdown_timer(subscriber, timeout=2.0):
+            with caplog.at_level(logging.ERROR, logger="redis_rate_limiter.core.limiters"):
+                subscriber._run()
 
         # Assert
         assert_log_emitted(

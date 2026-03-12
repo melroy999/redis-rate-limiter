@@ -573,6 +573,7 @@ class TestAsyncHealthMonitorLifecycle:
         # Act
         monitor.start()
         await asyncio.sleep(0.05)
+
         await monitor.shutdown()
 
         # Assert
