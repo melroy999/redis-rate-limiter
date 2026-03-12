@@ -961,6 +961,52 @@ class DrainObservabilityTests:
             message="should emit a debug log when redis publish raises an exception",
         )
 
+    async def test_drain_deferred_local_capacity_emits_debug_log(
+        self, limiter, mock_target, caplog
+    ):
+        """Verify that ``drain()`` emits a debug log when local
+        execution capacity is exhausted."""
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
+            with patch.object(
+                mock_target, "_has_local_capacity", return_value=False
+            ):
+                await limiter.drain()
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label=self._log_label,
+            required_fragments=[
+                f"limiter={limiter.id}",
+                "Drain deferred",
+                "local execution capacity",
+            ],
+            message=(
+                "should emit a debug log when drain is "
+                "deferred due to local execution capacity"
+            ),
+        )
+
+    async def test_trigger_consume_emits_debug_log(self, limiter, caplog):
+        """Verify that ``trigger_consume()`` emits a debug log."""
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
+            await limiter.trigger_consume()
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label=self._log_label,
+            required_fragments=[
+                f"limiter={limiter.id}",
+                "Trigger consume",
+            ],
+            message="should emit a debug log when trigger_consume is called",
+        )
+
 
 # ---------------------------------------------------------------------------
 # Concrete test cases
@@ -1016,23 +1062,9 @@ class TestSyncDrainBehavior(_SyncDrainFixture, DrainBehaviorTests):
     """Sync drain behavior via the async adapter."""
 
 
-@pytest.mark.observability
-class TestSyncDrainObservability(_SyncDrainFixture, DrainObservabilityTests):
-    """Sync drain observability via the async adapter."""
-
-    _log_label = "[TrackingRateLimiter]"
-
-
 @pytest.mark.behavior
 class TestAsyncDrainBehavior(_AsyncDrainFixture, DrainBehaviorTests):
     """Async drain behavior exercised natively."""
-
-
-@pytest.mark.observability
-class TestAsyncDrainObservability(_AsyncDrainFixture, DrainObservabilityTests):
-    """Async drain observability exercised natively."""
-
-    _log_label = "[AsyncTrackingRateLimiter]"
 
 
 # ---------------------------------------------------------------------------
@@ -1302,6 +1334,25 @@ class TestSyncDrainBoundary(_SyncDrainFixture, DrainBoundaryTests):
 @pytest.mark.behavior
 class TestAsyncDrainBoundary(_AsyncDrainFixture, DrainBoundaryTests):
     """Async drain boundary conditions exercised natively."""
+
+
+# ---------------------------------------------------------------------------
+# Observability tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.observability
+class TestSyncDrainObservability(_SyncDrainFixture, DrainObservabilityTests):
+    """Sync drain observability via the async adapter."""
+
+    _log_label = "[TrackingRateLimiter]"
+
+
+@pytest.mark.observability
+class TestAsyncDrainObservability(_AsyncDrainFixture, DrainObservabilityTests):
+    """Async drain observability exercised natively."""
+
+    _log_label = "[AsyncTrackingRateLimiter]"
 
 
 # ---------------------------------------------------------------------------

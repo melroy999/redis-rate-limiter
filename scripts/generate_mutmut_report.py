@@ -802,11 +802,10 @@ def _format_text_report(report: UnifiedReport) -> str:
 
     # Per-file survival rates.
     if report.files:
-        non_perfect = [f for f in report.files if f.survival_rate > 0]
-        if non_perfect:
+        if report.files:
             lines.append("Per-File Survival Rates")
             lines.append("-" * 60)
-            for fs in non_perfect:
+            for fs in report.files:
                 lines.append(
                     f"  {fs.survival_rate:5.1f}%  {fs.survived:3d} survived  "
                     f"{fs.no_tests:3d} no tests  {fs.total:4d} total  {fs.path}"

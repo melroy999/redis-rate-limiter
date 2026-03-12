@@ -13,6 +13,7 @@ import pytest
 
 from redis_rate_limiter import DistributedLock
 from redis_rate_limiter.core import AsyncDistributedLock
+from redis_rate_limiter.core.async_limiters import AbstractAsyncDistributedRateLimiter
 from redis_rate_limiter.core.limiters import AbstractDistributedRateLimiter
 from tests.contracts.test_distributed_lock import DistributedLockContractTest
 from tests.helpers.adapters import SyncToAsyncLockAdapter
@@ -497,105 +498,6 @@ class ContentionAwareCooldownTests:
 
 
 # ---------------------------------------------------------------------------
-# Concrete test cases
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.behavior
-class TestSyncDistributedLockImplementation(DistributedLockImplementationTests):
-    """Sync DistributedLock implementation exercised through the async adapter."""
-
-    @pytest.fixture
-    def create_lock(self, redis_client):
-        """Factory that creates sync locks wrapped in the async adapter."""
-
-        def _factory(lock_key, **kwargs):
-            return SyncToAsyncLockAdapter(
-                DistributedLock(redis_client, lock_key, **kwargs)
-            )
-
-        return _factory
-
-
-@pytest.mark.observability
-class TestSyncDistributedLockObservability(DistributedLockObservabilityTests):
-    """Sync DistributedLock observability exercised through the async adapter."""
-
-    _log_label = "[DistributedLock]"
-
-    @pytest.fixture
-    def create_lock(self, redis_client):
-        """Factory that creates sync locks wrapped in the async adapter."""
-
-        def _factory(lock_key, **kwargs):
-            return SyncToAsyncLockAdapter(
-                DistributedLock(redis_client, lock_key, **kwargs)
-            )
-
-        return _factory
-
-
-@pytest.mark.behavior
-class TestSyncContentionAwareCooldown(ContentionAwareCooldownTests):
-    """Sync contention-aware cooldown exercised through the async adapter."""
-
-    @pytest.fixture
-    def create_lock(self, redis_client):
-        """Factory that creates sync locks wrapped in the async adapter."""
-
-        def _factory(lock_key, **kwargs):
-            return SyncToAsyncLockAdapter(
-                DistributedLock(redis_client, lock_key, **kwargs)
-            )
-
-        return _factory
-
-
-@pytest.mark.behavior
-class TestAsyncDistributedLockImplementation(DistributedLockImplementationTests):
-    """Async DistributedLock implementation exercised natively."""
-
-    @pytest.fixture
-    def create_lock(self, async_redis_client):
-        """Factory that creates native async locks."""
-
-        def _factory(lock_key, **kwargs):
-            return AsyncDistributedLock(async_redis_client, lock_key, **kwargs)
-
-        return _factory
-
-
-@pytest.mark.observability
-class TestAsyncDistributedLockObservability(DistributedLockObservabilityTests):
-    """Async DistributedLock observability exercised natively."""
-
-    _log_label = "[AsyncDistributedLock]"
-
-    @pytest.fixture
-    def create_lock(self, async_redis_client):
-        """Factory that creates native async locks."""
-
-        def _factory(lock_key, **kwargs):
-            return AsyncDistributedLock(async_redis_client, lock_key, **kwargs)
-
-        return _factory
-
-
-@pytest.mark.behavior
-class TestAsyncContentionAwareCooldown(ContentionAwareCooldownTests):
-    """Async contention-aware cooldown exercised natively."""
-
-    @pytest.fixture
-    def create_lock(self, async_redis_client):
-        """Factory that creates native async locks."""
-
-        def _factory(lock_key, **kwargs):
-            return AsyncDistributedLock(async_redis_client, lock_key, **kwargs)
-
-        return _factory
-
-
-# ---------------------------------------------------------------------------
 # Boundary tests
 # ---------------------------------------------------------------------------
 
@@ -749,6 +651,43 @@ class DistributedLockBoundaryTests:
         )
 
 
+# ---------------------------------------------------------------------------
+# Concrete test cases
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.behavior
+class TestSyncDistributedLockImplementation(DistributedLockImplementationTests):
+    """Sync DistributedLock implementation exercised through the async adapter."""
+
+    @pytest.fixture
+    def create_lock(self, redis_client):
+        """Factory that creates sync locks wrapped in the async adapter."""
+
+        def _factory(lock_key, **kwargs):
+            return SyncToAsyncLockAdapter(
+                DistributedLock(redis_client, lock_key, **kwargs)
+            )
+
+        return _factory
+
+
+@pytest.mark.behavior
+class TestSyncContentionAwareCooldown(ContentionAwareCooldownTests):
+    """Sync contention-aware cooldown exercised through the async adapter."""
+
+    @pytest.fixture
+    def create_lock(self, redis_client):
+        """Factory that creates sync locks wrapped in the async adapter."""
+
+        def _factory(lock_key, **kwargs):
+            return SyncToAsyncLockAdapter(
+                DistributedLock(redis_client, lock_key, **kwargs)
+            )
+
+        return _factory
+
+
 @pytest.mark.behavior
 class TestSyncDistributedLockBoundary(DistributedLockBoundaryTests):
     """Sync lock boundary conditions via the async adapter."""
@@ -765,9 +704,71 @@ class TestSyncDistributedLockBoundary(DistributedLockBoundaryTests):
         return _factory
 
 
+@pytest.mark.observability
+class TestSyncDistributedLockObservability(DistributedLockObservabilityTests):
+    """Sync DistributedLock observability exercised through the async adapter."""
+
+    _log_label = "[DistributedLock]"
+
+    @pytest.fixture
+    def create_lock(self, redis_client):
+        """Factory that creates sync locks wrapped in the async adapter."""
+
+        def _factory(lock_key, **kwargs):
+            return SyncToAsyncLockAdapter(
+                DistributedLock(redis_client, lock_key, **kwargs)
+            )
+
+        return _factory
+
+
+@pytest.mark.behavior
+class TestAsyncDistributedLockImplementation(DistributedLockImplementationTests):
+    """Async DistributedLock implementation exercised natively."""
+
+    @pytest.fixture
+    def create_lock(self, async_redis_client):
+        """Factory that creates native async locks."""
+
+        def _factory(lock_key, **kwargs):
+            return AsyncDistributedLock(async_redis_client, lock_key, **kwargs)
+
+        return _factory
+
+
+@pytest.mark.behavior
+class TestAsyncContentionAwareCooldown(ContentionAwareCooldownTests):
+    """Async contention-aware cooldown exercised natively."""
+
+    @pytest.fixture
+    def create_lock(self, async_redis_client):
+        """Factory that creates native async locks."""
+
+        def _factory(lock_key, **kwargs):
+            return AsyncDistributedLock(async_redis_client, lock_key, **kwargs)
+
+        return _factory
+
+
 @pytest.mark.behavior
 class TestAsyncDistributedLockBoundary(DistributedLockBoundaryTests):
     """Async lock boundary conditions exercised natively."""
+
+    @pytest.fixture
+    def create_lock(self, async_redis_client):
+        """Factory that creates native async locks."""
+
+        def _factory(lock_key, **kwargs):
+            return AsyncDistributedLock(async_redis_client, lock_key, **kwargs)
+
+        return _factory
+
+
+@pytest.mark.observability
+class TestAsyncDistributedLockObservability(DistributedLockObservabilityTests):
+    """Async DistributedLock observability exercised natively."""
+
+    _log_label = "[AsyncDistributedLock]"
 
     @pytest.fixture
     def create_lock(self, async_redis_client):
@@ -826,6 +827,22 @@ class TestDistributedLockSignatures:
         """
         # Arrange & Act
         sig = inspect.signature(AbstractDistributedRateLimiter.execution_lock)
+
+        # Assert
+        assert sig.parameters["timeout_ms"].default == 5000, (
+            "timeout_ms default must be 5000"
+        )
+
+    @staticmethod
+    def test_async_execution_lock_timeout_ms_defaults_to_5000():
+        """Verify that the ``timeout_ms`` parameter defaults to ``5000``
+        on the async variant.
+
+        Mutation target: ``timeout_ms`` default value in
+        ``AbstractAsyncDistributedRateLimiter.execution_lock``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(AbstractAsyncDistributedRateLimiter.execution_lock)
 
         # Assert
         assert sig.parameters["timeout_ms"].default == 5000, (

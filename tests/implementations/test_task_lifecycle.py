@@ -253,6 +253,69 @@ class TestTaskLifecycleImplementation:
 
 
 # ---------------------------------------------------------------------------
+# Boundary tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.behavior
+class TestTaskLifecycleBoundary:
+    """Boundary condition tests for ``TaskLifecycle`` thread management."""
+
+    @staticmethod
+    def test_heartbeat_thread_is_daemon(mock_limiter, task_id):
+        """Verify that the heartbeat thread is started as a daemon
+        so it does not prevent process shutdown.
+
+        Mutation target: ``daemon=True`` in
+        ``TaskLifecycle.__enter__``.
+        """
+        # Act
+        with TaskLifecycle(mock_limiter, task_id) as lifecycle:
+            thread = lifecycle._thread
+
+            # Assert
+            assert thread.daemon is True, (
+                "heartbeat thread must be a daemon thread"
+            )
+
+    @staticmethod
+    def test_heartbeat_thread_join_uses_timeout(mock_limiter, task_id):
+        """Verify that ``__exit__`` joins the heartbeat thread
+        with a bounded timeout to prevent indefinite blocking."""
+        # Arrange
+        mock_thread = MagicMock()
+        mock_thread.is_alive.return_value = True
+
+        with patch(
+            "redis_rate_limiter.core.limiters.Thread", return_value=mock_thread
+        ):
+            # Act
+            with TaskLifecycle(mock_limiter, task_id):
+                pass
+
+        # Assert
+        mock_thread.join.assert_called_once_with(timeout=1.0)
+
+    @staticmethod
+    def test_exit_skips_join_when_thread_is_not_alive(mock_limiter, task_id):
+        """Verify that ``__exit__`` does not join the heartbeat thread
+        when it has already terminated on its own."""
+        # Arrange
+        mock_thread = MagicMock()
+        mock_thread.is_alive.return_value = False
+
+        with patch(
+            "redis_rate_limiter.core.limiters.Thread", return_value=mock_thread
+        ):
+            # Act
+            with TaskLifecycle(mock_limiter, task_id):
+                pass
+
+        # Assert
+        mock_thread.join.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Observability tests
 # ---------------------------------------------------------------------------
 
@@ -686,80 +749,17 @@ class TestExtendLeaseObservability:
             level="DEBUG",
             label="[StubRateLimiter]",
             required_fragments=[
+                "Lease extension",
                 f"limiter={stub_limiter.id}",
                 f"task_id={task_id}",
                 "duration_s=30",
                 "renewed=True",
             ],
             message=(
-                "should emit a debug log containing the"
-                " limiter id, task id, duration,"
-                " and renewed=True"
+                "should emit a debug log containing the lease extension"
+                " label, limiter id, task id, duration, and renewed=True"
             ),
         )
-
-
-# ---------------------------------------------------------------------------
-# Boundary tests
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.behavior
-class TestTaskLifecycleBoundary:
-    """Boundary condition tests for ``TaskLifecycle`` thread management."""
-
-    @staticmethod
-    def test_heartbeat_thread_is_daemon(mock_limiter, task_id):
-        """Verify that the heartbeat thread is started as a daemon
-        so it does not prevent process shutdown.
-
-        Mutation target: ``daemon=True`` in
-        ``TaskLifecycle.__enter__``.
-        """
-        # Act
-        with TaskLifecycle(mock_limiter, task_id) as lifecycle:
-            thread = lifecycle._thread
-
-            # Assert
-            assert thread.daemon is True, (
-                "heartbeat thread must be a daemon thread"
-            )
-
-    @staticmethod
-    def test_heartbeat_thread_join_uses_timeout(mock_limiter, task_id):
-        """Verify that ``__exit__`` joins the heartbeat thread
-        with a bounded timeout to prevent indefinite blocking."""
-        # Arrange
-        mock_thread = MagicMock()
-        mock_thread.is_alive.return_value = True
-
-        with patch(
-            "redis_rate_limiter.core.limiters.Thread", return_value=mock_thread
-        ):
-            # Act
-            with TaskLifecycle(mock_limiter, task_id):
-                pass
-
-        # Assert
-        mock_thread.join.assert_called_once_with(timeout=1.0)
-
-    @staticmethod
-    def test_exit_skips_join_when_thread_is_not_alive(mock_limiter, task_id):
-        """Verify that ``__exit__`` does not join the heartbeat thread
-        when it has already terminated on its own."""
-        # Arrange
-        mock_thread = MagicMock()
-        mock_thread.is_alive.return_value = False
-
-        with patch(
-            "redis_rate_limiter.core.limiters.Thread", return_value=mock_thread
-        ):
-            # Act
-            with TaskLifecycle(mock_limiter, task_id):
-                pass
-
-        # Assert
-        mock_thread.join.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

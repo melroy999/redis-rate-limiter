@@ -643,9 +643,7 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
         return task_data
 
     def _get_task_data_str(self, task_id: str, func_path: str, payload: dict) -> str:
-        return json.dumps(
-            self._get_task_data(task_id, func_path, payload), sort_keys=True
-        )
+        return json.dumps(self._get_task_data(task_id, func_path, payload))
 
     def get_inflight_key(self, task_id: str) -> str:
         """Return the in-flight key for the specified task.

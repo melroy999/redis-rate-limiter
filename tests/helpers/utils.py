@@ -4,6 +4,7 @@ This module provides utility functions that are used across multiple test files.
 """
 
 import asyncio
+import logging
 import math
 import time
 
@@ -105,12 +106,21 @@ def assert_log_emitted(
     """Assert that at least one log record matches the given level, starts with ``label``, and
     contains all ``required_fragments`` as substrings.
     """
-    assert any(
-        record.levelname == level
-        and record.message.startswith(label)
-        and all(fragment in record.message for fragment in required_fragments)
-        for record in caplog_records
-    ), message
+    def _matches(record: logging.LogRecord) -> bool:
+        if record.levelname != level:
+            return False
+        if not record.message.startswith(label):
+            return False
+        if not all(fragment in record.message for fragment in required_fragments):
+            return False
+        # First word after the label prefix must be capitalized.
+        body = record.message[len(label) :]
+        first_alpha = next((c for c in body if c.isalpha()), None)
+        if first_alpha is not None and not first_alpha.isupper():
+            return False
+        return True
+
+    assert any(_matches(record) for record in caplog_records), message
 
 
 def is_subset(target: dict, superset: dict):

@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import redis
 
+from redis_rate_limiter.core.async_limiters import AbstractAsyncDistributedRateLimiter
 from redis_rate_limiter.core.limiters import AbstractDistributedRateLimiter
 from tests.contracts.test_rate_limiter import RateLimiterContractTest
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
@@ -782,3 +783,22 @@ class TestScheduleTaskSignatures:
         # Assert
         assert sig.parameters["priority"].default == 100, "priority default must be 100"
         assert sig.parameters["max_age"].default is None, "max_age default must be None"
+
+    @staticmethod
+    def test_async_schedule_task_default_parameters():
+        """Verify that ``priority`` and ``max_age`` have the expected defaults
+        on the async variant.
+
+        Mutation target: ``priority`` and ``max_age`` default values in
+        ``AbstractAsyncDistributedRateLimiter.schedule_task``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(AbstractAsyncDistributedRateLimiter.schedule_task)
+
+        # Assert
+        assert sig.parameters["priority"].default == 100, (
+            "priority default must be 100"
+        )
+        assert sig.parameters["max_age"].default is None, (
+            "max_age default must be None"
+        )

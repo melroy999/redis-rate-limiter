@@ -300,6 +300,29 @@ class TestCeleryRateLimiter:
 
 
 # ---------------------------------------------------------------------------
+# Boundary tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.behavior
+class TestCeleryHealthCheckBoundary:
+    """Boundary condition tests for ``_check_backend_health`` parameters."""
+
+    @staticmethod
+    def test_ping_uses_one_second_timeout(limiter):
+        """Verify that ``_check_backend_health`` calls
+        ``ping`` with ``timeout=1.0``."""
+        # Act
+        with patch.object(
+            limiter.app.control, "ping", return_value=[]
+        ) as mock_ping:
+            limiter._check_backend_health()
+
+        # Assert
+        mock_ping.assert_called_once_with(timeout=1.0)
+
+
+# ---------------------------------------------------------------------------
 # Observability tests
 # ---------------------------------------------------------------------------
 
@@ -367,29 +390,6 @@ class TestCeleryDispatchObservability:
 
 
 # ---------------------------------------------------------------------------
-# Boundary tests
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.behavior
-class TestCeleryHealthCheckBoundary:
-    """Boundary condition tests for ``_check_backend_health`` parameters."""
-
-    @staticmethod
-    def test_ping_uses_one_second_timeout(limiter):
-        """Verify that ``_check_backend_health`` calls
-        ``ping`` with ``timeout=1.0``."""
-        # Act
-        with patch.object(
-            limiter.app.control, "ping", return_value=[]
-        ) as mock_ping:
-            limiter._check_backend_health()
-
-        # Assert
-        mock_ping.assert_called_once_with(timeout=1.0)
-
-
-# ---------------------------------------------------------------------------
 # Signature tests
 # ---------------------------------------------------------------------------
 
@@ -413,4 +413,19 @@ class TestCeleryScheduleTaskSignatures:
         # Assert
         assert sig.parameters["use_executor"].default is True, (
             "use_executor default should be True for generic worker dispatch"
+        )
+
+    @staticmethod
+    def test_schedule_task_priority_defaults_to_100():
+        """Verify that the ``priority`` parameter defaults to ``100``.
+
+        Mutation target: default value of ``priority`` in
+        ``CeleryRateLimiter.schedule_task()``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(CeleryRateLimiter.schedule_task)
+
+        # Assert
+        assert sig.parameters["priority"].default == 100, (
+            "priority default must be 100"
         )

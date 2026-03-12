@@ -20,7 +20,11 @@ import logging
 
 import pytest
 
-from redis_rate_limiter.core.limiters import DistributedRateLimiterMixin
+from redis_rate_limiter.core.async_limiters import AbstractAsyncDistributedRateLimiter
+from redis_rate_limiter.core.limiters import (
+    AbstractDistributedRateLimiter,
+    DistributedRateLimiterMixin,
+)
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 from tests.helpers.utils import assert_log_emitted
 
@@ -252,6 +256,94 @@ class TestAsyncEmitMetricLogging(EmitMetricObservabilityTests):
 
 
 # ---------------------------------------------------------------------------
+# Initialization log observability tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.observability
+class TestSyncInitializationLog:
+    """Sync rate limiter initialization log."""
+
+    @staticmethod
+    def test_start_emits_initialization_info_log(redis_client, limiter_id, caplog):
+        """Verify that sync ``__init__`` emits an INFO log with limiter configuration."""
+        from tests.implementations.conftest import StubRateLimiter
+
+        # Act
+        limiter_id = f"{limiter_id}_init_log_sync"
+        with caplog.at_level(logging.INFO, logger="redis_rate_limiter.core.limiters"):
+            limiter = StubRateLimiter(
+                redis_client=redis_client,
+                limiter_id=limiter_id,
+                limit=5,
+                window=60,
+                max_concurrency=2,
+            )
+
+        try:
+            # Assert
+            assert_log_emitted(
+                caplog.records,
+                level="INFO",
+                label="[StubRateLimiter]",
+                required_fragments=[
+                    "Rate limiter initialized",
+                    f"id={limiter_id}",
+                    "limit=5",
+                    "window_s=60",
+                ],
+                message="should emit an info log with limiter id, limit, and window",
+            )
+        finally:
+            limiter.shutdown()
+
+
+@pytest.mark.observability
+class TestAsyncInitializationLog:
+    """Async rate limiter initialization log."""
+
+    @staticmethod
+    async def test_start_emits_initialization_info_log(
+        async_redis_client, limiter_id, caplog
+    ):
+        """Verify that async ``start()`` emits an INFO log with limiter configuration."""
+        from tests.implementations.conftest import AsyncStubRateLimiter
+
+        # Arrange
+        limiter_id = f"{limiter_id}_init_log_async"
+        limiter = AsyncStubRateLimiter(
+            redis_client=async_redis_client,
+            limiter_id=limiter_id,
+            limit=5,
+            window=60,
+            max_concurrency=2,
+        )
+
+        try:
+            # Act
+            with caplog.at_level(
+                logging.INFO, logger="redis_rate_limiter.core.async_limiters"
+            ):
+                await limiter.start()
+
+            # Assert
+            assert_log_emitted(
+                caplog.records,
+                level="INFO",
+                label="[AsyncStubRateLimiter]",
+                required_fragments=[
+                    "Rate limiter initialized",
+                    f"id={limiter_id}",
+                    "limit=5",
+                    "window_s=60",
+                ],
+                message="should emit an info log with limiter id, limit, and window",
+            )
+        finally:
+            await limiter.shutdown()
+
+
+# ---------------------------------------------------------------------------
 # Signature tests
 # ---------------------------------------------------------------------------
 
@@ -314,3 +406,52 @@ class TestMixinInitSignatures:
         assert sig.parameters["drain_enabled"].default is True, (
             "drain_enabled default must be True"
         )
+
+
+@pytest.mark.signature
+class TestConcreteClassInitSignatures:
+    """Signature tests for concrete ``__init__`` default parameter values.
+
+    Mutation target: default parameter values on ``AbstractDistributedRateLimiter.__init__``
+    and ``AbstractAsyncDistributedRateLimiter.__init__`` (these duplicate the mixin defaults;
+    the mixin tests above do not cover the concrete class overrides).
+    """
+
+    @staticmethod
+    def _assert_shared_defaults(sig: inspect.Signature) -> None:
+        """Assert that the shared default values match the expected values."""
+        assert sig.parameters["max_age"].default == 3600, "max_age default must be 3600"
+        assert sig.parameters["lease_duration"].default == 30, (
+            "lease_duration default must be 30"
+        )
+        assert sig.parameters["on_heartbeat_failure"].default == "warn", (
+            "on_heartbeat_failure default must be 'warn'"
+        )
+        assert sig.parameters["jitter_enabled"].default is True, (
+            "jitter_enabled default must be True"
+        )
+        assert sig.parameters["jitter_min_pct"].default == pytest.approx(0.02), (
+            "jitter_min_pct default must be 0.02"
+        )
+        assert sig.parameters["jitter_max_pct"].default == pytest.approx(0.08), (
+            "jitter_max_pct default must be 0.08"
+        )
+        assert sig.parameters["drain_enabled"].default is True, (
+            "drain_enabled default must be True"
+        )
+
+    def test_sync_init_default_parameters(self):
+        """Verify that ``AbstractDistributedRateLimiter.__init__`` defaults match."""
+        # Arrange & Act
+        sig = inspect.signature(AbstractDistributedRateLimiter.__init__)
+
+        # Assert
+        self._assert_shared_defaults(sig)
+
+    def test_async_init_default_parameters(self):
+        """Verify that ``AbstractAsyncDistributedRateLimiter.__init__`` defaults match."""
+        # Arrange & Act
+        sig = inspect.signature(AbstractAsyncDistributedRateLimiter.__init__)
+
+        # Assert
+        self._assert_shared_defaults(sig)

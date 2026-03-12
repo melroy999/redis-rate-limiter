@@ -644,3 +644,79 @@ class TestAsyncEvalScriptObservability:
                 " id and script name on async NOSCRIPT recovery"
             ),
         )
+
+
+@pytest.mark.observability
+class TestSyncRegisterScriptObservability:
+    """Observability tests for sync ``_register_script`` debug log emission."""
+
+    @staticmethod
+    def test_register_script_emits_debug_log(redis_client, caplog):
+        """Verify that ``_register_script()`` emits a DEBUG log
+        with limiter id, script name, and SHA."""
+        # Arrange
+        limiter = _BareSyncLimiter(
+            redis_client=redis_client,
+            limiter_id="register_script_sync",
+            limit=5,
+            window=60,
+        )
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.base"):
+            limiter._register_script("health.lua")
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label="[_BareSyncLimiter]",
+            required_fragments=[
+                "Lua script registered",
+                f"limiter={limiter.id}",
+                "script=health.lua",
+                "sha=",
+            ],
+            message=(
+                "should emit a debug log containing the limiter id,"
+                " script name, and sha on successful registration"
+            ),
+        )
+
+
+@pytest.mark.observability
+class TestAsyncRegisterScriptObservability:
+    """Observability tests for async ``_register_script`` debug log emission."""
+
+    @staticmethod
+    async def test_register_script_emits_debug_log(async_redis_client, caplog):
+        """Verify that async ``_register_script()`` emits a DEBUG log
+        with limiter id, script name, and SHA."""
+        # Arrange
+        limiter = _BareAsyncLimiter(
+            redis_client=async_redis_client,
+            limiter_id="register_script_async",
+            limit=5,
+            window=60,
+        )
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.base"):
+            await limiter._register_script("health.lua")
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label="[_BareAsyncLimiter]",
+            required_fragments=[
+                "Lua script registered",
+                f"limiter={limiter.id}",
+                "script=health.lua",
+                "sha=",
+            ],
+            message=(
+                "should emit a debug log containing the limiter id,"
+                " script name, and sha on successful async registration"
+            ),
+        )
