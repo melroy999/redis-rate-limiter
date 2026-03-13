@@ -77,8 +77,8 @@ flowchart TD
 
 | Path | Description | Tested by |
 |------|-------------|-----------|
-| NoScript → reload → retry succeeds | SHA reload recovers from cache flush | `implementations/test_rate_limiter::test_lua_script_recovery_on_noscript_error` |
-| NoScript → reload → retry fails | Permanent failure raises RuntimeError | `implementations/test_rate_limiter::test_lua_script_permanent_failure_raises_error` |
+| NoScript → reload → retry succeeds | SHA reload recovers from cache flush | `implementations/test_lua_script_infrastructure::test_eval_script_recovers_from_transient_noscript` |
+| NoScript → reload → retry fails | Permanent failure raises RuntimeError | `implementations/test_lua_script_infrastructure::test_eval_script_raises_runtime_error_on_permanent_noscript` |
 | Non-NoScript → cleanup → re-raise | Inflight key cleaned up before re-raising | `implementations/test_rate_limiter::test_schedule_non_noscript_failure_cleans_inflight_and_reraises` |
 | Cleanup itself fails | Suppressed, log warning, continue with re-raise | `implementations/test_task_data_helpers::test_cleanup_inflight_key_suppresses_redis_failure` |
 | Lua script not found on disk | ImportError at initialization | `implementations/test_lua_script_infrastructure::test_register_script_raises_import_error_on_missing_source` |
@@ -89,15 +89,15 @@ flowchart TD
 
 All Lua script operations (`schedule_task`, `consume`, `extend_lease`, `get_status`, and the ASGI `acquire`) share a centralized two-phase retry implemented in `_eval_script()`. The first attempt uses `EVALSHA`; if Redis returns a `NoScriptError` (indicating that the script cache was flushed, e.g., after a `SCRIPT FLUSH` or Redis restart), the method reloads the SHA via `script_load` and retries with `retry=False`. If the second attempt also fails with `NoScriptError`, a `RuntimeError` is raised. This pattern tolerates transient script cache losses while preventing infinite retry loops.
 
-- [base.py:128-165](../../src/redis_rate_limiter/core/base.py): `AbstractSyncRateLimiter._eval_script()` (sync two-phase retry).
-- [base.py:205-246](../../src/redis_rate_limiter/core/base.py): `AbstractAsyncRateLimiter._eval_script()` (async two-phase retry).
+- [base.py:130-168](../../src/redis_rate_limiter/core/base.py): `AbstractSyncRateLimiter._eval_script()` (sync two-phase retry).
+- [base.py:209-251](../../src/redis_rate_limiter/core/base.py): `AbstractAsyncRateLimiter._eval_script()` (async two-phase retry).
 
 ### Inflight Key Cleanup on Any Schedule Failure
 
 `schedule_task()` acquires the inflight key via `SET NX` before calling the Lua script. If the Lua call fails for any reason (NoScriptError, ConnectionError, or any other exception), the inflight key is cleaned up via `_cleanup_inflight_key()` to prevent orphaned deduplication locks that would permanently block resubmission. The cleanup method itself suppresses all exceptions and logs a warning, such that a secondary Redis failure during cleanup does not mask the original error.
 
-- [limiters.py:941-959](../../src/redis_rate_limiter/core/limiters.py): `_cleanup_inflight_key()`.
-- [limiters.py:1032-1036](../../src/redis_rate_limiter/core/limiters.py): cleanup calls on generic exceptions.
+- [limiters.py:1025-1045](../../src/redis_rate_limiter/core/limiters.py): `_cleanup_inflight_key()`.
+- [limiters.py:1118-1122](../../src/redis_rate_limiter/core/limiters.py): cleanup calls on generic exceptions.
 
 ## Consumption and Dispatch Layer
 
@@ -131,20 +131,20 @@ flowchart TD
 
 | Path | Description | Tested by |
 |------|-------------|-----------|
-| Consume NoScript → reload → retry succeeds | SHA reload during consume | `implementations/test_rate_limiter::test_consume_lua_script_recovery_on_noscript_error` |
-| Consume NoScript → retry fails | Permanent failure raises RuntimeError | `implementations/test_rate_limiter::test_consume_lua_script_permanent_failure_raises_error` |
-| Consume non-NoScript → propagate | ConnectionError propagates to drain() | `implementations/test_rate_limiter::test_consume_connection_error_propagates` |
+| Consume NoScript → reload → retry succeeds | SHA reload during consume | `implementations/test_lua_script_infrastructure::test_eval_script_recovers_from_transient_noscript` |
+| Consume NoScript → retry fails | Permanent failure raises RuntimeError | `implementations/test_lua_script_infrastructure::test_eval_script_raises_runtime_error_on_permanent_noscript` |
+| Consume non-NoScript → propagate | ConnectionError propagates to drain() | `implementations/test_drain::test_drain_backoff_increases_with_consecutive_failures` |
 | Dispatch Celery failure → propagate | send_task() exception propagates to drain() | `implementations/celery/test_celery_limiter::test_dispatch_task_send_task_failure_propagates` |
 | Dispatch RQ failure → propagate | queue.enqueue() exception propagates to drain() | `implementations/rq/test_rq_limiter::test_dispatch_task_enqueue_failure_propagates` |
 | Dispatch ThreadPool failure → propagate | import_string() exception propagates to drain() | `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_import_failure_propagates` |
-| Dispatch AsyncIO sync function → TypeError | Sync function passed to async dispatch raises TypeError | `implementations/asyncio/test_asyncio_limiter::test_dispatch_sync_function_raises_type_error` |
+| Dispatch AsyncIO sync function → TypeError | Sync function passed to async dispatch raises TypeError | `implementations/asyncio/test_asyncio_limiter::test_dispatch_sync_function_raises_type_error_with_message` |
 | Metrics callback exception during consume | Does not disrupt consumption | `implementations/test_metrics_callback::test_callback_exception_does_not_break_consume` |
 
 ### Metrics Callback Isolation
 
 `_emit_metric()` wraps the user-provided callback in a `try/except` that catches and logs all exceptions, thereby preventing a buggy callback from disrupting the limiter. This isolation boundary ensures that observability integrations cannot introduce cascading failures into the rate limiting logic.
 
-- [limiters.py:747-768](../../src/redis_rate_limiter/core/limiters.py): `_emit_metric()` with exception suppression.
+- [limiters.py:811-833](../../src/redis_rate_limiter/core/limiters.py): `_emit_metric()` with exception suppression.
 
 ## Drain Control Layer
 
@@ -174,7 +174,7 @@ flowchart TD
 
 | Path | Description | Tested by |
 |------|-------------|-----------|
-| Exception → backoff → schedule recovery | Consume or dispatch exception caught | `implementations/test_drain::test_drain_handles_consume_exception`, `implementations/test_drain::test_drain_handles_dispatch_exception` |
+| Exception → backoff → schedule recovery | Consume or dispatch exception caught | `implementations/test_drain::test_drain_backoff_increases_with_consecutive_failures` |
 | Escalating backoff | Delay doubles on consecutive failures | `implementations/test_drain::test_drain_backoff_increases_with_consecutive_failures` |
 | Double failure → critical log | Recovery scheduling itself fails | `implementations/test_drain::test_drain_handles_double_failure_when_schedule_drain_also_fails` |
 | Success → reset counter | Counter resets to 0 | `implementations/test_drain::test_drain_resets_failure_counter_on_success` |
@@ -183,7 +183,7 @@ flowchart TD
 
 `drain()` wraps `_drain_inner()` in a `try/except` that catches all exceptions, increments `_consecutive_drain_failures`, and schedules a recovery drain with `delay = min(window, 0.1 * 2^(n-1))`. The backoff starts at 100ms for the first failure and doubles on each consecutive failure, capped at the window duration. On the first successful drain, the error counter resets to 0. If the recovery scheduling itself also fails, the system logs a critical error and relies on the next external trigger (a `trigger_consume()` call from `schedule_task()` or `TaskLifecycle.__exit__()`, or a watchdog timeout) to resume the drain loop.
 
-- [limiters.py:1180-1228](../../src/redis_rate_limiter/core/limiters.py): drain exception handling and backoff calculation.
+- [limiters.py:1267-1321](../../src/redis_rate_limiter/core/limiters.py): drain exception handling and backoff calculation.
 
 ## Execution Layer
 
@@ -232,21 +232,21 @@ flowchart TD
 | Redis error during cleanup → trigger still fires | trigger_consume() fires in finally block | `implementations/test_task_lifecycle::test_lifecycle_handles_redis_failure_during_cleanup` |
 | Heartbeat warn mode | is_healthy = False, log critical, continue | `implementations/test_task_lifecycle::test_heartbeat_loop_flags_unhealthy_on_failure_warn_mode` |
 | Heartbeat kill mode | os.kill(SIGTERM), break loop | `implementations/test_task_lifecycle::test_heartbeat_loop_terminates_worker_on_failure_kill_mode` |
-| extend_lease NoScript recovery | SHA reload during heartbeat | `implementations/test_task_lifecycle::test_extend_lease_recovery_on_noscript_error` |
-| extend_lease permanent failure | RuntimeError propagates to heartbeat | `implementations/test_task_lifecycle::test_extend_lease_permanent_failure_raises_error` |
+| extend_lease NoScript recovery | SHA reload during heartbeat | `implementations/test_lua_script_infrastructure::test_eval_script_recovers_from_transient_noscript` (infrastructure-level) |
+| extend_lease permanent failure | RuntimeError propagates to heartbeat | `implementations/test_lua_script_infrastructure::test_eval_script_raises_runtime_error_on_permanent_noscript` (infrastructure-level) |
 | extend_lease unknown task | KeyError for unknown task_id | `implementations/test_task_lifecycle::test_extend_lease_raises_key_error_for_unknown_task` |
 
 ### TaskLifecycle Finally Block
 
 `TaskLifecycle.__exit__()` performs cleanup (ZREM on the concurrency set, DEL on the inflight key) in a `try` block, with `trigger_consume()` in the `finally` block. This guarantees that the feedback loop continues even if the Redis cleanup operations fail, such that a freed concurrency slot is always followed by a consumption attempt.
 
-- [limiters.py:320-358](../../src/redis_rate_limiter/core/limiters.py): `TaskLifecycle.__exit__()` with try/finally.
+- [limiters.py:312-346](../../src/redis_rate_limiter/core/limiters.py): `TaskLifecycle.__exit__()` with try/finally.
 
 ### Heartbeat Failure Strategies
 
 The heartbeat loop catches all exceptions from `extend_lease()`. In `"warn"` mode, it sets `is_healthy = False` and logs a critical message, allowing the task to continue running at the risk of the concurrency slot lease expiring. In `"kill"` mode, it sends `SIGTERM` to the worker process, ensuring that the task is terminated and the concurrency slot self-heals via lease expiry. The choice between strategies is configured per `TaskLifecycle` instance.
 
-- [limiters.py:272-305](../../src/redis_rate_limiter/core/limiters.py): `_heartbeat_loop()` exception handling.
+- [limiters.py:269-298](../../src/redis_rate_limiter/core/limiters.py): `_heartbeat_loop()` exception handling.
 
 ## ASGI Layer
 
@@ -290,13 +290,13 @@ flowchart TD
 
 | Path | Description | Tested by |
 |------|-------------|-----------|
-| key_func returns None | Request passes through without rate limiting | `implementations/asgi/test_middleware::test_none_key_bypasses_rate_limiting` |
+| key_func returns None | Request passes through without rate limiting | `implementations/asgi/test_middleware::test_key_func_none_bypasses_rate_limiting` |
 | Non-HTTP scope | Request passes through unconditionally | `implementations/asgi/test_middleware::test_non_http_scope_passes_through` |
 | acquire() raises, fail_open | Request proceeds without headers | `implementations/asgi/test_middleware::test_fail_open_allows_on_error` |
 | acquire() raises, fail_closed | Returns 503 Service Unavailable | `implementations/asgi/test_middleware::test_fail_closed_returns_503_on_error` |
-| acquire() script exception logged | Exception is logged with limiter ID | `implementations/asgi/test_asgi_limiter::test_acquire_logs_exception_on_script_failure` |
+| acquire() script exception logged | Exception is logged with limiter ID | `implementations/asgi/test_middleware::test_acquire_error_emits_exception_log` |
 | Request allowed | X-RateLimit-* headers injected | `implementations/asgi/test_middleware::test_allowed_response_includes_rate_limit_headers` |
-| Request blocked | 429 response with Retry-After header | `implementations/asgi/test_middleware::test_blocked_response_returns_429` |
+| Request blocked | 429 response with Retry-After header | `implementations/asgi/test_middleware::test_blocked_request_returns_429` |
 
 ## Failure Mode Traceability
 
@@ -304,13 +304,13 @@ The following table enumerates every identified failure mode, its handling strat
 
 | # | Failure Mode | Source | Exception Type | Handling Strategy | Test Coverage | Gap? |
 |---|---|---|---|---|---|---|
-| 1 | Lua script cache flushed during `schedule_task()` | `schedule_task()` | `NoScriptError` | Reload SHA, retry once; `RuntimeError` on 2nd failure | `implementations/test_rate_limiter::test_lua_script_recovery_on_noscript_error`, `test_lua_script_permanent_failure_raises_error` | No |
-| 2 | Lua script cache flushed during `consume()` | `consume()` | `NoScriptError` | Reload SHA, retry once; `RuntimeError` on 2nd failure | `implementations/test_rate_limiter::test_consume_lua_script_recovery_on_noscript_error`, `test_consume_lua_script_permanent_failure_raises_error` | No |
-| 3 | Lua script cache flushed during `extend_lease()` | `extend_lease()` | `NoScriptError` | Reload SHA, retry once; `RuntimeError` on 2nd failure | `implementations/test_task_lifecycle::test_extend_lease_recovery_on_noscript_error`, `test_extend_lease_permanent_failure_raises_error` | No |
-| 4 | Lua script cache flushed during `get_status()` | `get_status()` | `NoScriptError` | Reload SHA, retry once; `RuntimeError` on 2nd failure | `implementations/test_get_status::test_get_status_recovery_on_noscript_error`, `test_get_status_permanent_failure_raises_error` | No |
+| 1 | Lua script cache flushed during `schedule_task()` | `schedule_task()` | `NoScriptError` | Reload SHA, retry once; `RuntimeError` on 2nd failure | `implementations/test_lua_script_infrastructure::test_eval_script_recovers_from_transient_noscript`, `test_eval_script_raises_runtime_error_on_permanent_noscript` | No |
+| 2 | Lua script cache flushed during `consume()` | `consume()` | `NoScriptError` | Reload SHA, retry once; `RuntimeError` on 2nd failure | `implementations/test_lua_script_infrastructure::test_eval_script_recovers_from_transient_noscript`, `test_eval_script_raises_runtime_error_on_permanent_noscript` | No |
+| 3 | Lua script cache flushed during `extend_lease()` | `extend_lease()` | `NoScriptError` | Reload SHA, retry once; `RuntimeError` on 2nd failure | `implementations/test_lua_script_infrastructure::test_eval_script_recovers_from_transient_noscript`, `test_eval_script_raises_runtime_error_on_permanent_noscript` (infrastructure-level; no `extend_lease`-specific NoScript test) | No |
+| 4 | Lua script cache flushed during `get_status()` | `get_status()` | `NoScriptError` | Reload SHA, retry once; `RuntimeError` on 2nd failure | `implementations/test_lua_script_infrastructure::test_eval_script_recovers_from_transient_noscript`, `test_eval_script_raises_runtime_error_on_permanent_noscript` (infrastructure-level; no `get_status`-specific NoScript test) | No |
 | 5 | Redis unreachable during `schedule_task()` | `schedule_task()` | `ConnectionError` | Cleanup inflight key, re-raise | `implementations/test_rate_limiter::test_schedule_non_noscript_failure_cleans_inflight_and_reraises` | No |
-| 6 | Redis unreachable during `consume()` | `consume()` | `ConnectionError` | Propagates to `drain()` backoff | `implementations/test_rate_limiter::test_consume_connection_error_propagates` | No |
-| 7 | Redis unreachable during `get_status()` | `get_status()` | `ConnectionError` | Propagates to caller (not caught) | `implementations/test_get_status::test_get_status_connection_error_propagates` | No |
+| 6 | Redis unreachable during `consume()` | `consume()` | `ConnectionError` | Propagates to `drain()` backoff | `implementations/test_drain::test_drain_backoff_increases_with_consecutive_failures` (consume failure triggers drain backoff) | No |
+| 7 | Redis unreachable during `get_status()` | `get_status()` | `ConnectionError` | Propagates to caller (not caught) | None | **Yes** |
 | 8 | Redis unreachable during `extend_lease()` | `extend_lease()` | `ConnectionError` | Propagates to heartbeat loop; handled by warn/kill strategy | Indirectly via heartbeat tests with generic `Exception` mock | Partial |
 | 9 | Redis unreachable during `TaskLifecycle.__exit__()` cleanup | `TaskLifecycle.__exit__()` | `Exception` | Propagates, but `trigger_consume()` still fires in `finally` | `contracts/test_task_lifecycle::test_lifecycle_cleans_up_on_exception` | No |
 | 10 | Lease renewal for unknown task | `extend_lease()` | `KeyError` | Propagates to heartbeat loop | `implementations/test_task_lifecycle::test_extend_lease_raises_key_error_for_unknown_task` | No |
@@ -318,7 +318,7 @@ The following table enumerates every identified failure mode, its handling strat
 | 12 | Heartbeat failure in "kill" mode | `_heartbeat_loop()` | Any `Exception` | `os.kill(SIGTERM)`, break loop | `implementations/test_task_lifecycle::test_heartbeat_loop_terminates_worker_on_failure_kill_mode` | No |
 | 13 | Lock acquire Lua script fails (fairness mode) | `DistributedLock.__enter__()` | `RedisError` | Propagates to `drain()` backoff (lock treated as not acquired) | Covered implicitly by #14 (drain catches all `_drain_inner()` exceptions) | No |
 | 14 | Lock release Lua script fails (fairness mode) | `DistributedLock.__exit__()` | `RedisError` | Propagates to `drain()` backoff; lock expires via TTL (self-healing) | Covered implicitly by #15 (drain catches all `_drain_inner()` exceptions) | No |
-| 15 | `drain()` inner failure (any exception) | `drain()` | Any `Exception` | Increment failure counter, schedule recovery with backoff | `implementations/test_drain::test_drain_handles_consume_exception`, `test_drain_handles_dispatch_exception` | No |
+| 15 | `drain()` inner failure (any exception) | `drain()` | Any `Exception` | Increment failure counter, schedule recovery with backoff | `implementations/test_drain::test_drain_backoff_increases_with_consecutive_failures`, `test_drain_consume_exception_emits_error_log` | No |
 | 16 | Recovery scheduling also fails | `drain()` | Any `Exception` | Log critical; rely on watchdog or external trigger | `implementations/test_drain::test_drain_handles_double_failure_when_schedule_drain_also_fails` | No |
 | 17 | Missing `limiter_id` in decorator | `@rate_limited` | `ValueError` | Propagates to caller | `implementations/test_decorator::test_decorator_raises_value_error_when_limiter_id_missing` | No |
 | 18 | Missing `_rate_limit_task_id` in decorator | `@rate_limited` | `KeyError` | Propagates to caller | `implementations/test_decorator::test_decorator_raises_when_task_id_missing` | No |
@@ -335,9 +335,9 @@ The following table enumerates every identified failure mode, its handling strat
 | 29 | `import_string()` fails during dispatch | `_dispatch_task()` (ThreadPool) | `ModuleNotFoundError` | Propagates to `drain()` backoff | `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_import_failure_propagates` | No |
 | 30 | Metrics callback raises exception | `_emit_metric()` | Any `Exception` | Caught, logged, does not disrupt limiter | `implementations/test_metrics_callback::test_callback_exception_does_not_break_consume` | No |
 | 31 | Missing backend context during `configure()` | `_configure_backend()` | `RuntimeError` | Propagates to caller | `test_rate_limiter_class_api` (per backend) | No |
-| 32 | Sync function dispatched to async backend | `_dispatch_task()` (AsyncIO) | `TypeError` | Caught by `_run_task()` exception handler; task set cleaned up | `implementations/asyncio/test_asyncio_limiter::test_dispatch_sync_function_raises_type_error` | No |
+| 32 | Sync function dispatched to async backend | `_dispatch_task()` (AsyncIO) | `TypeError` | Caught by `_run_task()` exception handler; task set cleaned up | `implementations/asyncio/test_asyncio_limiter::test_dispatch_sync_function_raises_type_error_with_message` | No |
 | 33 | Lua script first package unavailable | `load_lua_script()` | `ModuleNotFoundError` | Falls back to second package in `resource_packages` | `implementations/test_lua_script_infrastructure::test_load_lua_script_falls_back_to_second_package` | No |
-| 34 | ASGI `acquire()` script failure | `ASGIRateLimiter.acquire()` | Any `Exception` | Logged, re-raised to middleware | `implementations/asgi/test_asgi_limiter::test_acquire_logs_exception_on_script_failure` | No |
+| 34 | ASGI `acquire()` script failure | `ASGIRateLimiter.acquire()` | Any `Exception` | Logged, re-raised to middleware | `implementations/asgi/test_middleware::test_acquire_error_emits_exception_log` | No |
 | 35 | ASGI middleware error, fail_open | `RateLimitMiddleware.__call__()` | Any `Exception` | Request proceeds without rate limit headers | `implementations/asgi/test_middleware::test_fail_open_allows_on_error` | No |
 | 36 | ASGI middleware error, fail_closed | `RateLimitMiddleware.__call__()` | Any `Exception` | Returns 503 Service Unavailable | `implementations/asgi/test_middleware::test_fail_closed_returns_503_on_error` | No |
 

@@ -147,7 +147,7 @@ graph TD
 
 | Arrow | Interaction | Tested by |
 |-------|-------------|-----------|
-| DrainLoop → Lock | drain() acquires dispatch_lock | `implementations/test_drain_loop::test_wake_fires_drain_immediately`, `implementations/test_drain::test_drain_schedules_backup_when_lock_contended` |
+| DrainLoop → Lock | drain() acquires dispatch_lock | `implementations/test_drain_loop::test_wake_default_delay_is_zero`, `implementations/test_drain::test_drain_schedules_backup_when_lock_contended` |
 | Lock → Consumer | Lock acquired, proceed | `implementations/test_concurrent_access::test_distributed_lock_serializes_drains` |
 | Consumer → LuaScripts | EVALSHA consume.lua | `contracts/test_rate_limiter::test_consume_returns_expected_structure`, `implementations/test_lua_script_infrastructure::test_eval_script_recovers_from_transient_noscript` |
 | LuaScripts → WindowCounters | GET/INCR rate check | `integration/test_rate_limiting::test_basic_rate_limit_enforcement` |
@@ -192,7 +192,7 @@ graph TD
 | Arrow | Interaction | Tested by |
 |-------|-------------|-----------|
 | Worker → Lifecycle | Wraps execution in TaskLifecycle | `implementations/test_decorator::test_decorator_wraps_function_in_task_lifecycle`, `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_wraps_in_lifecycle` |
-| Lifecycle → LuaScripts | EVALSHA renew.lua heartbeat | `implementations/test_task_lifecycle::test_heartbeat_loop_extends_lease_periodically`, `implementations/test_task_lifecycle::test_extend_lease_succeeds_for_existing_task`, `implementations/test_task_lifecycle::test_extend_lease_passes_correct_arguments_to_lua` |
+| Lifecycle → LuaScripts | EVALSHA renew.lua heartbeat | `implementations/test_task_lifecycle::test_heartbeat_loop_calls_extend_lease_with_correct_parameters`, `implementations/test_task_lifecycle::test_extend_lease_succeeds_for_existing_task` |
 | Lifecycle → DrainLoop | trigger_consume() feedback loop | `contracts/test_task_lifecycle::test_lifecycle_triggers_consume` |
 
 ## ASGI Request Flow
@@ -241,10 +241,10 @@ graph TD
 
 | Arrow | Interaction | Tested by |
 |-------|-------------|-----------|
-| Request → KeyFunc | key_func extracts identity from scope | `implementations/asgi/test_keys::test_by_client_ip_extracts_ip`, `implementations/asgi/test_keys::test_by_header_extracts_value` |
-| KeyFunc → Acquire | acquire() called with extracted key | `implementations/asgi/test_asgi_limiter::test_acquire_within_limit_returns_allowed` |
-| Acquire → AcquireLua | EVALSHA acquire.lua | `implementations/asgi/test_asgi_limiter::test_acquire_exceeding_limit_returns_denied` |
+| Request → KeyFunc | key_func extracts identity from scope | `implementations/asgi/test_keys::test_extracts_ip_from_client_tuple`, `implementations/asgi/test_keys::test_extracts_header_value` |
+| KeyFunc → Acquire | acquire() called with extracted key | `implementations/asgi/test_asgi_limiter::test_acquire_allowed_under_limit` |
+| Acquire → AcquireLua | EVALSHA acquire.lua | `implementations/asgi/test_asgi_limiter::test_acquire_denied_at_limit` |
 | Allowed → Headers → InnerApp | Rate limit headers injected | `implementations/asgi/test_middleware::test_allowed_response_includes_rate_limit_headers` |
-| Not allowed → Blocked | 429 response returned | `implementations/asgi/test_middleware::test_blocked_response_returns_429` |
+| Not allowed → Blocked | 429 response returned | `implementations/asgi/test_middleware::test_blocked_request_returns_429` |
 | Exception → fail_open | Request proceeds | `implementations/asgi/test_middleware::test_fail_open_allows_on_error` |
 | Exception → fail_closed | 503 response returned | `implementations/asgi/test_middleware::test_fail_closed_returns_503_on_error` |
