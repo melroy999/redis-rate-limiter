@@ -2,8 +2,6 @@
 
 This directory contains scripts that wrap and extend [mutmut 3.x](https://github.com/boxed/mutmut) for this project. The scripts are invoked by the `mutate` service in `docker-compose.yml` and are not intended for direct use on the host (mutmut requires `fork()`, which is unavailable on Windows).
 
-> **Note**: all mutmut runs prior to the `flushdb()` removal on `backends-mutmut` suffered from cross-process Redis contamination: forked mutmut children called `flushdb()` in test fixtures, destroying sibling forks' in-progress Redis state. This caused non-deterministic false kills and false survivals. As a consequence, all previously reported mutation scores, survivor classifications, known-benign designations, killed-by mappings, and remediation claims (e.g., score improvements, specific survivor counts) are unreliable and should not be cited. The classification engine, detection pipeline, and reporting infrastructure described below are structurally sound; only the observed results from prior runs are invalidated. A clean baseline run is pending.
-
 ## Changes Compared to Vanilla mutmut
 
 ### Runtime patches (`run_mutmut.py`)

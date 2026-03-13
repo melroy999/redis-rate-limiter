@@ -267,8 +267,8 @@ Do not confuse data-flow verification with call-count verification. Asserting th
 
 | Fixture | Scope | Provider | Purpose |
 |---|---|---|---|
-| `redis_client` | function | `tests/conftest.py` | Sync Redis client with per-test `flushdb` |
-| `async_redis_client` | function | `tests/conftest.py` | Async Redis client with per-test `flushdb` |
+| `redis_client` | function | `tests/conftest.py` | Sync Redis client (namespace-isolated) |
+| `async_redis_client` | function | `tests/conftest.py` | Async Redis client (namespace-isolated) |
 | `limiter_id` | function | `tests/conftest.py` | Unique `limiter_{test}_{uuid}` identifier |
 | `module_limiter_id` | module | `tests/conftest.py` | Shared identifier within a module |
 | `func_path` | session | `tests/conftest.py` | Static function path string |
@@ -279,7 +279,7 @@ Do not confuse data-flow verification with call-count verification. Asserting th
 | `tracking_limiter` | function | `tests/implementations/conftest.py` | Sync limiter that records dispatch and schedule calls |
 
 **Fixture rules**:
-- **Teardown**: all limiter fixtures must call `shutdown()` in teardown to stop subscriber threads and tasks. For **function-scoped** fixtures that depend on `redis_client` or `async_redis_client`, explicit key cleanup is not required because those root fixtures call `flushdb()` before and after every test (see Section 7.5). **Module-scoped or session-scoped** fixtures (e.g., property test fixtures) must handle their own key cleanup, because the per-test `flushdb()` cycle does not apply at broader scopes.
+- **Teardown**: all limiter fixtures must call `shutdown()` in teardown to stop subscriber threads and tasks. Explicit key cleanup is not required because test isolation is achieved through unique key namespaces (`limiter_id`, `lock_key`) rather than `flushdb()` (see Section 7.5).
 - **Factory fixtures** (e.g., `make_limiter_pool`): must track all created objects in a list and clean up every object in teardown.
 - **Async fixtures**: must call `await limiter.start()` during setup to initialize the drain signal subscriber.
 - **Isolation**: never hardcode limiter IDs; always derive them from the `limiter_id` fixture with a disambiguation suffix (e.g., `f"{limiter_id}_generic"`).
@@ -534,9 +534,9 @@ When adding a new backend, create the following:
 4. `tests/implementations/<backend>/test_<backend>_limiter.py`: backend-specific tests for dispatch logic, payload handling, and other behavior unique to the backend.
 5. Add the backend class to the `TestConfigureHintCompliance` parametrize list in `tests/contracts/test_managed_mixin.py`.
 
-### 7.5 Redis Cleanup Guarantees
+### 7.5 Redis Isolation Strategy
 
-The `redis_client` and `async_redis_client` fixtures call `flushdb()` both before and after the test. However, if a test raises an exception before the fixture's `yield`, the post-test `flushdb()` may not execute. The pre-test `flushdb()` in the next test mitigates this, but tests should not rely on a clean database at startup without the fixture's guarantee. Always use the fixture rather than manual Redis setup.
+Test isolation is achieved through unique key namespaces rather than `flushdb()`. Every test receives a unique `limiter_id` and `lock_key` that include both the PID and a UUID fragment, guaranteeing no key collisions across concurrent processes (e.g., mutmut parallel forks). The `flushdb()` calls that previously provided isolation have been removed because they cause cross-process data destruction when multiple forked pytest sessions share the same Redis instance. Always derive keys from the `limiter_id` fixture rather than hardcoding Redis keys or calling `flushdb()` manually.
 
 ### 7.6 Warning Suppression
 

@@ -15,6 +15,8 @@ Tracks compliance of each file against `TESTING_GUIDELINES.md`. Files are checke
 - [x] `tests/helpers/tasks.py`
 - [x] `tests/helpers/utils.py`
 - [x] `tests/fixtures/celery_backend.py`
+- [x] `tests/fixtures/processpool_backend.py`
+- [x] `tests/fixtures/rq_backend.py`
 - [x] `tests/fixtures/threadpool_backend.py`
 
 ## Batch 2: algorithms/
@@ -27,6 +29,7 @@ Tracks compliance of each file against `TESTING_GUIDELINES.md`. Files are checke
 - [x] `tests/contracts/test_rate_limiter.py`
 - [x] `tests/contracts/test_task_lifecycle.py`
 - [x] `tests/contracts/test_distributed_lock.py`
+- [x] `tests/contracts/test_managed_mixin.py`
 
 ## Batch 4: implementations/ core mixins
 
@@ -96,6 +99,21 @@ Tracks compliance of each file against `TESTING_GUIDELINES.md`. Files are checke
 - [x] `tests/integration/test_rate_limiting.py`
 - [x] `tests/integration/test_distributed_rate_limiting.py`
 - [x] `tests/integrations/test_prometheus.py`
+
+## Batch 10: Post-migration additions
+
+- [x] `tests/implementations/test_backend_health_monitor.py`
+- [x] `tests/implementations/test_destructor_warning.py`
+- [x] `tests/implementations/test_optional_imports.py`
+- [x] `tests/lua/conftest.py`
+- [x] `tests/lua/test_acquire.py`
+- [x] `tests/lua/test_consume.py`
+- [x] `tests/lua/test_health.py`
+- [x] `tests/lua/test_lock_scripts.py`
+- [x] `tests/lua/test_renew.py`
+- [x] `tests/lua/test_schedule.py`
+- [x] `tests/plugins/mutmut_defaults_patch.py`
+- [x] `tests/plugins/verify_defaults_patch.py`
 
 ## Deferred Testing Decisions
 

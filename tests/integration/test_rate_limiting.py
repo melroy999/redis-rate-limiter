@@ -5,7 +5,7 @@ correctly enforces request limits and handles burst scenarios using
 Redis and Lua scripts.
 
 Fixture dependencies from the root ``tests/conftest.py``:
-    - ``redis_client``: sync Redis client with per-test ``flushdb`` isolation.
+    - ``redis_client``: sync Redis client (namespace-isolated).
     - ``limiter_id``: unique per-test limiter identifier.
     - ``func_path``: static function path string.
 
