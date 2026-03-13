@@ -7,14 +7,13 @@ Fixture dependencies:
 """
 
 import inspect
-import json
 import logging
 from unittest.mock import patch
 
 import pytest
 
 from redis_rate_limiter import CeleryRateLimiter
-from tests.helpers.utils import assert_log_emitted
+from tests.helpers.utils import assert_log_emitted, find_task_in_buffer
 
 
 @pytest.mark.behavior
@@ -35,10 +34,8 @@ class TestCeleryRateLimiter:
 
         # Assert
         assert success is True, "scheduling should succeed"
-        all_members = redis_client.zrange(limiter.buffer_key, 0, -1)
-        results = [m for m in all_members if f'"{task_id}"' in m]
-        assert len(results) == 1, "scheduled task should exist in buffer exactly once"
-        task_data = json.loads(results[0])
+        task_data = find_task_in_buffer(redis_client, limiter.buffer_key, task_id)
+        assert task_data is not None, "scheduled task should exist in buffer"
         assert task_data["payload"]["meta"]["use_executor"] is True, (
             "task metadata should default use_executor to true"
         )
@@ -60,10 +57,8 @@ class TestCeleryRateLimiter:
 
         # Assert
         assert success is True, "scheduling should succeed"
-        all_members = redis_client.zrange(limiter.buffer_key, 0, -1)
-        results = [m for m in all_members if f'"{task_id}"' in m]
-        assert len(results) == 1, "scheduled task should exist in buffer exactly once"
-        task_data = json.loads(results[0])
+        task_data = find_task_in_buffer(redis_client, limiter.buffer_key, task_id)
+        assert task_data is not None, "scheduled task should exist in buffer"
         assert task_data["payload"]["meta"]["use_executor"] is False, (
             "task metadata should store use_executor as false"
         )
@@ -204,9 +199,7 @@ class TestCeleryRateLimiter:
         limiter._drain_paused_until = 5_000_000_000.0
         max_age_override = 60
         default_ttl = limiter._get_inflight_ttl()
-        overridden_ttl = limiter._get_inflight_ttl(
-            max_age_override=max_age_override
-        )
+        overridden_ttl = limiter._get_inflight_ttl(max_age_override=max_age_override)
 
         # Act
         success, task_id = limiter.schedule_task(
@@ -313,9 +306,7 @@ class TestCeleryHealthCheckBoundary:
         """Verify that ``_check_backend_health`` calls
         ``ping`` with ``timeout=1.0``."""
         # Act
-        with patch.object(
-            limiter.app.control, "ping", return_value=[]
-        ) as mock_ping:
+        with patch.object(limiter.app.control, "ping", return_value=[]) as mock_ping:
             limiter._check_backend_health()
 
         # Assert
@@ -426,6 +417,4 @@ class TestCeleryScheduleTaskSignatures:
         sig = inspect.signature(CeleryRateLimiter.schedule_task)
 
         # Assert
-        assert sig.parameters["priority"].default == 100, (
-            "priority default must be 100"
-        )
+        assert sig.parameters["priority"].default == 100, "priority default must be 100"

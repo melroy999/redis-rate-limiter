@@ -744,7 +744,9 @@ class AbstractAsyncDistributedRateLimiter(
         Returns:
             A result containing the task data if consumption was successful.
         """
-        logger.debug("[%s] Consume attempt started: limiter=%s.", type(self).__name__, self.id)
+        logger.debug(
+            "[%s] Consume attempt started: limiter=%s.", type(self).__name__, self.id
+        )
 
         # fmt: off
         result = cast(  # pragma: no mutate
@@ -858,7 +860,10 @@ class AbstractAsyncDistributedRateLimiter(
             if hasattr(self, "refresh_config"):
                 await self.refresh_config()
 
-            if hasattr(self, "_drain_paused_until") and time.time() < self._drain_paused_until:
+            if (
+                hasattr(self, "_drain_paused_until")
+                and time.time() < self._drain_paused_until
+            ):
                 remaining = self._drain_paused_until - time.time()
                 logger.debug(
                     "[%s] Drain deferred: limiter=%s is paused for %.3fs.",
@@ -961,7 +966,9 @@ class AbstractAsyncDistributedRateLimiter(
 
             elif result["remaining_tasks"] == 0:
                 logger.debug(
-                    "[%s] Drain stopped: buffer empty for limiter=%s.", type(self).__name__, self.id
+                    "[%s] Drain stopped: buffer empty for limiter=%s.",
+                    type(self).__name__,
+                    self.id,
                 )
 
             elif result["active_concurrency"] >= self.max_concurrency:
@@ -1029,7 +1036,11 @@ class AbstractAsyncDistributedRateLimiter(
 
     async def trigger_consume(self) -> None:
         """Trigger consumption from the task queue."""
-        logger.debug("[%s] Trigger consume scheduling drain: limiter=%s.", type(self).__name__, self.id)
+        logger.debug(
+            "[%s] Trigger consume scheduling drain: limiter=%s.",
+            type(self).__name__,
+            self.id,
+        )
         self._schedule_drain()
         await self._publish_drain_signal()
 

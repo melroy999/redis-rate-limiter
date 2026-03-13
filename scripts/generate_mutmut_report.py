@@ -45,11 +45,11 @@ import libcst as cst
 sys.path.insert(0, str(Path(__file__).parent))
 
 from classify_mutants import (  # noqa: E402
-    ClassifiedMutation,
-    MutationDiff,
     _SCORE_HEADERS,
     _SCORE_LABELS,
     _SCORE_NOTES,
+    ClassifiedMutation,
+    MutationDiff,
     _classify,
     _extract_diff_lines,
     _find_mirrors,
@@ -58,7 +58,6 @@ from classify_mutants import (  # noqa: E402
     _shorten_name,
 )
 from extract_mutation_score import extract_score  # noqa: E402
-
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -235,7 +234,13 @@ def _parse_killed_by(
         if killed_during is not None:
             killed_during_data[name] = killed_during
 
-    return killed_by, tests_run_data, partial_data, tests_targeted_data, killed_during_data
+    return (
+        killed_by,
+        tests_run_data,
+        partial_data,
+        tests_targeted_data,
+        killed_during_data,
+    )
 
 
 def _load_all_test_nodeids(stats_path: Path) -> set[str]:
@@ -414,8 +419,7 @@ def _attach_mirror_keys(records: list[MutantRecord]) -> None:
         if r.name in classified_by_name and r.name in mirrored_names:
             cm = classified_by_name[r.name]
             r.mirror_key = (
-                f"{_normalize_for_mirror(cm.short_name)}"
-                f"|{cm.score}|{cm.mutation_type}"
+                f"{_normalize_for_mirror(cm.short_name)}|{cm.score}|{cm.mutation_type}"
             )
 
 
@@ -481,7 +485,9 @@ def _build_mutation_type_summary(
                 type_survived[mtype] += 1
 
     return {
-        mtype: MutationTypeSummary(total=type_total[mtype], survived=type_survived[mtype])
+        mtype: MutationTypeSummary(
+            total=type_total[mtype], survived=type_survived[mtype]
+        )
         for mtype in sorted(type_total, key=type_total.get, reverse=True)
     }
 
@@ -535,7 +541,8 @@ def _detect_uncovered_functions(
         mutated_functions.add(base)
 
     uncovered = sorted(
-        fn for fn in mutated_functions
+        fn
+        for fn in mutated_functions
         if fn not in tests_by_function or not tests_by_function[fn]
     )
     return uncovered
@@ -636,7 +643,9 @@ def _format_text_report(report: UnifiedReport) -> str:
     # Score summary.
     lines.append("Mutation Testing Report")
     lines.append("=" * 60)
-    lines.append(f"Score: {report.mutation_score:.2f}% ({report.killed}/{report.total} killed)")
+    lines.append(
+        f"Score: {report.mutation_score:.2f}% ({report.killed}/{report.total} killed)"
+    )
     lines.append("")
     lines.append(f"  Killed:     {report.killed:>5}")
     lines.append(f"  Survived:   {report.survived:>5}")
@@ -748,16 +757,14 @@ def _format_text_report(report: UnifiedReport) -> str:
         lines.append(f"  Mutants with kill data: {kb.tracked_kills}")
         lines.append(f"  Killing tests:         {kb.killing_tests}")
         if kb.total_tests:
-            lines.append(f"  Zero-kill tests:       {kb.zero_kill_tests} of {kb.total_tests}")
+            lines.append(
+                f"  Zero-kill tests:       {kb.zero_kill_tests} of {kb.total_tests}"
+            )
         lines.append("")
 
         kill_counts: Counter[str] = Counter()
         unique_kill_counts: Counter[str] = Counter()
-        killed_by_data = {
-            r.name: r.killed_by
-            for r in report.mutants
-            if r.killed_by
-        }
+        killed_by_data = {r.name: r.killed_by for r in report.mutants if r.killed_by}
         for test_list in killed_by_data.values():
             for t in test_list:
                 kill_counts[t] += 1
@@ -769,7 +776,9 @@ def _format_text_report(report: UnifiedReport) -> str:
             lines.append("  Top 20 killing tests:")
             for test_nodeid, count in kill_counts.most_common(20):
                 unique = unique_kill_counts.get(test_nodeid, 0)
-                lines.append(f"    {count:4d} kills ({unique:3d} unique)  {test_nodeid}")
+                lines.append(
+                    f"    {count:4d} kills ({unique:3d} unique)  {test_nodeid}"
+                )
             lines.append("")
 
     # Partial data (SIGXCPU killed the process before test completed).
@@ -796,15 +805,17 @@ def _format_text_report(report: UnifiedReport) -> str:
         lines.append("-" * 60)
         lines.append("  Top 10 most efficient:")
         for te in report.test_effectiveness[:10]:
-            kps = f"{te.kills_per_second:.1f}" if te.kills_per_second != float("inf") else "inf"
+            kps = (
+                f"{te.kills_per_second:.1f}"
+                if te.kills_per_second != float("inf")
+                else "inf"
+            )
             lines.append(
                 f"    {kps:>7} k/s  {te.kills:4d} kills  {te.duration_seconds:.3f}s  {te.test_nodeid}"
             )
         lines.append("")
 
-        zero_kill = [
-            te for te in report.test_effectiveness if te.kills == 0
-        ]
+        zero_kill = [te for te in report.test_effectiveness if te.kills == 0]
         if zero_kill:
             zero_kill.sort(key=lambda t: t.duration_seconds, reverse=True)
             lines.append(f"  Slowest zero-kill tests ({len(zero_kill)} total):")
@@ -834,7 +845,9 @@ def _format_text_report(report: UnifiedReport) -> str:
 
     # Uncovered functions.
     if report.uncovered_functions:
-        lines.append(f"Uncovered Functions ({len(report.uncovered_functions)} with zero test coverage)")
+        lines.append(
+            f"Uncovered Functions ({len(report.uncovered_functions)} with zero test coverage)"
+        )
         lines.append("-" * 60)
         for fn in report.uncovered_functions:
             lines.append(f"  {_shorten_name(fn)}")
@@ -970,7 +983,10 @@ def main() -> None:
     print("Loading mutation metadata...", flush=True)
     all_meta = _load_all_meta()
     if not all_meta:
-        print("Error: no mutation metadata found. Did mutmut run complete?", file=sys.stderr)
+        print(
+            "Error: no mutation metadata found. Did mutmut run complete?",
+            file=sys.stderr,
+        )
         sys.exit(1)
     print(f"  {len(all_meta)} mutants found.", flush=True)
 
@@ -990,9 +1006,15 @@ def main() -> None:
     try:
         with open(stats_path) as f:
             stats_data = json.load(f)
-        print(f"  Stats loaded: {len(stats_data.get('duration_by_test', {}))} test durations.", flush=True)
+        print(
+            f"  Stats loaded: {len(stats_data.get('duration_by_test', {}))} test durations.",
+            flush=True,
+        )
     except (FileNotFoundError, json.JSONDecodeError):
-        print("  Warning: mutmut-stats.json not found; test effectiveness will be unavailable.", flush=True)
+        print(
+            "  Warning: mutmut-stats.json not found; test effectiveness will be unavailable.",
+            flush=True,
+        )
 
     all_test_nodeids = _load_all_test_nodeids(stats_path)
 
@@ -1016,16 +1038,26 @@ def main() -> None:
 
     # Build records and attach mirror keys.
     records = _build_records(
-        all_meta, diffs, killed_by, tests_run_data or None,
-        partial_data or None, tests_targeted_data or None,
+        all_meta,
+        diffs,
+        killed_by,
+        tests_run_data or None,
+        partial_data or None,
+        tests_targeted_data or None,
         killed_during_data or None,
     )
     _attach_mirror_keys(records)
 
     # Build unified report.
     report = _build_report(
-        records, score, killed_count, total_count,
-        killed_by, all_test_nodeids, all_meta, stats_data,
+        records,
+        score,
+        killed_count,
+        total_count,
+        killed_by,
+        all_test_nodeids,
+        all_meta,
+        stats_data,
     )
 
     # Write output files.

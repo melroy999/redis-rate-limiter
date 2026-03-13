@@ -20,25 +20,15 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
-from tests.implementations.conftest import StubRateLimiter
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
-def property_limiter(property_redis_client, module_limiter_id):
+def property_limiter(make_property_limiter):
     """Provide a module-scoped rate limiter for in-flight TTL property tests."""
-    return StubRateLimiter(
-        redis_client=property_redis_client,
-        limiter_id=f"{module_limiter_id}_property_inflight_ttl",
-        limit=10,
-        window=1.0,
-        max_concurrency=5,
-        max_age=3600,
-        lease_duration=30,
-    )
+    return make_property_limiter("inflight_ttl")
 
 
 # ---------------------------------------------------------------------------

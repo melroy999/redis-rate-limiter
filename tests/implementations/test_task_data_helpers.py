@@ -88,9 +88,7 @@ class TestTaskSignature:
         signature = stub_limiter._get_task_signature_str(func_path, payload)
 
         # Assert
-        expected = json.dumps(
-            {"path": func_path, "payload": payload}, sort_keys=True
-        )
+        expected = json.dumps({"path": func_path, "payload": payload}, sort_keys=True)
         assert signature == expected, (
             "signature must match json.dumps with sort_keys=True"
         )
@@ -133,8 +131,7 @@ class TestInflightTtl:
         # Assert
         # Each of the three components floors to 1.0: ceil(1.0+1.0+1.0) = 3.
         assert ttl == 3, (
-            "inflight TTL should be 3 when all components"
-            " are zero (each floors to 1.0)"
+            "inflight TTL should be 3 when all components are zero (each floors to 1.0)"
         )
 
     @staticmethod
@@ -427,6 +424,4 @@ class TestTaskDataHelperSignatures:
         sig = inspect.signature(AbstractDistributedRateLimiter.schedule_task)
 
         # Assert
-        assert sig.parameters["priority"].default == 100, (
-            "priority default must be 100"
-        )
+        assert sig.parameters["priority"].default == 100, "priority default must be 100"

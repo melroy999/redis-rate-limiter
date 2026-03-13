@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+from tests.helpers.utils import schedule_n_tasks
 from tests.implementations.conftest import StubRateLimiter
 from tests.integration.conftest import consume_and_complete, precise_sleep
 
@@ -30,8 +31,7 @@ pytestmark = [
     pytest.mark.skipif(
         sys.platform == "win32",
         reason=(
-            "Windows timer resolution (~15ms) makes "
-            "sub-second timing tests unreliable."
+            "Windows timer resolution (~15ms) makes sub-second timing tests unreliable."
         ),
     ),
 ]
@@ -40,16 +40,6 @@ pytestmark = [
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def schedule_n_tasks(limiter: StubRateLimiter, n: int, func_path: str) -> list[str]:
-    """Preload the limiter buffer with ``n`` unique tasks."""
-    task_ids: list[str] = []
-    for i in range(n):
-        scheduled, task_id = limiter.schedule_task(func_path, {"seq": i})
-        assert scheduled, f"failed to schedule task {i}"
-        task_ids.append(task_id)
-    return task_ids
 
 
 def make_distributed_limiter(

@@ -310,7 +310,11 @@ class TestImportStringObservability:
             caplog.records,
             level="DEBUG",
             label="[ImportResolver]",
-            required_fragments=["import_path=json.dumps", "module=json", "callable=dumps"],
+            required_fragments=[
+                "import_path=json.dumps",
+                "module=json",
+                "callable=dumps",
+            ],
             message="should emit a debug log for the resolved import"
             " with import path, module, and callable",
         )

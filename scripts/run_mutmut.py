@@ -507,9 +507,7 @@ class KilledByCollector:
                 self.killed_by.append(item.nodeid)
                 # Flush incrementally so partial data survives SIGXCPU.
                 if self._mutant_name is not None:
-                    _write_killed_by_temp_file(
-                        self._mutant_name, self, partial=False
-                    )
+                    _write_killed_by_temp_file(self._mutant_name, self, partial=False)
 
 
 def _patched_run_tests(self, *, mutant_name, tests):  # type: ignore[no-untyped-def]
@@ -611,8 +609,12 @@ def _patched_sfmd_register_result(self, *, pid, exit_code):  # type: ignore[no-u
             killed_during = data.get("killed_during")
             if killed_by or tests_targeted:
                 _append_killed_by(
-                    key, killed_by, tests_run,
-                    tests_targeted, partial, killed_during,
+                    key,
+                    killed_by,
+                    tests_run,
+                    tests_targeted,
+                    partial,
+                    killed_during,
                 )
         except (json.JSONDecodeError, OSError):
             pass

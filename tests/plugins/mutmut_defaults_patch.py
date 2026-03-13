@@ -87,7 +87,7 @@ def _patch_trampoline_defaults(mutant_id: str) -> None:
     if best_mod is None:
         return
 
-    local_name = mutant_id[len(best_prefix):]
+    local_name = mutant_id[len(best_prefix) :]
 
     if _CLASS_NAME_SEP in local_name:
         _patch_class_method(best_mod, local_name)

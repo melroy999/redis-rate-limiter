@@ -342,7 +342,7 @@ class TestRateLimitedDecorator:
             return "ok"
 
         # Act & Assert
-        with pytest.raises(AttributeError):
+        with pytest.raises(AttributeError, match="task_lifecycle"):
             wrapped_function(_rate_limit_task_id=task_id)
 
     @staticmethod

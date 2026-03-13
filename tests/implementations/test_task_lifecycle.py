@@ -274,9 +274,7 @@ class TestTaskLifecycleBoundary:
             thread = lifecycle._thread
 
             # Assert
-            assert thread.daemon is True, (
-                "heartbeat thread must be a daemon thread"
-            )
+            assert thread.daemon is True, "heartbeat thread must be a daemon thread"
 
     @staticmethod
     def test_heartbeat_thread_join_uses_timeout(mock_limiter, task_id):
@@ -286,9 +284,7 @@ class TestTaskLifecycleBoundary:
         mock_thread = MagicMock()
         mock_thread.is_alive.return_value = True
 
-        with patch(
-            "redis_rate_limiter.core.limiters.Thread", return_value=mock_thread
-        ):
+        with patch("redis_rate_limiter.core.limiters.Thread", return_value=mock_thread):
             # Act
             with TaskLifecycle(mock_limiter, task_id):
                 pass
@@ -304,9 +300,7 @@ class TestTaskLifecycleBoundary:
         mock_thread = MagicMock()
         mock_thread.is_alive.return_value = False
 
-        with patch(
-            "redis_rate_limiter.core.limiters.Thread", return_value=mock_thread
-        ):
+        with patch("redis_rate_limiter.core.limiters.Thread", return_value=mock_thread):
             # Act
             with TaskLifecycle(mock_limiter, task_id):
                 pass

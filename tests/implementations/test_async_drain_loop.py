@@ -263,9 +263,7 @@ class TestAsyncDrainLoop:
         await cancel_task
 
         # Assert
-        assert loop._task.done(), (
-            "task should be done after shutdown cancels it"
-        )
+        assert loop._task.done(), "task should be done after shutdown cancels it"
 
     @staticmethod
     async def test_lazy_start():

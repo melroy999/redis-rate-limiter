@@ -21,6 +21,15 @@ from redis_rate_limiter import (
 )
 
 # ---------------------------------------------------------------------------
+# Shared test configuration
+# ---------------------------------------------------------------------------
+
+DEFAULT_LIMITER_CONFIG: dict = dict(
+    limit=5, window=60, max_concurrency=2, max_age=3600, lease_duration=30
+)
+"""Default rate limiter parameters used across test fixtures."""
+
+# ---------------------------------------------------------------------------
 # Sync test helpers
 # ---------------------------------------------------------------------------
 
@@ -125,11 +134,7 @@ def stub_limiter(redis_client, limiter_id):
     test_limiter = StubRateLimiter(
         redis_client=redis_client,
         limiter_id=limiter_id,
-        limit=5,
-        window=60,
-        max_concurrency=2,
-        max_age=3600,
-        lease_duration=30,
+        **DEFAULT_LIMITER_CONFIG,
     )
 
     yield test_limiter
@@ -145,11 +150,7 @@ def tracking_limiter(redis_client, limiter_id):
     test_limiter = TrackingRateLimiter(
         redis_client=redis_client,
         limiter_id=limiter_id,
-        limit=5,
-        window=60,
-        max_concurrency=2,
-        max_age=3600,
-        lease_duration=30,
+        **DEFAULT_LIMITER_CONFIG,
     )
 
     yield test_limiter
@@ -170,9 +171,7 @@ def make_limiter_pool(redis_client, limiter_id):
 
     def _factory(n, *, limiter_cls=StubRateLimiter, **kwargs):
         pool_limiter_id = f"{limiter_id}_concurrent"
-        defaults = dict(
-            limit=5, window=60, max_concurrency=2, max_age=3600, lease_duration=30
-        )
+        defaults = dict(DEFAULT_LIMITER_CONFIG)
         defaults.update(kwargs)
         limiters = [
             limiter_cls(
@@ -202,11 +201,7 @@ async def async_stub_limiter(async_redis_client, limiter_id):
     test_limiter = AsyncStubRateLimiter(
         redis_client=async_redis_client,
         limiter_id=limiter_id,
-        limit=5,
-        window=60,
-        max_concurrency=2,
-        max_age=3600,
-        lease_duration=30,
+        **DEFAULT_LIMITER_CONFIG,
     )
     await test_limiter.start()
 
@@ -223,11 +218,7 @@ async def async_tracking_limiter(async_redis_client, limiter_id):
     test_limiter = AsyncTrackingRateLimiter(
         redis_client=async_redis_client,
         limiter_id=limiter_id,
-        limit=5,
-        window=60,
-        max_concurrency=2,
-        max_age=3600,
-        lease_duration=30,
+        **DEFAULT_LIMITER_CONFIG,
     )
     await test_limiter.start()
 
@@ -249,9 +240,7 @@ async def make_async_limiter_pool(async_redis_client, limiter_id):
 
     async def _factory(n, *, limiter_cls=AsyncStubRateLimiter, **kwargs):
         pool_limiter_id = f"{limiter_id}_async_concurrent"
-        defaults = dict(
-            limit=5, window=60, max_concurrency=2, max_age=3600, lease_duration=30
-        )
+        defaults = dict(DEFAULT_LIMITER_CONFIG)
         defaults.update(kwargs)
         limiters = []
         for _ in range(n):

@@ -4,6 +4,7 @@ This module provides utility functions that are used across multiple test files.
 """
 
 import asyncio
+import json
 import logging
 import math
 import time
@@ -129,6 +130,7 @@ def assert_log_emitted(
     """Assert that at least one log record matches the given level, starts with ``label``, and
     contains all ``required_fragments`` as substrings.
     """
+
     def _matches(record: logging.LogRecord) -> bool:
         if record.levelname != level:
             return False
@@ -144,6 +146,57 @@ def assert_log_emitted(
         return True
 
     assert any(_matches(record) for record in caplog_records), message
+
+
+def find_task_in_buffer(redis_client, buffer_key: str, task_id: str) -> dict | None:
+    """Find and parse a single task by ID from the buffer sorted set (sync).
+
+    Returns the parsed task dictionary, or ``None`` if no match exists.
+    Raises ``AssertionError`` if more than one entry matches.
+    """
+    all_members = redis_client.zrange(buffer_key, 0, -1)
+    results = [m for m in all_members if f'"{task_id}"' in m]
+    if not results:
+        return None
+    assert len(results) == 1, (
+        f"task with ID {task_id} found {len(results)} times in buffer, expected at most 1"
+    )
+    return json.loads(results[0])
+
+
+async def async_find_task_in_buffer(
+    redis_client, buffer_key: str, task_id: str
+) -> dict | None:
+    """Async equivalent of :func:`find_task_in_buffer`."""
+    all_members = await redis_client.zrange(buffer_key, 0, -1)
+    results = [m for m in all_members if f'"{task_id}"' in m]
+    if not results:
+        return None
+    assert len(results) == 1, (
+        f"task with ID {task_id} found {len(results)} times in buffer, expected at most 1"
+    )
+    return json.loads(results[0])
+
+
+def clear_limiter_keys(redis_client, limiter) -> None:
+    """Delete all Redis keys belonging to the given limiter instance."""
+    keys = redis_client.keys(f"{limiter.id}:*")
+    if keys:
+        redis_client.delete(*keys)
+
+
+def schedule_n_tasks(
+    limiter,
+    n: int,
+    func_path: str = "rate_limiter.test.task.function",
+) -> list[str]:
+    """Preload the limiter buffer with ``n`` unique tasks and return their IDs."""
+    task_ids: list[str] = []
+    for i in range(n):
+        scheduled, task_id = limiter.schedule_task(func_path, {"seq": i})
+        assert scheduled, f"failed to schedule task {i}"
+        task_ids.append(task_id)
+    return task_ids
 
 
 def is_subset(target: dict, superset: dict):

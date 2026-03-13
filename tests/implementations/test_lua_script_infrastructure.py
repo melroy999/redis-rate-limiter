@@ -131,14 +131,11 @@ class TestScriptLoaderFallback:
         packages = ("fake.package.alpha", "fake.package.beta")
 
         # Act
-        with pytest.raises(ImportError) as exc_info:
+        with pytest.raises(ImportError, match="fake.package.alpha") as exc_info:
             load_lua_script("nonexistent.lua", resource_packages=packages)
 
         # Assert
         message = str(exc_info.value)
-        assert "fake.package.alpha" in message, (
-            "error message should mention the first package attempted"
-        )
         assert "fake.package.beta" in message, (
             "error message should mention the second package attempted"
         )
@@ -271,9 +268,7 @@ class TestSyncEvalScript:
         expected_sha = limiter._script_shas["health.lua"]
 
         # Act
-        with patch.object(
-            limiter.redis, "evalsha", return_value=1
-        ) as mock_evalsha:
+        with patch.object(limiter.redis, "evalsha", return_value=1) as mock_evalsha:
             limiter._eval_script("health.lua", 0)
 
         # Assert
@@ -499,20 +494,25 @@ class TestScriptLoaderFallbackObservability:
             load_lua_script("schedule.lua")
 
         # Assert
-        # The log message must include both the script name and the package that
-        # resolved it. Removing the resource_package argument from the logger.debug
-        # call would cause the package name to be absent from the formatted message.
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label="[ScriptLoader]",
+            required_fragments=["script=schedule.lua"],
+            message="should emit a debug log for a successful script load",
+        )
+        # The resolved package must also appear in the log message.
         debug_records = [
             r
             for r in caplog.records
-            if r.levelname == "DEBUG" and "schedule.lua" in r.getMessage()
+            if r.levelname == "DEBUG" and r.message.startswith("[ScriptLoader]")
         ]
-        assert len(debug_records) == 1, (
-            "exactly one debug log should be emitted for a successful script load"
-        )
-        message = debug_records[0].getMessage()
-        assert any(pkg in message for pkg in DEFAULT_RESOURCE_PACKAGES), (
-            f"debug log must include the resolved resource package name, got: {message}"
+        assert any(
+            f"package={pkg}" in debug_records[0].message
+            for pkg in DEFAULT_RESOURCE_PACKAGES
+        ), (
+            f"debug log must include the resolved resource package name,"
+            f" got: {debug_records[0].message}"
         )
 
 

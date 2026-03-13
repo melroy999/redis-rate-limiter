@@ -1138,7 +1138,9 @@ class AbstractDistributedRateLimiter(
         Raises:
             RuntimeError: If the required Lua scripts cannot be (re)loaded.
         """
-        logger.debug("[%s] Consume attempt started: limiter=%s.", type(self).__name__, self.id)
+        logger.debug(
+            "[%s] Consume attempt started: limiter=%s.", type(self).__name__, self.id
+        )
 
         # fmt: off
         result = cast(  # pragma: no mutate
@@ -1277,7 +1279,10 @@ class AbstractDistributedRateLimiter(
 
             # Respect the window-change pause: skip draining until the pause expires,
             # but schedule a follow-up so that the drain loop resumes automatically.
-            if hasattr(self, "_drain_paused_until") and time.time() < self._drain_paused_until:
+            if (
+                hasattr(self, "_drain_paused_until")
+                and time.time() < self._drain_paused_until
+            ):
                 remaining = self._drain_paused_until - time.time()
                 logger.debug(
                     "[%s] Drain deferred: limiter=%s is paused for %.3fs for window transition.",
@@ -1394,7 +1399,11 @@ class AbstractDistributedRateLimiter(
 
             elif result["remaining_tasks"] == 0:
                 # Stop: no remaining tasks. The next drain will be triggered when a new task is added.
-                logger.debug("[%s] Drain stopped: buffer empty for limiter=%s.", type(self).__name__, self.id)
+                logger.debug(
+                    "[%s] Drain stopped: buffer empty for limiter=%s.",
+                    type(self).__name__,
+                    self.id,
+                )
 
             elif result["active_concurrency"] >= self.max_concurrency:
                 # Stop: the next drain will be triggered upon worker completion.
@@ -1478,7 +1487,11 @@ class AbstractDistributedRateLimiter(
         so that other workers sharing the same limiter identifier can also
         attempt to consume.
         """
-        logger.debug("[%s] Trigger consume scheduling drain: limiter=%s.", type(self).__name__, self.id)
+        logger.debug(
+            "[%s] Trigger consume scheduling drain: limiter=%s.",
+            type(self).__name__,
+            self.id,
+        )
         self._schedule_drain()
         self._publish_drain_signal()
 

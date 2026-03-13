@@ -23,7 +23,11 @@ from redis_rate_limiter.core.async_limiters import AbstractAsyncDistributedRateL
 from redis_rate_limiter.core.limiters import AbstractDistributedRateLimiter
 from tests.contracts.test_rate_limiter import RateLimiterContractTest
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
-from tests.helpers.utils import assert_log_emitted, is_subset
+from tests.helpers.utils import (
+    assert_log_emitted,
+    async_find_task_in_buffer,
+    is_subset,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -41,15 +45,10 @@ async def assert_task_existence(
         f"task {task_id} must be marked as in-flight"
     )
 
-    all_members = await async_redis_client.zrange(limiter.buffer_key, 0, -1)
-    results = [m for m in all_members if f'"{task_id}"' in m]
-    assert len(results) > 0, f"task with ID {task_id} not found in buffer"
-    assert len(results) == 1, (
-        f"task with ID {task_id} has been found more than once in the buffer"
+    full_data_server = await async_find_task_in_buffer(
+        async_redis_client, limiter.buffer_key, task_id
     )
-
-    full_data_server_str = results[0]
-    full_data_server = json.loads(full_data_server_str)
+    assert full_data_server is not None, f"task with ID {task_id} not found in buffer"
 
     assert is_subset(full_data, full_data_server), (
         f"task with ID {task_id} has a data mismatch"
@@ -679,7 +678,11 @@ class RateLimiterObservabilityTests:
             caplog.records,
             level="INFO",
             label=self._log_label,
-            required_fragments=[f"limiter={limiter.id}", f"task_id={task_id}", f"func_path={func_path}"],
+            required_fragments=[
+                f"limiter={limiter.id}",
+                f"task_id={task_id}",
+                f"func_path={func_path}",
+            ],
             message="should emit an info log for the successfully scheduled task",
         )
 
@@ -700,7 +703,11 @@ class RateLimiterObservabilityTests:
             caplog.records,
             level="DEBUG",
             label=self._log_label,
-            required_fragments=[f"limiter={limiter.id}", f"task_id={task_id}", "already in-flight"],
+            required_fragments=[
+                f"limiter={limiter.id}",
+                f"task_id={task_id}",
+                "already in-flight",
+            ],
             message="should emit a debug log for the skipped duplicate "
             "with limiter id and task id",
         )
@@ -796,9 +803,5 @@ class TestScheduleTaskSignatures:
         sig = inspect.signature(AbstractAsyncDistributedRateLimiter.schedule_task)
 
         # Assert
-        assert sig.parameters["priority"].default == 100, (
-            "priority default must be 100"
-        )
-        assert sig.parameters["max_age"].default is None, (
-            "max_age default must be None"
-        )
+        assert sig.parameters["priority"].default == 100, "priority default must be 100"
+        assert sig.parameters["max_age"].default is None, "max_age default must be None"

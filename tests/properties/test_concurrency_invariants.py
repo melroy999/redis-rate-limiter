@@ -12,15 +12,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from tests.implementations.conftest import StubRateLimiter
-
-
-def _clear_limiter_keys(redis_client, limiter):
-    """Delete all Redis keys belonging to the given limiter instance."""
-    keys = redis_client.keys(f"{limiter.id}:*")
-    if keys:
-        redis_client.delete(*keys)
-
+from tests.helpers.utils import clear_limiter_keys
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -28,19 +20,10 @@ def _clear_limiter_keys(redis_client, limiter):
 
 
 @pytest.fixture(scope="module")
-def property_limiter(
-    property_redis_client,
-    module_limiter_id,
-):
+def property_limiter(make_property_limiter):
     """Provide a module-scoped rate limiter for concurrency-invariant property tests."""
-    return StubRateLimiter(
-        redis_client=property_redis_client,
-        limiter_id=f"{module_limiter_id}_property_concurrency",
-        limit=10_000,
-        window=60,
-        max_concurrency=3,
-        max_age=3600,
-        lease_duration=30,
+    return make_property_limiter(
+        "concurrency", limit=10_000, window=60, max_concurrency=3
     )
 
 
@@ -70,7 +53,7 @@ class TestConcurrencyInvariantProperties:
         """Property: the active concurrency never exceeds
         the configured max_concurrency."""
         # Arrange
-        _clear_limiter_keys(property_redis_client, property_limiter)
+        clear_limiter_keys(property_redis_client, property_limiter)
         next_payload_id = 0
         active_task_ids = set()
 
@@ -108,4 +91,4 @@ class TestConcurrencyInvariantProperties:
             ), "concurrency set cardinality must never exceed max_concurrency"
 
         # Cleanup
-        _clear_limiter_keys(property_redis_client, property_limiter)
+        clear_limiter_keys(property_redis_client, property_limiter)

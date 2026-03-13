@@ -711,7 +711,9 @@ class TestDrainSignalSubscriberObservability:
 
         # Act
         with shutdown_timer(subscriber, timeout=2.0):
-            with caplog.at_level(logging.ERROR, logger="redis_rate_limiter.core.limiters"):
+            with caplog.at_level(
+                logging.ERROR, logger="redis_rate_limiter.core.limiters"
+            ):
                 subscriber._run()
 
         # Assert

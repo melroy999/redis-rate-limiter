@@ -275,7 +275,11 @@ class MetricsCallbackObservabilityTests:
             caplog.records,
             level="DEBUG",
             label=self._log_label,
-            required_fragments=[f"limiter={limiter.id}", "success=False", "remaining_tokens=10"],
+            required_fragments=[
+                f"limiter={limiter.id}",
+                "success=False",
+                "remaining_tokens=10",
+            ],
             message="should emit a debug log for the consume result"
             " with limiter id, success, and remaining tokens",
         )

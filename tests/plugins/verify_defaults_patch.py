@@ -17,10 +17,10 @@ import inspect
 import sys
 import types
 
-
 # ---------------------------------------------------------------------------
 # Simulate mutmut's trampoline code generation
 # ---------------------------------------------------------------------------
+
 
 def _build_simulated_module() -> types.ModuleType:
     """Create a fake module that mimics mutmut's trampoline output.
@@ -72,6 +72,7 @@ def _build_simulated_module() -> types.ModuleType:
 # ---------------------------------------------------------------------------
 # Verification
 # ---------------------------------------------------------------------------
+
 
 def test_defaults_before_patch() -> None:
     """Verify the trampoline has the original defaults before patching."""

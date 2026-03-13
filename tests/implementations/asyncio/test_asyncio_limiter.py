@@ -107,8 +107,7 @@ class TestAsyncIOTaskLimiter:
 
     @staticmethod
     async def test_get_buffer_count_reflects_scheduled_tasks(limiter):
-        """Verify that ``get_buffer_count`` returns the correct count after scheduling.
-        """
+        """Verify that ``get_buffer_count`` returns the correct count after scheduling."""
         # Arrange
         limiter._drain_paused_until = 5_000_000_000.0
         await limiter.schedule_task("tests.helpers.tasks.async_noop_task", {"key": "a"})
@@ -120,9 +119,7 @@ class TestAsyncIOTaskLimiter:
         count = await limiter.get_buffer_count()
 
         # Assert
-        assert count == 2, (
-            f"buffer count should equal 2 scheduled tasks, got {count}"
-        )
+        assert count == 2, f"buffer count should equal 2 scheduled tasks, got {count}"
 
     @staticmethod
     async def test_get_status_returns_dict_with_required_sections(

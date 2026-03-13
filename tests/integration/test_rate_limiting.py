@@ -332,7 +332,7 @@ class TestRateLimitingIntegration:
         assert result["success"] is True, "first consume should succeed"
         task_id = result["task"]["id"]
 
-        with pytest.raises(RuntimeError):
+        with pytest.raises(RuntimeError, match="simulated task failure"):
             with integration_limiter.task_lifecycle(task_id):
                 raise RuntimeError("simulated task failure")
 

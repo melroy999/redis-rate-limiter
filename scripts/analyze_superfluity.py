@@ -42,7 +42,6 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # Killed-by tracking (full matrix, no -x)
 # ---------------------------------------------------------------------------
@@ -103,9 +102,7 @@ class KilledByCollector:
             if call.excinfo is not None:
                 self.killed_by.append(item.nodeid)
                 if self._mutant_name is not None:
-                    _write_killed_by_temp_file(
-                        self._mutant_name, self, partial=False
-                    )
+                    _write_killed_by_temp_file(self._mutant_name, self, partial=False)
 
 
 def _patched_run_tests(self, *, mutant_name, tests):  # type: ignore[no-untyped-def]
@@ -185,8 +182,11 @@ def _patched_sfmd_register_result(self, *, pid, exit_code):  # type: ignore[no-u
             partial = data.get("partial", False)
             if killed_by or tests_targeted:
                 _append_killed_by(
-                    key, killed_by, tests_run,
-                    tests_targeted, partial,
+                    key,
+                    killed_by,
+                    tests_run,
+                    tests_targeted,
+                    partial,
                 )
         except (json.JSONDecodeError, OSError):
             pass
@@ -230,14 +230,13 @@ def _apply_patches(test_file: str) -> None:
     ensure_config_loaded()
 
     # Import shared decorator patches from run_mutmut.
+    import libcst as cst
     from run_mutmut import (
         _build_patched_trampoline_impl,
         _patched_create_trampoline_wrapper,
         _patched_function_trampoline_arrangement,
         _patched_skip_node_and_children,
     )
-
-    import libcst as cst
 
     # Patch 1: selective decorator skip.
     file_mutation.MutationVisitor._skip_node_and_children = (  # type: ignore[assignment]
@@ -337,12 +336,14 @@ def _analyze_superfluity(
                 # test_a is superfluous if its kills are a strict subset
                 # of test_b's kills.
                 if kills_a < kills_b:
-                    superfluous.append({
-                        "test": test_a,
-                        "kills": len(kills_a),
-                        "subsumed_by": test_b,
-                        "subsumed_by_kills": len(kills_b),
-                    })
+                    superfluous.append(
+                        {
+                            "test": test_a,
+                            "kills": len(kills_a),
+                            "subsumed_by": test_b,
+                            "subsumed_by_kills": len(kills_b),
+                        }
+                    )
                     break  # Only report the first subsuming test.
 
         class_result: dict = {
@@ -500,8 +501,7 @@ def _discover_test_files() -> list[str]:
     project_root = Path(__file__).resolve().parent.parent
     tests_dir = project_root / "tests"
     test_files = sorted(
-        str(p.relative_to(project_root))
-        for p in tests_dir.rglob("test_*.py")
+        str(p.relative_to(project_root)) for p in tests_dir.rglob("test_*.py")
     )
     return test_files
 
@@ -625,9 +625,7 @@ def _run_all(output_dir: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description=(
-            "Run class-local test superfluity analysis via mutation testing."
-        ),
+        description=("Run class-local test superfluity analysis via mutation testing."),
     )
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(

@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from redis_rate_limiter import ThreadPoolRateLimiter
+from tests.implementations.conftest import DEFAULT_LIMITER_CONFIG
 
 
 @pytest.fixture(scope="session")
@@ -39,11 +40,7 @@ def limiter(redis_client, limiter_id, _reset_limiter_class_state):
     # Setup
     test_limiter = ThreadPoolRateLimiter.create(
         limiter_id=limiter_id,
-        limit=5,
-        window=60,
-        max_concurrency=2,
-        max_age=3600,
-        lease_duration=30,
+        **DEFAULT_LIMITER_CONFIG,
         override=True,
     )
 

@@ -968,9 +968,7 @@ class DrainObservabilityTests:
         execution capacity is exhausted."""
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
-            with patch.object(
-                mock_target, "_has_local_capacity", return_value=False
-            ):
+            with patch.object(mock_target, "_has_local_capacity", return_value=False):
                 await limiter.drain()
 
         # Assert
@@ -1112,12 +1110,9 @@ class DrainBoundaryTests:
             await limiter.drain()
 
         # Assert
-        assert len(limiter.dispatched_tasks) == 1, (
-            "drain should dispatch the task"
-        )
+        assert len(limiter.dispatched_tasks) == 1, "drain should dispatch the task"
         assert limiter.scheduled_drains == [0.0], (
-            "drain should schedule an immediate follow-up"
-            " when exactly one task remains"
+            "drain should schedule an immediate follow-up when exactly one task remains"
         )
 
     async def test_drain_delay_is_base_plus_jitter_rounded_to_three_decimals(
@@ -1210,10 +1205,7 @@ class DrainBoundaryTests:
             active_concurrency=1,
         )
 
-
-    async def test_drain_stops_when_concurrency_equals_max(
-        self, limiter, mock_target
-    ):
+    async def test_drain_stops_when_concurrency_equals_max(self, limiter, mock_target):
         """Verify that ``drain()`` does not schedule a follow-up
         when active concurrency equals max concurrency."""
         # Arrange
@@ -1321,9 +1313,7 @@ class DrainBoundaryTests:
         assert len(limiter.scheduled_drains) == 1, (
             "drain should schedule a recovery when remaining_tokens is exactly zero"
         )
-        assert limiter.scheduled_drains[0] > 0, (
-            "recovery delay should be positive"
-        )
+        assert limiter.scheduled_drains[0] > 0, "recovery delay should be positive"
 
 
 @pytest.mark.behavior

@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pytest
 
+from tests.helpers.utils import schedule_n_tasks
 from tests.implementations.conftest import TrackingRateLimiter
 
 # The number of concurrent simulated workers (threads).
@@ -74,20 +75,6 @@ def run_concurrently(fn, args_list):
     return results
 
 
-def schedule_n_tasks(limiter, n):
-    """Preload the limiter buffer with ``n`` unique tasks.
-
-    Returns:
-        A list of task IDs in scheduling order.
-    """
-    task_ids: list[str] = []
-    for i in range(n):
-        scheduled, task_id = limiter.schedule_task(FUNC_PATH, {"task_index": i})
-        assert scheduled, f"failed to schedule task {i}"
-        task_ids.append(task_id)
-    return task_ids
-
-
 def complete_task(redis_client, limiter, task_id):
     """Simulate task completion by cleaning up the Redis state.
 
@@ -133,9 +120,7 @@ class TestConcurrentScheduling:
 
         # Assert
         all_scheduled = [r for batch in all_results for r in batch]
-        scheduled_count = sum(
-            1 for scheduled, _ in all_scheduled if scheduled
-        )
+        scheduled_count = sum(1 for scheduled, _ in all_scheduled if scheduled)
         assert scheduled_count == len(all_scheduled), (
             f"every unique task must be scheduled, "
             f"got {scheduled_count}/{len(all_scheduled)}"
@@ -172,8 +157,7 @@ class TestConcurrentScheduling:
         # Assert
         scheduled_count = sum(1 for scheduled, _ in results if scheduled)
         assert scheduled_count == 1, (
-            f"exactly one thread should win the SET NX race, "
-            f"got {scheduled_count}"
+            f"exactly one thread should win the SET NX race, got {scheduled_count}"
         )
 
         buffer_size = redis_client.zcard(limiters[0].buffer_key)
@@ -202,7 +186,7 @@ class TestConcurrentConsumption:
             WORKERS, limit=limit, window=60, max_concurrency=1000
         )
 
-        schedule_n_tasks(limiters[0], n=limit * 5)
+        schedule_n_tasks(limiters[0], func_path=FUNC_PATH, n=limit * 5)
 
         # If the window is about to roll over (less than 2 seconds
         # remaining), wait for a fresh window so the concurrent
@@ -239,8 +223,7 @@ class TestConcurrentConsumption:
         # and both decide to reject.
         total = sum(len(batch) for batch in all_consumed) + probe_consumed
         assert total <= limit, (
-            f"rate limit exceeded: consumed {total}, "
-            f"limit is {limit}"
+            f"rate limit exceeded: consumed {total}, limit is {limit}"
         )
         assert total >= limit - 1, (
             f"consumed far fewer than expected: {total}, limit is {limit}"
@@ -257,7 +240,7 @@ class TestConcurrentConsumption:
             WORKERS, limit=1000, window=60, max_concurrency=max_conc
         )
 
-        schedule_n_tasks(limiters[0], n=50)
+        schedule_n_tasks(limiters[0], func_path=FUNC_PATH, n=50)
 
         def consume_once(limiter):
             return limiter.consume()
@@ -276,9 +259,7 @@ class TestConcurrentConsumption:
                 f"exceeds max {max_conc}"
             )
 
-        actual_concurrency = redis_client.zcard(
-            limiters[0].concurrency_key
-        )
+        actual_concurrency = redis_client.zcard(limiters[0].concurrency_key)
         assert actual_concurrency == max_conc, (
             f"expected all {max_conc} concurrency slots filled, "
             f"got {actual_concurrency}"
@@ -298,7 +279,9 @@ class TestConcurrentConsumption:
             WORKERS, limit=1000, window=60, max_concurrency=1000
         )
 
-        scheduled_ids = set(schedule_n_tasks(limiters[0], n=num_tasks))
+        scheduled_ids = set(
+            schedule_n_tasks(limiters[0], func_path=FUNC_PATH, n=num_tasks)
+        )
 
         def consume_all(limiter):
             consumed = []
@@ -315,9 +298,7 @@ class TestConcurrentConsumption:
         )
 
         # Assert
-        all_task_ids = [
-            tid for batch in all_consumed for tid in batch
-        ]
+        all_task_ids = [tid for batch in all_consumed for tid in batch]
         assert len(all_task_ids) == len(set(all_task_ids)), (
             f"duplicate consumption detected: "
             f"{len(all_task_ids)} consumed "
@@ -353,7 +334,7 @@ class TestConcurrentDrain:
             max_concurrency=1000,
         )
 
-        schedule_n_tasks(limiters[0], n=num_tasks)
+        schedule_n_tasks(limiters[0], func_path=FUNC_PATH, n=num_tasks)
 
         def drain_once(limiter):
             limiter.drain()
@@ -396,7 +377,9 @@ class TestConcurrentDrain:
             max_concurrency=max_conc,
         )
 
-        scheduled_ids = set(schedule_n_tasks(limiters[0], n=num_tasks))
+        scheduled_ids = set(
+            schedule_n_tasks(limiters[0], func_path=FUNC_PATH, n=num_tasks)
+        )
 
         consumed_ids: set[str] = set()
 
@@ -441,7 +424,9 @@ class TestConcurrentDrain:
             max_concurrency=1000,
         )
 
-        scheduled_ids = set(schedule_n_tasks(limiters[0], n=num_tasks))
+        scheduled_ids = set(
+            schedule_n_tasks(limiters[0], func_path=FUNC_PATH, n=num_tasks)
+        )
         consumed_ids: set[str] = set()
         per_worker_dispatch_count = [0] * num_workers
 
@@ -467,8 +452,7 @@ class TestConcurrentDrain:
 
         # Assert
         assert consumed_ids == scheduled_ids, (
-            f"not all tasks consumed. "
-            f"missing: {scheduled_ids - consumed_ids}"
+            f"not all tasks consumed. missing: {scheduled_ids - consumed_ids}"
         )
 
         # Dispatches must be distributed across multiple workers.
@@ -495,13 +479,12 @@ class TestConcurrentLifecycle:
         limiters = make_limiter_pool(1, limit=1000, window=60, max_concurrency=max_conc)
         limiter = limiters[0]
 
-        schedule_n_tasks(limiter, n=max_conc)
+        schedule_n_tasks(limiter, func_path=FUNC_PATH, n=max_conc)
         consumed_task_ids: list[str] = []
         for _ in range(max_conc):
             result = limiter.consume()
             assert result["success"], (
-                f"consume should succeed with "
-                f"{max_conc} slots available"
+                f"consume should succeed with {max_conc} slots available"
             )
             consumed_task_ids.append(result["task"]["id"])
 
@@ -509,10 +492,7 @@ class TestConcurrentLifecycle:
             "all concurrency slots should be filled after consuming"
         )
 
-        lifecycles = [
-            limiter.task_lifecycle(tid)
-            for tid in consumed_task_ids
-        ]
+        lifecycles = [limiter.task_lifecycle(tid) for tid in consumed_task_ids]
         for lc in lifecycles:
             lc.__enter__()
 

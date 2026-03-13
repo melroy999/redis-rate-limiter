@@ -34,7 +34,6 @@ from redis_rate_limiter.core.limiters import (
 )
 from tests.helpers.utils import assert_log_emitted
 
-
 # ---------------------------------------------------------------------------
 # Unified behavioral tests
 # ---------------------------------------------------------------------------
@@ -172,10 +171,10 @@ class HealthMonitorObservabilityTests:
             message="should emit an info log on recovery to healthy",
         )
 
-    async def test_repeated_unhealthy_does_not_repeat_warning(
+    async def test_repeated_unhealthy_emits_single_warning_log(
         self, monitor, mock_limiter, caplog
     ):
-        """Verify that consecutive unhealthy checks do not produce repeated warnings."""
+        """Verify that consecutive unhealthy checks emit only a single warning."""
         # Arrange
         mock_limiter._check_backend_health.return_value = False
 
@@ -223,15 +222,11 @@ class HealthMonitorObservabilityTests:
             await self.run_once(monitor)
 
         # Assert
-        transition_records = [
-            r
+        assert not any(
+            r.levelname in ("WARNING", "INFO")
+            and "health check" in r.message.lower()
             for r in caplog.records
-            if r.levelname in ("WARNING", "INFO")
-            and "health check" in r.getMessage().lower()
-        ]
-        assert len(transition_records) == 0, (
-            "no transition log should be emitted when state remains healthy"
-        )
+        ), "no transition log should be emitted when state remains healthy"
 
 
 # ---------------------------------------------------------------------------
@@ -507,9 +502,7 @@ class TestAsyncHealthMonitorLifecycle:
             await limiter.shutdown()
 
     @staticmethod
-    async def test_monitor_started_during_initialize(
-        async_redis_client, limiter_id
-    ):
+    async def test_monitor_started_during_initialize(async_redis_client, limiter_id):
         """Verify that the health monitor task is running after ``start()``."""
         # Arrange
         from tests.implementations.conftest import AsyncStubWithHealthCheck
@@ -536,9 +529,7 @@ class TestAsyncHealthMonitorLifecycle:
             await limiter.shutdown()
 
     @staticmethod
-    async def test_shutdown_stops_health_monitor(
-        async_redis_client, limiter_id
-    ):
+    async def test_shutdown_stops_health_monitor(async_redis_client, limiter_id):
         """Verify that ``shutdown()`` stops the health monitor task."""
         # Arrange
         from tests.implementations.conftest import AsyncStubWithHealthCheck
@@ -577,6 +568,7 @@ class TestAsyncHealthMonitorLifecycle:
         await monitor.shutdown()
 
         # Assert
-        mock_limiter._check_backend_health.assert_called(), (
-            "health check should have been called at least once during the run loop"
+        (
+            mock_limiter._check_backend_health.assert_called(),
+            ("health check should have been called at least once during the run loop"),
         )

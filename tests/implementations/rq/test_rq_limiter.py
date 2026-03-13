@@ -7,14 +7,13 @@ Fixture dependencies:
 """
 
 import inspect
-import json
 import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from redis_rate_limiter import RQRateLimiter
-from tests.helpers.utils import assert_log_emitted
+from tests.helpers.utils import assert_log_emitted, find_task_in_buffer
 
 
 @pytest.mark.behavior
@@ -35,10 +34,8 @@ class TestRQRateLimiter:
 
         # Assert
         assert success is True, "scheduling should succeed"
-        all_members = redis_client.zrange(limiter.buffer_key, 0, -1)
-        results = [m for m in all_members if f'"{task_id}"' in m]
-        assert len(results) == 1, "scheduled task should exist in buffer exactly once"
-        task_data = json.loads(results[0])
+        task_data = find_task_in_buffer(redis_client, limiter.buffer_key, task_id)
+        assert task_data is not None, "scheduled task should exist in buffer"
         assert task_data["payload"]["meta"]["use_executor"] is True, (
             "task metadata should default use_executor to true"
         )
@@ -60,10 +57,8 @@ class TestRQRateLimiter:
 
         # Assert
         assert success is True, "scheduling should succeed"
-        all_members = redis_client.zrange(limiter.buffer_key, 0, -1)
-        results = [m for m in all_members if f'"{task_id}"' in m]
-        assert len(results) == 1, "scheduled task should exist in buffer exactly once"
-        task_data = json.loads(results[0])
+        task_data = find_task_in_buffer(redis_client, limiter.buffer_key, task_id)
+        assert task_data is not None, "scheduled task should exist in buffer"
         assert task_data["payload"]["meta"]["use_executor"] is False, (
             "task metadata should store use_executor as false"
         )

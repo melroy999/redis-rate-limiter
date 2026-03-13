@@ -38,9 +38,7 @@ class TestOptionalImportGuards:
 
         # Act
         with patch.dict(sys.modules, blocked):
-            module = importlib.reload(
-                importlib.import_module("redis_rate_limiter")
-            )
+            module = importlib.reload(importlib.import_module("redis_rate_limiter"))
 
             # Assert
             assert "CeleryRateLimiter" not in module.__all__, (
@@ -73,9 +71,7 @@ class TestOptionalImportGuards:
 
         # Act
         with patch.dict(sys.modules, blocked):
-            module = importlib.reload(
-                importlib.import_module("redis_rate_limiter")
-            )
+            module = importlib.reload(importlib.import_module("redis_rate_limiter"))
 
             # Assert
             assert "RQRateLimiter" not in module.__all__, (
@@ -105,9 +101,7 @@ class TestOptionalImportGuards:
 
         # Act
         with patch.dict(sys.modules, blocked):
-            module = importlib.reload(
-                importlib.import_module("redis_rate_limiter")
-            )
+            module = importlib.reload(importlib.import_module("redis_rate_limiter"))
 
             # Assert
             assert "PrometheusMetricsExporter" not in module.__all__, (
@@ -144,9 +138,7 @@ class TestOptionalImportGuards:
 
         # Act
         with patch.dict(sys.modules, blocked):
-            module = importlib.reload(
-                importlib.import_module("redis_rate_limiter")
-            )
+            module = importlib.reload(importlib.import_module("redis_rate_limiter"))
 
             # Assert
             core_symbols = [
@@ -185,9 +177,7 @@ class TestPrometheusImportGuard:
         with patch.dict(sys.modules, blocked):
             sys.modules.pop("redis_rate_limiter.integrations.prometheus", None)
             with pytest.raises(ImportError, match="prometheus_client"):
-                importlib.import_module(
-                    "redis_rate_limiter.integrations.prometheus"
-                )
+                importlib.import_module("redis_rate_limiter.integrations.prometheus")
 
         # Teardown
         sys.modules.pop("redis_rate_limiter.integrations.prometheus", None)

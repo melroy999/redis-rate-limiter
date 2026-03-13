@@ -16,7 +16,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from tests.helpers.strategies import nested_dict
-from tests.helpers.utils import dict_equals_approx
+from tests.helpers.utils import clear_limiter_keys, dict_equals_approx
 from tests.implementations.conftest import StubRateLimiter
 
 # ---------------------------------------------------------------------------
@@ -24,28 +24,10 @@ from tests.implementations.conftest import StubRateLimiter
 # ---------------------------------------------------------------------------
 
 
-def _clear_limiter_keys(redis_client, limiter):
-    """Delete all Redis keys belonging to the given limiter instance."""
-    keys = redis_client.keys(f"{limiter.id}:*")
-    if keys:
-        redis_client.delete(*keys)
-
-
 @pytest.fixture(scope="module")
-def property_limiter(
-    property_redis_client,
-    module_limiter_id,
-):
+def property_limiter(make_property_limiter):
     """Provide the default module-scoped rate limiter for property-based tests."""
-    return StubRateLimiter(
-        redis_client=property_redis_client,
-        limiter_id=f"{module_limiter_id}_property_default",
-        limit=100,
-        window=60,
-        max_concurrency=50,
-        max_age=3600,
-        lease_duration=30,
-    )
+    return make_property_limiter("default", limit=100, window=60, max_concurrency=50)
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +60,7 @@ class TestSerializationProperties:
         """
         # Arrange
         # Ensure a clean state for each example.
-        _clear_limiter_keys(property_redis_client, property_limiter)
+        clear_limiter_keys(property_redis_client, property_limiter)
 
         # Act
         try:
@@ -116,7 +98,7 @@ class TestSerializationProperties:
 
         finally:
             # Cleanup.
-            _clear_limiter_keys(property_redis_client, property_limiter)
+            clear_limiter_keys(property_redis_client, property_limiter)
 
     @staticmethod
     @given(
@@ -138,7 +120,7 @@ class TestSerializationProperties:
         This verifies that the rate limiter does not reject valid dictionary payloads.
         """
         # Arrange
-        _clear_limiter_keys(property_redis_client, property_limiter)
+        clear_limiter_keys(property_redis_client, property_limiter)
 
         # Act
         success, task_id = property_limiter.schedule_task(func_path, payload)
@@ -151,7 +133,7 @@ class TestSerializationProperties:
         ), "task should be marked as in-flight"
 
         # Cleanup
-        _clear_limiter_keys(property_redis_client, property_limiter)
+        clear_limiter_keys(property_redis_client, property_limiter)
 
     @staticmethod
     @given(payload=nested_dict)

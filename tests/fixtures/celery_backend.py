@@ -5,6 +5,7 @@ import os
 import pytest
 
 from redis_rate_limiter import CeleryRateLimiter
+from tests.implementations.conftest import DEFAULT_LIMITER_CONFIG
 
 # Redis configuration is derived from environment variables.
 # The default values target localhost:6379, but may be overridden for Docker Compose.
@@ -64,11 +65,7 @@ def limiter(redis_client, limiter_id, _reset_limiter_class_state):
     # Setup
     test_limiter = CeleryRateLimiter.create(
         limiter_id=limiter_id,
-        limit=5,
-        window=60,
-        max_concurrency=2,
-        max_age=3600,
-        lease_duration=30,
+        **DEFAULT_LIMITER_CONFIG,
         override=True,
     )
 
