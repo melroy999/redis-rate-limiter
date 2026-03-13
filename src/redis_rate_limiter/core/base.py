@@ -45,6 +45,13 @@ class AbstractRateLimiter:
         window: float,
         **kwargs: Any,
     ) -> None:
+        if not limiter_id:
+            raise ValueError("limiter_id must be a non-empty string")
+        if limit < 0:
+            raise ValueError(f"limit must be a non-negative integer, got {limit}")
+        if window <= 0:
+            raise ValueError(f"window must be a positive number, got {window}")
+
         self.id = limiter_id
         self.limit = limit
         self.window = window

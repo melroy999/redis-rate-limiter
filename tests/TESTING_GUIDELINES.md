@@ -31,7 +31,9 @@ When adding a new backend, create the corresponding subdirectory under `tests/im
 |---|---|---|
 | `<Feature>ContractTest` | Abstract contract base; pytest does not collect it because the name lacks a `Test` prefix | `RateLimiterContractTest`, `DistributedLockContractTest` |
 | `<Feature>Tests` | Unified mixin base for sync/async deduplication; pytest does not collect it | `DrainBehaviorTests`, `GetStatusTests`, `MetricsCallbackTests` |
+| `<Feature>BoundaryTests` | Unified mixin base for boundary condition tests; pytest does not collect it | `DrainBoundaryTests`, `DistributedLockBoundaryTests` |
 | `Test<Subject>` | Concrete test class that pytest collects and executes | `TestSyncDrain`, `TestAsyncDrainLoop`, `TestCeleryRateLimiter` |
+| `Test<Subject>BoundaryDecisions` | Concrete test class for boundary and edge-case conditions | `TestBaseConfigBoundaryDecisions`, `TestConsumeBoundaryDecisions` |
 
 The absence of the `Test` prefix on abstract bases and mixins is deliberate. It prevents pytest from attempting to instantiate classes that require subclass-provided fixtures.
 
@@ -84,6 +86,7 @@ The separator line is exactly 75 dashes. Do not use separators between individua
 | Mixin base classes before concrete subclasses | `Unified implementation tests` / `Concrete test cases` |
 | Behavioral mixin before observability mixin | `Unified observability tests` |
 | Behavioral concrete class before observability concrete class (non-mixin files) | `Observability tests` |
+| Behavioral concrete class before boundary condition tests | `Boundary tests` |
 | Distinct categories of test classes in the same file | `Drain-disabled tests`, `Cross-process drain signal tests` |
 | Sync-specific tests before async-specific tests (when in one file) | `Sync-specific tests` / `Async-specific tests` |
 | Signature or class-variable tests at end of file | `Signature tests` or `Class variable tests` |

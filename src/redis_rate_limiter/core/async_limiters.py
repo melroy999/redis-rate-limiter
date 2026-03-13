@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 import signal
 import time
@@ -683,7 +684,13 @@ class AbstractAsyncDistributedRateLimiter(
 
         Returns:
             A tuple of (``was_scheduled``, ``task_id``).
+
+        Raises:
+            ValueError: If ``priority`` is not a finite number.
         """
+        if not math.isfinite(priority):
+            raise ValueError(f"priority must be a finite number, got {priority}")
+
         task_signature = self._get_task_signature_str(func_path, payload)
         task_id = hashlib.md5(task_signature.encode()).hexdigest()
         logger.debug(

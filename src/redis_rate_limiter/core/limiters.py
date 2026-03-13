@@ -589,6 +589,17 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
         drain_enabled: bool = True,
         **kwargs: Any,
     ) -> None:
+        if max_concurrency < 1:
+            raise ValueError(
+                f"max_concurrency must be a positive integer, got {max_concurrency}"
+            )
+        if max_age < 1:
+            raise ValueError(f"max_age must be a positive integer, got {max_age}")
+        if lease_duration < 1:
+            raise ValueError(
+                f"lease_duration must be a positive integer, got {lease_duration}"
+            )
+
         super().__init__(*args, **kwargs)
         self.max_concurrency = max_concurrency
         self.max_age = max_age
@@ -1065,7 +1076,11 @@ class AbstractDistributedRateLimiter(
 
         Raises:
             RuntimeError: If the required Lua scripts cannot be (re)loaded.
+            ValueError: If ``priority`` is not a finite number.
         """
+        if not math.isfinite(priority):
+            raise ValueError(f"priority must be a finite number, got {priority}")
+
         task_signature = self._get_task_signature_str(func_path, payload)
         task_id = hashlib.md5(task_signature.encode()).hexdigest()
         logger.debug(

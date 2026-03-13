@@ -135,14 +135,16 @@ Decisions made during migration review where a coverage gap was identified but d
 
 ### Deferred to configuration edge cases (Section 11.1)
 
-| Gap | Rationale | Future location |
-|---|---|---|
-| `window_ms=0` causes `ZeroDivisionError` in the reference implementation | Should be rejected at configuration time, not handled in the algorithm. Testing this belongs in a configuration validation test. | `tests/implementations/` (Section 11.1: "`window=0` or very small windows") |
-| Negative values for `limit`, `window`, `max_concurrency` | Same as above; should be rejected at configuration time. | `tests/implementations/` (Section 11.1: "Negative values") |
-| `elapsed_ms > window_ms` or `elapsed_ms < 0` | Impossible inputs; the window counter resets before `elapsed_ms` exceeds `window_ms`, and Redis TIME is monotonically non-decreasing. No value at the algorithm level or the Lua level. | N/A (not testable; document as a non-issue) |
-| `max_concurrency=0` | Would make the `active_concurrency >= max_concurrency` check always true, effectively disabling task dispatch. Should be rejected at configuration time. | `tests/implementations/` (Section 11.1) |
-| `lease_duration=0` | `_get_inflight_ttl` floors at `max(1.0, ...)`, but the Lua consume script receives the raw value as ARGV. Should be rejected or documented as a minimum. | `tests/implementations/` (Section 11.1) |
-| Priority boundary values (`priority=0`, negative, extreme float64) | Priority is stored as a Redis ZSET score (double-precision float). Extreme values may lose precision; zero and negative priorities could violate ordering assumptions. Should be validated at configuration time. | `tests/implementations/` (Section 11.1) |
+*All items in this section have been resolved.*
+
+| Gap | Resolution |
+|---|---|
+| ~~`window_ms=0` causes `ZeroDivisionError` in the reference implementation~~ | Resolved: `TestBaseConfigBoundaryDecisions.test_rejects_zero_window` in `tests/implementations/test_limiter_config.py`. Validation added to `AbstractRateLimiter.__init__`. |
+| ~~Negative values for `limit`, `window`, `max_concurrency`~~ | Resolved: `TestBaseConfigBoundaryDecisions` (negative `limit`, negative `window`) and `TestMixinConfigBoundaryDecisions` (negative `max_concurrency`) in `tests/implementations/test_limiter_config.py`. |
+| `elapsed_ms > window_ms` or `elapsed_ms < 0` | N/A: impossible inputs; the window counter resets before `elapsed_ms` exceeds `window_ms`, and Redis TIME is monotonically non-decreasing. Documented as a non-issue. |
+| ~~`max_concurrency=0`~~ | Resolved: `TestMixinConfigBoundaryDecisions.test_rejects_zero_max_concurrency` in `tests/implementations/test_limiter_config.py`. Minimum of 1 enforced. |
+| ~~`lease_duration=0`~~ | Resolved: `TestMixinConfigBoundaryDecisions.test_rejects_zero_lease_duration` in `tests/implementations/test_limiter_config.py`. Minimum of 1 enforced. |
+| ~~Priority boundary values (`priority=0`, negative, extreme float64)~~ | Resolved: `TestScheduleTaskPriorityBoundaryDecisions` and `TestAsyncScheduleTaskPriorityBoundaryDecisions` in `tests/implementations/test_limiter_config.py`. Non-finite values rejected; zero and negative priorities accepted as valid ZSET scores. |
 
 ### Deferred to Lua script tests (Section 10) and Lua-level contracts
 

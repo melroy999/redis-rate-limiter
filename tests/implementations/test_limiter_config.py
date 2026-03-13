@@ -1,7 +1,8 @@
-"""Tests for limiter configuration defaults, window change
-logging, and metric callbacks.
+"""Tests for limiter configuration defaults, boundary conditions,
+window change logging, and metric callbacks.
 
 This module covers the initial default values of freshly constructed limiters,
+configuration boundary conditions (invalid and edge-case parameter values),
 the ``_apply_config_overrides`` window-change detection log, and the
 ``_emit_metric`` warning when a metrics callback raises.
 
@@ -27,6 +28,7 @@ from redis_rate_limiter.core.limiters import (
 )
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
 from tests.helpers.utils import assert_log_emitted
+from tests.implementations.conftest import StubRateLimiter
 
 # ---------------------------------------------------------------------------
 # Unified implementation tests
@@ -176,6 +178,309 @@ class TestAsyncInitialDefaults(InitialDefaultTests):
         return async_stub_limiter
 
 
+# ---------------------------------------------------------------------------
+# Boundary tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.behavior
+class TestBaseConfigBoundaryDecisions:
+    """Boundary condition tests for ``AbstractRateLimiter.__init__`` parameter validation."""
+
+    @staticmethod
+    def test_rejects_empty_limiter_id(redis_client):
+        """Verify that an empty ``limiter_id`` raises ``ValueError``."""
+        # Act & Assert
+        with pytest.raises(ValueError, match="limiter_id must be a non-empty string"):
+            StubRateLimiter(
+                redis_client=redis_client,
+                limiter_id="",
+                limit=5,
+                window=60,
+                max_concurrency=2,
+            )
+
+    @staticmethod
+    def test_rejects_negative_limit(redis_client):
+        """Verify that a negative ``limit`` raises ``ValueError``."""
+        # Act & Assert
+        with pytest.raises(ValueError, match="limit must be a non-negative integer"):
+            StubRateLimiter(
+                redis_client=redis_client,
+                limiter_id="test",
+                limit=-1,
+                window=60,
+                max_concurrency=2,
+            )
+
+    @staticmethod
+    def test_accepts_limit_zero(redis_client):
+        """Verify that ``limit=0`` is accepted as a valid deny-all configuration."""
+        # Act
+        limiter = StubRateLimiter(
+            redis_client=redis_client,
+            limiter_id="test_limit_zero",
+            limit=0,
+            window=60,
+            max_concurrency=2,
+        )
+
+        # Assert
+        assert limiter.limit == 0, "limit=0 should be accepted as deny-all mode"
+        limiter.shutdown()
+
+    @staticmethod
+    def test_rejects_zero_window(redis_client):
+        """Verify that ``window=0`` raises ``ValueError``."""
+        # Act & Assert
+        with pytest.raises(ValueError, match="window must be a positive number"):
+            StubRateLimiter(
+                redis_client=redis_client,
+                limiter_id="test",
+                limit=5,
+                window=0,
+                max_concurrency=2,
+            )
+
+    @staticmethod
+    def test_rejects_negative_window(redis_client):
+        """Verify that a negative ``window`` raises ``ValueError``."""
+        # Act & Assert
+        with pytest.raises(ValueError, match="window must be a positive number"):
+            StubRateLimiter(
+                redis_client=redis_client,
+                limiter_id="test",
+                limit=5,
+                window=-1,
+                max_concurrency=2,
+            )
+
+
+@pytest.mark.behavior
+class TestMixinConfigBoundaryDecisions:
+    """Boundary condition tests for ``DistributedRateLimiterMixin.__init__`` parameter validation."""
+
+    @staticmethod
+    def test_rejects_zero_max_concurrency(redis_client):
+        """Verify that ``max_concurrency=0`` raises ``ValueError``."""
+        # Act & Assert
+        with pytest.raises(
+            ValueError, match="max_concurrency must be a positive integer"
+        ):
+            StubRateLimiter(
+                redis_client=redis_client,
+                limiter_id="test",
+                limit=5,
+                window=60,
+                max_concurrency=0,
+            )
+
+    @staticmethod
+    def test_rejects_negative_max_concurrency(redis_client):
+        """Verify that a negative ``max_concurrency`` raises ``ValueError``."""
+        # Act & Assert
+        with pytest.raises(
+            ValueError, match="max_concurrency must be a positive integer"
+        ):
+            StubRateLimiter(
+                redis_client=redis_client,
+                limiter_id="test",
+                limit=5,
+                window=60,
+                max_concurrency=-1,
+            )
+
+    @staticmethod
+    def test_rejects_zero_max_age(redis_client):
+        """Verify that ``max_age=0`` raises ``ValueError``."""
+        # Act & Assert
+        with pytest.raises(ValueError, match="max_age must be a positive integer"):
+            StubRateLimiter(
+                redis_client=redis_client,
+                limiter_id="test",
+                limit=5,
+                window=60,
+                max_concurrency=2,
+                max_age=0,
+            )
+
+    @staticmethod
+    def test_rejects_negative_max_age(redis_client):
+        """Verify that a negative ``max_age`` raises ``ValueError``."""
+        # Act & Assert
+        with pytest.raises(ValueError, match="max_age must be a positive integer"):
+            StubRateLimiter(
+                redis_client=redis_client,
+                limiter_id="test",
+                limit=5,
+                window=60,
+                max_concurrency=2,
+                max_age=-1,
+            )
+
+    @staticmethod
+    def test_rejects_zero_lease_duration(redis_client):
+        """Verify that ``lease_duration=0`` raises ``ValueError``."""
+        # Act & Assert
+        with pytest.raises(
+            ValueError, match="lease_duration must be a positive integer"
+        ):
+            StubRateLimiter(
+                redis_client=redis_client,
+                limiter_id="test",
+                limit=5,
+                window=60,
+                max_concurrency=2,
+                lease_duration=0,
+            )
+
+    @staticmethod
+    def test_rejects_negative_lease_duration(redis_client):
+        """Verify that a negative ``lease_duration`` raises ``ValueError``."""
+        # Act & Assert
+        with pytest.raises(
+            ValueError, match="lease_duration must be a positive integer"
+        ):
+            StubRateLimiter(
+                redis_client=redis_client,
+                limiter_id="test",
+                limit=5,
+                window=60,
+                max_concurrency=2,
+                lease_duration=-1,
+            )
+
+
+@pytest.mark.behavior
+class TestScheduleTaskPriorityBoundaryDecisions:
+    """Boundary condition tests for ``schedule_task()`` priority parameter validation."""
+
+    @staticmethod
+    def test_rejects_positive_infinite_priority(stub_limiter):
+        """Verify that ``priority=inf`` raises ``ValueError``."""
+        # Act & Assert
+        with pytest.raises(ValueError, match="priority must be a finite number"):
+            stub_limiter.schedule_task(
+                "myapp.tasks.work", {"x": 1}, priority=float("inf")
+            )
+
+    @staticmethod
+    def test_rejects_negative_infinite_priority(stub_limiter):
+        """Verify that ``priority=-inf`` raises ``ValueError``."""
+        # Act & Assert
+        with pytest.raises(ValueError, match="priority must be a finite number"):
+            stub_limiter.schedule_task(
+                "myapp.tasks.work", {"x": 1}, priority=float("-inf")
+            )
+
+    @staticmethod
+    def test_rejects_nan_priority(stub_limiter):
+        """Verify that ``priority=NaN`` raises ``ValueError``."""
+        # Act & Assert
+        with pytest.raises(ValueError, match="priority must be a finite number"):
+            stub_limiter.schedule_task(
+                "myapp.tasks.work", {"x": 1}, priority=float("nan")
+            )
+
+    @staticmethod
+    def test_accepts_zero_priority(stub_limiter):
+        """Verify that ``priority=0`` is accepted as a valid ZSET score."""
+        # Act
+        was_scheduled, task_id = stub_limiter.schedule_task(
+            "myapp.tasks.work", {"zero_priority": True}, priority=0
+        )
+
+        # Assert
+        assert was_scheduled is True, "priority=0 should be accepted"
+
+    @staticmethod
+    def test_accepts_negative_priority(stub_limiter):
+        """Verify that a negative ``priority`` is accepted as a valid ZSET score."""
+        # Act
+        was_scheduled, task_id = stub_limiter.schedule_task(
+            "myapp.tasks.work", {"negative_priority": True}, priority=-10
+        )
+
+        # Assert
+        assert was_scheduled is True, "negative priority should be accepted"
+
+
+@pytest.mark.behavior
+class TestAsyncScheduleTaskPriorityBoundaryDecisions:
+    """Boundary condition tests for async ``schedule_task()`` priority parameter validation."""
+
+    @staticmethod
+    async def test_rejects_infinite_priority(async_stub_limiter):
+        """Verify that ``priority=inf`` raises ``ValueError``."""
+        # Act & Assert
+        with pytest.raises(ValueError, match="priority must be a finite number"):
+            await async_stub_limiter.schedule_task(
+                "myapp.tasks.work", {"x": 1}, priority=float("inf")
+            )
+
+    @staticmethod
+    async def test_rejects_nan_priority(async_stub_limiter):
+        """Verify that ``priority=NaN`` raises ``ValueError``."""
+        # Act & Assert
+        with pytest.raises(ValueError, match="priority must be a finite number"):
+            await async_stub_limiter.schedule_task(
+                "myapp.tasks.work", {"x": 1}, priority=float("nan")
+            )
+
+    @staticmethod
+    async def test_accepts_zero_priority(async_stub_limiter):
+        """Verify that ``priority=0`` is accepted as a valid ZSET score."""
+        # Act
+        was_scheduled, task_id = await async_stub_limiter.schedule_task(
+            "myapp.tasks.work", {"zero_priority_async": True}, priority=0
+        )
+
+        # Assert
+        assert was_scheduled is True, "priority=0 should be accepted"
+
+
+@pytest.mark.behavior
+class TestLargeValueAcceptance:
+    """Acceptance tests for very large configuration values."""
+
+    @staticmethod
+    def test_accepts_large_limit(redis_client):
+        """Verify that ``limit=10**9`` does not cause construction failure."""
+        # Act
+        limiter = StubRateLimiter(
+            redis_client=redis_client,
+            limiter_id="test_large_limit",
+            limit=10**9,
+            window=60,
+            max_concurrency=2,
+        )
+
+        # Assert
+        assert limiter.limit == 10**9, "large limit should be accepted"
+        limiter.shutdown()
+
+    @staticmethod
+    def test_accepts_large_window(redis_client):
+        """Verify that ``window=86400`` (24 hours) does not cause construction failure."""
+        # Act
+        limiter = StubRateLimiter(
+            redis_client=redis_client,
+            limiter_id="test_large_window",
+            limit=100,
+            window=86400,
+            max_concurrency=2,
+        )
+
+        # Assert
+        assert limiter.window == 86400, "large window should be accepted"
+        limiter.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Observability tests
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.observability
 class TestSyncWindowChangeLogging(WindowChangeObservabilityTests):
     """Sync rate limiter window-change logging exercised through the async adapter."""
@@ -254,10 +559,6 @@ class TestAsyncEmitMetricLogging(EmitMetricObservabilityTests):
         yield limiter
         await limiter.shutdown()
 
-
-# ---------------------------------------------------------------------------
-# Initialization log observability tests
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.observability
