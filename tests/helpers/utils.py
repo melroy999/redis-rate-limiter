@@ -187,6 +187,22 @@ def clear_limiter_keys(redis_client, limiter) -> None:
     )
 
 
+def cleanup_managed_limiter(redis_client, limiter_id: str) -> None:
+    """Delete all Redis state for a managed limiter created via ``create()``.
+
+    Removes the buffer, concurrency, and DLQ keys, as well as the limiter's
+    entries in the shared registry hashes. This is the canonical teardown for
+    fixtures that call ``LimiterClass.create()``.
+    """
+    redis_client.delete(
+        f"{limiter_id}:buffer",
+        f"{limiter_id}:concurrency",
+        f"{limiter_id}:dlq",
+    )
+    redis_client.hdel("rl:registry:configs", limiter_id)
+    redis_client.hdel("rl:registry:versions", limiter_id)
+
+
 def schedule_n_tasks(
     limiter,
     n: int,

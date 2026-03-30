@@ -58,6 +58,26 @@ class ConsumeResult(TypedDict):
     val_current: int  # The raw counter value for the current fixed window.
 
 
+def build_enhanced_payload(payload: dict, use_executor: bool) -> dict:
+    """Wrap a task payload with executor dispatch metadata.
+
+    Backends that support the ``use_executor`` flag (e.g., Celery, RQ) call
+    this function before passing the payload to the base
+    ``schedule_task()`` so that ``_dispatch_task`` can later recover the
+    original payload and the routing decision.
+
+    Args:
+        payload: The original task payload provided by the caller.
+        use_executor: Whether the generic rate-limit executor task should be
+            used for dispatch (``True``) or the function should be dispatched
+            directly to the user-supplied worker (``False``).
+
+    Returns:
+        A dictionary of the form ``{"data": payload, "meta": {"use_executor": use_executor}}``.
+    """
+    return {"data": payload, "meta": {"use_executor": use_executor}}
+
+
 # ---------------------------------------------------------------------------
 # Distributed lock Lua scripts (shared by sync and async lock classes)
 # ---------------------------------------------------------------------------

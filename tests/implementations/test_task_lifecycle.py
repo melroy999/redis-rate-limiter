@@ -15,7 +15,6 @@ import logging
 import os
 import signal
 import time
-from typing import Literal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -23,17 +22,11 @@ import pytest
 from redis_rate_limiter import TaskLifecycle
 from tests.contracts.test_task_lifecycle import TaskLifecycleContractTest
 from tests.helpers.utils import assert_log_emitted
-from tests.implementations.conftest import StubRateLimiter
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-HeartbeatFailureMode = Literal["warn", "kill"]
-HEARTBEAT_OVERRIDE_CASES: list[tuple[HeartbeatFailureMode, HeartbeatFailureMode]] = [
-    ("warn", "kill"),
-    ("kill", "warn"),
-]
+from tests.implementations.conftest import (
+    HEARTBEAT_OVERRIDE_CASES,
+    HeartbeatFailureMode,
+    StubRateLimiter,
+)
 
 
 @pytest.fixture

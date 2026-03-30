@@ -252,12 +252,23 @@ def _is_default_param_mutation(old_lines: list[str], new_lines: list[str]) -> bo
 
 _LOGGER_PATTERN = re.compile(r"logger\.(debug|info|warning|error|exception|critical)\(")
 _RAISE_PATTERN = re.compile(r"\braise\b|\bException\b|\bError\(")
+_FORMAT_SPEC_PATTERN = re.compile(r"""['"].*%[sdfiexXog]""")
 
 
 def _has_logger_context(context_lines: list[str], old_lines: list[str]) -> bool:
     """Check if the diff is within a logger call."""
     all_lines = context_lines + old_lines
     return any(_LOGGER_PATTERN.search(line) for line in all_lines)
+
+
+def _old_is_format_string(old_lines: list[str]) -> bool:
+    """Return True when the mutated line itself contains a printf-style format specifier.
+
+    Used to distinguish mutations *on* a logger format string from mutations on
+    adjacent code (e.g., a redis.set value or a logger argument like ``self.token``)
+    that merely appear near a logger call in the diff context.
+    """
+    return any(_FORMAT_SPEC_PATTERN.search(line) for line in old_lines)
 
 
 def _has_raise_context(context_lines: list[str], old_lines: list[str]) -> bool:
@@ -639,10 +650,16 @@ def _classify(diff: MutationDiff) -> tuple[int, str, str]:
     # 1. String mutations (XX wrap, lowercase, uppercase).
     string_type = _detect_string_mutation(old, new)
     if string_type is not None:
-        logger_level = _get_logger_level(ctx, old)
-        if logger_level is not None:
-            desc = f"{string_type.replace('_', ' ')} on logger.{logger_level} format string"
-            return 0, f"string_{string_type}", desc
+        # Only classify as a logger format-string mutation when the mutated
+        # line itself contains a printf-style format specifier.  Without this
+        # guard, any string literal that happens to sit near a logger call in
+        # the diff context (e.g. redis.set("1", …) followed by logger.debug)
+        # would be mislabelled as a format-string mutation.
+        if _old_is_format_string(old):
+            logger_level = _get_logger_level(ctx, old)
+            if logger_level is not None:
+                desc = f"{string_type.replace('_', ' ')} on logger.{logger_level} format string"
+                return 0, f"string_{string_type}", desc
         if _has_raise_context(ctx, old):
             desc = f"{string_type.replace('_', ' ')} on error message"
             return 0, f"string_{string_type}", desc
@@ -696,10 +713,20 @@ def _classify(diff: MutationDiff) -> tuple[int, str, str]:
     if none_desc is not None:
         logger_level = _get_logger_level(ctx, old)
         if logger_level is not None:
+            if _old_is_format_string(old):
+                # The mutated line is the format-string argument itself.
+                return (
+                    0,
+                    "value_to_none",
+                    f"format string  ->  None on logger.{logger_level}",
+                )
+            # The mutated line is a positional argument to a logger call
+            # (e.g. self.token replaced with None).  Cosmetic: only the log
+            # message content changes, not program logic.
             return (
                 0,
                 "value_to_none",
-                f"format string  ->  None on logger.{logger_level}",
+                f"{none_desc} (logger.{logger_level} argument)",
             )
         if _has_logger_format_context(ctx, old):
             return (
@@ -1013,13 +1040,56 @@ _KNOWN_BENIGN: list[tuple[str, str, str]] = [
         "when val_current equals limit, the primary decay formula computes"
         " reset_in_ms / 1000.0, identical to the fallback return value",
     ),
+    (
+        "schedule_task",
+        'redis.set(inflight_key, "1"',
+        "the inflight key value is never read back; only the key's existence"
+        " matters (NX flag). any non-empty string is equivalent to \"1\"",
+    ),
+    (
+        "schedule_task",
+        'max_age or ""',
+        "passed to the Lua script as ARGV[3]; tonumber(\"\") and tonumber(\"XXXX\")"
+        " both return nil, so the max_age override branch is skipped identically",
+    ),
+    (
+        "DistributedLock.__enter__",
+        "self.token  ->  None (logger.debug argument)",
+        "changes the token field in the acquired-lock debug log from the lock"
+        " token UUID to None; no test asserts the token value in lock log"
+        " messages, and the lock acquisition/release logic is unaffected",
+    ),
+    (
+        "AsyncDistributedLock.__aenter__",
+        "self.token  ->  None (logger.debug argument)",
+        "async mirror of DistributedLock.__enter__ token log argument; same"
+        " reasoning applies",
+    ),
+    (
+        "DistributedLock.__exit__",
+        "self.token  ->  None (logger.debug argument)",
+        "changes the token field in the released/expired-lock debug logs from"
+        " the lock token UUID to None; no test asserts the token value in lock"
+        " log messages, and the release logic is unaffected",
+    ),
+    (
+        "AsyncDistributedLock.__aexit__",
+        "self.token  ->  None (logger.debug argument)",
+        "async mirror of DistributedLock.__exit__ token log argument; same"
+        " reasoning applies",
+    ),
 ]
 
 
 def _match_known_benign(short_name: str, description: str) -> str | None:
-    """Return the reason if the mutation matches a known benign entry, else None."""
+    """Return the reason if the mutation matches a known benign entry, else None.
+
+    ``method_pattern`` is matched as a substring of ``short_name``.
+    ``desc_pattern`` is matched as a substring of ``description``, so entries
+    can use a concise identifying fragment rather than the full classifier output.
+    """
     for method_pattern, desc_pattern, reason in _KNOWN_BENIGN:
-        if method_pattern in short_name and desc_pattern == description:
+        if method_pattern in short_name and desc_pattern in description:
             return reason
     return None
 

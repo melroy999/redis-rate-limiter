@@ -42,6 +42,8 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+from mutmut_shared import KilledByAccumulator, KilledByCollector as _KilledByCollectorBase
+
 # ---------------------------------------------------------------------------
 # Killed-by tracking (full matrix, no -x)
 # ---------------------------------------------------------------------------
@@ -49,60 +51,20 @@ from pathlib import Path
 _KILLED_BY_DIR = "/tmp/mutmut_superfluity_killed_by"
 _KILLED_BY_RESULTS = "/tmp/mutmut_superfluity_killed_by_results.json"
 
-_killed_by_data: dict[str, dict[str, list[str] | int | bool]] = {}
+_accumulator = KilledByAccumulator(_KILLED_BY_RESULTS, _KILLED_BY_DIR)
 
 
-def _write_killed_by_temp_file(
-    mutant_name: str | None,
-    collector: "KilledByCollector",
-    *,
-    partial: bool = False,
-) -> None:
-    """Write killed-by data to the child's temp file."""
-    if mutant_name is None:
-        return
-    if not partial and not collector.killed_by:
-        if not collector.tests_targeted:
-            return
-    os.makedirs(_KILLED_BY_DIR, exist_ok=True)
-    path = os.path.join(_KILLED_BY_DIR, f"{os.getpid()}.json")
-    with open(path, "w") as f:
-        json.dump(
-            {
-                "mutant_name": mutant_name,
-                "killed_by": collector.killed_by,
-                "tests_run": collector.tests_run,
-                "tests_targeted": collector.tests_targeted,
-                "partial": partial,
-            },
-            f,
-        )
-
-
-class KilledByCollector:
+class KilledByCollector(_KilledByCollectorBase):
     """Pytest plugin that captures the nodeids of all failing tests.
 
     Runs without ``-x`` so that all tests execute per mutant, capturing
-    every test that kills the mutant (full kill matrix).
+    every test that kills the mutant (full kill matrix). Extends
+    :class:`~mutmut_shared.KilledByCollector` without additions; the
+    subclass exists solely to bind the script-local ``_KILLED_BY_DIR``.
     """
 
     def __init__(self, mutant_name: str | None = None) -> None:
-        self.killed_by: list[str] = []
-        self.tests_run: int = 0
-        self.tests_targeted: int = 0
-        self._mutant_name = mutant_name
-
-    def pytest_collection_modifyitems(self, items) -> None:  # type: ignore[no-untyped-def]
-        """Record the number of tests pytest will execute for this run."""
-        self.tests_targeted = len(items)
-
-    def pytest_runtest_makereport(self, item, call) -> None:  # type: ignore[no-untyped-def]
-        if call.when == "call":
-            self.tests_run += 1
-            if call.excinfo is not None:
-                self.killed_by.append(item.nodeid)
-                if self._mutant_name is not None:
-                    _write_killed_by_temp_file(self._mutant_name, self, partial=False)
+        super().__init__(mutant_name, killed_by_dir=_KILLED_BY_DIR)
 
 
 def _patched_run_tests(self, *, mutant_name, tests):  # type: ignore[no-untyped-def]
@@ -118,7 +80,7 @@ def _patched_run_tests(self, *, mutant_name, tests):  # type: ignore[no-untyped-
         original_sigxcpu = signal.getsignal(signal.SIGXCPU)
 
         def _sigxcpu_handler(signum, frame):  # type: ignore[no-untyped-def]
-            _write_killed_by_temp_file(mutant_name, collector, partial=True)
+            collector.write_temp_file(partial=True)
             signal.signal(signal.SIGXCPU, signal.SIG_DFL)
             os.kill(os.getpid(), signal.SIGXCPU)
 
@@ -136,75 +98,12 @@ def _patched_run_tests(self, *, mutant_name, tests):  # type: ignore[no-untyped-
     if original_sigxcpu is not None:
         signal.signal(signal.SIGXCPU, original_sigxcpu)
 
-    _write_killed_by_temp_file(mutant_name, collector, partial=False)
+    collector.write_temp_file(partial=False)
 
     return result
 
 
-def _append_killed_by(
-    mutant_name: str,
-    test_nodeids: list[str],
-    tests_run: int = 0,
-    tests_targeted: int = 0,
-    partial: bool = False,
-) -> None:
-    """Accumulate a killed-by entry in memory."""
-    _killed_by_data[mutant_name] = {
-        "killed_by": test_nodeids,
-        "tests_run": tests_run,
-        "tests_targeted": tests_targeted,
-        "partial": partial,
-    }
-
-
-def _flush_killed_by() -> None:
-    """Write all accumulated killed-by data to disk."""
-    if _killed_by_data:
-        with open(_KILLED_BY_RESULTS, "w") as f:
-            json.dump(_killed_by_data, f, indent=4)
-
-
-def _patched_sfmd_register_result(self, *, pid, exit_code):  # type: ignore[no-untyped-def]
-    """Read killed-by temp file from the child and accumulate results."""
-    from datetime import datetime
-
-    from mutmut.__main__ import START_TIMES_BY_PID_LOCK
-
-    key = self.key_by_pid[pid]
-    killed_by_path = os.path.join(_KILLED_BY_DIR, f"{pid}.json")
-    if os.path.exists(killed_by_path):
-        try:
-            with open(killed_by_path) as f:
-                data = json.load(f)
-            killed_by = data.get("killed_by", [])
-            tests_run = data.get("tests_run", 0)
-            tests_targeted = data.get("tests_targeted", 0)
-            partial = data.get("partial", False)
-            if killed_by or tests_targeted:
-                _append_killed_by(
-                    key,
-                    killed_by,
-                    tests_run,
-                    tests_targeted,
-                    partial,
-                )
-        except (json.JSONDecodeError, OSError):
-            pass
-        finally:
-            try:
-                os.unlink(killed_by_path)
-            except OSError:
-                pass
-
-    assert self.key_by_pid[pid] in self.exit_code_by_key
-    self.exit_code_by_key[key] = exit_code
-    self.durations_by_key[key] = (
-        datetime.now() - self.start_time_by_pid[pid]
-    ).total_seconds()
-    del self.key_by_pid[pid]
-    with START_TIMES_BY_PID_LOCK:
-        del self.start_time_by_pid[pid]
-    self.save()
+_patched_sfmd_register_result = _accumulator.make_register_result_patch()
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +165,7 @@ def _apply_patches(test_file: str) -> None:
     # Patch 5: full-matrix killed-by tracking (no -x).
     SourceFileMutationData.register_result = _patched_sfmd_register_result  # type: ignore[assignment]
     PytestRunner.run_tests = _patched_run_tests  # type: ignore[assignment]
-    atexit.register(_flush_killed_by)
+    atexit.register(_accumulator.flush)
 
     # Override test selection to use only the specified test file.
     mutmut.config.pytest_add_cli_args_test_selection = [test_file]
@@ -448,22 +347,22 @@ def _run_single(test_file: str, output_dir: Path) -> None:
 
     # Flush killed-by data accumulated in memory during the mutation run.
     # The atexit handler has not fired yet, so we flush explicitly.
-    _flush_killed_by()
+    _accumulator.flush()
 
     # Use in-memory data directly; reading from disk would risk picking up
     # stale results from a previous subprocess invocation.
-    if not _killed_by_data:
+    if not _accumulator.data:
         print(
             "No killed-by results found. Did the mutation run complete?",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    print(f"  {len(_killed_by_data)} mutants with killed-by data.", flush=True)
+    print(f"  {len(_accumulator.data)} mutants with killed-by data.", flush=True)
 
     # Perform superfluity analysis.
     print("Analyzing class-local superfluity...", flush=True)
-    analysis = _analyze_superfluity(_killed_by_data)
+    analysis = _analyze_superfluity(_accumulator.data)
 
     # Write JSON output.
     json_path = output_dir / f"superfluity-{test_stem}.json"

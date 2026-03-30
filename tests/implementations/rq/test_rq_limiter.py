@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from redis_rate_limiter import RQRateLimiter
+from redis_rate_limiter.core.limiters import build_enhanced_payload
 from tests.helpers.utils import assert_log_emitted, find_task_in_buffer
 
 
@@ -73,7 +74,7 @@ class TestRQRateLimiter:
         """Verify that ``_dispatch_task`` enqueues the generic
         worker when ``use_executor`` is true."""
         # Arrange
-        enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=True)
+        enhanced_payload = build_enhanced_payload(payload, use_executor=True)
 
         # Act
         with patch.object(limiter.queue, "enqueue") as mock_enqueue:
@@ -104,7 +105,7 @@ class TestRQRateLimiter:
         directly when ``use_executor`` is false."""
         # Arrange
         func_path = "myapp.tasks.custom"
-        enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=False)
+        enhanced_payload = build_enhanced_payload(payload, use_executor=False)
 
         # Act
         with patch.object(limiter.queue, "enqueue") as mock_enqueue:
@@ -135,7 +136,7 @@ class TestRQRateLimiter:
         """Verify that an ``enqueue()`` failure
         propagates from ``_dispatch_task()``."""
         # Arrange
-        enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=True)
+        enhanced_payload = build_enhanced_payload(payload, use_executor=True)
 
         # Act & Assert
         with patch.object(
@@ -146,10 +147,10 @@ class TestRQRateLimiter:
 
     @staticmethod
     def test_enhanced_payload_structure(limiter, payload):
-        """Verify that ``_get_enhanced_payload`` wraps the
+        """Verify that ``build_enhanced_payload`` wraps the
         payload in the expected data/meta structure."""
         # Act
-        enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=False)
+        enhanced_payload = build_enhanced_payload(payload, use_executor=False)
 
         # Assert
         assert enhanced_payload["data"] == payload, (
@@ -228,7 +229,7 @@ class TestRQRateLimiter:
     ):
         """Verify that the custom task path sends data wrapped in a single-element list."""
         # Arrange
-        enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=False)
+        enhanced_payload = build_enhanced_payload(payload, use_executor=False)
 
         # Act
         with patch.object(limiter.queue, "enqueue") as mock_enqueue:
@@ -309,7 +310,7 @@ class TestRQDispatchObservability:
         """Verify that dispatching via the generic worker emits
         a DEBUG log with limiter id, task id, and func path."""
         # Arrange
-        enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=True)
+        enhanced_payload = build_enhanced_payload(payload, use_executor=True)
 
         # Act
         with caplog.at_level(
@@ -337,7 +338,7 @@ class TestRQDispatchObservability:
         a DEBUG log with limiter id, task id, and func path."""
         # Arrange
         func_path = "myapp.tasks.custom"
-        enhanced_payload = limiter._get_enhanced_payload(payload, use_executor=False)
+        enhanced_payload = build_enhanced_payload(payload, use_executor=False)
 
         # Act
         with caplog.at_level(

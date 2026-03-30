@@ -212,6 +212,30 @@ class HealthMonitorObservabilityTests:
             message="should emit a warning log when health check raises an exception",
         )
 
+    async def test_exception_emits_debug_log(
+        self, monitor, mock_limiter, caplog
+    ):
+        """Verify that a health check exception emits a DEBUG log with
+        the limiter id and exception info attached."""
+        # Arrange
+        mock_limiter._check_backend_health.side_effect = RuntimeError("check failed")
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
+            await self.run_once(monitor)
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label=self._log_label,
+            required_fragments=[f"limiter={monitor._limiter.id}"],
+            message="should emit a debug log when health check raises an exception",
+        )
+        assert any(
+            r.exc_info is not None for r in caplog.records if r.levelname == "DEBUG"
+        ), "debug log should include exception info when health check raises"
+
     async def test_healthy_to_healthy_emits_no_log(self, monitor, mock_limiter, caplog):
         """Verify that no log is emitted when the state remains healthy."""
         # Arrange

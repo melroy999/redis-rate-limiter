@@ -11,6 +11,7 @@ Fixture dependencies from the root ``tests/conftest.py``:
     - ``limiter_id``: unique per-test limiter identifier.
 """
 
+from typing import Literal
 from uuid import uuid4
 
 import pytest
@@ -29,9 +30,41 @@ DEFAULT_LIMITER_CONFIG: dict = dict(
 )
 """Default rate limiter parameters used across test fixtures."""
 
+HeartbeatFailureMode = Literal["warn", "kill"]
+HEARTBEAT_OVERRIDE_CASES: list[tuple[HeartbeatFailureMode, HeartbeatFailureMode]] = [
+    ("warn", "kill"),
+    ("kill", "warn"),
+]
+"""Parametrize cases for testing heartbeat failure mode overrides.
+
+Used by both ``test_task_lifecycle.py`` and ``test_async_task_lifecycle.py``
+to verify that the limiter-level and task-level override modes interact
+correctly in both directions.
+"""
+
 # ---------------------------------------------------------------------------
 # Sync test helpers
 # ---------------------------------------------------------------------------
+
+
+class _TrackingMixin:
+    """Mixin that records all dispatch and drain scheduling invocations.
+
+    Shared by both ``TrackingRateLimiter`` and ``AsyncTrackingRateLimiter``
+    to avoid duplicating the ``__init__``, ``dispatched_tasks``,
+    ``scheduled_drains``, and ``_schedule_drain`` implementations.
+    Subclasses must still define ``_dispatch_task`` because the sync and
+    async variants differ in signature (``def`` vs ``async def``).
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dispatched_tasks: list[dict] = []
+        self.scheduled_drains: list[float] = []
+
+    def _schedule_drain(self, delay: float = 0.0) -> None:
+        """Record the scheduled drain delay for subsequent assertion."""
+        self.scheduled_drains.append(delay)
 
 
 class StubRateLimiter(AbstractDistributedRateLimiter):
@@ -48,24 +81,15 @@ class StubRateLimiter(AbstractDistributedRateLimiter):
         pass
 
 
-class TrackingRateLimiter(StubRateLimiter):
+class TrackingRateLimiter(_TrackingMixin, StubRateLimiter):
     """Concrete rate limiter that records all dispatch and drain scheduling
     invocations."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.dispatched_tasks: list[dict] = []
-        self.scheduled_drains: list[float] = []
 
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
         """Record the dispatch invocation for subsequent test assertion."""
         self.dispatched_tasks.append(
             {"func_path": func_path, "payload": payload, "task_id": task_id}
         )
-
-    def _schedule_drain(self, delay: float = 0.0) -> None:
-        """Record the scheduled drain delay for subsequent assertion."""
-        self.scheduled_drains.append(delay)
 
 
 # ---------------------------------------------------------------------------
@@ -95,24 +119,15 @@ class AsyncStubWithHealthCheck(AsyncStubRateLimiter):
         return True
 
 
-class AsyncTrackingRateLimiter(AsyncStubRateLimiter):
+class AsyncTrackingRateLimiter(_TrackingMixin, AsyncStubRateLimiter):
     """Async concrete rate limiter that records all dispatch and drain
     scheduling invocations."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.dispatched_tasks: list[dict] = []
-        self.scheduled_drains: list[float] = []
 
     async def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
         """Record the dispatch invocation for subsequent test assertion."""
         self.dispatched_tasks.append(
             {"func_path": func_path, "payload": payload, "task_id": task_id}
         )
-
-    def _schedule_drain(self, delay: float = 0.0) -> None:
-        """Record the scheduled drain delay for subsequent assertion."""
-        self.scheduled_drains.append(delay)
 
 
 # ---------------------------------------------------------------------------

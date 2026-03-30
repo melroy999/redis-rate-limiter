@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from redis_rate_limiter import ThreadPoolRateLimiter
+from tests.helpers.utils import cleanup_managed_limiter
 from tests.implementations.conftest import DEFAULT_LIMITER_CONFIG
 
 
@@ -48,10 +49,4 @@ def limiter(redis_client, limiter_id, _reset_limiter_class_state):
 
     # Teardown
     test_limiter.shutdown()
-    redis_client.delete(
-        f"{limiter_id}:buffer",
-        f"{limiter_id}:concurrency",
-        f"{limiter_id}:dlq",
-    )
-    redis_client.hdel("rl:registry:configs", limiter_id)
-    redis_client.hdel("rl:registry:versions", limiter_id)
+    cleanup_managed_limiter(redis_client, limiter_id)

@@ -10,6 +10,7 @@ from redis_rate_limiter.core import (
     AbstractDistributedRateLimiter,
     SyncManagedRateLimiter,
 )
+from redis_rate_limiter.core.limiters import build_enhanced_payload
 
 logger = logging.getLogger(__name__)
 
@@ -112,19 +113,6 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
     # Backend dispatch
     # ---------------------------------------------------------------------------
 
-    @staticmethod
-    def _get_enhanced_payload(payload: dict, use_executor: bool) -> dict:
-        """Produce an enhanced payload that includes dispatch metadata.
-
-        Args:
-            payload: The original task payload.
-            use_executor: Whether the generic executor should be used for dispatch.
-
-        Returns:
-            A dictionary containing the original payload augmented with metadata.
-        """
-        return {"data": payload, "meta": {"use_executor": use_executor}}
-
     def schedule_task(
         self,
         func_path: str,
@@ -133,7 +121,7 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
         max_age: Optional[int] = None,
         use_executor: bool = True,
     ) -> tuple[bool, str]:
-        enhanced_payload = self._get_enhanced_payload(payload, use_executor)
+        enhanced_payload = build_enhanced_payload(payload, use_executor)
 
         # fmt: off
         return cast(  # pragma: no mutate

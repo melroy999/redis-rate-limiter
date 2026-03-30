@@ -30,16 +30,15 @@ Patches applied:
 from __future__ import annotations
 
 import atexit
-import json
 import os
 import signal
 import sys
 from collections.abc import Iterable, Sequence
-from datetime import datetime
 from typing import Union
 
 import libcst as cst
 from mutmut import file_mutation, trampoline_templates
+from mutmut_shared import KilledByAccumulator, KilledByCollector as _KilledByCollectorBase
 from mutmut.file_mutation import (
     MODULE_STATEMENT,
     NEVER_MUTATE_FUNCTION_CALLS,
@@ -427,91 +426,39 @@ def _mutmut_trampoline(orig, mutants, call_args, call_kwargs, self_arg=None, ori
 _KILLED_BY_DIR = "/tmp/mutmut_killed_by"
 _KILLED_BY_RESULTS = "/tmp/mutmut_killed_by_results.json"
 
-# In-memory accumulator for killed-by data; written to disk once at exit.
-# Values are dicts with "killed_by" (list[str]), "tests_run" (int),
-# "tests_targeted" (int), and "partial" (bool).
-_killed_by_data: dict[str, dict[str, list[str] | int | bool]] = {}
+_accumulator = KilledByAccumulator(_KILLED_BY_RESULTS, _KILLED_BY_DIR)
 
 # Cache of ``@pytest.mark.signature`` test node IDs, populated once per
 # process by ``_collect_signature_test_ids()``.
 _signature_test_ids: list[str] | None = None
 
 
-def _write_killed_by_temp_file(
-    mutant_name: str | None,
-    collector: "KilledByCollector",
-    *,
-    partial: bool = False,
-) -> None:
-    """Write killed-by data to the child's temp file.
-
-    Called after pytest finishes (``partial=False``) or from the SIGXCPU
-    handler (``partial=True``). The parent reads this file in
-    ``_patched_sfmd_register_result``.
-    """
-    if mutant_name is None:
-        return
-    if not partial and not collector.killed_by:
-        # Final write with no failures: still write if tests were targeted
-        # so that the parent can record the targeted count for survived
-        # mutants. Skip only if nothing useful to report.
-        if not collector.tests_targeted:
-            return
-    os.makedirs(_KILLED_BY_DIR, exist_ok=True)
-    path = os.path.join(_KILLED_BY_DIR, f"{os.getpid()}.json")
-    with open(path, "w") as f:
-        payload: dict[str, object] = {
-            "mutant_name": mutant_name,
-            "killed_by": collector.killed_by,
-            "tests_run": collector.tests_run,
-            "tests_targeted": collector.tests_targeted,
-            "partial": partial,
-        }
-        if collector.current_test is not None:
-            payload["killed_during"] = collector.current_test
-        json.dump(payload, f)
-
-
-class KilledByCollector:
+class KilledByCollector(_KilledByCollectorBase):
     """Pytest plugin that captures the nodeid of the first failing test.
 
     With ``-x``, pytest stops at the first failure, so at most one
-    killer is recorded. The ``tests_targeted`` field records how many
-    tests pytest collected for the run; ``tests_run`` counts how many
-    completed their call phase before the failure (or process kill).
-
-    ``current_test`` tracks which test is mid-execution so the SIGXCPU
-    handler can report where the process was killed.
-
-    When a ``mutant_name`` is provided, the collector flushes killed-by
-    data to the temp file after the failure so that partial data
-    survives a SIGXCPU process kill.
+    killer is recorded. Extends :class:`~mutmut_shared.KilledByCollector`
+    with ``current_test`` tracking so the SIGXCPU handler can report
+    which test was mid-execution when the process was killed.
     """
 
     def __init__(self, mutant_name: str | None = None) -> None:
-        self.killed_by: list[str] = []
-        self.tests_run: int = 0
-        self.tests_targeted: int = 0
+        super().__init__(mutant_name, killed_by_dir=_KILLED_BY_DIR)
         self.current_test: str | None = None
-        self._mutant_name = mutant_name
 
-    def pytest_collection_modifyitems(self, items) -> None:  # type: ignore[no-untyped-def]
-        """Record the number of tests pytest will execute for this run."""
-        self.tests_targeted = len(items)
+    def _extra_payload(self) -> dict:
+        if self.current_test is not None:
+            return {"killed_during": self.current_test}
+        return {}
 
     def pytest_runtest_call(self, item) -> None:  # type: ignore[no-untyped-def]
         """Track the test that is about to execute its call phase."""
         self.current_test = item.nodeid
 
     def pytest_runtest_makereport(self, item, call) -> None:  # type: ignore[no-untyped-def]
+        super().pytest_runtest_makereport(item, call)
         if call.when == "call":
-            self.tests_run += 1
             self.current_test = None
-            if call.excinfo is not None:
-                self.killed_by.append(item.nodeid)
-                # Flush incrementally so partial data survives SIGXCPU.
-                if self._mutant_name is not None:
-                    _write_killed_by_temp_file(self._mutant_name, self, partial=False)
 
 
 def _collect_signature_test_ids() -> list[str]:
@@ -564,7 +511,7 @@ def _patched_run_tests(self, *, mutant_name, tests):  # type: ignore[no-untyped-
         original_sigxcpu = signal.getsignal(signal.SIGXCPU)
 
         def _sigxcpu_handler(signum, frame):  # type: ignore[no-untyped-def]
-            _write_killed_by_temp_file(mutant_name, collector, partial=True)
+            collector.write_temp_file(partial=True)
             # Re-raise to let the default handler terminate the process.
             signal.signal(signal.SIGXCPU, signal.SIG_DFL)
             os.kill(os.getpid(), signal.SIGXCPU)
@@ -594,91 +541,12 @@ def _patched_run_tests(self, *, mutant_name, tests):  # type: ignore[no-untyped-
 
     # Write final (complete) killed-by data, overwriting any partial
     # flush from the incremental writes.
-    _write_killed_by_temp_file(mutant_name, collector, partial=False)
+    collector.write_temp_file(partial=False)
 
     return result
 
 
-def _append_killed_by(
-    mutant_name: str,
-    test_nodeids: list[str],
-    tests_run: int = 0,
-    tests_targeted: int = 0,
-    partial: bool = False,
-    killed_during: str | None = None,
-) -> None:
-    """Accumulate a killed-by entry in memory.
-
-    Called in the parent process after reading the child's temp file.
-    Data is written to disk once at exit via ``_flush_killed_by``.
-    """
-    entry: dict[str, object] = {
-        "killed_by": test_nodeids,
-        "tests_run": tests_run,
-        "tests_targeted": tests_targeted,
-        "partial": partial,
-    }
-    if killed_during is not None:
-        entry["killed_during"] = killed_during
-    _killed_by_data[mutant_name] = entry
-
-
-def _flush_killed_by() -> None:
-    """Write all accumulated killed-by data to disk in a single pass.
-
-    Registered as an ``atexit`` handler so the JSON is written even if
-    mutmut exits via ``SystemExit`` (which Click raises on completion).
-    """
-    if _killed_by_data:
-        with open(_KILLED_BY_RESULTS, "w") as f:
-            json.dump(_killed_by_data, f, indent=4)
-
-
-def _patched_sfmd_register_result(self, *, pid, exit_code):  # type: ignore[no-untyped-def]
-    """Replacement for ``SourceFileMutationData.register_result`` that reads
-    the killed-by temp file (if present) and appends to the aggregated
-    results file at ``_KILLED_BY_RESULTS``."""
-    from mutmut.__main__ import START_TIMES_BY_PID_LOCK
-
-    # Read killed-by data from the child process temp file.
-    key = self.key_by_pid[pid]
-    killed_by_path = os.path.join(_KILLED_BY_DIR, f"{pid}.json")
-    if os.path.exists(killed_by_path):
-        try:
-            with open(killed_by_path) as f:
-                data = json.load(f)
-            killed_by = data.get("killed_by", [])
-            tests_run = data.get("tests_run", 0)
-            tests_targeted = data.get("tests_targeted", 0)
-            partial = data.get("partial", False)
-            killed_during = data.get("killed_during")
-            if killed_by or tests_targeted:
-                _append_killed_by(
-                    key,
-                    killed_by,
-                    tests_run,
-                    tests_targeted,
-                    partial,
-                    killed_during,
-                )
-        except (json.JSONDecodeError, OSError):
-            pass
-        finally:
-            try:
-                os.unlink(killed_by_path)
-            except OSError:
-                pass
-
-    # Reproduce the original register_result logic.
-    assert self.key_by_pid[pid] in self.exit_code_by_key
-    self.exit_code_by_key[key] = exit_code
-    self.durations_by_key[key] = (
-        datetime.now() - self.start_time_by_pid[pid]
-    ).total_seconds()
-    del self.key_by_pid[pid]
-    with START_TIMES_BY_PID_LOCK:
-        del self.start_time_by_pid[pid]
-    self.save()
+_patched_sfmd_register_result = _accumulator.make_register_result_patch()
 
 
 # ---------------------------------------------------------------------------
@@ -717,7 +585,7 @@ def _apply_patches() -> None:
 
     SourceFileMutationData.register_result = _patched_sfmd_register_result  # type: ignore[assignment]
     PytestRunner.run_tests = _patched_run_tests  # type: ignore[assignment]
-    atexit.register(_flush_killed_by)
+    atexit.register(_accumulator.flush)
 
 
 # ---------------------------------------------------------------------------
