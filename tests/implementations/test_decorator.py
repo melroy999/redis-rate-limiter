@@ -298,7 +298,10 @@ class TestRateLimitedDecorator:
             "redis_rate_limiter.core.decorators._get_default_limiter",
             return_value=limiter,
         ):
-            with pytest.raises(ValueError, match="Missing limiter id"):
+            with pytest.raises(
+                ValueError,
+                match=r"^Missing limiter id\. Pass limiter_id to @rate_limited",
+            ):
                 wrapped_function(_rate_limit_task_id=task_id)
 
     @staticmethod
@@ -410,7 +413,6 @@ class TestRateLimitedDecoratorObservability:
                 "Decorator entered",
                 f"limiter={limiter_id}",
                 f"task_id={task_id}",
-                "func=",
                 "wrapped_function",
             ],
             message="should emit a debug log for the decorator entry"
@@ -424,7 +426,6 @@ class TestRateLimitedDecoratorObservability:
                 "execution completed",
                 f"limiter={limiter_id}",
                 f"task_id={task_id}",
-                "func=",
                 "wrapped_function",
             ],
             message="should emit a debug log for the task completion"

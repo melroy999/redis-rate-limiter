@@ -40,10 +40,11 @@ class ThreadPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimit
         """
         executor = backend_context.get("executor")
         if executor is None:
+            # fmt: off
             raise RuntimeError(
-                "ThreadPoolRateLimiter.configure(redis_client, executor=executor) "
-                "must be called before create() or get()."
+                "ThreadPoolRateLimiter.configure(redis_client, executor=executor) must be called before create() or get()."
             )
+            # fmt: on
         cls._executor = executor
 
     @classmethod

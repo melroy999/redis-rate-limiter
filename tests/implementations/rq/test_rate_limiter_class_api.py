@@ -28,7 +28,10 @@ class TestRQRateLimiterClassApi:
         RQRateLimiter._reset()
 
         # Act & Assert
-        with pytest.raises(RuntimeError, match="queue"):
+        with pytest.raises(
+            RuntimeError,
+            match=r"^RQRateLimiter\.configure\(redis_client, queue=queue\) must be called",
+        ):
             RQRateLimiter.configure(redis_client)
 
     @staticmethod

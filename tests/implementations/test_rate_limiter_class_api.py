@@ -136,7 +136,10 @@ class TestConfigure:
         ManagedTestRateLimiter._reset()
 
         # Act & Assert
-        with pytest.raises(RuntimeError, match="backend_label"):
+        with pytest.raises(
+            RuntimeError,
+            match=r"ManagedTestRateLimiter\.configure.*backend_label.*must be called",
+        ):
             ManagedTestRateLimiter.configure(redis_client)
 
         # Cleanup for test isolation.
@@ -154,7 +157,10 @@ class TestCreate:
         ManagedTestRateLimiter._reset()
 
         # Act & Assert
-        with pytest.raises(RuntimeError, match="configure"):
+        with pytest.raises(
+            RuntimeError,
+            match=r"configure.*must be called before create\(\) or get\(\)",
+        ):
             ManagedTestRateLimiter.create(
                 limiter_id, limit=1, window=1, max_concurrency=1
             )
@@ -194,7 +200,7 @@ class TestCreate:
         create_test_limiter(limiter_id)
 
         # Act & Assert
-        with pytest.raises(ValueError, match="already exists"):
+        with pytest.raises(ValueError, match=r"^Limiter '.*' already exists"):
             ManagedTestRateLimiter.create(
                 limiter_id,
                 limit=10,
@@ -300,7 +306,10 @@ class TestGet:
         ManagedTestRateLimiter._reset()
 
         # Act & Assert
-        with pytest.raises(RuntimeError, match="configure"):
+        with pytest.raises(
+            RuntimeError,
+            match=r"configure.*must be called before create\(\) or get\(\)",
+        ):
             ManagedTestRateLimiter.get(limiter_id)
 
     @staticmethod
@@ -360,7 +369,7 @@ class TestGet:
         missing_limiter_id = "limiter_id_for_get_nonexistent_limiter_test"
 
         # Act & Assert
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(ValueError, match=r"^Limiter '.*' not found"):
             ManagedTestRateLimiter.get(missing_limiter_id)
 
 
@@ -715,7 +724,7 @@ class TestResetAndConstruction:
         """Verify that direct ``__init__`` invocation, bypassing
         ``create()``/``get()``, raises a ``RuntimeError``."""
         # Act & Assert
-        with pytest.raises(RuntimeError, match="Direct.*construction is not supported"):
+        with pytest.raises(RuntimeError, match=r"^Direct ManagedTestRateLimiter\(\) construction is not supported"):
             ManagedTestRateLimiter(
                 redis_client=redis_client,
                 limiter_id="direct_construction_test",
@@ -889,7 +898,10 @@ class TestManagedMixinInternals:
         ManagedTestRateLimiter._redis_client = redis_client
 
         # Act & Assert
-        with pytest.raises(RuntimeError, match="must be called before"):
+        with pytest.raises(
+            RuntimeError,
+            match=r"configure.*must be called before create\(\) or get\(\)",
+        ):
             ManagedTestRateLimiter._require_configured()
 
     @staticmethod
@@ -901,7 +913,10 @@ class TestManagedMixinInternals:
         ManagedTestRateLimiter._backend_label = "test"
 
         # Act & Assert
-        with pytest.raises(RuntimeError, match="must be called before"):
+        with pytest.raises(
+            RuntimeError,
+            match=r"configure.*must be called before create\(\) or get\(\)",
+        ):
             ManagedTestRateLimiter._require_configured()
 
     @staticmethod
@@ -984,9 +999,10 @@ class TestCreateObservability:
             required_fragments=[
                 "Created",
                 f"limiter={limiter_id}",
+                "config={'limit': 10",
                 "persist=True",
             ],
-            message="should emit an info log with class name, limiter id, and persist flag",
+            message="should emit an info log with class name, limiter id, config, and persist flag",
         )
 
 
@@ -1011,7 +1027,7 @@ class TestGetObservability:
             level="DEBUG",
             label="[ManagedTestRateLimiter]",
             required_fragments=[
-                "Resolved from local cache",
+                "local cache",
                 f"limiter={limiter_id}",
             ],
             message="should emit a debug log for local cache resolution",
@@ -1035,7 +1051,7 @@ class TestGetObservability:
             level="DEBUG",
             label="[ManagedTestRateLimiter]",
             required_fragments=[
-                "Hydrated from Redis",
+                "Hydrated",
                 f"limiter={limiter_id}",
             ],
             message="should emit a debug log for Redis hydration",
@@ -1130,7 +1146,11 @@ class TestRefreshConfigObservability:
             caplog.records,
             level="WARNING",
             label="[ManagedTestRateLimiter]",
-            required_fragments=[f"limiter={limiter_id}", "error="],
+            required_fragments=[
+                f"limiter={limiter_id}",
+                "skipped",
+                "error=Expecting",
+            ],
             message="should emit a warning log with limiter id and error details on malformed config",
         )
 

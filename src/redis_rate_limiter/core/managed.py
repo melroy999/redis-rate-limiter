@@ -103,10 +103,11 @@ class ManagedRateLimiterMixin:
     def _require_internal_construction(cls, sentinel: Any) -> None:
         """Reject direct constructor invocations that bypass the managed class API."""
         if sentinel is not cls._SENTINEL:
+            # fmt: off
             raise RuntimeError(
-                f"Direct {cls.__name__}() construction is not supported. "
-                f"Use {cls._configure_hint()} then {cls.__name__}.create() or {cls.__name__}.get()."
+                f"Direct {cls.__name__}() construction is not supported. Use {cls._configure_hint()} then {cls.__name__}.create() or {cls.__name__}.get()."
             )
+            # fmt: on
 
     @classmethod
     def _require_configured(cls) -> None:
@@ -298,10 +299,11 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
 
         raw_config = cls._redis_client.hget(cls._REGISTRY_KEY, limiter_id)
         if raw_config is None:
+            # fmt: off
             raise ValueError(
-                f"Limiter '{limiter_id}' not found in local cache or Redis. "
-                f"Ensure it was created via {cls.__name__}.create()."
+                f"Limiter '{limiter_id}' not found in local cache or Redis. Ensure it was created via {cls.__name__}.create()."
             )
+            # fmt: on
 
         config = cls._parse_raw_config(raw_config)
         instance = cls(
@@ -403,7 +405,7 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
             "[%s] Config refreshed: limiter=%s, version=%d.",
             type(self).__name__,
             self.id,
-            remote_version,
+            self._config_version,
         )
         return True
 
@@ -420,7 +422,8 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
 
     if TYPE_CHECKING:
         id: str
-        redis: Any  # AsyncRedis; using Any to avoid shadowing the module name.
+        # AsyncRedis; using Any to avoid shadowing the module name.
+        redis: Any
         _config_version: int
 
         def _apply_config_overrides(self, overrides: dict[str, Any]) -> None: ...
@@ -547,10 +550,11 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         )
         # fmt: on
         if raw_config is None:
+            # fmt: off
             raise ValueError(
-                f"Limiter '{limiter_id}' not found in local cache or Redis. "
-                f"Ensure it was created via {cls.__name__}.create()."
+                f"Limiter '{limiter_id}' not found in local cache or Redis. Ensure it was created via {cls.__name__}.create()."
             )
+            # fmt: on
 
         config = cls._parse_raw_config(raw_config)
         instance = cls(
@@ -666,6 +670,6 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
             "[%s] Config refreshed: limiter=%s, version=%d.",
             type(self).__name__,
             self.id,
-            remote_version,
+            self._config_version,
         )
         return True

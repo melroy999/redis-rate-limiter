@@ -13,6 +13,8 @@ import logging
 import pytest
 from prometheus_client import CollectorRegistry
 
+from tests.helpers.utils import assert_log_emitted
+
 from redis_rate_limiter.integrations.prometheus import PrometheusMetricsExporter
 
 
@@ -399,14 +401,19 @@ class TestEdgeCases:
             exporter("unknown_event", {"key": "value"})
 
         # Assert
-        assert any(
-            record.levelname == "DEBUG"
-            and f"limiter={limiter_id}" in record.message
-            and "event=unknown_event" in record.message
-            for record in caplog.records
-        ), (
-            "should emit a debug log containing the limiter "
-            "id and the unknown event name"
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label="[PrometheusMetricsExporter]",
+            required_fragments=[
+                f"limiter={limiter_id}",
+                "Ignoring unknown metrics event",
+                "event=unknown_event",
+            ],
+            message=(
+                "should emit a debug log containing the limiter "
+                "id and the unknown event name"
+            ),
         )
 
     @staticmethod

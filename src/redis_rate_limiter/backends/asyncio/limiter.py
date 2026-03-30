@@ -8,6 +8,7 @@ full async drain loop, Pub/Sub subscriber, and task lifecycle heartbeat.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from typing import Any, ClassVar, Optional
 
@@ -42,10 +43,11 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
         """
         max_tasks = backend_context.get("max_tasks")
         if max_tasks is None:
+            # fmt: off
             raise RuntimeError(
-                "AsyncIOTaskLimiter.configure(redis_client, max_tasks=N) "
-                "must be called before create() or get()."
+                "AsyncIOTaskLimiter.configure(redis_client, max_tasks=N) must be called before create() or get()."
             )
+            # fmt: on
         cls._max_tasks = int(max_tasks)
 
     @classmethod
@@ -117,12 +119,12 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
         async def _run_task() -> None:
             try:
                 async with self.task_lifecycle(task_id):
-                    if not asyncio.iscoroutinefunction(target_func):
+                    if not inspect.iscoroutinefunction(target_func):
+                        # fmt: off
                         raise TypeError(
-                            f"AsyncIOTaskLimiter requires coroutine functions, "
-                            f"but '{func_path}' is synchronous. Define it with "
-                            f"'async def' or use ThreadPoolRateLimiter instead."
+                            f"AsyncIOTaskLimiter requires coroutine functions, but '{func_path}' is synchronous. Define it with 'async def' or use ThreadPoolRateLimiter instead."
                         )
+                        # fmt: on
                     await target_func(**payload)
             except Exception:
                 logger.exception(

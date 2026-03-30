@@ -690,6 +690,7 @@ class RateLimiterObservabilityTests:
                 f"limiter={limiter.id}",
                 f"task_id={task_id}",
                 f"func_path={func_path}",
+                "priority=100",
             ],
             message="should emit an info log for the successfully scheduled task",
         )

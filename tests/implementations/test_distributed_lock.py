@@ -122,7 +122,7 @@ class DistributedLockObservabilityTests:
             label=self._log_label,
             required_fragments=[
                 f"key={lock_key}",
-                "token=",
+                f"token={lock.token}",
                 "timeout_ms=1000",
                 "acquired",
             ],
@@ -149,7 +149,7 @@ class DistributedLockObservabilityTests:
             caplog.records,
             level="DEBUG",
             label=self._log_label,
-            required_fragments=[f"key={lock_key}", "token=", "released"],
+            required_fragments=[f"key={lock_key}", f"token={lock.token}", "released"],
             message="should emit a debug log for lock release with key and token",
         )
 
@@ -201,7 +201,7 @@ class DistributedLockObservabilityTests:
             caplog.records,
             level="DEBUG",
             label=self._log_label,
-            required_fragments=[f"key={lock_key}", "expired before release"],
+            required_fragments=[f"key={lock_key}", f"token={lock.token}", "expired"],
             message="should emit a debug log for lock expired before release with key",
         )
 

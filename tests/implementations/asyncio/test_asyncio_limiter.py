@@ -26,7 +26,10 @@ class TestAsyncIOTaskLimiterClassApi:
         AsyncIOTaskLimiter._reset()
 
         # Act & Assert
-        with pytest.raises(RuntimeError, match="max_tasks"):
+        with pytest.raises(
+            RuntimeError,
+            match=r"^AsyncIOTaskLimiter\.configure\(redis_client, max_tasks=N\) must be called",
+        ):
             AsyncIOTaskLimiter.configure(async_redis_client)
 
     @staticmethod

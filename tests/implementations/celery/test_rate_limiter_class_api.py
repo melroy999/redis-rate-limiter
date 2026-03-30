@@ -28,7 +28,10 @@ class TestCeleryRateLimiterClassApi:
         CeleryRateLimiter._reset()
 
         # Act & Assert
-        with pytest.raises(RuntimeError, match="celery_app"):
+        with pytest.raises(
+            RuntimeError,
+            match=r"^CeleryRateLimiter\.configure\(redis_client, celery_app\) must be called",
+        ):
             CeleryRateLimiter.configure(redis_client)
 
     @staticmethod

@@ -61,16 +61,18 @@ def resolve_import_path(fn: Callable[..., Any]) -> str:
         raise ValueError(f"Cannot resolve import path for lambda: {fn!r}.")
 
     if "<locals>" in qualname:
+        # fmt: off
         raise ValueError(
-            f"Cannot resolve import path for nested function or closure: {fn!r} "
-            f"(qualname={qualname!r})."
+            f"Cannot resolve import path for nested function or closure: {fn!r} (qualname={qualname!r})."
         )
+        # fmt: on
 
     if "." in qualname:
+        # fmt: off
         raise ValueError(
-            f"Cannot resolve import path for class-bound callable: {fn!r} "
-            f"(qualname={qualname!r}). Only module-level names are supported."
+            f"Cannot resolve import path for class-bound callable: {fn!r} (qualname={qualname!r}). Only module-level names are supported."
         )
+        # fmt: on
 
     import_path = f"{module}.{qualname}"
 
@@ -78,11 +80,11 @@ def resolve_import_path(fn: Callable[..., Any]) -> str:
     # to the same object.
     resolved = import_string(import_path)
     if resolved is not fn:
+        # fmt: off
         raise ValueError(
-            f"Round-trip verification failed for {fn!r}: "
-            f"import_string({import_path!r}) resolved to {resolved!r}, "
-            f"which is not the same object."
+            f"Round-trip verification failed for {fn!r}: import_string({import_path!r}) resolved to {resolved!r}, which is not the same object."
         )
+        # fmt: on
 
     logger.debug(
         "[ImportResolver] Callable resolved to import path: callable=%r, import_path=%s.",

@@ -20,7 +20,7 @@ from redis_rate_limiter.core.async_limiters import (
 )
 from redis_rate_limiter.core.limiters import AbstractDistributedRateLimiter
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
-from tests.helpers.utils import assert_log_emitted
+from tests.helpers.utils import assert_log_emitted, assert_log_emitted_with_exc_info
 from tests.implementations.conftest import (
     AsyncStubRateLimiter,
     AsyncTrackingRateLimiter,
@@ -622,6 +622,43 @@ class DrainObservabilityTests:
 
     _log_label: str
 
+    async def test_drain_loop_start_emits_debug_log(
+        self, limiter, mock_target, caplog
+    ):
+        """Verify that ``_drain_inner`` emits a debug log at loop start."""
+        # Arrange
+        # Buffer-empty path is the simplest way to enter _drain_inner.
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "task": None,
+            "remaining_tokens": 5,
+            "active_concurrency": 0,
+            "reset_in_ms": 100,
+            "remaining_tasks": 0,
+        }
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
+            with (
+                patch.object(
+                    mock_target,
+                    "execution_lock",
+                    return_value=self.lock_result(True),
+                ),
+                patch.object(mock_target, "consume", return_value=consume_result),
+            ):
+                await limiter.drain()
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label=self._log_label,
+            required_fragments=[f"limiter={limiter.id}", "start"],
+            message="should emit a debug log at drain loop start",
+        )
+
     async def test_drain_paused_emits_debug_log(self, limiter, mock_target, caplog):
         """Verify that ``drain()`` emits a debug log when deferred due to pause."""
         # Arrange
@@ -643,10 +680,51 @@ class DrainObservabilityTests:
             ),
         )
 
+    async def test_drain_lock_acquired_emits_debug_log(
+        self, limiter, mock_target, caplog
+    ):
+        """Verify that ``_drain_inner`` emits a debug log with the lock acquisition result."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "task": None,
+            "remaining_tokens": 5,
+            "active_concurrency": 0,
+            "reset_in_ms": 100,
+            "remaining_tasks": 0,
+        }
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
+            with (
+                patch.object(
+                    mock_target,
+                    "execution_lock",
+                    return_value=self.lock_result(True),
+                ),
+                patch.object(mock_target, "consume", return_value=consume_result),
+            ):
+                await limiter.drain()
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label=self._log_label,
+            required_fragments=[
+                f"limiter={limiter.id}",
+                "acquired=True",
+            ],
+            message=(
+                "should emit a debug log with the lock acquisition result"
+            ),
+        )
+
     async def test_drain_lock_contended_emits_debug_log(
         self, limiter, mock_target, caplog
     ):
-        """Verify that ``drain()`` emits a debug log when
+        """Verify that ``drain()`` emits debug logs when
         the dispatch lock is contended."""
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
@@ -661,6 +739,19 @@ class DrainObservabilityTests:
                 await limiter.drain()
 
         # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label=self._log_label,
+            required_fragments=[
+                f"limiter={limiter.id}",
+                "held",
+            ],
+            message=(
+                "should emit a debug log indicating the drain was "
+                "skipped because the lock is held by another drainer"
+            ),
+        )
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
@@ -748,14 +839,18 @@ class DrainObservabilityTests:
                 await limiter.drain()
 
         # Assert
-        assert_log_emitted(
+        assert_log_emitted_with_exc_info(
             caplog.records,
             level="ERROR",
             label=self._log_label,
-            required_fragments=[f"limiter={limiter.id}", "attempt #1"],
+            required_fragments=[
+                f"limiter={limiter.id}",
+                "attempt #1",
+                "in 0.100s",
+            ],
             message=(
                 "should emit an error log containing the "
-                "limiter id and failure attempt number"
+                "limiter id, failure attempt number, and recovery delay"
             ),
         )
 
@@ -786,13 +881,12 @@ class DrainObservabilityTests:
                 await limiter.drain()
 
         # Assert
-        assert_log_emitted(
+        assert_log_emitted_with_exc_info(
             caplog.records,
             level="CRITICAL",
             label=self._log_label,
             required_fragments=[
                 f"limiter={limiter.id}",
-                "Recovery scheduling also failed",
             ],
             message=(
                 "should emit a critical log when both "
@@ -884,6 +978,45 @@ class DrainObservabilityTests:
             ),
         )
 
+    async def test_drain_buffer_empty_emits_debug_log(
+        self, limiter, mock_target, caplog
+    ):
+        """Verify that ``_drain_inner`` emits a debug log when the buffer is empty."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "task": None,
+            "remaining_tokens": 5,
+            "active_concurrency": 0,
+            "reset_in_ms": 100,
+            "remaining_tasks": 0,
+        }
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
+            with (
+                patch.object(
+                    mock_target,
+                    "execution_lock",
+                    return_value=self.lock_result(True),
+                ),
+                patch.object(mock_target, "consume", return_value=consume_result),
+            ):
+                await limiter.drain()
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label=self._log_label,
+            required_fragments=[f"limiter={limiter.id}", "buffer empty"],
+            message=(
+                "should emit a debug log indicating the "
+                "drain stopped because the buffer is empty"
+            ),
+        )
+
     async def test_drain_rate_limited_emits_info_log(
         self, limiter, mock_target, caplog
     ):
@@ -927,12 +1060,16 @@ class DrainObservabilityTests:
             required_fragments=[
                 f"limiter={limiter.id}",
                 "delay_s=0.250",
+                "base_delay_s=0.250",
+                "jitter_s=0.000",
                 "remaining_tasks=4",
+                "val_previous=0",
+                "val_current=5",
+                "fallback=True",
             ],
             message=(
                 "should emit an info log for the "
-                "rate-limited retry with delay "
-                "and remaining tasks"
+                "rate-limited retry with all parameters"
             ),
         )
 
@@ -956,7 +1093,8 @@ class DrainObservabilityTests:
             label=self._log_label,
             required_fragments=[
                 f"limiter={limiter.id}",
-                "Failed to publish drain signal",
+                "Failed",
+                "publish",
             ],
             message="should emit a debug log when redis publish raises an exception",
         )
@@ -978,8 +1116,7 @@ class DrainObservabilityTests:
             label=self._log_label,
             required_fragments=[
                 f"limiter={limiter.id}",
-                "Drain deferred",
-                "local execution capacity",
+                "capacity",
             ],
             message=(
                 "should emit a debug log when drain is "
@@ -1000,7 +1137,7 @@ class DrainObservabilityTests:
             label=self._log_label,
             required_fragments=[
                 f"limiter={limiter.id}",
-                "Trigger consume",
+                "Trigger",
             ],
             message="should emit a debug log when trigger_consume is called",
         )

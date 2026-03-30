@@ -120,6 +120,29 @@ def dict_equals_approx(left, right, relative_tolerance=1e-9, absolute_tolerance=
     return left == right
 
 
+def _log_record_matches(
+    record: logging.LogRecord,
+    level: str,
+    label: str,
+    required_fragments: list[str],
+) -> bool:
+    """Return ``True`` if *record* matches the given level, label prefix, fragment, and
+    capitalization constraints.
+    """
+    if record.levelname != level:
+        return False
+    if not record.message.startswith(label):
+        return False
+    if not all(fragment in record.message for fragment in required_fragments):
+        return False
+    # First word after the label prefix must be capitalized.
+    body = record.message[len(label) :]
+    first_alpha = next((c for c in body if c.isalpha()), None)
+    if first_alpha is not None and not first_alpha.isupper():
+        return False
+    return True
+
+
 def assert_log_emitted(
     caplog_records: list,
     level: str,
@@ -130,22 +153,31 @@ def assert_log_emitted(
     """Assert that at least one log record matches the given level, starts with ``label``, and
     contains all ``required_fragments`` as substrings.
     """
+    assert any(
+        _log_record_matches(record, level, label, required_fragments)
+        for record in caplog_records
+    ), message
 
-    def _matches(record: logging.LogRecord) -> bool:
-        if record.levelname != level:
-            return False
-        if not record.message.startswith(label):
-            return False
-        if not all(fragment in record.message for fragment in required_fragments):
-            return False
-        # First word after the label prefix must be capitalized.
-        body = record.message[len(label) :]
-        first_alpha = next((c for c in body if c.isalpha()), None)
-        if first_alpha is not None and not first_alpha.isupper():
-            return False
-        return True
 
-    assert any(_matches(record) for record in caplog_records), message
+def assert_log_emitted_with_exc_info(
+    caplog_records: list,
+    level: str,
+    label: str,
+    required_fragments: list[str],
+    message: str,
+) -> None:
+    """Assert that at least one log record matches the given level, label, and fragments,
+    and has ``exc_info`` attached (i.e., the log call included exception context).
+    """
+    matching = [
+        record
+        for record in caplog_records
+        if _log_record_matches(record, level, label, required_fragments)
+    ]
+    assert matching, message
+    assert any(record.exc_info is not None for record in matching), (
+        f"{message} (matched record found, but exc_info was not set)"
+    )
 
 
 def find_task_in_buffer(redis_client, buffer_key: str, task_id: str) -> dict | None:

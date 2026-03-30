@@ -485,18 +485,19 @@ class AsyncBackendHealthMonitor:
             healthy = False
 
         if self._healthy and not healthy:
+            # fmt: off
             logger.warning(
-                "[AsyncBackendHealthMonitor] Backend health check failed: limiter=%s. "
-                "Workers may be unavailable; dispatched tasks will not "
-                "complete until the backend recovers.",
+                "[AsyncBackendHealthMonitor] Backend health check failed: limiter=%s. Workers may be unavailable; dispatched tasks will not complete until the backend recovers.",
                 self._limiter.id,
             )
+            # fmt: on
         elif not self._healthy and healthy:
+            # fmt: off
             logger.info(
-                "[AsyncBackendHealthMonitor] Backend health check recovered: limiter=%s. "
-                "Workers are available again.",
+                "[AsyncBackendHealthMonitor] Backend health check recovered: limiter=%s. Workers are available again.",
                 self._limiter.id,
             )
+            # fmt: on
 
         self._healthy = healthy
 
@@ -877,7 +878,7 @@ class AbstractAsyncDistributedRateLimiter(
             ):
                 remaining = self._drain_paused_until - time.time()
                 logger.debug(
-                    "[%s] Drain deferred: limiter=%s is paused for %.3fs.",
+                    "[%s] Drain deferred: limiter=%s is paused for %.3fs for window transition.",
                     type(self).__name__,
                     self.id,
                     remaining,
@@ -904,12 +905,14 @@ class AbstractAsyncDistributedRateLimiter(
             try:
                 self._schedule_drain(delay=delay)
             except Exception:
+                # fmt: off
                 logger.critical(
-                    "[%s] Recovery scheduling also failed: limiter=%s.",
+                    "[%s] Recovery scheduling also failed: limiter=%s. Drain loop will resume on next trigger_consume() or task completion.",
                     type(self).__name__,
                     self.id,
                     exc_info=True,
                 )
+                # fmt: on
 
     async def _drain_inner(self) -> None:
         """Execute the core drain logic: consume, dispatch, and schedule a follow-up."""
@@ -926,14 +929,14 @@ class AbstractAsyncDistributedRateLimiter(
 
         async with self.execution_lock() as acquired:
             logger.debug(
-                "[%s] Drain lock result: limiter=%s, acquired=%s.",
+                "[%s] Drain lock acquisition result: limiter=%s, acquired=%s.",
                 type(self).__name__,
                 self.id,
                 acquired,
             )
             if not acquired:
                 logger.debug(
-                    "[%s] Drain skipped: lock held by another drainer: limiter=%s.",
+                    "[%s] Drain skipped because lock is held by another drainer: limiter=%s.",
                     type(self).__name__,
                     self.id,
                 )
@@ -968,7 +971,7 @@ class AbstractAsyncDistributedRateLimiter(
 
                 if result["remaining_tasks"] > 0:
                     logger.debug(
-                        "[%s] More tasks remain, scheduling follow-up drain: limiter=%s, remaining=%d.",
+                        "[%s] More tasks remain, scheduling immediate follow-up drain: limiter=%s, remaining_tasks=%d.",
                         type(self).__name__,
                         self.id,
                         result["remaining_tasks"],
@@ -1012,13 +1015,16 @@ class AbstractAsyncDistributedRateLimiter(
 
                 delay_seconds = round(max(0.001, base_delay + jitter), 3)
                 logger.info(
-                    "[%s] Rate limited: limiter=%s, delay_s=%.3f, base_delay_s=%.3f, jitter_s=%.3f, remaining_tasks=%d.",
+                    "[%s] Rate limited, scheduling retry: limiter=%s, delay_s=%.3f, base_delay_s=%.3f, jitter_s=%.3f, remaining_tasks=%d, val_previous=%d, val_current=%d, fallback=%s.",
                     type(self).__name__,
                     self.id,
                     delay_seconds,
                     base_delay,
                     jitter,
                     result["remaining_tasks"],
+                    val_previous,
+                    val_current,
+                    is_fallback,
                 )
                 self._schedule_drain(delay=delay_seconds)
 
@@ -1101,7 +1107,6 @@ class AbstractAsyncDistributedRateLimiter(
                 f"limiter={self.id!r} was not shut down; "
                 "call await shutdown() to stop background tasks",
                 ResourceWarning,
-                stacklevel=1,
             )
 
     def execution_lock(self, timeout_ms: int = 5000) -> AsyncDistributedLock:

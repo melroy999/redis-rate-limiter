@@ -28,7 +28,10 @@ class TestProcessPoolRateLimiterClassApi:
         ProcessPoolRateLimiter._reset()
 
         # Act & Assert
-        with pytest.raises(RuntimeError, match="executor"):
+        with pytest.raises(
+            RuntimeError,
+            match=r"^ProcessPoolRateLimiter\.configure\(redis_client, executor=executor\) must be called",
+        ):
             ProcessPoolRateLimiter.configure(redis_client)
 
     @staticmethod

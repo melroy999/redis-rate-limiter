@@ -45,10 +45,11 @@ def rate_limited(
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             _limiter_id = limiter_id or kwargs.get("limiter_id")
             if _limiter_id is None:
+                # fmt: off
                 raise ValueError(
-                    "Missing limiter id. Pass limiter_id to @rate_limited() "
-                    "or provide limiter_id in function kwargs."
+                    "Missing limiter id. Pass limiter_id to @rate_limited() or provide limiter_id in function kwargs."
                 )
+                # fmt: on
 
             limiter_getter = get_limiter or _get_default_limiter
             limiter = limiter_getter(_limiter_id)

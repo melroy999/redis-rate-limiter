@@ -230,6 +230,8 @@ Removing a parameter from a log call is a real degradation of observability. Ope
 
 The separation rule still applies: log assertions belong in their own test methods. But they must exist, and they must be thorough.
 
+**DEBUG-level boundary**: the observability contract applies to INFO, WARNING, ERROR, and CRITICAL log messages. DEBUG-level trace messages are developer aids with no operational SLA; surviving mutations on DEBUG format strings and arguments are accepted as a deliberate boundary. The effort to test every format string and argument mutation on DEBUG logs exceeds the value they provide.
+
 ### 4.5 Mutmut Impact
 
 Separating log assertions into their own test methods does not reduce mutation coverage. The observability tests still kill the same mutations that the tacked-on assertions killed. What changes is that behavioral tests no longer carry log-assertion baggage, and each test has a single, clear responsibility.
@@ -351,6 +353,8 @@ assert not any(
 ```
 
 **Multiple log events in one test**: if a test needs to verify multiple sequential log emissions from the same action, use a single `caplog.at_level()` context manager and assert on each expected record. Do not call `caplog.clear()` between assertions unless the test performs multiple distinct actions.
+
+**Fragment strategy**: the `_log_record_matches` helper provides three mutation-killing mechanisms beyond fragment matching: (1) the label check (`message.startswith(label)`) catches xx_wrap mutations; (2) the capitalization check (first alpha after label must be uppercase) catches lowercase mutations; (3) uppercase mutations on format strings containing `%s`/`%d`/`%g` cause a `%S` crash at runtime. For single-string format strings, these three mechanisms catch all format-string mutations without any text fragments. Therefore, `required_fragments` should primarily contain **value fragments** in `key=value` format (e.g., `f"limiter={limiter.id}"`, `"acquired=True"`). Short **disambiguation keywords** (e.g., `"paused"`, `"DLQ"`, `"expired"`) are acceptable when multiple log messages at the same level share the same value fragments. Avoid long descriptive prose fragments (e.g., `"Drain loop start"`, `"scheduling recovery"`) because the built-in mechanisms already catch the corresponding mutations.
 
 ### 5.4 Timeout Patterns
 
@@ -497,6 +501,8 @@ Tests that do **not** need this annotation (write them as normal behavioral test
 - Any line that contains decision logic (conditionals, loops, returns).
 - Logger lines; log messages are part of the observability contract and must be tested (see Section 4.4).
 - Heuristic constants or formula values; write an exact-value test instead.
+
+**`# fmt: off` for log format strings**: when a logger call uses multiple adjacent string literals (i.e., Python implicit concatenation), mutmut treats each literal as an independent mutation target. The second/later string parts are not protected by the label check, capitalization check, or `%S` crash mechanisms (see Section 5.3). Rather than adding text-based disambiguation fragments in tests to cover these parts, consolidate the string literals into a single line wrapped with `# fmt: off` / `# fmt: on`. This addresses the mutation gap at the source level. See also the `# fmt: off` convention in `CLAUDE.md`.
 
 ### 6.3 Equivalent Mutant Reference
 

@@ -304,6 +304,7 @@ class MetricsCallbackObservabilityTests:
                 "Metrics callback raised an exception",
                 f"limiter={limiter.id}",
                 "event=consume",
+                "callback failure",
             ],
             message="should emit a warning log when the metrics callback raises during consume",
         )
@@ -328,6 +329,7 @@ class MetricsCallbackObservabilityTests:
                 "Metrics callback raised an exception",
                 f"limiter={limiter.id}",
                 "event=schedule",
+                "callback failure",
             ],
             message="should emit a warning log when the callback raises during schedule",
         )

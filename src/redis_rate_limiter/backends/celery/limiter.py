@@ -50,10 +50,11 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
         """
         celery_app = backend_context.get("celery_app")
         if celery_app is None:
+            # fmt: off
             raise RuntimeError(
-                "CeleryRateLimiter.configure(redis_client, celery_app) "
-                "must be called before create() or get()."
+                "CeleryRateLimiter.configure(redis_client, celery_app) must be called before create() or get()."
             )
+            # fmt: on
         cls._celery_app = celery_app
 
     @classmethod

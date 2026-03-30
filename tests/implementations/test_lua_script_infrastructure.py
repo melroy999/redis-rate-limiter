@@ -75,7 +75,7 @@ class TestScriptRegistration:
             "redis_rate_limiter.core.scripts.resources.files",
             side_effect=FileNotFoundError("File system error"),
         ) as mock_files:
-            with pytest.raises(ImportError, match=f"Could not load {lua_script}"):
+            with pytest.raises(ImportError, match=f"^Could not load {lua_script}"):
                 stub_limiter._register_script(lua_script)
 
             # Verify that all configured package candidates were attempted.
@@ -667,6 +667,7 @@ class TestSyncRegisterScriptObservability:
             limiter._register_script("health.lua")
 
         # Assert
+        sha = limiter._script_shas["health.lua"]
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
@@ -675,7 +676,7 @@ class TestSyncRegisterScriptObservability:
                 "Lua script registered",
                 f"limiter={limiter.id}",
                 "script=health.lua",
-                "sha=",
+                f"sha={sha}",
             ],
             message=(
                 "should emit a debug log containing the limiter id,"
@@ -705,6 +706,7 @@ class TestAsyncRegisterScriptObservability:
             await limiter._register_script("health.lua")
 
         # Assert
+        sha = limiter._script_shas["health.lua"]
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
@@ -713,7 +715,7 @@ class TestAsyncRegisterScriptObservability:
                 "Lua script registered",
                 f"limiter={limiter.id}",
                 "script=health.lua",
-                "sha=",
+                f"sha={sha}",
             ],
             message=(
                 "should emit a debug log containing the limiter id,"

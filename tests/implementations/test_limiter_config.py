@@ -90,6 +90,7 @@ class WindowChangeObservabilityTests:
         # Arrange
         old_window = limiter.window
         new_window = old_window * 2
+        pause = max(old_window, new_window)
 
         # Act
         with caplog.at_level(logging.INFO, logger="redis_rate_limiter.core.base"):
@@ -104,7 +105,7 @@ class WindowChangeObservabilityTests:
             required_fragments=[
                 f"limiter={limiter.id}",
                 f"new_window={new_window:g}",
-                "paused_for_s=",
+                f"paused_for_s={pause:g}",
             ],
             message=(
                 "should emit an info log containing the"
@@ -191,7 +192,7 @@ class TestBaseConfigBoundaryDecisions:
     def test_rejects_empty_limiter_id(redis_client):
         """Verify that an empty ``limiter_id`` raises ``ValueError``."""
         # Act & Assert
-        with pytest.raises(ValueError, match="limiter_id must be a non-empty string"):
+        with pytest.raises(ValueError, match=r"^limiter_id must be a non-empty string"):
             StubRateLimiter(
                 redis_client=redis_client,
                 limiter_id="",
@@ -204,7 +205,7 @@ class TestBaseConfigBoundaryDecisions:
     def test_rejects_negative_limit(redis_client):
         """Verify that a negative ``limit`` raises ``ValueError``."""
         # Act & Assert
-        with pytest.raises(ValueError, match="limit must be a non-negative integer"):
+        with pytest.raises(ValueError, match=r"^limit must be a non-negative integer"):
             StubRateLimiter(
                 redis_client=redis_client,
                 limiter_id="test",
@@ -233,7 +234,7 @@ class TestBaseConfigBoundaryDecisions:
     def test_rejects_zero_window(redis_client):
         """Verify that ``window=0`` raises ``ValueError``."""
         # Act & Assert
-        with pytest.raises(ValueError, match="window must be a positive number"):
+        with pytest.raises(ValueError, match=r"^window must be a positive number"):
             StubRateLimiter(
                 redis_client=redis_client,
                 limiter_id="test",
@@ -246,7 +247,7 @@ class TestBaseConfigBoundaryDecisions:
     def test_rejects_negative_window(redis_client):
         """Verify that a negative ``window`` raises ``ValueError``."""
         # Act & Assert
-        with pytest.raises(ValueError, match="window must be a positive number"):
+        with pytest.raises(ValueError, match=r"^window must be a positive number"):
             StubRateLimiter(
                 redis_client=redis_client,
                 limiter_id="test",
@@ -265,7 +266,7 @@ class TestMixinConfigBoundaryDecisions:
         """Verify that ``max_concurrency=0`` raises ``ValueError``."""
         # Act & Assert
         with pytest.raises(
-            ValueError, match="max_concurrency must be a positive integer"
+            ValueError, match=r"^max_concurrency must be a positive integer"
         ):
             StubRateLimiter(
                 redis_client=redis_client,
@@ -280,7 +281,7 @@ class TestMixinConfigBoundaryDecisions:
         """Verify that a negative ``max_concurrency`` raises ``ValueError``."""
         # Act & Assert
         with pytest.raises(
-            ValueError, match="max_concurrency must be a positive integer"
+            ValueError, match=r"^max_concurrency must be a positive integer"
         ):
             StubRateLimiter(
                 redis_client=redis_client,
@@ -294,7 +295,7 @@ class TestMixinConfigBoundaryDecisions:
     def test_rejects_zero_max_age(redis_client):
         """Verify that ``max_age=0`` raises ``ValueError``."""
         # Act & Assert
-        with pytest.raises(ValueError, match="max_age must be a positive integer"):
+        with pytest.raises(ValueError, match=r"^max_age must be a positive integer"):
             StubRateLimiter(
                 redis_client=redis_client,
                 limiter_id="test",
@@ -308,7 +309,7 @@ class TestMixinConfigBoundaryDecisions:
     def test_rejects_negative_max_age(redis_client):
         """Verify that a negative ``max_age`` raises ``ValueError``."""
         # Act & Assert
-        with pytest.raises(ValueError, match="max_age must be a positive integer"):
+        with pytest.raises(ValueError, match=r"^max_age must be a positive integer"):
             StubRateLimiter(
                 redis_client=redis_client,
                 limiter_id="test",
@@ -323,7 +324,7 @@ class TestMixinConfigBoundaryDecisions:
         """Verify that ``lease_duration=0`` raises ``ValueError``."""
         # Act & Assert
         with pytest.raises(
-            ValueError, match="lease_duration must be a positive integer"
+            ValueError, match=r"^lease_duration must be a positive integer"
         ):
             StubRateLimiter(
                 redis_client=redis_client,
@@ -339,7 +340,7 @@ class TestMixinConfigBoundaryDecisions:
         """Verify that a negative ``lease_duration`` raises ``ValueError``."""
         # Act & Assert
         with pytest.raises(
-            ValueError, match="lease_duration must be a positive integer"
+            ValueError, match=r"^lease_duration must be a positive integer"
         ):
             StubRateLimiter(
                 redis_client=redis_client,
@@ -359,7 +360,7 @@ class TestScheduleTaskPriorityBoundaryDecisions:
     def test_rejects_positive_infinite_priority(stub_limiter):
         """Verify that ``priority=inf`` raises ``ValueError``."""
         # Act & Assert
-        with pytest.raises(ValueError, match="priority must be a finite number"):
+        with pytest.raises(ValueError, match=r"^priority must be a finite number"):
             stub_limiter.schedule_task(
                 "myapp.tasks.work", {"x": 1}, priority=float("inf")
             )
@@ -368,7 +369,7 @@ class TestScheduleTaskPriorityBoundaryDecisions:
     def test_rejects_negative_infinite_priority(stub_limiter):
         """Verify that ``priority=-inf`` raises ``ValueError``."""
         # Act & Assert
-        with pytest.raises(ValueError, match="priority must be a finite number"):
+        with pytest.raises(ValueError, match=r"^priority must be a finite number"):
             stub_limiter.schedule_task(
                 "myapp.tasks.work", {"x": 1}, priority=float("-inf")
             )
@@ -377,7 +378,7 @@ class TestScheduleTaskPriorityBoundaryDecisions:
     def test_rejects_nan_priority(stub_limiter):
         """Verify that ``priority=NaN`` raises ``ValueError``."""
         # Act & Assert
-        with pytest.raises(ValueError, match="priority must be a finite number"):
+        with pytest.raises(ValueError, match=r"^priority must be a finite number"):
             stub_limiter.schedule_task(
                 "myapp.tasks.work", {"x": 1}, priority=float("nan")
             )
@@ -413,7 +414,7 @@ class TestAsyncScheduleTaskPriorityBoundaryDecisions:
     async def test_rejects_infinite_priority(async_stub_limiter):
         """Verify that ``priority=inf`` raises ``ValueError``."""
         # Act & Assert
-        with pytest.raises(ValueError, match="priority must be a finite number"):
+        with pytest.raises(ValueError, match=r"^priority must be a finite number"):
             await async_stub_limiter.schedule_task(
                 "myapp.tasks.work", {"x": 1}, priority=float("inf")
             )
@@ -422,7 +423,7 @@ class TestAsyncScheduleTaskPriorityBoundaryDecisions:
     async def test_rejects_nan_priority(async_stub_limiter):
         """Verify that ``priority=NaN`` raises ``ValueError``."""
         # Act & Assert
-        with pytest.raises(ValueError, match="priority must be a finite number"):
+        with pytest.raises(ValueError, match=r"^priority must be a finite number"):
             await async_stub_limiter.schedule_task(
                 "myapp.tasks.work", {"x": 1}, priority=float("nan")
             )
@@ -588,12 +589,17 @@ class TestSyncInitializationLog:
                 level="INFO",
                 label="[StubRateLimiter]",
                 required_fragments=[
-                    "Rate limiter initialized",
                     f"id={limiter_id}",
                     "limit=5",
                     "window_s=60",
+                    "max_concurrency=2",
+                    "heartbeat_failure=warn",
+                    "jitter_enabled=True",
+                    "metrics_callback=disabled",
+                    "drain_enabled=True",
+                    "backend_health_monitor=disabled",
                 ],
-                message="should emit an info log with limiter id, limit, and window",
+                message="should emit an info log with limiter configuration parameters",
             )
         finally:
             limiter.shutdown()
@@ -633,12 +639,17 @@ class TestAsyncInitializationLog:
                 level="INFO",
                 label="[AsyncStubRateLimiter]",
                 required_fragments=[
-                    "Rate limiter initialized",
                     f"id={limiter_id}",
                     "limit=5",
                     "window_s=60",
+                    "max_concurrency=2",
+                    "heartbeat_failure=warn",
+                    "jitter_enabled=True",
+                    "metrics_callback=disabled",
+                    "drain_enabled=True",
+                    "backend_health_monitor=disabled",
                 ],
-                message="should emit an info log with limiter id, limit, and window",
+                message="should emit an info log with limiter configuration parameters",
             )
         finally:
             await limiter.shutdown()

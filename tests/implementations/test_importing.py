@@ -31,7 +31,7 @@ class TestImportString:
         for non-callable targets.
         """
         # Act & Assert
-        with pytest.raises(TypeError, match="not callable"):
+        with pytest.raises(TypeError, match=r"^Object at .* is not callable"):
             import_string("json.__doc__")
 
     @staticmethod
@@ -134,7 +134,7 @@ class TestResolveImportPath:
         fn = lambda x: x  # noqa: E731
 
         # Act & Assert
-        with pytest.raises(ValueError, match="lambda"):
+        with pytest.raises(ValueError, match=r"^Cannot resolve import path for lambda"):
             resolve_import_path(fn)
 
     @staticmethod
@@ -146,7 +146,7 @@ class TestResolveImportPath:
             pass
 
         # Act & Assert
-        with pytest.raises(ValueError, match="nested function or closure"):
+        with pytest.raises(ValueError, match=r"^Cannot resolve import path for nested function"):
             resolve_import_path(inner_function)
 
     @staticmethod
@@ -156,7 +156,7 @@ class TestResolveImportPath:
         encoder = json.JSONEncoder()
 
         # Act & Assert
-        with pytest.raises(ValueError, match="class-bound callable"):
+        with pytest.raises(ValueError, match=r"^Cannot resolve import path for class-bound callable"):
             resolve_import_path(encoder.encode)
 
     @staticmethod
@@ -172,7 +172,7 @@ class TestResolveImportPath:
                 pass
 
         # Act & Assert
-        with pytest.raises(ValueError, match="class-bound callable|nested function"):
+        with pytest.raises(ValueError, match=r"^Cannot resolve import path for (class-bound callable|nested function)"):
             resolve_import_path(Example.helper)
 
     @staticmethod
@@ -184,7 +184,7 @@ class TestResolveImportPath:
         fn = functools.partial(json.dumps, indent=2)
 
         # Act & Assert
-        with pytest.raises(ValueError, match="missing __module__ or __qualname__"):
+        with pytest.raises(ValueError, match=r"^Cannot resolve import path: .* is missing __module__"):
             resolve_import_path(fn)
 
     @staticmethod
@@ -212,7 +212,7 @@ class TestResolveImportPath:
         fn.__module__ = None  # type: ignore[assignment]
 
         # Act & Assert
-        with pytest.raises(ValueError, match="missing __module__ or __qualname__"):
+        with pytest.raises(ValueError, match=r"^Cannot resolve import path: .* is missing __module__"):
             resolve_import_path(fn)
 
     @staticmethod
@@ -232,7 +232,7 @@ class TestResolveImportPath:
         fn.__qualname__ = None  # type: ignore[assignment]
 
         # Act & Assert
-        with pytest.raises(ValueError, match="missing __module__ or __qualname__"):
+        with pytest.raises(ValueError, match=r"^Cannot resolve import path: .* is missing __module__"):
             resolve_import_path(fn)
 
     @staticmethod
@@ -263,7 +263,7 @@ class TestResolveImportPath:
         fn = NoModuleCallable()
 
         # Act & Assert
-        with pytest.raises(ValueError, match="missing __module__ or __qualname__"):
+        with pytest.raises(ValueError, match=r"^Cannot resolve import path: .* is missing __module__"):
             resolve_import_path(fn)
 
     @staticmethod
@@ -283,7 +283,7 @@ class TestResolveImportPath:
                 pass
 
         # Act & Assert
-        with pytest.raises(ValueError, match="Round-trip verification failed"):
+        with pytest.raises(ValueError, match=r"^Round-trip verification failed"):
             resolve_import_path(Impostor)
 
 
@@ -338,6 +338,6 @@ class TestResolveImportPathObservability:
             caplog.records,
             level="DEBUG",
             label="[ImportResolver]",
-            required_fragments=["callable=", "import_path=json.dumps"],
+            required_fragments=["callable=<function dumps", "import_path=json.dumps"],
             message="should emit a debug log with the callable and resolved import path",
         )

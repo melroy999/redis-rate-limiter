@@ -50,10 +50,11 @@ class RQRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
         """
         queue = backend_context.get("queue")
         if queue is None:
+            # fmt: off
             raise RuntimeError(
-                "RQRateLimiter.configure(redis_client, queue=queue) "
-                "must be called before create() or get()."
+                "RQRateLimiter.configure(redis_client, queue=queue) must be called before create() or get()."
             )
+            # fmt: on
         cls._queue = queue
 
     @classmethod

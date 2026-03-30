@@ -32,7 +32,7 @@ from redis_rate_limiter.core.limiters import (
     BackendHealthMonitor,
     DistributedRateLimiterMixin,
 )
-from tests.helpers.utils import assert_log_emitted
+from tests.helpers.utils import assert_log_emitted, assert_log_emitted_with_exc_info
 
 # ---------------------------------------------------------------------------
 # Unified behavioral tests
@@ -225,16 +225,13 @@ class HealthMonitorObservabilityTests:
             await self.run_once(monitor)
 
         # Assert
-        assert_log_emitted(
+        assert_log_emitted_with_exc_info(
             caplog.records,
             level="DEBUG",
             label=self._log_label,
             required_fragments=[f"limiter={monitor._limiter.id}"],
-            message="should emit a debug log when health check raises an exception",
+            message="should emit a debug log with exc_info when health check raises an exception",
         )
-        assert any(
-            r.exc_info is not None for r in caplog.records if r.levelname == "DEBUG"
-        ), "debug log should include exception info when health check raises"
 
     async def test_healthy_to_healthy_emits_no_log(self, monitor, mock_limiter, caplog):
         """Verify that no log is emitted when the state remains healthy."""

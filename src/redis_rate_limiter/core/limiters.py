@@ -550,18 +550,19 @@ class BackendHealthMonitor:
             healthy = False
 
         if self._healthy and not healthy:
+            # fmt: off
             logger.warning(
-                "[BackendHealthMonitor] Backend health check failed: limiter=%s. "
-                "Workers may be unavailable; dispatched tasks will not "
-                "complete until the backend recovers.",
+                "[BackendHealthMonitor] Backend health check failed: limiter=%s. Workers may be unavailable; dispatched tasks will not complete until the backend recovers.",
                 self._limiter.id,
             )
+            # fmt: on
         elif not self._healthy and healthy:
+            # fmt: off
             logger.info(
-                "[BackendHealthMonitor] Backend health check recovered: limiter=%s. "
-                "Workers are available again.",
+                "[BackendHealthMonitor] Backend health check recovered: limiter=%s. Workers are available again.",
                 self._limiter.id,
             )
+            # fmt: on
 
         self._healthy = healthy
 
@@ -1347,13 +1348,14 @@ class AbstractDistributedRateLimiter(
             try:
                 self._schedule_drain(delay=delay)
             except Exception:
+                # fmt: off
                 logger.critical(
-                    "[%s] Recovery scheduling also failed: limiter=%s. "
-                    "Drain loop will resume on next trigger_consume() or task completion.",
+                    "[%s] Recovery scheduling also failed: limiter=%s. Drain loop will resume on next trigger_consume() or task completion.",
                     type(self).__name__,
                     self.id,
                     exc_info=True,
                 )
+                # fmt: on
 
     def _drain_inner(self) -> None:
         """Execute the core drain logic: consume, dispatch, and schedule a follow-up.
@@ -1585,7 +1587,6 @@ class AbstractDistributedRateLimiter(
                 f"limiter={self.id!r} was not shut down; "
                 "call shutdown() to stop background threads",
                 ResourceWarning,
-                stacklevel=1,
             )
 
     def execution_lock(self, timeout_ms: int = 5000) -> ContextManager[bool]:
