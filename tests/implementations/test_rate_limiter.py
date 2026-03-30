@@ -11,6 +11,7 @@ Fixture dependencies:
     - ``async_redis_client``, ``func_path``, ``payload``: from ``tests/conftest.py``.
 """
 
+import hashlib
 import inspect
 import json
 import logging
@@ -338,9 +339,13 @@ class RateLimiterImplementationTests:
 
             assert mock_eval.call_count == 2, "should attempt retry before failing"
 
-        task_wildcard = limiter.get_inflight_key("*")
-        inflight_keys = await async_redis_client.keys(task_wildcard)
-        assert len(inflight_keys) == 0, "no inflight keys should remain after failure"
+        # The task_id is deterministic (MD5 of the JSON-serialized signature).
+        task_id = hashlib.md5(
+            limiter._get_task_signature_str("path", {}).encode()
+        ).hexdigest()
+        assert not await async_redis_client.exists(limiter.get_inflight_key(task_id)), (
+            "inflight key should be cleaned up after permanent Lua failure"
+        )
         assert await async_redis_client.zcard(limiter.buffer_key) == 0, (
             "buffer should be empty after failure"
         )
@@ -362,8 +367,11 @@ class RateLimiterImplementationTests:
                 await limiter.schedule_task(func_path, payload)
 
         # Assert
-        inflight_keys = await async_redis_client.keys(limiter.get_inflight_key("*"))
-        assert inflight_keys == [], (
+        # The task_id is deterministic (MD5 of the JSON-serialized signature).
+        task_id = hashlib.md5(
+            limiter._get_task_signature_str(func_path, payload).encode()
+        ).hexdigest()
+        assert not await async_redis_client.exists(limiter.get_inflight_key(task_id)), (
             "inflight marker must be cleared on non-NoScript schedule failure"
         )
         assert await async_redis_client.zcard(limiter.buffer_key) == 0, (

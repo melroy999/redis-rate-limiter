@@ -3,16 +3,12 @@ services:
   redis:
     image: redis:7-alpine
     container_name: redis-rate-limiter-redis
-    # Disable RDB snapshots and AOF to suppress "DB saved on disk" log spam.
-    # Note: data will NOT survive container restarts with this setting.
-    command: redis-server --save "" --appendonly no
+    # Disable all persistence: no RDB snapshots, no loading existing dump.rdb, no AOF.
+    command: redis-server --save "" --dbfilename "" --appendonly no
     ports:
       # Map to port 6380 by default to avoid conflicts with local Redis on 6379.
       # Override with REDIS_PORT environment variable if needed.
       - "${REDIS_PORT:-6380}:6379"
-    volumes:
-      # Optional: persist Redis data.
-      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -109,7 +105,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 6g
+#          memory: 6g
           cpus: "12"
     command: >-
       python scripts/analyze_superfluity.py --all --output-dir /app/mutation-output

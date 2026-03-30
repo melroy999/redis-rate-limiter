@@ -179,10 +179,12 @@ async def async_find_task_in_buffer(
 
 
 def clear_limiter_keys(redis_client, limiter) -> None:
-    """Delete all Redis keys belonging to the given limiter instance."""
-    keys = redis_client.keys(f"{limiter.id}:*")
-    if keys:
-        redis_client.delete(*keys)
+    """Delete non-expiring Redis keys belonging to the given limiter instance."""
+    redis_client.delete(
+        f"{limiter.id}:buffer",
+        f"{limiter.id}:concurrency",
+        f"{limiter.id}:dlq",
+    )
 
 
 def schedule_n_tasks(

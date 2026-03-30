@@ -481,15 +481,19 @@ class TestAsyncHeartbeatLoop:
         )
 
         # Act
-        async with AsyncTaskLifecycle(
-            mock_limiter, task_id, on_heartbeat_failure="warn"
-        ) as lifecycle:
-            await asyncio.sleep(0.75 * mock_limiter.lease_duration)
+        with patch("os.kill") as mock_kill:
+            async with AsyncTaskLifecycle(
+                mock_limiter, task_id, on_heartbeat_failure="warn"
+            ) as lifecycle:
+                await asyncio.sleep(0.75 * mock_limiter.lease_duration)
 
-            # Assert
-            assert not lifecycle.is_healthy, (
-                "lifecycle must be marked unhealthy after heartbeat failure"
-            )
+                # Assert
+                assert not lifecycle.is_healthy, (
+                    "lifecycle must be marked unhealthy after heartbeat failure"
+                )
+                assert mock_kill.call_count == 0, (
+                    "os.kill must not be called in warn mode"
+                )
 
     @staticmethod
     @pytest.mark.timeout_safety_net

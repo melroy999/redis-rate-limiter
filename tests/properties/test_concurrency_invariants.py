@@ -56,14 +56,16 @@ class TestConcurrencyInvariantProperties:
         clear_limiter_keys(property_redis_client, property_limiter)
         next_payload_id = 0
         active_task_ids = set()
+        all_scheduled_task_ids = []
 
         # Act & Assert
         for operation in operations:
             if operation == "schedule":
-                property_limiter.schedule_task(
+                _success, task_id = property_limiter.schedule_task(
                     "myapp.tasks.work",
                     {"payload_id": next_payload_id},
                 )
+                all_scheduled_task_ids.append(task_id)
                 next_payload_id += 1
             elif operation == "consume":
                 result = property_limiter.consume()
@@ -92,3 +94,7 @@ class TestConcurrencyInvariantProperties:
 
         # Cleanup
         clear_limiter_keys(property_redis_client, property_limiter)
+        for task_id in all_scheduled_task_ids:
+            property_redis_client.delete(
+                property_limiter.get_inflight_key(task_id)
+            )

@@ -432,6 +432,10 @@ _KILLED_BY_RESULTS = "/tmp/mutmut_killed_by_results.json"
 # "tests_targeted" (int), and "partial" (bool).
 _killed_by_data: dict[str, dict[str, list[str] | int | bool]] = {}
 
+# Cache of ``@pytest.mark.signature`` test node IDs, populated once per
+# process by ``_collect_signature_test_ids()``.
+_signature_test_ids: list[str] | None = None
+
 
 def _write_killed_by_temp_file(
     mutant_name: str | None,
@@ -510,6 +514,38 @@ class KilledByCollector:
                     _write_killed_by_temp_file(self._mutant_name, self, partial=False)
 
 
+def _collect_signature_test_ids() -> list[str]:
+    """Return all test node IDs marked with ``@pytest.mark.signature``.
+
+    Runs ``pytest --collect-only`` inside the mutants working directory so
+    that paths match the node IDs mutmut uses during test execution.
+    Collection results are cached in ``_signature_test_ids`` and reused
+    across all mutants in the same process.
+    """
+    global _signature_test_ids
+    if _signature_test_ids is not None:
+        return _signature_test_ids
+
+    import pytest
+    from mutmut.__main__ import change_cwd
+
+    collected: list[str] = []
+
+    class _Collector:
+        def pytest_collection_finish(self, session) -> None:  # type: ignore[no-untyped-def]
+            for item in session.items:
+                collected.append(item.nodeid)
+
+    with change_cwd("mutants"):
+        pytest.main(
+            ["--collect-only", "-q", "--no-header", "-m", "signature"],
+            plugins=[_Collector()],
+        )
+
+    _signature_test_ids = collected
+    return _signature_test_ids
+
+
 def _patched_run_tests(self, *, mutant_name, tests):  # type: ignore[no-untyped-def]
     """Replacement for ``PytestRunner.run_tests`` that injects the
     ``KilledByCollector`` plugin and writes killed-by data to a temp file.
@@ -538,6 +574,15 @@ def _patched_run_tests(self, *, mutant_name, tests):  # type: ignore[no-untyped-
     pytest_args = ["-x", "-q", "-p", "no:randomly", "-p", "no:random-order"]
     if tests:
         pytest_args += list(tests)
+        # Always append signature tests: coverage-based selection never includes
+        # them because ``def func(...):`` lines execute at module import time
+        # (before any test context is active), so they appear under no test
+        # node ID in the coverage database. Default-parameter mutations on
+        # functions that also have body coverage would therefore be tested
+        # without ``inspect.signature`` assertions and survive.
+        sig_ids = _collect_signature_test_ids()
+        already = set(tests)
+        pytest_args += [nid for nid in sig_ids if nid not in already]
     else:
         pytest_args += self._pytest_add_cli_args_test_selection
     with change_cwd("mutants"):

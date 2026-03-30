@@ -504,7 +504,11 @@ class AsyncBackendHealthMonitor:
         """Signal the health check task to terminate and wait for it to complete."""
         self._shutdown_event.set()
         if self._task is not None and not self._task.done():
-            await self._task
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
 
 
 # noinspection PyUnnecessaryCast

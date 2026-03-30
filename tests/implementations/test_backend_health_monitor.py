@@ -411,15 +411,21 @@ class TestAsyncHealthMonitorLifecycle:
         return AsyncBackendHealthMonitor(mock_limiter, interval=1.0)
 
     @staticmethod
+    @pytest.mark.timeout_safety_net
     async def test_shutdown_cancels_task(monitor):
         """Verify that ``shutdown()`` cancels the background asyncio task cleanly."""
         # Arrange
         monitor.start()
 
         # Act
-        await monitor.shutdown()
+        shutdown_task = asyncio.create_task(monitor.shutdown())
+        await asyncio.sleep(0.05)
 
         # Assert
+        assert shutdown_task.done(), (
+            "shutdown() should complete promptly; "
+            "still running indicates the _run loop did not exit"
+        )
         assert monitor._task is None or monitor._task.done(), (
             "background task should be done after shutdown"
         )
@@ -455,12 +461,9 @@ class TestAsyncHealthMonitorLifecycle:
         await limiter.start()
 
         # Assert
-        try:
-            assert limiter._backend_health_monitor is None, (
-                "scheduler-only async instances should not have a health monitor"
-            )
-        finally:
-            await limiter.shutdown()
+        assert limiter._backend_health_monitor is None, (
+            "scheduler-only async instances should not have a health monitor"
+        )
 
     @staticmethod
     async def test_monitor_uses_default_healthy_hook(async_stub_limiter):
@@ -494,12 +497,9 @@ class TestAsyncHealthMonitorLifecycle:
         )
 
         # Assert
-        try:
-            assert limiter._backend_health_monitor is not None, (
-                "health monitor should be created when _check_backend_health is overridden"
-            )
-        finally:
-            await limiter.shutdown()
+        assert limiter._backend_health_monitor is not None, (
+            "health monitor should be created when _check_backend_health is overridden"
+        )
 
     @staticmethod
     async def test_monitor_started_during_initialize(async_redis_client, limiter_id):
@@ -519,14 +519,11 @@ class TestAsyncHealthMonitorLifecycle:
         await limiter.start()
 
         # Assert
-        try:
-            monitor = limiter._backend_health_monitor
-            assert monitor is not None, "health monitor should exist"
-            assert monitor._task is not None, (
-                "health monitor task should be started after initialize"
-            )
-        finally:
-            await limiter.shutdown()
+        monitor = limiter._backend_health_monitor
+        assert monitor is not None, "health monitor should exist"
+        assert monitor._task is not None, (
+            "health monitor task should be started after initialize"
+        )
 
     @staticmethod
     async def test_shutdown_stops_health_monitor(async_redis_client, limiter_id):
@@ -564,8 +561,6 @@ class TestAsyncHealthMonitorLifecycle:
         # Act
         monitor.start()
         await asyncio.sleep(0.05)
-
-        await monitor.shutdown()
 
         # Assert
         (

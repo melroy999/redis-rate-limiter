@@ -460,15 +460,19 @@ class TestHeartbeatLoop:
         mock_limiter.extend_lease.side_effect = Exception("Simulated Redis failure")
 
         # Act
-        with TaskLifecycle(
-            mock_limiter, task_id, on_heartbeat_failure="warn"
-        ) as lifecycle:
-            time.sleep(0.75 * mock_limiter.lease_duration)
+        with patch("os.kill") as mock_kill:
+            with TaskLifecycle(
+                mock_limiter, task_id, on_heartbeat_failure="warn"
+            ) as lifecycle:
+                time.sleep(0.75 * mock_limiter.lease_duration)
 
-            # Assert
-            assert not lifecycle.is_healthy, (
-                "lifecycle must be marked unhealthy after heartbeat failure"
-            )
+                # Assert
+                assert not lifecycle.is_healthy, (
+                    "lifecycle must be marked unhealthy after heartbeat failure"
+                )
+                assert mock_kill.call_count == 0, (
+                    "os.kill must not be called in warn mode"
+                )
 
     @staticmethod
     @pytest.mark.timeout_safety_net

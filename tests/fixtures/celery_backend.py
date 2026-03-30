@@ -73,6 +73,10 @@ def limiter(redis_client, limiter_id, _reset_limiter_class_state):
 
     # Teardown
     test_limiter.shutdown()
-    keys = redis_client.keys(f"{limiter_id}:*")
-    if keys:
-        redis_client.delete(*keys)
+    redis_client.delete(
+        f"{limiter_id}:buffer",
+        f"{limiter_id}:concurrency",
+        f"{limiter_id}:dlq",
+    )
+    redis_client.hdel("rl:registry:configs", limiter_id)
+    redis_client.hdel("rl:registry:versions", limiter_id)
