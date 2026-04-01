@@ -17,7 +17,6 @@ Output files (written to ``--output-dir``):
 - ``all-mutations.json``: every mutant with diffs (gitignored; for offline analysis)
 - ``report.txt``: human-readable summary (also printed to stdout)
 - ``mutation-score.txt``: score percentage for CI badge consumption
-- ``stats.json``: copy of ``mutmut-stats.json`` (test mapping, durations)
 
 Usage::
 
@@ -32,7 +31,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shutil
 import sys
 from collections import Counter
 from dataclasses import asdict, dataclass, field
@@ -1076,9 +1074,6 @@ def main() -> None:
 
     score_path = output_dir / "mutation-score.txt"
     score_path.write_text(f"{score:.2f}", encoding="utf-8")
-
-    if stats_data is not None:
-        shutil.copy2(stats_path, output_dir / "stats.json")
 
     # Write all-mutations.json: every mutant with diffs, for offline analysis.
     all_mutations_summary, _ = _serialize_report(report, include_killed=True)

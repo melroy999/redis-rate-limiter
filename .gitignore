@@ -217,7 +217,7 @@ demo/scripts/.port-forward.log
 
 # Mutation testing (mutmut)
 .mutmut-cache/
-mutmut-results/stats.json
+mutants/
 mutmut-results/report-detail.json
 mutmut-results/all-mutations.json
 mutmut-results/superfluity/

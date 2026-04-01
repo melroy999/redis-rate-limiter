@@ -156,6 +156,30 @@ def _extract_diff_lines(body: str) -> tuple[list[str], list[str], list[str]]:
     return old, new, context
 
 
+def _split_context_around_mutation(body: str) -> tuple[list[str], list[str]]:
+    """Split context lines into those before and after the mutation."""
+    before: list[str] = []
+    after: list[str] = []
+    in_hunk = False
+    seen_mutation = False
+
+    for line in body.splitlines():
+        if line.startswith("@@"):
+            in_hunk = True
+            continue
+        if not in_hunk:
+            continue
+        if line.startswith(("-", "+")) and not line.startswith(("---", "+++")):
+            seen_mutation = True
+        elif line.startswith(" "):
+            if seen_mutation:
+                after.append(line[1:])
+            else:
+                before.append(line[1:])
+
+    return before, after
+
+
 # ---------------------------------------------------------------------------
 # String mutation detection
 # ---------------------------------------------------------------------------
@@ -305,22 +329,25 @@ def _has_asgi_body_context(
 _FORMAT_STRING_PATTERN = re.compile(r'["\'].*%[sd]')
 
 
-def _has_logger_format_context(context_lines: list[str], old_lines: list[str]) -> bool:
+def _has_logger_format_context(
+    context_lines: list[str], old_lines: list[str], body: str = ""
+) -> bool:
     """Check if the diff is a trailing argument to a logger format call.
 
-    Catches value-to-None mutations on logger arguments when the
-    ``logger.<level>(`` call opening is outside the diff hunk boundary.
-    Detects the pattern by looking for format string specifiers (``%s``,
-    ``%d``, ``%.3f``) in context lines.
+    Only considers context lines BEFORE the mutation, so that a logger
+    call appearing after the mutation does not cause a false positive.
     """
-    all_lines = context_lines + old_lines
+    if body:
+        before, _ = _split_context_around_mutation(body)
+    else:
+        before = context_lines
+
+    all_lines = before + old_lines
     has_format_string = any(
         re.search(r'["\'].*%[sdfiexXog]', line) for line in all_lines
     )
     if not has_format_string:
         return False
-    # Verify the mutated line looks like a trailing function argument
-    # (indented, possibly with a trailing comma).
     for line in old_lines:
         stripped = line.strip()
         if stripped and (stripped.endswith(",") or stripped.endswith(")")):
@@ -640,6 +667,7 @@ def _classify(diff: MutationDiff) -> tuple[int, str, str]:
     old = diff.old_lines
     new = diff.new_lines
     ctx = diff.context_lines
+    body = diff.body
 
     # 0. Default parameter mutation on a def signature (fork-immune).
     if _is_default_param_mutation(old, new):
@@ -656,7 +684,7 @@ def _classify(diff: MutationDiff) -> tuple[int, str, str]:
         # the diff context (e.g. redis.set("1", …) followed by logger.debug)
         # would be mislabelled as a format-string mutation.
         if _old_is_format_string(old):
-            logger_level = _get_logger_level(ctx, old)
+            logger_level = _get_logger_level(ctx, old, body)
             if logger_level is not None:
                 desc = f"{string_type.replace('_', ' ')} on logger.{logger_level} format string"
                 return 0, f"string_{string_type}", desc
@@ -711,24 +739,20 @@ def _classify(diff: MutationDiff) -> tuple[int, str, str]:
     # 9. Value to None.
     none_desc = _detect_value_to_none(old, new)
     if none_desc is not None:
-        logger_level = _get_logger_level(ctx, old)
+        logger_level = _get_logger_level(ctx, old, body)
         if logger_level is not None:
             if _old_is_format_string(old):
-                # The mutated line is the format-string argument itself.
                 return (
                     0,
                     "value_to_none",
                     f"format string  ->  None on logger.{logger_level}",
                 )
-            # The mutated line is a positional argument to a logger call
-            # (e.g. self.token replaced with None).  Cosmetic: only the log
-            # message content changes, not program logic.
             return (
                 0,
                 "value_to_none",
                 f"{none_desc} (logger.{logger_level} argument)",
             )
-        if _has_logger_format_context(ctx, old):
+        if _has_logger_format_context(ctx, old, body):
             return (
                 0,
                 "value_to_none",
@@ -752,10 +776,28 @@ def _classify(diff: MutationDiff) -> tuple[int, str, str]:
     return 2, "unknown", desc
 
 
-def _get_logger_level(context_lines: list[str], old_lines: list[str]) -> str | None:
-    """Extract the logger level from context if a logger call is present."""
-    all_lines = context_lines + old_lines
-    for line in all_lines:
+def _get_logger_level(
+    context_lines: list[str], old_lines: list[str], body: str = ""
+) -> str | None:
+    """Extract the logger level if the mutated line is inside a logger call.
+
+    Only considers the old lines themselves and context lines that appear
+    BEFORE the mutation in the diff hunk. A logger call that appears only
+    AFTER the mutation means the mutation is adjacent, not inside.
+    """
+    # Check the mutated line itself first.
+    for line in old_lines:
+        match = _LOGGER_PATTERN.search(line)
+        if match:
+            return match.group(1)
+
+    # Check context before the mutation.
+    if body:
+        before, _ = _split_context_around_mutation(body)
+    else:
+        before = context_lines
+
+    for line in before:
         match = _LOGGER_PATTERN.search(line)
         if match:
             return match.group(1)

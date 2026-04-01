@@ -78,9 +78,9 @@ services:
     <<: *test-base
     container_name: redis-rate-limiter-mutate
     volumes:
-      # Output directory only; /app/mutants is mutmut's internal working directory.
       # Rebuild with --build to pick up source changes.
       - ./mutmut-results:/app/mutation-output
+      - ./mutants:/app/mutants
     command: >-
       bash -c "
         python scripts/run_mutmut.py run 2>&1 | tee /tmp/mutmut-run.log;
