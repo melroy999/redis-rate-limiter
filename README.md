@@ -252,6 +252,7 @@ All task-oriented backends compose `SyncManagedRateLimiter` (or `AsyncManagedRat
 | Multiprocessing  | `concurrent.futures.ProcessPoolExecutor` | Done    |
 | RQ (Redis Queue) | RQ job queue (`queue.enqueue`)           | Done    |
 | Dramatiq         | Dramatiq broker                          | Planned |
+| Huey             | Huey task queue (Redis storage)           | Planned |
 
 ### Class Hierarchy
 

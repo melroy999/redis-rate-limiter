@@ -135,6 +135,25 @@ class DestructorWarningTests:
         )
 
     @staticmethod
+    async def test_del_handles_missing_drain_loop_attribute(limiter_drain_disabled):
+        """Verify that ``__del__`` does not raise when ``_drain_loop``
+        has not been set (e.g., partial initialization failure).
+
+        Mutation target: ``getattr(self, "_drain_loop", None)`` default
+        argument in ``__del__``.
+        """
+        # Arrange
+        limiter = limiter_drain_disabled
+        if hasattr(limiter, "_drain_loop"):
+            delattr(limiter, "_drain_loop")
+
+        # Act & Assert
+        # Should not raise AttributeError.
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            limiter.__del__()
+
+    @staticmethod
     async def test_del_silent_after_shutdown(limiter_after_shutdown):
         """Verify that ``__del__`` emits no warning after shutdown has been called."""
         # Arrange

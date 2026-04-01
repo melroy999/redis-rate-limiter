@@ -421,6 +421,19 @@ class RateLimiterImplementationTests:
         )
 
     @staticmethod
+    async def test_execution_lock_receives_redis_client(limiter):
+        """Verify that ``execution_lock()`` passes the limiter's
+        Redis client to the lock constructor."""
+        # Act
+        lock = limiter.execution_lock()
+
+        # Assert
+        actual_limiter = getattr(limiter, "_inner", limiter)
+        assert lock.redis is actual_limiter.redis, (
+            "lock redis client must be the limiter's redis client"
+        )
+
+    @staticmethod
     async def test_contention_key_follows_redis_key_convention(limiter):
         """Verify that ``contention_key`` is derived from the
         limiter id with the expected suffix."""

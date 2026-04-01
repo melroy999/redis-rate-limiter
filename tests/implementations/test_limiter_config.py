@@ -66,6 +66,12 @@ class InitialDefaultTests:
         assert limiter.drain_enabled is True, (
             "fresh limiter should have draining enabled by default"
         )
+        assert limiter._drain_loop is not None, (
+            "fresh limiter with drain enabled must have a drain loop"
+        )
+        assert limiter._drain_loop._limiter is not None, (
+            "drain loop must hold a reference to the limiter, not None"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -680,6 +686,9 @@ class TestMixinInitSignatures:
         assert sig.parameters["max_age"].default == 3600, "max_age default must be 3600"
         assert sig.parameters["lease_duration"].default == 30, (
             "lease_duration default must be 30"
+        )
+        assert sig.parameters["on_heartbeat_failure"].default == "warn", (
+            "on_heartbeat_failure default must be lowercase 'warn'"
         )
 
     @staticmethod

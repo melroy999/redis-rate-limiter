@@ -798,13 +798,16 @@ class AbstractAsyncDistributedRateLimiter(
         }
         task_id = consume_result["task"]["id"] if consume_result["task"] else None
         logger.debug(
-            "[%s] Consume result: limiter=%s, success=%s, task_id=%s, remaining_tokens=%d, active_concurrency=%d.",
+            "[%s] Consume result: limiter=%s, success=%s, expired=%s, task_id=%s, remaining_tokens=%d, active_concurrency=%d, remaining_tasks=%d, reset_in_ms=%d.",
             type(self).__name__,
             self.id,
             consume_result["success"],
+            consume_result["expired"],
             task_id,
             consume_result["remaining_tokens"],
             consume_result["active_concurrency"],
+            consume_result["remaining_tasks"],
+            consume_result["reset_in_ms"],
         )
         self._emit_metric(
             "consume",
@@ -952,9 +955,9 @@ class AbstractAsyncDistributedRateLimiter(
                     self.id,
                 )
 
-            if result["success"] and result["task"]:
+            if result["success"]:
                 task = result["task"]
-                task_id = task.get("id", "")
+                task_id = task.get("id")
 
                 await self._dispatch_task(
                     func_path=task["func_path"],
@@ -1000,7 +1003,7 @@ class AbstractAsyncDistributedRateLimiter(
                 base_delay = self._calculate_token_recovery_delay(
                     val_previous=val_previous,
                     val_current=val_current,
-                    reset_in_ms=result.get("reset_in_ms", 0),
+                    reset_in_ms=result["reset_in_ms"],
                 )
 
                 is_fallback = val_previous <= 0 or val_current >= self.limit

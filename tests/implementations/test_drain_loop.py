@@ -185,6 +185,16 @@ class TestDrainLoop:
         loop.shutdown()
 
     @staticmethod
+    def test_drain_loop_has_lock_after_construction():
+        """Verify that ``DrainLoop`` initializes with a threading lock."""
+        # Arrange & Act
+        limiter = MagicMock()
+        loop = DrainLoop(limiter, watchdog_interval=60.0)
+
+        # Assert
+        assert loop._lock is not None, "drain loop must have a lock after construction"
+
+    @staticmethod
     def test_drain_loop_survives_drain_exception():
         """Verify that the drain loop thread survives when
         ``drain()`` raises an exception.

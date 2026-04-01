@@ -1406,9 +1406,9 @@ class AbstractDistributedRateLimiter(
                     self.id,
                 )
 
-            if result["success"] and result["task"]:
+            if result["success"]:
                 task = result["task"]
-                task_id = task.get("id", "")
+                task_id = task.get("id")
 
                 self._dispatch_task(
                     func_path=task["func_path"],
@@ -1460,7 +1460,7 @@ class AbstractDistributedRateLimiter(
                 base_delay = self._calculate_token_recovery_delay(
                     val_previous=val_previous,
                     val_current=val_current,
-                    reset_in_ms=result.get("reset_in_ms", 0),
+                    reset_in_ms=result["reset_in_ms"],
                 )
 
                 # Jitter is only added on the fallback path (full window reset),

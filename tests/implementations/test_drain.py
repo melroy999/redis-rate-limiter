@@ -1073,6 +1073,48 @@ class DrainObservabilityTests:
             ),
         )
 
+    async def test_drain_fallback_jitter_when_current_at_limit(
+        self, limiter, mock_target
+    ):
+        """Verify that fallback jitter is applied when ``val_current >= limit``
+        even if ``val_previous > 0``.
+
+        Mutation target: ``or`` in ``is_fallback = val_previous <= 0 or val_current >= self.limit``.
+        """
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "task": None,
+            "remaining_tokens": 0,
+            "active_concurrency": 1,
+            "reset_in_ms": 250,
+            "remaining_tasks": 4,
+            "val_previous": 3,
+            "val_current": 5,
+        }
+
+        # Act
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+            patch.object(
+                mock_target,
+                "_calculate_smart_jitter",
+                return_value=0.05,
+            ) as mock_jitter,
+        ):
+            await limiter.drain()
+
+        # Assert
+        assert mock_jitter.call_count == 1, (
+            "smart jitter should be called when val_current >= limit"
+        )
+
     async def test_publish_drain_signal_emits_debug_log_on_failure(
         self, limiter, mock_target, caplog
     ):

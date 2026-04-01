@@ -266,11 +266,13 @@ class TestRateLimitMiddleware:
         when ``acquire`` raises."""
         # Arrange
         app_invoked = False
+        forwarded_scope = None
         forwarded_receive = None
 
         async def inner_app(scope, receive, send):
-            nonlocal app_invoked, forwarded_receive
+            nonlocal app_invoked, forwarded_scope, forwarded_receive
             app_invoked = True
+            forwarded_scope = scope
             forwarded_receive = receive
             await send({"type": "http.response.start", "status": 200, "headers": []})
             await send({"type": "http.response.body", "body": b"OK"})
@@ -297,6 +299,9 @@ class TestRateLimitMiddleware:
 
         # Assert
         assert app_invoked is True, "fail_open should pass request through on error"
+        assert forwarded_scope is scope, (
+            "fail_open should forward the original scope to inner app"
+        )
         assert forwarded_receive is receive, (
             "fail_open should forward the original receive callable to inner app"
         )
@@ -604,6 +609,40 @@ class TestMiddlewareObservability:
 @pytest.mark.behavior
 class TestMiddlewareBoundary:
     """Boundary condition tests for ``RateLimitMiddleware`` argument forwarding."""
+
+    @staticmethod
+    async def test_acquire_receives_key_from_key_func(limiter):
+        """Verify that ``acquire()`` receives the key returned by
+        ``key_func``, not ``None``."""
+        # Arrange
+        acquired_key = None
+        original_acquire = limiter.acquire
+
+        async def spy_acquire(key):
+            nonlocal acquired_key
+            acquired_key = key
+            return await original_acquire(key)
+
+        limiter.acquire = spy_acquire
+
+        async def inner_app(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"OK"})
+
+        middleware = RateLimitMiddleware(
+            inner_app, limiter=limiter, key_func=by_client_ip
+        )
+
+        # Act
+        await _capture_response(middleware, _make_scope())
+
+        # Assert
+        assert acquired_key is not None, (
+            "acquire must receive the key from key_func, not None"
+        )
+        assert acquired_key == "127.0.0.1", (
+            "acquire must receive the client IP as the rate limit key"
+        )
 
     @staticmethod
     async def test_allowed_path_forwards_original_scope_to_inner_app(limiter):

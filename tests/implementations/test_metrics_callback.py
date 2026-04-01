@@ -278,10 +278,12 @@ class MetricsCallbackObservabilityTests:
             required_fragments=[
                 f"limiter={limiter.id}",
                 "success=False",
+                "expired=False",
+                "task_id=None",
                 "remaining_tokens=10",
             ],
             message="should emit a debug log for the consume result"
-            " with limiter id, success, and remaining tokens",
+            " with limiter id, success, expired, task_id, and remaining tokens",
         )
 
     async def test_callback_exception_during_consume_emits_warning_log(

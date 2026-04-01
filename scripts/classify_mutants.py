@@ -328,7 +328,6 @@ def _has_asgi_body_context(
 
 _FORMAT_STRING_PATTERN = re.compile(r'["\'].*%[sd]')
 
-
 def _has_logger_format_context(
     context_lines: list[str], old_lines: list[str], body: str = ""
 ) -> bool:
@@ -693,6 +692,9 @@ def _classify(diff: MutationDiff) -> tuple[int, str, str]:
             return 0, f"string_{string_type}", desc
         if _has_asgi_body_context(ctx, old, new):
             desc = f"{string_type.replace('_', ' ')} on ASGI response body text"
+            return 0, f"string_{string_type}", desc
+        if _has_logger_format_context(ctx, old, body):
+            desc = f"{string_type.replace('_', ' ')} on logger format argument"
             return 0, f"string_{string_type}", desc
         # String mutation outside logger/raise/ASGI-body context is real logic.
         old_str = old[0].strip() if old else ""

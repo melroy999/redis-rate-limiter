@@ -364,7 +364,7 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
         assert cls._redis_client is not None
         config = instance._build_persist_config()
         cls._redis_client.hset(cls._REGISTRY_KEY, instance.id, json.dumps(config))
-        cls._redis_client.hincrby(cls._VERSION_KEY, instance.id, 1)
+        cls._redis_client.hincrby(cls._VERSION_KEY, instance.id)
 
         raw_version = cls._redis_client.hget(cls._VERSION_KEY, instance.id)
         if raw_version is not None:
@@ -625,7 +625,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
             cls._redis_client.hset(cls._REGISTRY_KEY, instance.id, json.dumps(config)),
         )
         await cast(  # pragma: no mutate
-            Awaitable, cls._redis_client.hincrby(cls._VERSION_KEY, instance.id, 1)
+            Awaitable, cls._redis_client.hincrby(cls._VERSION_KEY, instance.id)
         )
 
         raw_version = await cast(  # pragma: no mutate
