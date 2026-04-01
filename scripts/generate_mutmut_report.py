@@ -78,8 +78,8 @@ class MutantRecord:
     killed_by: list[str] = field(default_factory=list)
     partial_data: bool = False
     killed_during: str | None = None
-    tests_run: int | None = None
-    tests_targeted: int | None = None
+    tests_selected: list[str] | None = None
+    tests_ran: list[str] | None = None
     classification_score: int | None = None
     mutation_type: str | None = None
     classification_desc: str | None = None
@@ -205,40 +205,39 @@ def _parse_killed_by(
     raw: dict[str, dict[str, object]],
 ) -> tuple[
     dict[str, list[str]],
-    dict[str, int],
+    dict[str, list[str]],
+    dict[str, list[str]],
     dict[str, bool],
-    dict[str, int],
     dict[str, str],
 ]:
     """Parse the killed-by data into separate mappings.
 
-    Each value is a dict with keys ``killed_by``, ``tests_run``,
-    ``tests_targeted``, ``partial``, and optionally ``killed_during``.
+    Each value is a dict with keys ``killed_by``, ``tests_selected``,
+    ``tests_ran``, ``partial``, and optionally ``killed_during``.
 
-    Returns ``(killed_by, tests_run_data, partial_data,
-    tests_targeted_data, killed_during_data)``.
+    Returns ``(killed_by, tests_selected_data, tests_ran_data,
+    partial_data, killed_during_data)``.
     """
     killed_by: dict[str, list[str]] = {}
-    tests_run_data: dict[str, int] = {}
+    tests_selected_data: dict[str, list[str]] = {}
+    tests_ran_data: dict[str, list[str]] = {}
     partial_data: dict[str, bool] = {}
-    tests_targeted_data: dict[str, int] = {}
     killed_during_data: dict[str, str] = {}
 
     for name, value in raw.items():
         killed_by[name] = value.get("killed_by", [])
-        tests_run_data[name] = value.get("tests_run", 0)
+        tests_selected_data[name] = value.get("tests_selected", [])
+        tests_ran_data[name] = value.get("tests_ran", [])
         partial_data[name] = value.get("partial", False)
-        if "tests_targeted" in value:
-            tests_targeted_data[name] = value["tests_targeted"]
         killed_during = value.get("killed_during")
         if killed_during is not None:
             killed_during_data[name] = killed_during
 
     return (
         killed_by,
-        tests_run_data,
+        tests_selected_data,
+        tests_ran_data,
         partial_data,
-        tests_targeted_data,
         killed_during_data,
     )
 
@@ -334,16 +333,16 @@ def _build_records(
     all_meta: dict[str, tuple[str, float | None, str]],
     diffs: dict[str, tuple[str, list[str], list[str], list[str]]],
     killed_by: dict[str, list[str]],
-    tests_run_data: dict[str, int] | None = None,
+    tests_selected_data: dict[str, list[str]] | None = None,
+    tests_ran_data: dict[str, list[str]] | None = None,
     partial_data: dict[str, bool] | None = None,
-    tests_targeted_data: dict[str, int] | None = None,
     killed_during_data: dict[str, str] | None = None,
 ) -> list[MutantRecord]:
     """Build a ``MutantRecord`` for every mutant."""
     records: list[MutantRecord] = []
-    tests_run_data = tests_run_data or {}
+    tests_selected_data = tests_selected_data or {}
+    tests_ran_data = tests_ran_data or {}
     partial_data = partial_data or {}
-    tests_targeted_data = tests_targeted_data or {}
     killed_during_data = killed_during_data or {}
 
     for name, (status, duration, source_path) in all_meta.items():
@@ -357,8 +356,8 @@ def _build_records(
             killed_by=killed_by.get(name, []),
             partial_data=partial_data.get(name, False),
             killed_during=killed_during_data.get(name),
-            tests_run=tests_run_data.get(name),
-            tests_targeted=tests_targeted_data.get(name),
+            tests_selected=tests_selected_data.get(name),
+            tests_ran=tests_ran_data.get(name),
         )
 
         if name in diffs:
@@ -878,22 +877,24 @@ def _serialize_report(
     """
     d = asdict(report)
 
-    # Extract killed-by / tests-run into a compact mapping.
+    # Extract killed-by / test-selection into a compact mapping.
     killed_by_detail: dict[str, dict] = {}
     for m in d["mutants"]:
         has_data = (
             m["killed_by"]
-            or m["tests_run"] is not None
-            or m["tests_targeted"] is not None
+            or m["tests_selected"] is not None
+            or m["tests_ran"] is not None
         )
         if has_data:
             entry: dict = {}
             if m["killed_by"]:
                 entry["killed_by"] = m["killed_by"]
-            if m["tests_run"] is not None:
-                entry["tests_run"] = m["tests_run"]
-            if m["tests_targeted"] is not None:
-                entry["tests_targeted"] = m["tests_targeted"]
+            if m["tests_selected"] is not None:
+                entry["tests_selected"] = m["tests_selected"]
+                entry["tests_targeted"] = len(m["tests_selected"])
+            if m["tests_ran"] is not None:
+                entry["tests_ran"] = m["tests_ran"]
+                entry["tests_run"] = len(m["tests_ran"])
             if m["partial_data"]:
                 entry["partial"] = True
             if m.get("killed_during"):
@@ -916,8 +917,8 @@ def _serialize_report(
         "mirror_key": None,
         "classification_score": None,
         "duration_seconds": None,
-        "tests_run": None,
-        "tests_targeted": None,
+        "tests_selected": None,
+        "tests_ran": None,
     }
     for m in d["mutants"]:
         for key, default in _MUTANT_DEFAULTS.items():
@@ -992,7 +993,7 @@ def main() -> None:
 
     # Load killed-by data.
     killed_by_raw = _load_killed_by_raw(Path(args.killed_by))
-    killed_by, tests_run_data, partial_data, tests_targeted_data, killed_during_data = (
+    killed_by, tests_selected_data, tests_ran_data, partial_data, killed_during_data = (
         _parse_killed_by(killed_by_raw)
     )
     partial_count = sum(1 for v in partial_data.values() if v)
@@ -1041,9 +1042,9 @@ def main() -> None:
         all_meta,
         diffs,
         killed_by,
-        tests_run_data or None,
+        tests_selected_data or None,
+        tests_ran_data or None,
         partial_data or None,
-        tests_targeted_data or None,
         killed_during_data or None,
     )
     _attach_mirror_keys(records)

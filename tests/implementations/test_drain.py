@@ -655,7 +655,7 @@ class DrainObservabilityTests:
             caplog.records,
             level="DEBUG",
             label=self._log_label,
-            required_fragments=[f"limiter={limiter.id}", "start"],
+            required_fragments=[f"limiter={limiter.id}", "loop start"],
             message="should emit a debug log at drain loop start",
         )
 
@@ -674,7 +674,7 @@ class DrainObservabilityTests:
             caplog.records,
             level="DEBUG",
             label=self._log_label,
-            required_fragments=[f"limiter={limiter.id}", "paused"],
+            required_fragments=[f"limiter={limiter.id}", "is paused"],
             message=(
                 "should emit a debug log indicating the drain is deferred due to pause"
             ),
@@ -1116,7 +1116,7 @@ class DrainObservabilityTests:
             label=self._log_label,
             required_fragments=[
                 f"limiter={limiter.id}",
-                "capacity",
+                "capacity reached",
             ],
             message=(
                 "should emit a debug log when drain is "
@@ -1137,7 +1137,7 @@ class DrainObservabilityTests:
             label=self._log_label,
             required_fragments=[
                 f"limiter={limiter.id}",
-                "Trigger",
+                "Trigger consume",
             ],
             message="should emit a debug log when trigger_consume is called",
         )

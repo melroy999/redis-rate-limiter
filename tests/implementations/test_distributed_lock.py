@@ -201,7 +201,7 @@ class DistributedLockObservabilityTests:
             caplog.records,
             level="DEBUG",
             label=self._log_label,
-            required_fragments=[f"key={lock_key}", f"token={lock.token}", "expired"],
+            required_fragments=[f"key={lock_key}", f"token={lock.token}", "expired before release"],
             message="should emit a debug log for lock expired before release with key",
         )
 

@@ -49,8 +49,8 @@ class KilledByCollector:
 
     def __init__(self, mutant_name: str | None = None, *, killed_by_dir: str) -> None:
         self.killed_by: list[str] = []
-        self.tests_run: int = 0
-        self.tests_targeted: int = 0
+        self.tests_selected: list[str] = []
+        self.tests_ran: list[str] = []
         self._mutant_name = mutant_name
         self._killed_by_dir = killed_by_dir
 
@@ -86,17 +86,17 @@ class KilledByCollector:
             return
         if not partial and not self.killed_by:
             # Final write with no failures: still write if tests were
-            # targeted so the parent can record the targeted count for
+            # selected so the parent can record the selection for
             # survived mutants. Skip if nothing useful to report.
-            if not self.tests_targeted:
+            if not self.tests_selected:
                 return
         os.makedirs(self._killed_by_dir, exist_ok=True)
         path = os.path.join(self._killed_by_dir, f"{os.getpid()}.json")
         payload: dict[str, object] = {
             "mutant_name": self._mutant_name,
             "killed_by": self.killed_by,
-            "tests_run": self.tests_run,
-            "tests_targeted": self.tests_targeted,
+            "tests_selected": self.tests_selected,
+            "tests_ran": self.tests_ran,
             "partial": partial,
         }
         payload.update(self._extra_payload())
@@ -108,12 +108,12 @@ class KilledByCollector:
     # ------------------------------------------------------------------
 
     def pytest_collection_modifyitems(self, items) -> None:  # type: ignore[no-untyped-def]
-        """Record the number of tests pytest will execute for this run."""
-        self.tests_targeted = len(items)
+        """Record the tests pytest will execute for this run."""
+        self.tests_selected = [item.nodeid for item in items]
 
     def pytest_runtest_makereport(self, item, call) -> None:  # type: ignore[no-untyped-def]
         if call.when == "call":
-            self.tests_run += 1
+            self.tests_ran.append(item.nodeid)
             if call.excinfo is not None:
                 self.killed_by.append(item.nodeid)
                 if self._mutant_name is not None:
@@ -149,8 +149,8 @@ class KilledByAccumulator:
         self,
         mutant_name: str,
         killed_by: list[str],
-        tests_run: int = 0,
-        tests_targeted: int = 0,
+        tests_selected: list[str] | None = None,
+        tests_ran: list[str] | None = None,
         partial: bool = False,
         killed_during: str | None = None,
     ) -> None:
@@ -162,8 +162,8 @@ class KilledByAccumulator:
         Args:
             mutant_name: The name of the mutant that was tested.
             killed_by: Node IDs of tests that killed the mutant.
-            tests_run: Number of tests that completed their call phase.
-            tests_targeted: Number of tests pytest collected for the run.
+            tests_selected: Node IDs of tests pytest collected for the run.
+            tests_ran: Node IDs of tests that completed their call phase.
             partial: Whether the data is partial (SIGXCPU interrupted).
             killed_during: Node ID of the test that was running when the
                 process was killed (first-killer mode only; ``None``
@@ -171,8 +171,8 @@ class KilledByAccumulator:
         """
         entry: dict[str, object] = {
             "killed_by": killed_by,
-            "tests_run": tests_run,
-            "tests_targeted": tests_targeted,
+            "tests_selected": tests_selected or [],
+            "tests_ran": tests_ran or [],
             "partial": partial,
         }
         if killed_during is not None:
@@ -211,16 +211,16 @@ class KilledByAccumulator:
                     with open(killed_by_path) as f:
                         data = json.load(f)
                     killed_by = data.get("killed_by", [])
-                    tests_run = data.get("tests_run", 0)
-                    tests_targeted = data.get("tests_targeted", 0)
+                    tests_selected = data.get("tests_selected", [])
+                    tests_ran = data.get("tests_ran", [])
                     partial = data.get("partial", False)
                     killed_during = data.get("killed_during")
-                    if killed_by or tests_targeted:
+                    if killed_by or tests_selected:
                         accumulator.append(
                             key,
                             killed_by,
-                            tests_run,
-                            tests_targeted,
+                            tests_selected,
+                            tests_ran,
                             partial,
                             killed_during,
                         )

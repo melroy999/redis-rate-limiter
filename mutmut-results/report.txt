@@ -1,22 +1,22 @@
 Mutation Testing Report
 ============================================================
-Score: 96.23% (4211/4376 killed)
+Score: 97.07% (4248/4376 killed)
 
-  Killed:      4211
-  Survived:     165
+  Killed:      4248
+  Survived:     128
   Timeout:        0
   Suspicious:     0
   No tests:       0
 
 Classification (non-killed mutants)
 ------------------------------------------------------------
-  Score 0 (cosmetic):   45
-  Score 1 (argument):   10
-  Score 2 (logic):   96
+  Score 0 (cosmetic):   15
+  Score 1 (argument):    4
+  Score 2 (logic):   97
   Score 3 (fork-immune):    0
-  Known benign:          14
+  Known benign:          12
 
---- SCORE 2: LOGIC (needs tests) (96) ---
+--- SCORE 2: LOGIC (needs tests) (97) ---
   [sync/async mirror] DistributedRateLimiter.__del____mutmut_13
     async_limiters.AbstractAsyncDistributedRateLimiter.__del____mutmut_13
     limiters.AbstractDistributedRateLimiter.__del____mutmut_13
@@ -146,6 +146,9 @@ Classification (non-killed mutants)
     async_limiters.AsyncDrainLoop.__init____mutmut_4
     limiters.DrainLoop.__init____mutmut_4
     self._lock  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_36
+    self  ->  None
 
   async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_55
     self  ->  None
@@ -279,26 +282,11 @@ Classification (non-killed mutants)
   x_load_lua_script__mutmut_8
     content = source.read_text(encoding="utf-8")  ->  content = source.read_text(encoding="UTF-8")
 
---- SCORE 1: ARGUMENT (10) ---
+--- SCORE 1: ARGUMENT (4) ---
   [sync/async mirror] DistributedRateLimiter.__init____mutmut_47
     async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_47
     limiters.AbstractDistributedRateLimiter.__init____mutmut_47
     removed self._drain_signal_subscriber: AsyncDrainSignalSubscriber | None = ( argument
-
-  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_15
-    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_15
-    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_15
-    removed "[%s] Drain deferred: local execution capacity reached for limiter=%s." argument
-
-  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_16
-    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_16
-    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_16
-    removed type(self).__name__ argument
-
-  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_17
-    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_17
-    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_17
-    removed self.id argument
 
   managed.AsyncManagedRateLimiter.get__mutmut_27
     removed **cls._get_instance_context() argument
@@ -306,67 +294,7 @@ Classification (non-killed mutants)
   managed.SyncManagedRateLimiter.get__mutmut_28
     removed **cls._get_instance_context() argument
 
---- SCORE 0: COSMETIC (45) ---
-  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_10
-    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_10
-    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_10
-    format string  ->  None on logger.debug
-
-  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_12
-    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_12
-    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_12
-    format string  ->  None on logger.debug
-
-  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_13
-    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_13
-    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_13
-    type(self).__name__  ->  None (logger.debug argument)
-
-  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_14
-    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_14
-    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_14
-    self.id  ->  None (logger.debug argument)
-
-  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_18
-    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_18
-    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_18
-    xx wrap on logger.debug format string
-
-  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_19
-    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_19
-    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_19
-    lowercase on logger.debug format string
-
-  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_2
-    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_2
-    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_2
-    format string  ->  None on logger.debug
-
-  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_20
-    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_20
-    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_20
-    uppercase on logger.debug format string
-
-  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_21
-    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_21
-    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_21
-    self  ->  None (logger.debug argument)
-
-  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_3
-    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_3
-    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_3
-    format string  ->  None on logger.debug
-
-  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_7
-    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_7
-    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_7
-    xx wrap on logger.debug format string
-
-  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_8
-    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_8
-    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_8
-    lowercase on logger.debug format string
-
+--- SCORE 0: COSMETIC (15) ---
   [sync/async mirror] DistributedRateLimiter.drain__mutmut_62
     async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_62
     limiters.AbstractDistributedRateLimiter.drain__mutmut_62
@@ -387,29 +315,11 @@ Classification (non-killed mutants)
     limiters.BackendHealthMonitor._run_once__mutmut_11
     exc_info boolean swap (cosmetic)
 
-  async_limiters.AsyncDistributedLock.__aexit____mutmut_35
-    self.lock_key  ->  None (logger.debug argument)
-
-  async_limiters.AsyncDistributedLock.__aexit____mutmut_40
-    xx wrap on logger.debug format string
-
-  async_limiters.AsyncDistributedLock.__aexit____mutmut_41
-    lowercase on logger.debug format string
-
   async_limiters.AsyncDrainSignalSubscriber._run__mutmut_22
     uppercase on error message
 
   async_limiters.AsyncTaskLifecycle._heartbeat_loop__mutmut_22
     False  ->  None (logger.critical argument)
-
-  limiters.DistributedLock.__exit____mutmut_37
-    self.lock_key  ->  None (logger.debug argument)
-
-  limiters.DistributedLock.__exit____mutmut_42
-    xx wrap on logger.debug format string
-
-  limiters.DistributedLock.__exit____mutmut_43
-    lowercase on logger.debug format string
 
   limiters.TaskLifecycle._heartbeat_loop__mutmut_19
     False  ->  None (logger.critical argument)
@@ -426,11 +336,7 @@ Classification (non-killed mutants)
   x_load_lua_script__mutmut_6
     "utf-8"  ->  None (logger.debug argument)
 
---- KNOWN BENIGN (14) ---
-  async_limiters.AsyncDistributedLock.__aexit____mutmut_36
-    self.token  ->  None (logger.debug argument)
-    reason: async mirror of DistributedLock.__exit__ token log argument; same reasoning applies
-
+--- KNOWN BENIGN (12) ---
   async_limiters.AsyncDrainLoop._wake_async__mutmut_4
     <  ->  <=
     reason: when target equals _next_wake, the assignment writes the same value back; the wake time does not change
@@ -450,10 +356,6 @@ Classification (non-killed mutants)
   async_limiters.AbstractAsyncDistributedRateLimiter.schedule_task__mutmut_90
     max_age or "",  ->  max_age or "XXXX",
     reason: passed to the Lua script as ARGV[3]; tonumber("") and tonumber("XXXX") both return nil, so the max_age override branch is skipped identically
-
-  limiters.DistributedLock.__exit____mutmut_38
-    self.token  ->  None (logger.debug argument)
-    reason: changes the token field in the released/expired-lock debug logs from the lock token UUID to None; no test asserts the token value in lock log messages, and the release logic is unaffected
 
   limiters.TaskLifecycle.__init____mutmut_9
     self._thread: Optional[Thread] = None  ->  self._thread: Optional[Thread] = ""
@@ -486,49 +388,49 @@ Classification (non-killed mutants)
 Killed-By Summary
 ------------------------------------------------------------
   Mutants with kill data: 4376
-  Killing tests:         536
-  Zero-kill tests:       327 of 852
+  Killing tests:         538
+  Zero-kill tests:       326 of 853
 
   Top 20 killing tests:
-      89 kills ( 89 unique)  tests/implementations/test_get_status.py::TestSyncGetStatus::test_get_status_reflects_rate_limit_state
+      78 kills ( 78 unique)  tests/integration/test_rate_limiting.py::TestRateLimitingIntegration::test_empty_buffer_returns_no_task
       71 kills ( 71 unique)  tests/integrations/test_prometheus.py::TestEdgeCases::test_custom_registry_isolation
-      63 kills ( 63 unique)  tests/implementations/test_metrics_callback.py::TestAsyncMetricsCallback::test_consume_metric_includes_expired_flag
-      58 kills ( 58 unique)  tests/implementations/test_drain.py::TestAsyncDrainBehavior::test_drain_schedules_delayed_retry_when_rate_limited
-      55 kills ( 55 unique)  tests/implementations/test_get_status.py::TestAsyncGetStatus::test_get_status_returns_expected_structure
-      52 kills ( 52 unique)  tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_allowed_response_includes_rate_limit_headers
-      47 kills ( 47 unique)  tests/implementations/test_limiter_config.py::TestSyncInitializationLog::test_start_emits_initialization_info_log
-      42 kills ( 42 unique)  tests/implementations/test_limiter_config.py::TestAsyncInitializationLog::test_start_emits_initialization_info_log
-      40 kills ( 40 unique)  tests/implementations/test_metrics_callback.py::TestAsyncMetricsCallback::test_schedule_emits_metric
-      40 kills ( 40 unique)  tests/implementations/test_importing.py::TestResolveImportPath::test_resolves_module_level_class
-      37 kills ( 37 unique)  tests/implementations/asgi/test_middleware.py::TestSendBlockedResponse::test_send_blocked_response_structure
-      37 kills ( 37 unique)  tests/implementations/test_drain.py::TestSyncDrainBehavior::test_drain_dispatches_task_and_schedules_follow_up
-      37 kills ( 37 unique)  tests/implementations/test_drain.py::TestSyncDrainObservability::test_drain_dispatch_emits_expected_logs
-      35 kills ( 35 unique)  tests/implementations/asgi/test_asgi_limiter.py::TestASGIRateLimiter::test_acquire_returns_window_counters
+      69 kills ( 69 unique)  tests/integration/test_rate_limiting.py::TestRateLimitingIntegration::test_get_status_reflects_live_state
+      59 kills ( 59 unique)  tests/implementations/test_drain.py::TestAsyncDrainObservability::test_drain_rate_limited_emits_info_log
+      56 kills ( 56 unique)  tests/implementations/test_drain.py::TestSyncDrainObservability::test_drain_rate_limited_emits_info_log
+      49 kills ( 49 unique)  tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterImplementation::test_consume_denied_result_sets_correct_flags
+      49 kills ( 49 unique)  tests/implementations/test_drain.py::TestAsyncDrainObservability::test_drain_dispatch_emits_expected_logs
+      49 kills ( 49 unique)  tests/implementations/test_drain.py::TestSyncDrainObservability::test_drain_dispatch_emits_expected_logs
+      47 kills ( 47 unique)  tests/implementations/test_drain.py::TestAsyncDrainObservability::test_drain_concurrency_at_capacity_emits_debug_log
+      41 kills ( 41 unique)  tests/implementations/asgi/test_asgi_limiter.py::TestASGIRateLimiter::test_acquire_returns_reset_in_ms
+      41 kills ( 41 unique)  tests/implementations/test_limiter_config.py::TestAsyncInitializationLog::test_start_emits_initialization_info_log
+      40 kills ( 40 unique)  tests/implementations/test_limiter_config.py::TestSyncInitializationLog::test_start_emits_initialization_info_log
+      38 kills ( 38 unique)  tests/implementations/asgi/test_middleware.py::TestRateLimitMiddleware::test_wrap_send_header_values_reflect_acquire_result
+      37 kills ( 37 unique)  tests/implementations/test_distributed_lock.py::TestAsyncContentionAwareCooldown::test_cooldown_set_when_contention_detected
+      37 kills ( 37 unique)  tests/implementations/test_importing.py::TestResolveImportPath::test_round_trip_with_import_string
+      36 kills ( 36 unique)  tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterImplementation::test_schedule_single_task_stores_correctly
+      36 kills ( 36 unique)  tests/implementations/test_distributed_lock.py::TestSyncContentionAwareCooldown::test_cooldown_key_has_correct_ttl
       35 kills ( 35 unique)  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_returns_false_when_version_hash_missing
-      35 kills ( 35 unique)  tests/implementations/test_limiter_config.py::TestScheduleTaskPriorityBoundaryDecisions::test_accepts_negative_priority
       35 kills ( 35 unique)  tests/implementations/test_task_lifecycle.py::TestExtendLeaseObservability::test_extend_lease_success_emits_debug_log
-      35 kills ( 35 unique)  tests/integrations/test_prometheus.py::TestMetricRegistration::test_metric_descriptions_match_expected_text
-      33 kills ( 33 unique)  tests/implementations/test_distributed_lock.py::TestAsyncContentionAwareCooldown::test_contention_counter_auto_expires
-      33 kills ( 33 unique)  tests/implementations/test_drain.py::TestSyncDrainObservability::test_drain_consume_exception_emits_error_log
+      33 kills ( 33 unique)  tests/implementations/test_rate_limiter_class_api.py::TestUpdate::test_get_status_reflects_updated_config
 
 Test Effectiveness (kills per second of test runtime)
 ------------------------------------------------------------
   Top 10 most efficient:
-    240756.5 k/s    40 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPath::test_resolves_module_level_class
-    178299.2 k/s    71 kills  0.000s  tests/integrations/test_prometheus.py::TestEdgeCases::test_custom_registry_isolation
-    87380.5 k/s    35 kills  0.000s  tests/integrations/test_prometheus.py::TestMetricRegistration::test_metric_descriptions_match_expected_text
-    40566.4 k/s    35 kills  0.001s  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_returns_false_when_version_hash_missing
-    39365.7 k/s    15 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPathObservability::test_emits_debug_log_on_success
-    36329.3 k/s    11 kills  0.000s  tests/implementations/test_limiter_config.py::TestBaseConfigBoundaryDecisions::test_rejects_negative_window
-    32488.2 k/s    89 kills  0.003s  tests/implementations/test_get_status.py::TestSyncGetStatus::test_get_status_reflects_rate_limit_state
-    29663.8 k/s    31 kills  0.001s  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_applies_remote_change
-    26975.5 k/s    28 kills  0.001s  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_noop_when_version_unchanged
-    25707.6 k/s    33 kills  0.001s  tests/implementations/test_rate_limiter_class_api.py::TestUpdate::test_get_status_reflects_updated_config
+    208834.0 k/s    71 kills  0.000s  tests/integrations/test_prometheus.py::TestEdgeCases::test_custom_registry_isolation
+    155250.2 k/s    37 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPath::test_round_trip_with_import_string
+    64433.3 k/s    29 kills  0.001s  tests/integrations/test_prometheus.py::TestMetricRegistration::test_metric_descriptions_match_expected_text
+    48725.2 k/s    23 kills  0.001s  tests/implementations/test_lua_script_infrastructure.py::TestSyncEvalScript::test_eval_script_lazy_registers_missing_script
+    42415.1 k/s    78 kills  0.002s  tests/integration/test_rate_limiting.py::TestRateLimitingIntegration::test_empty_buffer_returns_no_task
+    39280.6 k/s    35 kills  0.001s  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_returns_false_when_version_hash_missing
+    38102.8 k/s    17 kills  0.000s  tests/integrations/test_prometheus.py::TestMetricRegistration::test_schedule_counter_label_names
+    34898.8 k/s    15 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPathObservability::test_emits_debug_log_on_success
+    28170.7 k/s    28 kills  0.001s  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_noop_when_version_unchanged
+    27510.6 k/s    69 kills  0.003s  tests/integration/test_rate_limiting.py::TestRateLimitingIntegration::test_get_status_reflects_live_state
 
 Per-File Survival Rates
 ------------------------------------------------------------
-    5.3%   80 survived    0 no tests  1522 total  src/redis_rate_limiter/core/limiters.py
-    5.5%   72 survived    0 no tests  1298 total  src/redis_rate_limiter/core/async_limiters.py
+    4.0%   61 survived    0 no tests  1522 total  src/redis_rate_limiter/core/limiters.py
+    4.2%   54 survived    0 no tests  1298 total  src/redis_rate_limiter/core/async_limiters.py
     1.5%    6 survived    0 no tests   389 total  src/redis_rate_limiter/core/managed.py
     1.1%    2 survived    0 no tests   176 total  src/redis_rate_limiter/backends/asgi/middleware.py
     0.0%    0 survived    0 no tests   162 total  src/redis_rate_limiter/core/base.py
@@ -548,14 +450,14 @@ Per-File Survival Rates
 
 Mutation Type Distribution (non-killed)
 ------------------------------------------------------------
-  1583 total   56 survived  value_to_none
-   789 total   10 survived  argument_removal
-   478 total   17 survived  string_xx_wrap
-   463 total    9 survived  string_uppercase
+  1583 total   41 survived  value_to_none
+   789 total    4 survived  argument_removal
+   478 total   11 survived  string_xx_wrap
+   463 total    7 survived  string_uppercase
    361 total   16 survived  unknown
    238 total   15 survived  operator_swap
    185 total   14 survived  numeric_increment
-   146 total    6 survived  string_lowercase
+   146 total    0 survived  string_lowercase
     80 total    7 survived  boolean_swap
     30 total    0 survived  unary_removal
      8 total    0 survived  augmented_assignment
