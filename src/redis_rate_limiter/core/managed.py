@@ -364,11 +364,11 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
         assert cls._redis_client is not None
         config = instance._build_persist_config()
         cls._redis_client.hset(cls._REGISTRY_KEY, instance.id, json.dumps(config))
-        cls._redis_client.hincrby(cls._VERSION_KEY, instance.id)
-
-        raw_version = cls._redis_client.hget(cls._VERSION_KEY, instance.id)
-        if raw_version is not None:
-            instance._config_version = cls._parse_version(raw_version)
+        # fmt: off
+        instance._config_version = cast(  # pragma: no mutate
+            int, cls._redis_client.hincrby(cls._VERSION_KEY, instance.id)
+        )
+        # fmt: on
 
     def refresh_config(self) -> bool:
         """Apply a newer persisted configuration from Redis when a version change is detected.
@@ -624,16 +624,12 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
             Awaitable,
             cls._redis_client.hset(cls._REGISTRY_KEY, instance.id, json.dumps(config)),
         )
-        await cast(  # pragma: no mutate
-            Awaitable, cls._redis_client.hincrby(cls._VERSION_KEY, instance.id)
-        )
-
-        raw_version = await cast(  # pragma: no mutate
-            Awaitable, cls._redis_client.hget(cls._VERSION_KEY, instance.id)
+        instance._config_version = int(
+            await cast(  # pragma: no mutate
+                Awaitable, cls._redis_client.hincrby(cls._VERSION_KEY, instance.id)
+            )
         )
         # fmt: on
-        if raw_version is not None:
-            instance._config_version = cls._parse_version(raw_version)
 
     async def refresh_config(self) -> bool:
         """Apply a newer persisted configuration from Redis when a version change is detected.

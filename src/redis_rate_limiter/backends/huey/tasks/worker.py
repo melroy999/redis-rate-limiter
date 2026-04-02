@@ -7,6 +7,8 @@ from redis_rate_limiter.core import import_string, rate_limited
 
 logger = logging.getLogger(__name__)
 
+TASK_NAME = "rl_generic_worker"
+
 generic_rate_limited_worker: Optional[TaskWrapper] = None
 
 
@@ -24,13 +26,9 @@ def register_worker(huey_instance: Huey) -> None:
     if generic_rate_limited_worker is not None:
         if getattr(generic_rate_limited_worker, "huey", None) is huey_instance:
             return
+        generic_rate_limited_worker.unregister()
 
-    # Clear a stale registration before re-registering.
-    task_name = "redis_rate_limiter.backends.huey.tasks.worker._worker"
-    if task_name in huey_instance._registry._registry:
-        del huey_instance._registry._registry[task_name]
-
-    @huey_instance.task()
+    @huey_instance.task(name=TASK_NAME)
     @rate_limited(get_limiter=_get_limiter)
     def _worker(limiter_id: str, func_path: str, payload: dict) -> Any:
         """Execute a function identified by its fully qualified import path.
