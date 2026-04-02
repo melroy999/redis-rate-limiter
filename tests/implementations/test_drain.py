@@ -622,9 +622,7 @@ class DrainObservabilityTests:
 
     _log_label: str
 
-    async def test_drain_loop_start_emits_debug_log(
-        self, limiter, mock_target, caplog
-    ):
+    async def test_drain_loop_start_emits_debug_log(self, limiter, mock_target, caplog):
         """Verify that ``_drain_inner`` emits a debug log at loop start."""
         # Arrange
         # Buffer-empty path is the simplest way to enter _drain_inner.
@@ -716,9 +714,7 @@ class DrainObservabilityTests:
                 f"limiter={limiter.id}",
                 "acquired=True",
             ],
-            message=(
-                "should emit a debug log with the lock acquisition result"
-            ),
+            message=("should emit a debug log with the lock acquisition result"),
         )
 
     async def test_drain_lock_contended_emits_debug_log(
@@ -1068,8 +1064,7 @@ class DrainObservabilityTests:
                 "fallback=True",
             ],
             message=(
-                "should emit an info log for the "
-                "rate-limited retry with all parameters"
+                "should emit an info log for the rate-limited retry with all parameters"
             ),
         )
 

@@ -31,11 +31,17 @@ pip install redis-rate-limiter[celery]
 # With the RQ backend.
 pip install redis-rate-limiter[rq]
 
+# With the Dramatiq backend.
+pip install redis-rate-limiter[dramatiq]
+
+# With the Huey backend.
+pip install redis-rate-limiter[huey]
+
 # With the ASGI middleware backend (FastAPI/Starlette).
 pip install redis-rate-limiter[asgi]
 
 # All optional dependencies.
-pip install redis-rate-limiter[celery,rq,asgi,prometheus]
+pip install redis-rate-limiter[celery,rq,dramatiq,huey,asgi,prometheus]
 ```
 
 The project requires Python 3.12+ and a single Redis instance (not Redis Cluster, see the class docstring for details).
@@ -163,6 +169,68 @@ limiter.shutdown()
 
 The RQ worker process must have `RQRateLimiter` configured before processing jobs, so that the `@rate_limited` decorator can resolve the limiter via `RQRateLimiter.get()`. See [examples/rq/demo.py](examples/rq/demo.py) for a complete working example.
 
+### Quick Start (Dramatiq)
+
+```python
+import redis
+import dramatiq
+from dramatiq.brokers.redis import RedisBroker
+from redis_rate_limiter import DramatiqRateLimiter
+
+redis_client = redis.Redis(host="localhost", port=6379)
+broker = RedisBroker(host="localhost", port=6379)
+dramatiq.set_broker(broker)
+DramatiqRateLimiter.configure(redis_client, broker=broker)
+
+limiter = DramatiqRateLimiter.create(
+    limiter_id="api_calls",
+    limit=100,
+    window=60,
+    max_concurrency=10,
+    override=True,
+)
+
+success, task_id = limiter.schedule_task(
+    "myapp.services.call_external_api",
+    {"user_id": 42},
+)
+
+# Stop background threads when done.
+limiter.shutdown()
+```
+
+The Dramatiq worker process must have `DramatiqRateLimiter` configured and the broker set before processing messages, so that the `@rate_limited` decorator can resolve the limiter via `DramatiqRateLimiter.get()`. See [examples/dramatiq/demo.py](examples/dramatiq/demo.py) for a complete working example.
+
+### Quick Start (Huey)
+
+```python
+import redis
+from huey import RedisHuey
+from redis_rate_limiter import HueyRateLimiter
+
+redis_client = redis.Redis(host="localhost", port=6379)
+huey = RedisHuey("myapp", host="localhost", port=6379)
+HueyRateLimiter.configure(redis_client, huey=huey)
+
+limiter = HueyRateLimiter.create(
+    limiter_id="api_calls",
+    limit=100,
+    window=60,
+    max_concurrency=10,
+    override=True,
+)
+
+success, task_id = limiter.schedule_task(
+    "myapp.services.call_external_api",
+    {"user_id": 42},
+)
+
+# Stop background threads when done.
+limiter.shutdown()
+```
+
+The Huey consumer process must have `HueyRateLimiter` configured before processing tasks, so that the `@rate_limited` decorator can resolve the limiter via `HueyRateLimiter.get()`. See [examples/huey/demo.py](examples/huey/demo.py) for a complete working example.
+
 ### Quick Start (AsyncIO)
 
 ```python
@@ -239,6 +307,21 @@ The `examples/` directory contains full working demos for each backend with task
 
 The ASGI middleware follows a simpler path: `acquire()` atomically checks the sliding window counter for a given client identity key and returns an allow/deny decision with standard rate limit headers. There is no task buffer, concurrency tracking or drain loop.
 
+### Sizing `max_concurrency` for External Broker Backends
+
+For the in-process backends (Threading, Multiprocessing, AsyncIO), the rate limiter has direct visibility into executor capacity and will not dispatch tasks that would only be queued locally. For external broker backends (Celery, RQ, Dramatiq, Huey), this visibility does not exist: dispatched tasks sit in the broker queue until a worker picks them up.
+
+Each dispatched task holds a concurrency lease (renewed via heartbeat once the worker starts processing). If `max_concurrency` exceeds the actual worker fleet capacity, tasks accumulate in the broker queue faster than workers can process them. Their leases expire, freeing concurrency slots, and the drain loop dispatches replacements into those freed slots, which also accumulate. This cycle leads to unbounded queue growth.
+
+To avoid this, set `max_concurrency` to match the total number of task slots across the worker fleet:
+
+| Backend  | Worker capacity formula |
+|----------|------------------------|
+| Celery   | Sum of `--concurrency` across all workers |
+| RQ       | Total number of workers listening on the queue |
+| Dramatiq | `--processes` multiplied by `--threads` |
+| Huey     | `--workers` flag passed to the Huey consumer |
+
 ## Backend Roadmap
 
 All task-oriented backends compose `SyncManagedRateLimiter` (or `AsyncManagedRateLimiter`) with `AbstractDistributedRateLimiter` (or its async counterpart) to share the same distributed rate limiting state and dynamic configuration support. They differ only in how tasks are dispatched for execution.
@@ -251,14 +334,16 @@ All task-oriented backends compose `SyncManagedRateLimiter` (or `AsyncManagedRat
 | ASGI Middleware  | Starlette/FastAPI request handling       | Done    |
 | Multiprocessing  | `concurrent.futures.ProcessPoolExecutor` | Done    |
 | RQ (Redis Queue) | RQ job queue (`queue.enqueue`)           | Done    |
-| Dramatiq         | Dramatiq broker                          | Planned |
-| Huey             | Huey task queue (Redis storage)           | Planned |
+| Dramatiq         | Dramatiq broker (`actor.send`)           | Done    |
+| Huey             | Huey task queue (`huey_task()`)           | Done    |
 
 ### Class Hierarchy
 
 ```
 SyncManagedRateLimiter + AbstractDistributedRateLimiter     -- sync managed + distributed
     ├── CeleryRateLimiter                                   -- dispatches via Celery
+    ├── DramatiqRateLimiter                                 -- dispatches via Dramatiq
+    ├── HueyRateLimiter                                     -- dispatches via Huey
     ├── ProcessPoolRateLimiter                              -- dispatches to process pool
     ├── RQRateLimiter                                       -- dispatches via RQ
     └── ThreadPoolRateLimiter                               -- dispatches to thread pool

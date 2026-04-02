@@ -88,6 +88,67 @@ class TestOptionalImportGuards:
         importlib.reload(importlib.import_module("redis_rate_limiter"))
 
     @staticmethod
+    def test_dramatiq_backend_excluded_when_dramatiq_missing():
+        """Verify that ``DramatiqRateLimiter`` is absent from
+        ``__all__`` when dramatiq is not installed and that
+        non-optional backends remain accessible.
+        """
+        # Arrange
+        blocked = {
+            "dramatiq": None,
+            "dramatiq.actor": None,
+            "dramatiq.broker": None,
+            "dramatiq.brokers": None,
+            "dramatiq.brokers.redis": None,
+            "redis_rate_limiter.backends.dramatiq": None,
+            "redis_rate_limiter.backends.dramatiq.limiter": None,
+        }
+
+        # Act
+        with patch.dict(sys.modules, blocked):
+            module = importlib.reload(importlib.import_module("redis_rate_limiter"))
+
+            # Assert
+            assert "DramatiqRateLimiter" not in module.__all__, (
+                "DramatiqRateLimiter should not be in __all__ when dramatiq is missing"
+            )
+            assert hasattr(module, "ThreadPoolRateLimiter"), (
+                "ThreadPoolRateLimiter should remain accessible"
+            )
+
+        # Teardown
+        importlib.reload(importlib.import_module("redis_rate_limiter"))
+
+    @staticmethod
+    def test_huey_backend_excluded_when_huey_missing():
+        """Verify that ``HueyRateLimiter`` is absent from
+        ``__all__`` when huey is not installed and that
+        non-optional backends remain accessible.
+        """
+        # Arrange
+        blocked = {
+            "huey": None,
+            "huey.api": None,
+            "redis_rate_limiter.backends.huey": None,
+            "redis_rate_limiter.backends.huey.limiter": None,
+        }
+
+        # Act
+        with patch.dict(sys.modules, blocked):
+            module = importlib.reload(importlib.import_module("redis_rate_limiter"))
+
+            # Assert
+            assert "HueyRateLimiter" not in module.__all__, (
+                "HueyRateLimiter should not be in __all__ when huey is missing"
+            )
+            assert hasattr(module, "ThreadPoolRateLimiter"), (
+                "ThreadPoolRateLimiter should remain accessible"
+            )
+
+        # Teardown
+        importlib.reload(importlib.import_module("redis_rate_limiter"))
+
+    @staticmethod
     def test_prometheus_excluded_when_prometheus_client_missing():
         """Verify that ``PrometheusMetricsExporter`` is absent from
         ``__all__`` when prometheus_client is not installed and that
@@ -128,11 +189,22 @@ class TestOptionalImportGuards:
             "rq": None,
             "rq.job": None,
             "rq.queue": None,
+            "dramatiq": None,
+            "dramatiq.actor": None,
+            "dramatiq.broker": None,
+            "dramatiq.brokers": None,
+            "dramatiq.brokers.redis": None,
+            "huey": None,
+            "huey.api": None,
             "prometheus_client": None,
             "redis_rate_limiter.backends.celery": None,
             "redis_rate_limiter.backends.celery.limiter": None,
             "redis_rate_limiter.backends.rq": None,
             "redis_rate_limiter.backends.rq.limiter": None,
+            "redis_rate_limiter.backends.dramatiq": None,
+            "redis_rate_limiter.backends.dramatiq.limiter": None,
+            "redis_rate_limiter.backends.huey": None,
+            "redis_rate_limiter.backends.huey.limiter": None,
             "redis_rate_limiter.integrations.prometheus": None,
         }
 

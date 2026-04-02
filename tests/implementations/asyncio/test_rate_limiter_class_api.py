@@ -145,7 +145,10 @@ class TestConfigure:
         AsyncManagedTestRateLimiter._reset()
 
         # Act & Assert
-        with pytest.raises(RuntimeError, match=r"^AsyncManagedTestRateLimiter\.configure\(redis_client, backend_label\)"):
+        with pytest.raises(
+            RuntimeError,
+            match=r"^AsyncManagedTestRateLimiter\.configure\(redis_client, backend_label\)",
+        ):
             AsyncManagedTestRateLimiter.configure(async_redis_client)
 
         # Cleanup for test isolation.
@@ -163,7 +166,9 @@ class TestCreate:
         AsyncManagedTestRateLimiter._reset()
 
         # Act & Assert
-        with pytest.raises(RuntimeError, match=r"^AsyncManagedTestRateLimiter\.configure"):
+        with pytest.raises(
+            RuntimeError, match=r"^AsyncManagedTestRateLimiter\.configure"
+        ):
             await AsyncManagedTestRateLimiter.create(
                 limiter_id, limit=1, window=1, max_concurrency=1
             )
@@ -320,7 +325,9 @@ class TestGet:
         AsyncManagedTestRateLimiter._reset()
 
         # Act & Assert
-        with pytest.raises(RuntimeError, match=r"^AsyncManagedTestRateLimiter\.configure"):
+        with pytest.raises(
+            RuntimeError, match=r"^AsyncManagedTestRateLimiter\.configure"
+        ):
             await AsyncManagedTestRateLimiter.get(limiter_id)
 
     @staticmethod
@@ -779,7 +786,10 @@ class TestResetAndConstruction:
         bypassing ``create()``/``get()``, raises a
         ``RuntimeError``."""
         # Act & Assert
-        with pytest.raises(RuntimeError, match=r"^Direct AsyncManagedTestRateLimiter\(\) construction is not supported"):
+        with pytest.raises(
+            RuntimeError,
+            match=r"^Direct AsyncManagedTestRateLimiter\(\) construction is not supported",
+        ):
             AsyncManagedTestRateLimiter(
                 redis_client=async_redis_client,
                 limiter_id="direct_construction_test",

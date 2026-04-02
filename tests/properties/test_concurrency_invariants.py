@@ -95,6 +95,4 @@ class TestConcurrencyInvariantProperties:
         # Cleanup
         clear_limiter_keys(property_redis_client, property_limiter)
         for task_id in all_scheduled_task_ids:
-            property_redis_client.delete(
-                property_limiter.get_inflight_key(task_id)
-            )
+            property_redis_client.delete(property_limiter.get_inflight_key(task_id))

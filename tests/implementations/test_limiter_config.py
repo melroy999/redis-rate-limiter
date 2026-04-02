@@ -567,7 +567,6 @@ class TestAsyncEmitMetricLogging(EmitMetricObservabilityTests):
         await limiter.shutdown()
 
 
-
 @pytest.mark.observability
 class TestSyncInitializationLog:
     """Sync rate limiter initialization log."""

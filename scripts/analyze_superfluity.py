@@ -42,7 +42,8 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-from mutmut_shared import KilledByAccumulator, KilledByCollector as _KilledByCollectorBase
+from mutmut_shared import KilledByAccumulator
+from mutmut_shared import KilledByCollector as _KilledByCollectorBase
 
 # ---------------------------------------------------------------------------
 # Killed-by tracking (full matrix, no -x)

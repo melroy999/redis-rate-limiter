@@ -36,7 +36,7 @@ RUN apt-get update && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Caching.
-RUN poetry install --no-interaction --no-ansi --no-root -E celery -E rq -E prometheus
+RUN poetry install --no-interaction --no-ansi --no-root -E celery -E rq -E dramatiq -E huey -E prometheus
 
 # Copy source, tests, and utility scripts.
 COPY src/ ./src/
@@ -44,7 +44,7 @@ COPY tests/ ./tests/
 COPY scripts/ ./scripts/
 
 # Install all dependencies (including the celery, rq and prometheus extras for tests).
-RUN poetry install --no-interaction --no-ansi -E celery -E rq -E prometheus
+RUN poetry install --no-interaction --no-ansi -E celery -E rq -E dramatiq -E huey -E prometheus
 
 # --- Stage 3: Production ---
 FROM base AS production

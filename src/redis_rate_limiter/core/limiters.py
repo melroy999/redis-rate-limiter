@@ -957,6 +957,11 @@ class AbstractDistributedRateLimiter(
             limit: The maximum number of tasks permitted per time window.
             window: The time window in seconds to which the rate limit is applied.
             max_concurrency: The maximum number of tasks that may execute concurrently.
+                For external broker backends (Celery, RQ, Dramatiq, Huey), this value
+                should match the total worker capacity of the fleet. Dispatched tasks
+                hold a concurrency lease while waiting in the broker queue; if
+                ``max_concurrency`` exceeds the actual worker capacity, tasks accumulate
+                and their leases expire, causing unbounded queue growth.
             max_age: The maximum duration in seconds that a task may reside in the queue before it expires.
             lease_duration: The duration in seconds after which a concurrency slot lease expires.
             on_heartbeat_failure: The strategy for handling heartbeat failures. ``"warn"`` allows the

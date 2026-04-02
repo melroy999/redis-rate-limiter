@@ -328,6 +328,7 @@ def _has_asgi_body_context(
 
 _FORMAT_STRING_PATTERN = re.compile(r'["\'].*%[sd]')
 
+
 def _has_logger_format_context(
     context_lines: list[str], old_lines: list[str], body: str = ""
 ) -> bool:
@@ -1088,12 +1089,12 @@ _KNOWN_BENIGN: list[tuple[str, str, str]] = [
         "schedule_task",
         'redis.set(inflight_key, "1"',
         "the inflight key value is never read back; only the key's existence"
-        " matters (NX flag). any non-empty string is equivalent to \"1\"",
+        ' matters (NX flag). any non-empty string is equivalent to "1"',
     ),
     (
         "schedule_task",
         'max_age or ""',
-        "passed to the Lua script as ARGV[3]; tonumber(\"\") and tonumber(\"XXXX\")"
+        'passed to the Lua script as ARGV[3]; tonumber("") and tonumber("XXXX")'
         " both return nil, so the max_age override branch is skipped identically",
     ),
     (

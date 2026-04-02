@@ -13,7 +13,7 @@ Usage (local Redis on 6379):
 import os
 from concurrent.futures import ProcessPoolExecutor
 
-from examples.config import LIMIT, MAX_CONCURRENCY, PROCESSPOOL_MAX_WORKERS, WINDOW
+from examples.config import LIMIT, MAX_CONCURRENCY, WINDOW, WORKER_COUNT
 from examples.runner import (
     connect_redis,
     flush_stale_keys,
@@ -40,7 +40,7 @@ def main() -> None:
     redis_client = connect_redis()
     flush_stale_keys(redis_client, LIMITER_ID)
 
-    executor = ProcessPoolExecutor(max_workers=PROCESSPOOL_MAX_WORKERS)
+    executor = ProcessPoolExecutor(max_workers=WORKER_COUNT)
     ProcessPoolRateLimiter.configure(redis_client, executor=executor)
 
     scheduler = ProcessPoolRateLimiter.create(

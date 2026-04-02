@@ -212,9 +212,7 @@ class HealthMonitorObservabilityTests:
             message="should emit a warning log when health check raises an exception",
         )
 
-    async def test_exception_emits_debug_log(
-        self, monitor, mock_limiter, caplog
-    ):
+    async def test_exception_emits_debug_log(self, monitor, mock_limiter, caplog):
         """Verify that a health check exception emits a DEBUG log with
         the limiter id and exception info attached."""
         # Arrange
@@ -244,8 +242,7 @@ class HealthMonitorObservabilityTests:
 
         # Assert
         assert not any(
-            r.levelname in ("WARNING", "INFO")
-            and "health check" in r.message.lower()
+            r.levelname in ("WARNING", "INFO") and "health check" in r.message.lower()
             for r in caplog.records
         ), "no transition log should be emitted when state remains healthy"
 

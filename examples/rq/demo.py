@@ -25,8 +25,8 @@ from examples.config import (
     MAX_CONCURRENCY,
     REDIS_HOST,
     REDIS_PORT,
-    RQ_WORKER_COUNT,
     WINDOW,
+    WORKER_COUNT,
 )
 from examples.runner import (
     connect_redis,
@@ -77,9 +77,9 @@ def main() -> None:
     # Start RQ worker subprocesses.
     # Each worker runs examples.rq.worker, which configures the rate limiter
     # in its own process before starting the RQ SimpleWorker loop.
-    logger.info("Starting %d RQ worker subprocess(es)...", RQ_WORKER_COUNT)
+    logger.info("Starting %d RQ worker subprocess(es)...", WORKER_COUNT)
     worker_procs = []
-    for _ in range(RQ_WORKER_COUNT):
+    for _ in range(WORKER_COUNT):
         proc = subprocess.Popen(
             [sys.executable, "-m", "examples.rq.worker"],
             stdout=subprocess.DEVNULL,

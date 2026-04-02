@@ -21,6 +21,13 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
 
     Instances should be obtained through the class methods ``configure``,
     ``create``, ``get``, and ``update`` rather than through direct construction.
+
+    ``max_concurrency`` should match the total number of task slots across the
+    Celery worker fleet (i.e., the sum of ``--concurrency`` across all workers).
+    Dispatched tasks hold a concurrency lease while they wait in the broker
+    queue. If ``max_concurrency`` exceeds the actual worker capacity, tasks
+    accumulate in the broker, their leases expire, and the drain loop dispatches
+    replacements, leading to unbounded queue growth.
     """
 
     _celery_app: ClassVar[Optional[Celery]] = None

@@ -548,6 +548,8 @@ class AbstractAsyncDistributedRateLimiter(
             limit: The maximum number of tasks permitted per time window.
             window: The time window in seconds.
             max_concurrency: The maximum number of tasks that may execute concurrently.
+                For external broker backends, this value should match the total worker
+                capacity of the fleet (see the backend class docstrings for details).
             max_age: The maximum queue residence time in seconds.
             lease_duration: The concurrency slot lease duration in seconds.
             on_heartbeat_failure: The heartbeat failure strategy.

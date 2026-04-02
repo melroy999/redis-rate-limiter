@@ -21,6 +21,12 @@ class RQRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
 
     Instances should be obtained through the class methods ``configure``,
     ``create``, ``get``, and ``update`` rather than through direct construction.
+
+    ``max_concurrency`` should match the total number of RQ workers listening on
+    the configured queue. Dispatched tasks hold a concurrency lease while they
+    wait in the broker queue. If ``max_concurrency`` exceeds the actual worker
+    count, tasks accumulate in the queue, their leases expire, and the drain
+    loop dispatches replacements, leading to unbounded queue growth.
     """
 
     _queue: ClassVar[Optional[Queue]] = None

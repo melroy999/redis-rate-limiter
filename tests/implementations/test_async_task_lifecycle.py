@@ -27,8 +27,8 @@ from tests.contracts.test_task_lifecycle import TaskLifecycleContractTest
 from tests.helpers.utils import assert_log_emitted
 from tests.implementations.conftest import (
     HEARTBEAT_OVERRIDE_CASES,
-    HeartbeatFailureMode,
     AsyncStubRateLimiter,
+    HeartbeatFailureMode,
 )
 
 

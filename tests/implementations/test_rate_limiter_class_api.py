@@ -724,7 +724,10 @@ class TestResetAndConstruction:
         """Verify that direct ``__init__`` invocation, bypassing
         ``create()``/``get()``, raises a ``RuntimeError``."""
         # Act & Assert
-        with pytest.raises(RuntimeError, match=r"^Direct ManagedTestRateLimiter\(\) construction is not supported"):
+        with pytest.raises(
+            RuntimeError,
+            match=r"^Direct ManagedTestRateLimiter\(\) construction is not supported",
+        ):
             ManagedTestRateLimiter(
                 redis_client=redis_client,
                 limiter_id="direct_construction_test",

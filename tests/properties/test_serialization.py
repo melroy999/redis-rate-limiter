@@ -99,9 +99,7 @@ class TestSerializationProperties:
         finally:
             # Cleanup
             clear_limiter_keys(property_redis_client, property_limiter)
-            property_redis_client.delete(
-                property_limiter.get_inflight_key(task_id)
-            )
+            property_redis_client.delete(property_limiter.get_inflight_key(task_id))
 
     @staticmethod
     @given(
@@ -137,9 +135,7 @@ class TestSerializationProperties:
 
         # Cleanup
         clear_limiter_keys(property_redis_client, property_limiter)
-        property_redis_client.delete(
-            property_limiter.get_inflight_key(task_id)
-        )
+        property_redis_client.delete(property_limiter.get_inflight_key(task_id))
 
     @staticmethod
     @given(payload=nested_dict)

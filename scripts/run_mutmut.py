@@ -38,7 +38,6 @@ from typing import Union
 
 import libcst as cst
 from mutmut import file_mutation, trampoline_templates
-from mutmut_shared import KilledByAccumulator, KilledByCollector as _KilledByCollectorBase
 from mutmut.file_mutation import (
     MODULE_STATEMENT,
     NEVER_MUTATE_FUNCTION_CALLS,
@@ -50,6 +49,8 @@ from mutmut.trampoline_templates import (
     create_trampoline_lookup,
     mangle_function_name,
 )
+from mutmut_shared import KilledByAccumulator
+from mutmut_shared import KilledByCollector as _KilledByCollectorBase
 
 # ---------------------------------------------------------------------------
 # Decorator classification

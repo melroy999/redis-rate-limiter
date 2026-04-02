@@ -13,9 +13,8 @@ import logging
 import pytest
 from prometheus_client import CollectorRegistry
 
-from tests.helpers.utils import assert_log_emitted
-
 from redis_rate_limiter.integrations.prometheus import PrometheusMetricsExporter
+from tests.helpers.utils import assert_log_emitted
 
 
 @pytest.fixture

@@ -146,7 +146,9 @@ class TestResolveImportPath:
             pass
 
         # Act & Assert
-        with pytest.raises(ValueError, match=r"^Cannot resolve import path for nested function"):
+        with pytest.raises(
+            ValueError, match=r"^Cannot resolve import path for nested function"
+        ):
             resolve_import_path(inner_function)
 
     @staticmethod
@@ -156,7 +158,9 @@ class TestResolveImportPath:
         encoder = json.JSONEncoder()
 
         # Act & Assert
-        with pytest.raises(ValueError, match=r"^Cannot resolve import path for class-bound callable"):
+        with pytest.raises(
+            ValueError, match=r"^Cannot resolve import path for class-bound callable"
+        ):
             resolve_import_path(encoder.encode)
 
     @staticmethod
@@ -172,7 +176,10 @@ class TestResolveImportPath:
                 pass
 
         # Act & Assert
-        with pytest.raises(ValueError, match=r"^Cannot resolve import path for (class-bound callable|nested function)"):
+        with pytest.raises(
+            ValueError,
+            match=r"^Cannot resolve import path for (class-bound callable|nested function)",
+        ):
             resolve_import_path(Example.helper)
 
     @staticmethod
@@ -184,7 +191,9 @@ class TestResolveImportPath:
         fn = functools.partial(json.dumps, indent=2)
 
         # Act & Assert
-        with pytest.raises(ValueError, match=r"^Cannot resolve import path: .* is missing __module__"):
+        with pytest.raises(
+            ValueError, match=r"^Cannot resolve import path: .* is missing __module__"
+        ):
             resolve_import_path(fn)
 
     @staticmethod
@@ -212,7 +221,9 @@ class TestResolveImportPath:
         fn.__module__ = None  # type: ignore[assignment]
 
         # Act & Assert
-        with pytest.raises(ValueError, match=r"^Cannot resolve import path: .* is missing __module__"):
+        with pytest.raises(
+            ValueError, match=r"^Cannot resolve import path: .* is missing __module__"
+        ):
             resolve_import_path(fn)
 
     @staticmethod
@@ -232,7 +243,9 @@ class TestResolveImportPath:
         fn.__qualname__ = None  # type: ignore[assignment]
 
         # Act & Assert
-        with pytest.raises(ValueError, match=r"^Cannot resolve import path: .* is missing __module__"):
+        with pytest.raises(
+            ValueError, match=r"^Cannot resolve import path: .* is missing __module__"
+        ):
             resolve_import_path(fn)
 
     @staticmethod
@@ -263,7 +276,9 @@ class TestResolveImportPath:
         fn = NoModuleCallable()
 
         # Act & Assert
-        with pytest.raises(ValueError, match=r"^Cannot resolve import path: .* is missing __module__"):
+        with pytest.raises(
+            ValueError, match=r"^Cannot resolve import path: .* is missing __module__"
+        ):
             resolve_import_path(fn)
 
     @staticmethod

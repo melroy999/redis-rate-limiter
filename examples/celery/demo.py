@@ -23,13 +23,13 @@ from celery import Celery
 from celery.signals import worker_init
 
 from examples.config import (
-    CELERY_WORKER_CONCURRENCY,
     CELERY_WORKER_PREFETCH_MULTIPLIER,
     LIMIT,
     MAX_CONCURRENCY,
     REDIS_HOST,
     REDIS_PORT,
     WINDOW,
+    WORKER_COUNT,
 )
 from examples.runner import (
     connect_redis,
@@ -117,7 +117,7 @@ def main() -> None:
             "-A",
             "examples.celery.demo:celery_app",
             "worker",
-            f"--concurrency={CELERY_WORKER_CONCURRENCY}",
+            f"--concurrency={WORKER_COUNT}",
             "--loglevel=warning",
             "--without-heartbeat",
             "--without-mingle",

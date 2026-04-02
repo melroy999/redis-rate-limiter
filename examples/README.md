@@ -1,6 +1,6 @@
 # Examples
 
-Self-contained demos that showcase the rate limiter with different backends. The task-oriented demos (ProcessPool, ThreadPool, Celery, AsyncIO) run the same sequence: a **deduplication test**, an **error-recovery test** (tasks that raise exceptions to demonstrate that concurrency slots are released and processing continues) and a **burst test**, all displayed via a live terminal dashboard. The ASGI demo is a standalone FastAPI application that demonstrates per-client-IP request rate limiting via middleware.
+Self-contained demos that showcase the rate limiter with different backends. The task-oriented demos (ProcessPool, ThreadPool, Celery, RQ, Dramatiq, Huey, AsyncIO) run the same sequence: a **deduplication test**, an **error-recovery test** (tasks that raise exceptions to demonstrate that concurrency slots are released and processing continues) and a **burst test**, all displayed via a live terminal dashboard. The ASGI demo is a standalone FastAPI application that demonstrates per-client-IP request rate limiting via middleware.
 
 ## Prerequisites
 
@@ -66,6 +66,34 @@ REDIS_HOST=localhost REDIS_PORT=6380 poetry run python -m examples.rq.demo
 
 Note that the worker takes a few seconds to connect before the demo begins.
 
+### Dramatiq Demo
+
+Spawns Dramatiq worker subprocess(es) automatically and coordinates tasks over Redis. This demonstrates distributed rate limiting with the Dramatiq actor framework.
+
+```bash
+# Local Redis (port 6379).
+poetry run python -m examples.dramatiq.demo
+
+# Docker Redis (port 6380).
+REDIS_HOST=localhost REDIS_PORT=6380 poetry run python -m examples.dramatiq.demo
+```
+
+Note that the workers take a few seconds to connect before the demo begins.
+
+### Huey Demo
+
+Spawns Huey consumer subprocess(es) automatically and coordinates tasks over Redis. This demonstrates distributed rate limiting with the Huey task queue.
+
+```bash
+# Local Redis (port 6379).
+poetry run python -m examples.huey.demo
+
+# Docker Redis (port 6380).
+REDIS_HOST=localhost REDIS_PORT=6380 poetry run python -m examples.huey.demo
+```
+
+Note that the consumers take a few seconds to connect before the demo begins.
+
 ### AsyncIO Demo
 
 Runs everything in a single Python process and a single event loop using `asyncio.create_task()`. This demonstrates that the full distributed rate limiting machinery (drain loop, Pub/Sub subscriber, task lifecycle heartbeat) can operate within a single-threaded event loop.
@@ -122,12 +150,8 @@ All tuneable parameters are defined in [config.py](config.py):
 | `ERROR_COUNT`                       | Number of tasks that raise an exception (error-recovery test) |
 | `BURST_COUNT`                       | Number of unique tasks queued in the burst test |
 | `PRIORITY_SEED`                     | Seed for reproducible random task priorities |
-| `PROCESSPOOL_MAX_WORKERS`           | Process pool size                          |
-| `THREADPOOL_MAX_WORKERS`            | Thread pool size                           |
-| `CELERY_WORKER_CONCURRENCY`         | Number of Celery worker processes          |
+| `WORKER_COUNT`                      | Number of workers, threads, or tasks per backend |
 | `CELERY_WORKER_PREFETCH_MULTIPLIER` | Tasks fetched per Celery worker at a time  |
-| `RQ_WORKER_COUNT`                   | Number of RQ worker processes              |
-| `ASYNCIO_MAX_TASKS`                 | Maximum concurrent asyncio tasks           |
 | `ASGI_LIMIT`                        | Requests allowed per window (ASGI demo)    |
 | `ASGI_WINDOW`                       | Window duration in seconds (ASGI demo)     |
 
@@ -141,6 +165,10 @@ All tuneable parameters are defined in [config.py](config.py):
 | [celery/demo.py](celery/demo.py) | Celery backend demo entry point |
 | [rq/demo.py](rq/demo.py) | RQ backend demo entry point |
 | [rq/worker.py](rq/worker.py) | RQ worker subprocess entry point |
+| [dramatiq/demo.py](dramatiq/demo.py) | Dramatiq backend demo entry point |
+| [dramatiq/worker.py](dramatiq/worker.py) | Dramatiq worker subprocess entry point |
+| [huey/demo.py](huey/demo.py) | Huey backend demo entry point |
+| [huey/worker.py](huey/worker.py) | Huey consumer subprocess entry point |
 | [asyncio/demo.py](asyncio/demo.py) | AsyncIO backend demo entry point |
 | [asgi/demo.py](asgi/demo.py) | ASGI/FastAPI middleware demo |
 | [runner.py](runner.py) | Shared demo sequence (dedup, burst, monitoring, cleanup) |

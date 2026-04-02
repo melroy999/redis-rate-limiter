@@ -43,6 +43,22 @@ try:
 except (ImportError, ValueError):
     pass
 
+# The Dramatiq backend is only available when the dramatiq package is installed.
+try:
+    from redis_rate_limiter.backends.dramatiq import DramatiqRateLimiter
+
+    __all__.append("DramatiqRateLimiter")
+except ImportError:
+    pass
+
+# The Huey backend is only available when the huey package is installed.
+try:
+    from redis_rate_limiter.backends.huey import HueyRateLimiter
+
+    __all__.append("HueyRateLimiter")
+except ImportError:
+    pass
+
 # The threading backend relies solely on the standard library and does not require
 # any external dependencies. As such, it is included by default.
 # The ASGI backend provides framework-agnostic rate limiting middleware.
