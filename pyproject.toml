@@ -22,9 +22,9 @@ asgi = ["fastapi (>=0.115.0)", "uvicorn (>=0.34.0)"]
 pytest = ">=9.0.2"
 pytest-asyncio = ">=0.25.0"
 pytest_cov = ">=7.0.0"
-ruff = "^0.15.4"
-mypy = "^1.19.1"
-hypothesis = "^6.151.9"
+ruff = "^0.15.8"
+mypy = "^1.20.0"
+hypothesis = "^6.151.10"
 mutmut = {version = "^3.5.0", python = "<4.0"}
 pytest-timeout = ">=2.3.0"
 
