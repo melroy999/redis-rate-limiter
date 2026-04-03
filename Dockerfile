@@ -1,7 +1,7 @@
 # --- Stage 1: Base Python ---
 # Using build args allows easy version updates without editing multiple lines.
 ARG PYTHON_VERSION=3.12
-ARG POETRY_VERSION=2.3.1
+ARG POETRY_VERSION=2.3.3
 
 FROM python:${PYTHON_VERSION}-slim AS base
 
