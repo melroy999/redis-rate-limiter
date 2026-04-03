@@ -8,7 +8,7 @@
 -- ARGV[1]: The window size in seconds (e.g., 60)
 -- ARGV[2]: The maximum number of requests permitted (e.g., 100)
 -- ARGV[3]: The maximum number of simultaneously running tasks permitted (e.g., 10)
--- ARGV[4]: The maximum age in seconds, used as the TTL for both the DLQ and the queue.
+-- ARGV[4]: The maximum age in seconds, used as the TTL for the queue.
 -- ARGV[5]: The lease duration in seconds, used as the TTL for concurrency locks.
 local base_key = KEYS[1]
 local buffer_key = KEYS[2]

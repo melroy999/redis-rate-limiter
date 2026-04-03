@@ -31,7 +31,9 @@ When adding a new backend, create the corresponding subdirectory under `tests/im
 |---|---|---|
 | `<Feature>ContractTest` | Abstract contract base; pytest does not collect it because the name lacks a `Test` prefix | `RateLimiterContractTest`, `DistributedLockContractTest` |
 | `<Feature>Tests` | Unified mixin base for sync/async deduplication; pytest does not collect it | `DrainBehaviorTests`, `GetStatusTests`, `MetricsCallbackTests` |
+| `<Feature>BoundaryTests` | Unified mixin base for boundary condition tests; pytest does not collect it | `DrainBoundaryTests`, `DistributedLockBoundaryTests` |
 | `Test<Subject>` | Concrete test class that pytest collects and executes | `TestSyncDrain`, `TestAsyncDrainLoop`, `TestCeleryRateLimiter` |
+| `Test<Subject>BoundaryDecisions` | Concrete test class for boundary and edge-case conditions | `TestBaseConfigBoundaryDecisions`, `TestConsumeBoundaryDecisions` |
 
 The absence of the `Test` prefix on abstract bases and mixins is deliberate. It prevents pytest from attempting to instantiate classes that require subclass-provided fixtures.
 
@@ -84,6 +86,7 @@ The separator line is exactly 75 dashes. Do not use separators between individua
 | Mixin base classes before concrete subclasses | `Unified implementation tests` / `Concrete test cases` |
 | Behavioral mixin before observability mixin | `Unified observability tests` |
 | Behavioral concrete class before observability concrete class (non-mixin files) | `Observability tests` |
+| Behavioral concrete class before boundary condition tests | `Boundary tests` |
 | Distinct categories of test classes in the same file | `Drain-disabled tests`, `Cross-process drain signal tests` |
 | Sync-specific tests before async-specific tests (when in one file) | `Sync-specific tests` / `Async-specific tests` |
 | Signature or class-variable tests at end of file | `Signature tests` or `Class variable tests` |
@@ -227,6 +230,8 @@ Removing a parameter from a log call is a real degradation of observability. Ope
 
 The separation rule still applies: log assertions belong in their own test methods. But they must exist, and they must be thorough.
 
+**DEBUG-level boundary**: the observability contract applies to INFO, WARNING, ERROR, and CRITICAL log messages. DEBUG-level trace messages are developer aids with no operational SLA; surviving mutations on DEBUG format strings and arguments are accepted as a deliberate boundary. The effort to test every format string and argument mutation on DEBUG logs exceeds the value they provide.
+
 ### 4.5 Mutmut Impact
 
 Separating log assertions into their own test methods does not reduce mutation coverage. The observability tests still kill the same mutations that the tacked-on assertions killed. What changes is that behavioral tests no longer carry log-assertion baggage, and each test has a single, clear responsibility.
@@ -267,19 +272,19 @@ Do not confuse data-flow verification with call-count verification. Asserting th
 
 | Fixture | Scope | Provider | Purpose |
 |---|---|---|---|
-| `redis_client` | function | `tests/conftest.py` | Sync Redis client with per-test `flushdb` |
-| `async_redis_client` | function | `tests/conftest.py` | Async Redis client with per-test `flushdb` |
+| `redis_client` | function | `tests/conftest.py` | Sync Redis client (namespace-isolated) |
+| `async_redis_client` | function | `tests/conftest.py` | Async Redis client (namespace-isolated) |
 | `limiter_id` | function | `tests/conftest.py` | Unique `limiter_{test}_{uuid}` identifier |
 | `module_limiter_id` | module | `tests/conftest.py` | Shared identifier within a module |
 | `func_path` | session | `tests/conftest.py` | Static function path string |
 | `payload` | session | `tests/conftest.py` | Static payload dictionary |
 | `task_id` | function | `tests/implementations/conftest.py` | Unique `task_{uuid}` identifier |
-| `generic_limiter` | function | `tests/implementations/conftest.py` | Sync `MinimalRateLimiter` with teardown |
-| `async_generic_limiter` | function | `tests/implementations/conftest.py` | Async `MinimalAsyncRateLimiter` with teardown |
+| `stub_limiter` | function | `tests/implementations/conftest.py` | Sync `StubRateLimiter` with teardown |
+| `async_stub_limiter` | function | `tests/implementations/conftest.py` | Async `AsyncStubRateLimiter` with teardown |
 | `tracking_limiter` | function | `tests/implementations/conftest.py` | Sync limiter that records dispatch and schedule calls |
 
 **Fixture rules**:
-- **Teardown**: all limiter fixtures must call `shutdown()` in teardown to stop subscriber threads and tasks. For **function-scoped** fixtures that depend on `redis_client` or `async_redis_client`, explicit key cleanup is not required because those root fixtures call `flushdb()` before and after every test (see Section 7.5). **Module-scoped or session-scoped** fixtures (e.g., property test fixtures) must handle their own key cleanup, because the per-test `flushdb()` cycle does not apply at broader scopes.
+- **Teardown**: all limiter fixtures must call `shutdown()` in teardown to stop subscriber threads and tasks. Explicit key cleanup is not required because test isolation is achieved through unique key namespaces (`limiter_id`, `lock_key`) rather than `flushdb()` (see Section 7.5).
 - **Factory fixtures** (e.g., `make_limiter_pool`): must track all created objects in a list and clean up every object in teardown.
 - **Async fixtures**: must call `await limiter.start()` during setup to initialize the drain signal subscriber.
 - **Isolation**: never hardcode limiter IDs; always derive them from the `limiter_id` fixture with a disambiguation suffix (e.g., `f"{limiter_id}_generic"`).
@@ -328,6 +333,7 @@ from tests.helpers.utils import assert_log_emitted
 assert_log_emitted(
     caplog.records,
     level="INFO",
+    label="[CeleryRateLimiter]",
     required_fragments=[f"limiter={limiter.id}", f"task_id={task_id}"],
     message="should emit an info log for the dispatched task",
 )
@@ -348,15 +354,21 @@ assert not any(
 
 **Multiple log events in one test**: if a test needs to verify multiple sequential log emissions from the same action, use a single `caplog.at_level()` context manager and assert on each expected record. Do not call `caplog.clear()` between assertions unless the test performs multiple distinct actions.
 
+**Fragment strategy**: the `_log_record_matches` helper provides three mutation-killing mechanisms beyond fragment matching: (1) the label check (`message.startswith(label)`) catches xx_wrap mutations; (2) the capitalization check (first alpha after label must be uppercase) catches lowercase mutations; (3) uppercase mutations on format strings containing `%s`/`%d`/`%g` cause a `%S` crash at runtime. For single-string format strings, these three mechanisms catch all format-string mutations without any text fragments. Therefore, `required_fragments` should primarily contain **value fragments** in `key=value` format (e.g., `f"limiter={limiter.id}"`, `"acquired=True"`). Short **disambiguation keywords** are acceptable when multiple log messages at the same level share the same value fragments. Keywords must contain at least one space (e.g., `"is paused"`, `"loop start"`, `"capacity reached"`) to avoid the fixture ID collision described below. Avoid full sentence fragments (e.g., `"Drain loop start: limiter=%s"`) because the built-in mechanisms already catch the corresponding mutations.
+
+**Disambiguation keyword pitfall**: the `limiter_id` and `lock_key` fixtures embed the test name (e.g., `limiter_test_drain_loop_start_emits_debug_log_abc123`). Since `f"limiter={limiter.id}"` appears in every log message from the test, a single-word keyword like `"start"` or `"capacity"` that also appears in the test name will match ALL log messages, not just the target. When the target log is mutated away, another log in the same test satisfies the assertion via the keyword embedded in the ID. Fix: use multi-word phrases containing spaces (e.g., `"is paused"`, `"loop start"`), which cannot appear in fixture-derived identifiers because those use underscores as separators.
+
 ### 5.4 Timeout Patterns
 
 | Context | Pattern | Example |
 |---|---|---|
 | Async operations that should complete promptly | `asyncio.wait_for(coro, timeout=N)` | `await asyncio.wait_for(loop.shutdown(), timeout=1.0)` |
 | Sync thread synchronization | `Event.wait(timeout=N)` | `fired = drain_called.wait(timeout=2.0)` |
-| Safety net for mutation-induced infinite loops | `threading.Timer` | `Timer(0.5, lambda: setattr(subscriber, "_shutdown", True))` |
+| Shutdown timer for `_run()` loop tests | `shutdown_timer()` context manager | `with shutdown_timer(subscriber): subscriber._run()` |
 
-**Timer safety-net requirement**: every usage of the `threading.Timer` safety-net pattern must include a docstring or inline comment explaining which mutation it defends against. Without this documentation, the timer appears to be unnecessary complexity.
+**`shutdown_timer` usage**: use `shutdown_timer()` from `tests.helpers.utils` instead of inline `Timer` construction. Apply only to tests that call `_run()` directly (or `start()`+`shutdown()` where the Timer is the existing guard). Do NOT add to `shutdown()` / lifecycle / health-monitor tests; these already have bounded timeouts and adding a timer would mask mutations.
+
+**Priority marker**: tests with bounded shutdown mechanisms must be decorated with `@pytest.mark.timeout_safety_net`. This includes tests using `shutdown_timer()`, tests with bounded `Thread.join(timeout=)`, and tests using `TaskLifecycle` / `AsyncTaskLifecycle` context managers (whose `__exit__` / `__aexit__` has a bounded join). A `pytest_collection_modifyitems` hook in `tests/conftest.py` moves these tests to the front of the collection so they fail fast under mutmut's `-x` mode, preventing SIGXCPU.
 
 ### 5.5 `time.sleep()` Rules
 
@@ -492,6 +504,8 @@ Tests that do **not** need this annotation (write them as normal behavioral test
 - Logger lines; log messages are part of the observability contract and must be tested (see Section 4.4).
 - Heuristic constants or formula values; write an exact-value test instead.
 
+**`# fmt: off` for log format strings**: when a logger call uses multiple adjacent string literals (i.e., Python implicit concatenation), mutmut treats each literal as an independent mutation target. The second/later string parts are not protected by the label check, capitalization check, or `%S` crash mechanisms (see Section 5.3). Rather than adding text-based disambiguation fragments in tests to cover these parts, consolidate the string literals into a single line wrapped with `# fmt: off` / `# fmt: on`. This addresses the mutation gap at the source level. See also the `# fmt: off` convention in `CLAUDE.md`.
+
 ### 6.3 Equivalent Mutant Reference
 
 The following categories of equivalent mutants have been identified in the codebase. This table should be maintained alongside mutation testing results.
@@ -500,6 +514,7 @@ The following categories of equivalent mutants have been identified in the codeb
 |---|---|---|---|
 | `cast()` calls | `cast()` is a no-op at runtime; any mutation produces equivalent behavior | `limiters.py`, `async_limiters.py`, `base.py`, `decorators.py`, `importing.py`, `celery/limiter.py` | The mutation does not change observable behavior |
 | `"latin-1"` encoding | Encoding mutations on ASCII data produce identical bytes | `backends/asgi/keys.py` | ASCII subset is identical across common encodings |
+| `"utf-8"` encoding case | `"utf-8"` and `"UTF-8"` resolve to the same codec via `codecs.lookup()` | `core/managed.py:_parse_raw_config` | Python normalizes encoding names case-insensitively |
 | `__init_subclass__` body | Previously required `# pragma: no mutate` due to a mutmut trampoline bug; resolved by adding an explicit `@classmethod` decorator ([mutmut#366](https://github.com/boxed/mutmut/issues/366)). Mutmut may still skip mutating this method entirely. | `managed.py` | No longer pragmaed; kept for reference |
 
 ## 7. Pitfalls and Checklist
@@ -528,10 +543,11 @@ When adding a new backend, create the following:
 2. `tests/implementations/<backend>/conftest.py`: imports the fixtures from the fixture module.
 3. `tests/implementations/<backend>/test_contracts.py`: concrete subclass of `RateLimiterContractTest` (and `DistributedLockContractTest`, `TaskLifecycleContractTest` if applicable) with a `limiter` fixture providing the backend-specific limiter instance.
 4. `tests/implementations/<backend>/test_<backend>_limiter.py`: backend-specific tests for dispatch logic, payload handling, and other behavior unique to the backend.
+5. Add the backend class to the `TestConfigureHintCompliance` parametrize list in `tests/contracts/test_managed_mixin.py`.
 
-### 7.5 Redis Cleanup Guarantees
+### 7.5 Redis Isolation Strategy
 
-The `redis_client` and `async_redis_client` fixtures call `flushdb()` both before and after the test. However, if a test raises an exception before the fixture's `yield`, the post-test `flushdb()` may not execute. The pre-test `flushdb()` in the next test mitigates this, but tests should not rely on a clean database at startup without the fixture's guarantee. Always use the fixture rather than manual Redis setup.
+Test isolation is achieved through unique key namespaces rather than `flushdb()`. Every test receives a unique `limiter_id` and `lock_key` that include both the PID and a UUID fragment, guaranteeing no key collisions across concurrent processes (e.g., mutmut parallel forks). The `flushdb()` calls that previously provided isolation have been removed because they cause cross-process data destruction when multiple forked pytest sessions share the same Redis instance. Always derive keys from the `limiter_id` fixture rather than hardcoding Redis keys or calling `flushdb()` manually.
 
 ### 7.6 Warning Suppression
 
@@ -562,9 +578,15 @@ The `async_redis_client` fixture in `tests/conftest.py` is function-scoped (not 
 | `@pytest.mark.filterwarnings("ignore::RuntimeWarning")` | Suppress expected RuntimeWarnings from async teardown (unawaited coroutines, unclosed event loops). | Apply at the test class or method level, never globally. Only for warnings that are expected consequences of the test's teardown, not warnings from the code under test. See Section 7.6. |
 | `@pytest.mark.skipif` | Skip tests based on platform, environment, or dependency availability. | Platform-specific tests (e.g., Windows timer resolution), optional dependency availability. |
 
-### 8.3 Custom Marker Registration
+### 8.3 Category Marker Policy
 
-All custom markers must be registered in `pyproject.toml` under `[tool.pytest.ini_options].markers` to prevent `PytestUnknownMarkWarning`. Currently only `slow` is registered. If a new custom marker is introduced, add it to the markers list with a description.
+Every concrete test class (i.e., classes whose name starts with `Test`) must carry exactly one category marker: `@pytest.mark.behavior`, `@pytest.mark.observability`, `@pytest.mark.signature`, `@pytest.mark.contract`, or `@pytest.mark.concurrency`. This ensures that all tests are reachable via marker-based selection (e.g., `pytest -m behavior`).
+
+Mixin base classes (names that do **not** start with `Test`, e.g., `DrainBehaviorTests`, `DistributedLockBoundaryTests`) must **not** carry category markers. The concrete subclass that inherits the mixin is responsible for applying the appropriate marker. Placing a marker on a mixin is redundant because pytest does not collect classes whose names do not start with `Test`.
+
+### 8.4 Custom Marker Registration
+
+All custom markers must be registered in `pyproject.toml` under `[tool.pytest.ini_options].markers` to prevent `PytestUnknownMarkWarning`.
 
 ## 9. Test Data and Constants
 

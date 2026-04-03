@@ -21,7 +21,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from tests.implementations.conftest import MinimalRateLimiter
+from tests.helpers.utils import schedule_n_tasks
+from tests.implementations.conftest import StubRateLimiter
 from tests.integration.conftest import consume_and_complete, precise_sleep
 
 # Skip the entire module on Windows owing to unreliable sub-second timing.
@@ -29,7 +30,9 @@ pytestmark = [
     pytest.mark.slow,
     pytest.mark.skipif(
         sys.platform == "win32",
-        reason="Windows timer resolution (~15ms) makes sub-second timing tests unreliable.",
+        reason=(
+            "Windows timer resolution (~15ms) makes sub-second timing tests unreliable."
+        ),
     ),
 ]
 
@@ -39,27 +42,17 @@ pytestmark = [
 # ---------------------------------------------------------------------------
 
 
-def schedule_n_tasks(limiter: MinimalRateLimiter, n: int, func_path: str) -> list[str]:
-    """Preload the limiter buffer with ``n`` unique tasks."""
-    task_ids: list[str] = []
-    for i in range(n):
-        scheduled, task_id = limiter.schedule_task(func_path, {"seq": i})
-        assert scheduled, f"failed to schedule task {i}"
-        task_ids.append(task_id)
-    return task_ids
-
-
 def make_distributed_limiter(
     redis_client,
     limiter_id: str,
     **kwargs,
-) -> MinimalRateLimiter:
-    """Create a MinimalRateLimiter for distributed testing."""
+) -> StubRateLimiter:
+    """Create a StubRateLimiter for distributed testing."""
     defaults = dict(
         limit=25, window=1.0, max_concurrency=100, max_age=3600, lease_duration=30
     )
     defaults.update(kwargs)
-    return MinimalRateLimiter(
+    return StubRateLimiter(
         redis_client=redis_client,
         limiter_id=limiter_id,
         **defaults,
@@ -107,7 +100,7 @@ class TestDistributedRateLimiting:
         lock = threading.Lock()
         stop = threading.Event()
 
-        def greedy_consumer(limiter: MinimalRateLimiter) -> None:
+        def greedy_consumer(limiter: StubRateLimiter) -> None:
             while not stop.is_set():
                 result = consume_and_complete(limiter)
                 if result["success"]:
@@ -150,12 +143,8 @@ class TestDistributedRateLimiting:
         limiter_id,
         func_path,
     ):
-        """The buffer depth increases when tasks are scheduled faster than the limit allows.
-
-        A producer thread schedules tasks at 2x the limit while a consumer
-        thread drains at the actual rate. After a full window, the buffer
-        should contain more tasks than when the test started.
-        """
+        """The buffer depth increases when tasks are
+        scheduled faster than the limit allows."""
         # Arrange
         limit = 25
         window = 1.0
@@ -207,12 +196,8 @@ class TestDistributedRateLimiting:
         limiter_id,
         func_path,
     ):
-        """The buffer eventually empties when the offered rate drops below the limit.
-
-        Pre-fill the buffer with tasks, then let consumers drain while a
-        producer schedules at 0.5x the limit. The buffer should reach zero
-        within a bounded duration.
-        """
+        """The buffer eventually empties when the offered
+        rate drops below the limit."""
         # Arrange
         limit = 25
         window = 1.0
@@ -268,7 +253,8 @@ class TestDistributedRateLimiting:
         # Assert
         buffer_count = redis_client.zcard(f"{limiter_id}:buffer")
         assert buffer_count == 0, (
-            f"buffer should have drained under 0.5x offered load, got {buffer_count} remaining"
+            "buffer should have drained under 0.5x offered "
+            f"load, got {buffer_count} remaining"
         )
 
     @staticmethod
@@ -277,11 +263,12 @@ class TestDistributedRateLimiting:
         limiter_id,
         func_path,
     ):
-        """Under sine-wave traffic, the consumed rate per window never exceeds 2x the limit.
+        """Under sine-wave traffic, the consumed rate per
+        window never exceeds 2x the limit.
 
-        A producer schedules tasks following a sine-wave pattern while multiple
-        consumers drain. The sliding window algorithm guarantees that the total
-        throughput in any window-sized interval stays within the 2x burst bound.
+        The sliding window algorithm guarantees that the
+        total throughput in any window-sized interval stays
+        within the 2x burst bound.
         """
         # Arrange
         limit = 25
@@ -317,7 +304,7 @@ class TestDistributedRateLimiting:
                 seq += 1
                 precise_sleep(interval)
 
-        def consumer(limiter: MinimalRateLimiter) -> None:
+        def consumer(limiter: StubRateLimiter) -> None:
             while not stop.is_set():
                 result = consume_and_complete(limiter)
                 if result["success"]:

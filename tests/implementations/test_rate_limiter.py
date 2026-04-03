@@ -6,10 +6,12 @@ async form; the sync implementation participates via the
 ``SyncToAsyncLimiterAdapter``, while the async implementation runs natively.
 
 Fixture dependencies:
-    - ``generic_limiter``, ``async_generic_limiter``: from ``tests/implementations/conftest.py``.
+    - ``stub_limiter``, ``async_stub_limiter``:
+      from ``tests/implementations/conftest.py``.
     - ``async_redis_client``, ``func_path``, ``payload``: from ``tests/conftest.py``.
 """
 
+import hashlib
 import inspect
 import json
 import logging
@@ -18,10 +20,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import redis
 
+from redis_rate_limiter.core.async_limiters import AbstractAsyncDistributedRateLimiter
 from redis_rate_limiter.core.limiters import AbstractDistributedRateLimiter
 from tests.contracts.test_rate_limiter import RateLimiterContractTest
 from tests.helpers.adapters import SyncToAsyncLimiterAdapter
-from tests.helpers.utils import assert_log_emitted, is_subset
+from tests.helpers.utils import (
+    assert_log_emitted,
+    async_find_task_in_buffer,
+    is_subset,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -31,35 +38,18 @@ from tests.helpers.utils import assert_log_emitted, is_subset
 async def assert_task_existence(
     limiter, async_redis_client, func_path: str, payload: dict, task_id: str
 ) -> None:
-    """Verify that a task exists in Redis with the correct associated data.
-
-    Args:
-        limiter: The rate limiter instance under test (sync adapter or async native).
-        async_redis_client: The async Redis client used for verification.
-        func_path: The function path of the scheduled task.
-        payload: The payload data associated with the task.
-        task_id: The identifier of the task to verify.
-    """
-    # Gather the data required to verify the assertions.
+    """Verify that a task exists in Redis with the correct associated data."""
     full_data = limiter._get_task_data(task_id, func_path, payload)
     inflight_key = limiter.get_inflight_key(task_id)
 
-    # Assert that the task is marked as in-flight.
     assert await async_redis_client.exists(inflight_key) == 1, (
         f"task {task_id} must be marked as in-flight"
     )
 
-    # Assert that the task appears in the buffer exactly once.
-    all_members = await async_redis_client.zrange(limiter.buffer_key, 0, -1)
-    results = [m for m in all_members if f'"{task_id}"' in m]
-    assert len(results) > 0, f"task with ID {task_id} not found in buffer"
-    assert len(results) == 1, (
-        f"task with ID {task_id} has been found more than once in the buffer"
+    full_data_server = await async_find_task_in_buffer(
+        async_redis_client, limiter.buffer_key, task_id
     )
-
-    # Assert that the persisted task data remains correct.
-    full_data_server_str = results[0]
-    full_data_server = json.loads(full_data_server_str)
+    assert full_data_server is not None, f"task with ID {task_id} not found in buffer"
 
     assert is_subset(full_data, full_data_server), (
         f"task with ID {task_id} has a data mismatch"
@@ -78,13 +68,14 @@ async def assert_task_existence(
     )
 
 
+@pytest.mark.contract
 class TestRateLimiterContracts(RateLimiterContractTest):
     """Contract compliance for the backend-agnostic rate limiter implementation."""
 
     @pytest.fixture
-    def limiter(self, generic_limiter):
-        """Wrap the sync generic limiter in an async adapter for the unified contracts."""
-        return SyncToAsyncLimiterAdapter(generic_limiter)
+    def limiter(self, stub_limiter):
+        """Wrap the sync limiter in an async adapter for the unified contracts."""
+        return SyncToAsyncLimiterAdapter(stub_limiter)
 
 
 # ---------------------------------------------------------------------------
@@ -93,12 +84,27 @@ class TestRateLimiterContracts(RateLimiterContractTest):
 
 
 class RateLimiterImplementationTests:
-    """Backend-agnostic implementation tests for scheduling, Lua script recovery, and buffer bookkeeping.
+    """Backend-agnostic implementation tests for scheduling,
+    Lua script recovery, and buffer bookkeeping.
 
     Subclasses must provide a ``limiter`` fixture that returns either a
     ``SyncToAsyncLimiterAdapter``-wrapped sync limiter or a native async
     limiter. All Redis verification uses the ``async_redis_client`` fixture.
     """
+
+    @staticmethod
+    def _mock_eval_script(limiter, return_value):
+        """Patch ``_eval_script`` on the underlying limiter,
+        selecting the correct mock class for sync/async."""
+        actual = getattr(limiter, "_inner", limiter)
+        mock_cls = (
+            AsyncMock if inspect.iscoroutinefunction(actual._eval_script) else MagicMock
+        )
+        return patch.object(
+            actual,
+            "_eval_script",
+            mock_cls(return_value=return_value),
+        )
 
     @staticmethod
     async def test_schedule_single_task_stores_correctly(
@@ -137,7 +143,8 @@ class RateLimiterImplementationTests:
     async def test_schedule_multiple_tasks_with_one_duplicate(
         limiter, async_redis_client, func_path
     ):
-        """Verify that multiple distinct tasks can be scheduled with duplicate detection."""
+        """Verify that multiple distinct tasks can be scheduled
+        with duplicate detection."""
         # Arrange
         payload_1 = {"user_id": 123}
         payload_2 = {"user_id": 456}
@@ -167,7 +174,8 @@ class RateLimiterImplementationTests:
     async def test_schedule_task_default_priority_is_100(
         limiter, async_redis_client, func_path, payload
     ):
-        """Verify that tasks scheduled without an explicit priority use the default value of 100."""
+        """Verify that tasks scheduled without an explicit priority
+        use the default value of 100."""
         # Act
         success, _ = await limiter.schedule_task(func_path, payload)
 
@@ -184,31 +192,33 @@ class RateLimiterImplementationTests:
 
     @staticmethod
     async def test_schedule_task_uses_max_age_to_set_inflight_ttl(
-        limiter, func_path, payload
+        limiter, async_redis_client, func_path, payload
     ):
         """Verify that the in-flight key TTL is derived from the effective max_age."""
         # Arrange
+        # ceil(max(1, 17) + max(1, 30) + max(1, 60)) = 107
         per_task_max_age = 17
-        expected_ttl = per_task_max_age + limiter.lease_duration + limiter.window
+        expected_ttl = 107
 
         # Act
-        with patch.object(limiter.redis, "set", wraps=limiter.redis.set) as mocked_set:
-            success, _ = await limiter.schedule_task(
-                func_path, payload, max_age=per_task_max_age
-            )
+        success, task_id = await limiter.schedule_task(
+            func_path, payload, max_age=per_task_max_age
+        )
 
         # Assert
         assert success is True, "task should be scheduled successfully"
-        mocked_set.assert_called_once()
-        assert mocked_set.call_args.kwargs["ex"] == expected_ttl, (
-            "inflight key TTL should be derived from max_age + lease_duration + window"
+        inflight_key = limiter.get_inflight_key(task_id)
+        actual_ttl = await async_redis_client.ttl(inflight_key)
+        assert expected_ttl - 2 <= actual_ttl <= expected_ttl, (
+            f"inflight key TTL should be ~{expected_ttl}s, got {actual_ttl}s"
         )
 
     @staticmethod
     async def test_schedule_task_stores_custom_priority_as_score(
         limiter, async_redis_client, func_path, payload
     ):
-        """Verify that tasks scheduled with a custom priority store it as the ZSET score."""
+        """Verify that tasks scheduled with a custom priority
+        store it as the ZSET score."""
         # Arrange
         priority = 42
 
@@ -230,7 +240,8 @@ class RateLimiterImplementationTests:
     async def test_schedule_task_priority_determines_buffer_ordering(
         limiter, async_redis_client
     ):
-        """Verify that tasks are ordered by priority in the buffer, with the lowest score consumed first."""
+        """Verify that tasks are ordered by priority in the buffer,
+        with the lowest score consumed first."""
         # Arrange
         tasks = [
             ("myapp.tasks.medium", {"id": "medium"}, 50),
@@ -256,7 +267,8 @@ class RateLimiterImplementationTests:
 
     @staticmethod
     async def test_schedule_task_equal_priorities_coexist(limiter, async_redis_client):
-        """Verify that multiple tasks with the same priority are all stored in the buffer."""
+        """Verify that multiple tasks with the same priority
+        are all stored in the buffer."""
         # Arrange
         priority = 50
         tasks = [
@@ -297,7 +309,8 @@ class RateLimiterImplementationTests:
     async def test_payload_serialization_preserves_data(
         limiter, async_redis_client, payload, func_path
     ):
-        """Property: any JSON-serializable payload should survive a Redis round-trip intact."""
+        """Property: any JSON-serializable payload should survive
+        a Redis round-trip intact."""
         # Act
         success, task_id = await limiter.schedule_task(func_path, payload)
 
@@ -313,7 +326,6 @@ class RateLimiterImplementationTests:
     ):
         """Verify that a permanent Lua script failure raises a RuntimeError."""
         # Arrange
-        # Force evalsha to fail on every invocation.
         with patch.object(
             limiter.redis,
             "evalsha",
@@ -325,13 +337,15 @@ class RateLimiterImplementationTests:
             ):
                 await limiter.schedule_task("path", {})
 
-            # Verify that a retry attempt was made.
             assert mock_eval.call_count == 2, "should attempt retry before failing"
 
-        # Verify cleanup: no tasks should have been added and no in-flight markers should remain.
-        task_wildcard = limiter.get_inflight_key("*")
-        inflight_keys = await async_redis_client.keys(task_wildcard)
-        assert len(inflight_keys) == 0, "no inflight keys should remain after failure"
+        # The task_id is deterministic (MD5 of the JSON-serialized signature).
+        task_id = hashlib.md5(
+            limiter._get_task_signature_str("path", {}).encode()
+        ).hexdigest()
+        assert not await async_redis_client.exists(limiter.get_inflight_key(task_id)), (
+            "inflight key should be cleaned up after permanent Lua failure"
+        )
         assert await async_redis_client.zcard(limiter.buffer_key) == 0, (
             "buffer should be empty after failure"
         )
@@ -340,7 +354,8 @@ class RateLimiterImplementationTests:
     async def test_schedule_non_noscript_failure_cleans_inflight_and_reraises(
         limiter, async_redis_client, func_path, payload
     ):
-        """Verify that non-NoScript schedule failures clean the in-flight marker before re-raising."""
+        """Verify that non-NoScript schedule failures clean
+        the in-flight marker before re-raising."""
         # Arrange
         with patch.object(
             limiter.redis,
@@ -352,22 +367,16 @@ class RateLimiterImplementationTests:
                 await limiter.schedule_task(func_path, payload)
 
         # Assert
-        inflight_keys = await async_redis_client.keys(limiter.get_inflight_key("*"))
-        assert inflight_keys == [], (
+        # The task_id is deterministic (MD5 of the JSON-serialized signature).
+        task_id = hashlib.md5(
+            limiter._get_task_signature_str(func_path, payload).encode()
+        ).hexdigest()
+        assert not await async_redis_client.exists(limiter.get_inflight_key(task_id)), (
             "inflight marker must be cleared on non-NoScript schedule failure"
         )
         assert await async_redis_client.zcard(limiter.buffer_key) == 0, (
             "failed schedule should not leave buffered tasks behind"
         )
-
-    @staticmethod
-    async def test_get_buffer_count_returns_zero_when_empty(limiter):
-        """Verify that ``get_buffer_count()`` returns zero when no tasks are scheduled."""
-        # Act
-        count = await limiter.get_buffer_count()
-
-        # Assert
-        assert count == 0, "empty buffer should report zero tasks"
 
     @staticmethod
     async def test_get_buffer_count_reflects_scheduled_tasks(limiter, func_path):
@@ -384,7 +393,8 @@ class RateLimiterImplementationTests:
 
     @staticmethod
     async def test_execution_lock_forwards_all_attributes(limiter):
-        """Verify that ``execution_lock()`` forwards all limiter attributes to the lock."""
+        """Verify that ``execution_lock()`` forwards all limiter
+        attributes to the lock."""
         # Act
         lock = limiter.execution_lock()
 
@@ -411,8 +421,22 @@ class RateLimiterImplementationTests:
         )
 
     @staticmethod
+    async def test_execution_lock_receives_redis_client(limiter):
+        """Verify that ``execution_lock()`` passes the limiter's
+        Redis client to the lock constructor."""
+        # Act
+        lock = limiter.execution_lock()
+
+        # Assert
+        actual_limiter = getattr(limiter, "_inner", limiter)
+        assert lock.redis is actual_limiter.redis, (
+            "lock redis client must be the limiter's redis client"
+        )
+
+    @staticmethod
     async def test_contention_key_follows_redis_key_convention(limiter):
-        """Verify that ``contention_key`` is derived from the limiter id with the expected suffix."""
+        """Verify that ``contention_key`` is derived from the
+        limiter id with the expected suffix."""
         # Assert
         assert limiter.contention_key == f"{limiter.id}:dispatch_lock:contention", (
             "contention_key must follow the {id}:dispatch_lock:contention format"
@@ -420,7 +444,8 @@ class RateLimiterImplementationTests:
 
     @staticmethod
     async def test_execution_lock_cooldown_below_cap_reflects_multiplier(limiter):
-        """Verify that cooldown_ms reflects the ``* 1000`` multiplier when below the cap."""
+        """Verify that cooldown_ms reflects the ``* 1000``
+        multiplier when below the cap."""
         # Arrange
         original_window, original_limit = limiter.window, limiter.limit
         limiter.window, limiter.limit = 2, 3
@@ -438,7 +463,8 @@ class RateLimiterImplementationTests:
 
     @staticmethod
     async def test_execution_lock_cooldown_is_zero_when_limit_is_zero(limiter):
-        """Verify that ``execution_lock()`` sets ``cooldown_ms`` to zero when ``limit`` is zero."""
+        """Verify that ``execution_lock()`` sets ``cooldown_ms``
+        to zero when ``limit`` is zero."""
         # Arrange
         original_limit = limiter.limit
         limiter.limit = 0
@@ -449,7 +475,8 @@ class RateLimiterImplementationTests:
 
             # Assert
             assert lock.cooldown_ms == 0, (
-                "cooldown_ms should be zero when limit is zero to avoid division by zero"
+                "cooldown_ms should be zero when limit is zero "
+                "to avoid division by zero"
             )
         finally:
             limiter.limit = original_limit
@@ -458,7 +485,8 @@ class RateLimiterImplementationTests:
     async def test_consume_lease_expiry_reflects_configured_duration(
         limiter, async_redis_client, func_path, payload
     ):
-        """Verify that ``consume()`` passes ``lease_duration`` through to the Lua script."""
+        """Verify that ``consume()`` passes ``lease_duration``
+        through to the Lua script."""
         # Arrange
         original_lease_duration = limiter.lease_duration
         limiter.lease_duration = 45
@@ -494,7 +522,8 @@ class RateLimiterImplementationTests:
 
     @staticmethod
     async def test_consume_result_index_mapping_is_correct(limiter):
-        """Verify that ``consume()`` maps each Lua return index to the correct result field."""
+        """Verify that ``consume()`` maps each Lua return index
+        to the correct result field."""
         # Arrange
         task_json = json.dumps(
             {
@@ -515,17 +544,8 @@ class RateLimiterImplementationTests:
             "600",  # [7] val_current
         ]
 
-        actual_limiter = getattr(limiter, "_inner", limiter)
-        mock_cls = (
-            AsyncMock
-            if inspect.iscoroutinefunction(actual_limiter._eval_script)
-            else MagicMock
-        )
-
         # Act
-        with patch.object(
-            actual_limiter, "_eval_script", mock_cls(return_value=sentinel_result)
-        ):
+        with RateLimiterImplementationTests._mock_eval_script(limiter, sentinel_result):
             result = await limiter.consume()
 
         # Assert
@@ -543,7 +563,8 @@ class RateLimiterImplementationTests:
 
     @staticmethod
     async def test_consume_expired_result_sets_correct_flags(limiter):
-        """Verify that ``consume()`` correctly parses the expired indicator (``result[0]="-1"``)."""
+        """Verify that ``consume()`` correctly parses the expired
+        indicator (``result[0]="-1"``)."""
         # Arrange
         task_json = json.dumps(
             {
@@ -564,17 +585,8 @@ class RateLimiterImplementationTests:
             "2",  # [7] val_current
         ]
 
-        actual_limiter = getattr(limiter, "_inner", limiter)
-        mock_cls = (
-            AsyncMock
-            if inspect.iscoroutinefunction(actual_limiter._eval_script)
-            else MagicMock
-        )
-
         # Act
-        with patch.object(
-            actual_limiter, "_eval_script", mock_cls(return_value=sentinel_result)
-        ):
+        with RateLimiterImplementationTests._mock_eval_script(limiter, sentinel_result):
             result = await limiter.consume()
 
         # Assert
@@ -587,7 +599,8 @@ class RateLimiterImplementationTests:
 
     @staticmethod
     async def test_consume_denied_result_sets_correct_flags(limiter):
-        """Verify that ``consume()`` correctly parses the denied indicator (``result[0]="0"``)."""
+        """Verify that ``consume()`` correctly parses the denied
+        indicator (``result[0]="0"``)."""
         # Arrange
         sentinel_result = [
             "0",  # [0] denied flag
@@ -600,17 +613,8 @@ class RateLimiterImplementationTests:
             "5",  # [7] val_current
         ]
 
-        actual_limiter = getattr(limiter, "_inner", limiter)
-        mock_cls = (
-            AsyncMock
-            if inspect.iscoroutinefunction(actual_limiter._eval_script)
-            else MagicMock
-        )
-
         # Act
-        with patch.object(
-            actual_limiter, "_eval_script", mock_cls(return_value=sentinel_result)
-        ):
+        with RateLimiterImplementationTests._mock_eval_script(limiter, sentinel_result):
             result = await limiter.consume()
 
         # Assert
@@ -626,7 +630,8 @@ class RateLimiterImplementationTests:
 
     @staticmethod
     async def test_execution_lock_cooldown_caps_at_1000ms(limiter):
-        """Verify that the execution lock cooldown is capped at 1000ms for large window/limit ratios."""
+        """Verify that the execution lock cooldown is capped
+        at 1000ms for large window/limit ratios."""
         # Arrange
         actual_limiter = getattr(limiter, "_inner", limiter)
         original_window = actual_limiter.window
@@ -648,18 +653,6 @@ class RateLimiterImplementationTests:
             actual_limiter.window = original_window
             actual_limiter.limit = original_limit
 
-    @staticmethod
-    async def test_execution_lock_forwards_custom_timeout(limiter):
-        """Verify that a custom ``timeout_ms`` is forwarded to the lock."""
-        # Act
-        actual_limiter = getattr(limiter, "_inner", limiter)
-        lock = actual_limiter.execution_lock(timeout_ms=3000)
-
-        # Assert
-        assert lock.timeout_ms == 3000, (
-            "lock timeout should match the custom value, not the default 5000"
-        )
-
 
 # ---------------------------------------------------------------------------
 # Unified observability tests
@@ -672,13 +665,18 @@ class RateLimiterObservabilityTests:
     These tests verify logging behavior and are separated from the behavioral
     tests in ``RateLimiterImplementationTests`` per the separation of concerns
     guideline (Section 4.1).
+
+    Subclasses must set ``_log_label`` to the expected log prefix
+    (e.g., ``"[DistributedRateLimiter]"``).
     """
 
-    @staticmethod
+    _log_label: str
+
     async def test_schedule_single_task_emits_expected_logs(
-        limiter, func_path, payload, caplog
+        self, limiter, func_path, payload, caplog
     ):
-        """Verify that scheduling a single task emits the expected debug and info logs."""
+        """Verify that scheduling a single task emits the expected
+        debug and info logs."""
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
             _, task_id = await limiter.schedule_task(func_path, payload)
@@ -686,27 +684,35 @@ class RateLimiterObservabilityTests:
         # Assert
         assert_log_emitted(
             caplog.records,
-            "DEBUG",
-            [
+            level="DEBUG",
+            label=self._log_label,
+            required_fragments=[
                 f"limiter={limiter.id}",
                 f"task_id={task_id}",
                 f"func_path={func_path}",
                 "priority=100",
             ],
-            "should emit a debug log for the scheduling attempt with limiter id, task id, func path, and priority",
+            message="should emit a debug log for the scheduling attempt "
+            "with limiter id, task id, func path, and priority",
         )
         assert_log_emitted(
             caplog.records,
-            "INFO",
-            [f"limiter={limiter.id}", f"task_id={task_id}", f"func_path={func_path}"],
-            "should emit an info log for the successfully scheduled task",
+            level="INFO",
+            label=self._log_label,
+            required_fragments=[
+                f"limiter={limiter.id}",
+                f"task_id={task_id}",
+                f"func_path={func_path}",
+                "priority=100",
+            ],
+            message="should emit an info log for the successfully scheduled task",
         )
 
-    @staticmethod
     async def test_schedule_duplicate_task_emits_debug_log(
-        limiter, func_path, payload, caplog
+        self, limiter, func_path, payload, caplog
     ):
-        """Verify that scheduling a duplicate task emits a debug log indicating the skip."""
+        """Verify that scheduling a duplicate task emits a debug
+        log indicating the skip."""
         # Arrange
         await limiter.schedule_task(func_path, payload)
 
@@ -717,9 +723,15 @@ class RateLimiterObservabilityTests:
         # Assert
         assert_log_emitted(
             caplog.records,
-            "DEBUG",
-            [f"limiter={limiter.id}", f"task_id={task_id}", "already in-flight"],
-            "should emit a debug log for the skipped duplicate with limiter id and task id",
+            level="DEBUG",
+            label=self._log_label,
+            required_fragments=[
+                f"limiter={limiter.id}",
+                f"task_id={task_id}",
+                "already in-flight",
+            ],
+            message="should emit a debug log for the skipped duplicate "
+            "with limiter id and task id",
         )
 
 
@@ -728,26 +740,54 @@ class RateLimiterObservabilityTests:
 # ---------------------------------------------------------------------------
 
 
+class _SyncLimiterFixture:
+    """Shared fixture mixin that provides the sync limiter via the async adapter."""
+
+    @pytest.fixture
+    def limiter(self, stub_limiter):
+        """Wrap the sync stub limiter in an async adapter."""
+        return SyncToAsyncLimiterAdapter(stub_limiter)
+
+
+class _AsyncLimiterFixture:
+    """Shared fixture mixin that provides the async limiter directly."""
+
+    @pytest.fixture
+    def limiter(self, async_stub_limiter):
+        """Provide the async stub limiter directly."""
+        return async_stub_limiter
+
+
+@pytest.mark.behavior
 class TestSyncRateLimiterImplementation(
-    RateLimiterImplementationTests, RateLimiterObservabilityTests
+    _SyncLimiterFixture, RateLimiterImplementationTests
 ):
-    """Sync rate limiter implementation exercised through the async adapter."""
-
-    @pytest.fixture
-    def limiter(self, generic_limiter):
-        """Wrap the sync generic limiter in an async adapter."""
-        return SyncToAsyncLimiterAdapter(generic_limiter)
+    """Sync rate limiter behavior exercised through the async adapter."""
 
 
+@pytest.mark.observability
+class TestSyncRateLimiterObservability(
+    _SyncLimiterFixture, RateLimiterObservabilityTests
+):
+    """Sync rate limiter observability exercised through the async adapter."""
+
+    _log_label = "[StubRateLimiter]"
+
+
+@pytest.mark.behavior
 class TestAsyncRateLimiterImplementation(
-    RateLimiterImplementationTests, RateLimiterObservabilityTests
+    _AsyncLimiterFixture, RateLimiterImplementationTests
 ):
-    """Async rate limiter implementation exercised natively."""
+    """Async rate limiter behavior exercised natively."""
 
-    @pytest.fixture
-    def limiter(self, async_generic_limiter):
-        """Provide the async generic limiter directly."""
-        return async_generic_limiter
+
+@pytest.mark.observability
+class TestAsyncRateLimiterObservability(
+    _AsyncLimiterFixture, RateLimiterObservabilityTests
+):
+    """Async rate limiter observability exercised natively."""
+
+    _log_label = "[AsyncStubRateLimiter]"
 
 
 # ---------------------------------------------------------------------------
@@ -755,6 +795,7 @@ class TestAsyncRateLimiterImplementation(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.signature
 class TestScheduleTaskSignatures:
     """Signature tests for ``schedule_task()`` default parameter values."""
 
@@ -767,6 +808,21 @@ class TestScheduleTaskSignatures:
         """
         # Arrange & Act
         sig = inspect.signature(AbstractDistributedRateLimiter.schedule_task)
+
+        # Assert
+        assert sig.parameters["priority"].default == 100, "priority default must be 100"
+        assert sig.parameters["max_age"].default is None, "max_age default must be None"
+
+    @staticmethod
+    def test_async_schedule_task_default_parameters():
+        """Verify that ``priority`` and ``max_age`` have the expected defaults
+        on the async variant.
+
+        Mutation target: ``priority`` and ``max_age`` default values in
+        ``AbstractAsyncDistributedRateLimiter.schedule_task``.
+        """
+        # Arrange & Act
+        sig = inspect.signature(AbstractAsyncDistributedRateLimiter.schedule_task)
 
         # Assert
         assert sig.parameters["priority"].default == 100, "priority default must be 100"

@@ -8,6 +8,7 @@ full async drain loop, Pub/Sub subscriber, and task lifecycle heartbeat.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from typing import Any, ClassVar, Optional
 
@@ -42,31 +43,28 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
         """
         max_tasks = backend_context.get("max_tasks")
         if max_tasks is None:
+            # fmt: off
             raise RuntimeError(
-                "AsyncIOTaskLimiter.configure(redis_client, max_tasks=N) "
-                "must be called before create() or get()."
+                "AsyncIOTaskLimiter.configure(redis_client, max_tasks=N) must be called before create() or get()."
             )
+            # fmt: on
         cls._max_tasks = int(max_tasks)
 
     @classmethod
     def _has_backend_context(cls) -> bool:
-        """Determine whether the max_tasks context has been configured."""
         return cls._max_tasks is not None
 
     @classmethod
     def _get_instance_context(cls) -> dict[str, Any]:
-        """Provide the constructor context required for concrete instance creation."""
         assert cls._max_tasks is not None
         return {"max_tasks": cls._max_tasks}
 
     @classmethod
     def _reset_backend_context(cls) -> None:
-        """Clear the max_tasks context held at the class level."""
         cls._max_tasks = None
 
     @classmethod
     def _configure_hint(cls) -> str:
-        """Return the ``configure`` usage hint for runtime error messages."""
         return "AsyncIOTaskLimiter.configure(redis_client, max_tasks=N)"
 
     # ---------------------------------------------------------------------------
@@ -121,16 +119,16 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
         async def _run_task() -> None:
             try:
                 async with self.task_lifecycle(task_id):
-                    if not asyncio.iscoroutinefunction(target_func):
+                    if not inspect.iscoroutinefunction(target_func):
+                        # fmt: off
                         raise TypeError(
-                            f"AsyncIOTaskLimiter requires coroutine functions, "
-                            f"but '{func_path}' is synchronous. Define it with "
-                            f"'async def' or use ThreadPoolRateLimiter instead."
+                            f"AsyncIOTaskLimiter requires coroutine functions, but '{func_path}' is synchronous. Define it with 'async def' or use ThreadPoolRateLimiter instead."
                         )
+                        # fmt: on
                     await target_func(**payload)
             except Exception:
                 logger.exception(
-                    "Task raised an exception: limiter=%s, task_id=%s, func_path=%s.",
+                    "[AsyncIOTaskLimiter] Task raised an exception: limiter=%s, task_id=%s, func_path=%s.",
                     self.id,
                     task_id,
                     func_path,
@@ -143,7 +141,7 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
         self._active_tasks.add(task)
 
         logger.debug(
-            "Task submitted to event loop: limiter=%s, task_id=%s, func_path=%s, active_count=%d.",
+            "[AsyncIOTaskLimiter] Task submitted to event loop: limiter=%s, task_id=%s, func_path=%s, active_count=%d.",
             self.id,
             task_id,
             func_path,
@@ -160,7 +158,7 @@ class AsyncIOTaskLimiter(AsyncManagedRateLimiter, AbstractAsyncDistributedRateLi
 
         if self._active_tasks:
             logger.info(
-                "Cancelling %d active tasks: limiter=%s.",
+                "[AsyncIOTaskLimiter] Cancelling %d active tasks: limiter=%s.",
                 len(self._active_tasks),
                 self.id,
             )

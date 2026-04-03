@@ -10,6 +10,7 @@ from redis_rate_limiter.core import (
     AbstractDistributedRateLimiter,
     SyncManagedRateLimiter,
 )
+from redis_rate_limiter.core.limiters import build_enhanced_payload
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,13 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
 
     Instances should be obtained through the class methods ``configure``,
     ``create``, ``get``, and ``update`` rather than through direct construction.
+
+    ``max_concurrency`` should match the total number of task slots across the
+    Celery worker fleet (i.e., the sum of ``--concurrency`` across all workers).
+    Dispatched tasks hold a concurrency lease while they wait in the broker
+    queue. If ``max_concurrency`` exceeds the actual worker capacity, tasks
+    accumulate in the broker, their leases expire, and the drain loop dispatches
+    replacements, leading to unbounded queue growth.
     """
 
     _celery_app: ClassVar[Optional[Celery]] = None
@@ -49,31 +57,28 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
         """
         celery_app = backend_context.get("celery_app")
         if celery_app is None:
+            # fmt: off
             raise RuntimeError(
-                "CeleryRateLimiter.configure(redis_client, celery_app) "
-                "must be called before create() or get()."
+                "CeleryRateLimiter.configure(redis_client, celery_app) must be called before create() or get()."
             )
+            # fmt: on
         cls._celery_app = celery_app
 
     @classmethod
     def _has_backend_context(cls) -> bool:
-        """Determine whether the Celery application context has been configured."""
         return cls._celery_app is not None
 
     @classmethod
     def _get_instance_context(cls) -> dict[str, Any]:
-        """Provide the constructor context required for concrete instance creation."""
         assert cls._celery_app is not None
         return {"celery_app": cls._celery_app}
 
     @classmethod
     def _reset_backend_context(cls) -> None:
-        """Clear the Celery application context held at the class level."""
         cls._celery_app = None
 
     @classmethod
     def _configure_hint(cls) -> str:
-        """Return the ``configure`` usage hint to be included in runtime error messages."""
         return "CeleryRateLimiter.configure(redis_client, celery_app)"
 
     # ---------------------------------------------------------------------------
@@ -101,21 +106,20 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
         self.app = celery_app
 
     # ---------------------------------------------------------------------------
-    # Backend dispatch
+    # Backend health check
     # ---------------------------------------------------------------------------
 
-    @staticmethod
-    def _get_enhanced_payload(payload: dict, use_executor: bool) -> dict:
-        """Produce an enhanced payload that includes dispatch metadata.
+    def _check_backend_health(self) -> bool:
+        """Check whether at least one Celery worker is responding to pings."""
+        try:
+            response = self.app.control.ping(timeout=1.0)
+            return len(response) > 0
+        except Exception:
+            return False
 
-        Args:
-            payload: The original task payload.
-            use_executor: Whether the generic executor should be used for dispatch.
-
-        Returns:
-            A dictionary containing the original payload augmented with metadata.
-        """
-        return {"data": payload, "meta": {"use_executor": use_executor}}
+    # ---------------------------------------------------------------------------
+    # Backend dispatch
+    # ---------------------------------------------------------------------------
 
     def schedule_task(
         self,
@@ -125,10 +129,8 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
         max_age: Optional[int] = None,
         use_executor: bool = True,
     ) -> tuple[bool, str]:
-        # Augment the payload with the executor flag.
-        enhanced_payload = self._get_enhanced_payload(payload, use_executor)
+        enhanced_payload = build_enhanced_payload(payload, use_executor)
 
-        # Delegate to the parent scheduler.
         # fmt: off
         return cast(  # pragma: no mutate
             tuple[bool, str],
@@ -137,12 +139,10 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
         # fmt: on
 
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
-        # Determine whether the built-in generic worker should be used.
         use_executor = payload.get("meta", {}).get("use_executor", True)
         data = payload.get("data", {})
 
         if use_executor:
-            # Dispatch the task to the generic worker task.
             self.app.send_task(
                 "redis_rate_limiter.generic_worker",
                 kwargs={
@@ -153,18 +153,17 @@ class CeleryRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimiter):
                 },
             )
             logger.debug(
-                "Celery task sent to generic worker: limiter=%s, task_id=%s, func_path=%s.",
+                "[CeleryRateLimiter] Task sent to generic worker: limiter=%s, task_id=%s, func_path=%s.",
                 self.id,
                 task_id,
                 func_path,
             )
         else:
-            # Dispatch to the user-defined custom task.
             self.app.send_task(
                 func_path, args=[data], kwargs={"_rate_limit_task_id": task_id}
             )
             logger.debug(
-                "Celery task sent to custom worker: limiter=%s, task_id=%s, func_path=%s.",
+                "[CeleryRateLimiter] Task sent to custom worker: limiter=%s, task_id=%s, func_path=%s.",
                 self.id,
                 task_id,
                 func_path,

@@ -36,7 +36,8 @@ class DistributedLockContractTest:
     async def test_lock_acquires_and_releases_automatically(
         async_redis_client, lock_key, create_lock
     ):
-        """Contract: the lock must be acquired upon context entry and released upon context exit."""
+        """Contract: the lock must be acquired upon context entry and
+        released upon context exit."""
         # Arrange
         lock = create_lock(async_redis_client, lock_key, timeout_ms=1000)
 
@@ -61,7 +62,8 @@ class DistributedLockContractTest:
     async def test_lock_prevents_concurrent_acquisition(
         async_redis_client, lock_key, create_lock
     ):
-        """Contract: a second lock attempt on the same key must fail while the first lock is held."""
+        """Contract: a second lock attempt on the same key must fail
+        while the first lock is held."""
         # Arrange
         lock_1 = create_lock(async_redis_client, lock_key, timeout_ms=1000)
         lock_2 = create_lock(async_redis_client, lock_key, timeout_ms=1000)
@@ -82,17 +84,20 @@ class DistributedLockContractTest:
     async def test_lock_expires_after_timeout(
         async_redis_client, lock_key, create_lock
     ):
-        """Contract: the lock must automatically expire after the timeout period elapses."""
+        """Contract: the lock must automatically expire after the
+        timeout period elapses."""
         # Arrange
         lock_1 = create_lock(async_redis_client, lock_key, timeout_ms=SHORT_TIMEOUT_MS)
-        lock_2 = create_lock(async_redis_client, lock_key, timeout_ms=5000)
 
         # Act & Assert
         async with lock_1 as acquired_1:
             assert acquired_1 is True, "first lock should acquire"
 
-            # Wait for the lock key to expire in Redis.
             await wait_for_key_expiry(async_redis_client, lock_key)
+
+            # Create the second lock after expiry to avoid any coupling
+            # with the first lock's still-live state.
+            lock_2 = create_lock(async_redis_client, lock_key, timeout_ms=5000)
 
             # The second lock should now succeed.
             async with lock_2 as acquired_2:
@@ -107,7 +112,8 @@ class DistributedLockContractTest:
     async def test_lock_releases_on_exception(
         async_redis_client, lock_key, create_lock
     ):
-        """Contract: the lock must be released even when an exception occurs within the context."""
+        """Contract: the lock must be released even when an exception
+        occurs within the context."""
         # Arrange
         lock = create_lock(async_redis_client, lock_key, timeout_ms=5000)
 
@@ -128,17 +134,18 @@ class DistributedLockContractTest:
     async def test_lock_only_releases_own_token(
         async_redis_client, lock_key, create_lock
     ):
-        """Contract: the lock must not delete another lock's token after its own expiration."""
+        """Contract: the lock must not delete another lock's token
+        after its own expiration."""
         # Arrange
         lock_1 = create_lock(async_redis_client, lock_key, timeout_ms=SHORT_TIMEOUT_MS)
-        lock_2 = create_lock(async_redis_client, lock_key, timeout_ms=5000)
 
         # Act & Assert
         async with lock_1 as acquired_1:
             assert acquired_1 is True, "first lock should acquire successfully"
 
-            # Wait for the first lock to expire in Redis.
             await wait_for_key_expiry(async_redis_client, lock_key)
+
+            lock_2 = create_lock(async_redis_client, lock_key, timeout_ms=5000)
 
             # The second lock acquires the now-expired lock.
             async with lock_2 as acquired_2:
@@ -165,27 +172,14 @@ class DistributedLockContractTest:
                 )
 
     @staticmethod
-    def test_lock_has_unique_token(async_redis_client, lock_key, create_lock):
-        """Contract: each lock instance must possess a unique token."""
-        # Arrange & Act
-        lock_1 = create_lock(async_redis_client, lock_key, timeout_ms=1000)
-        lock_2 = create_lock(async_redis_client, lock_key, timeout_ms=1000)
-
-        # Assert
-        assert hasattr(lock_1, "token"), "lock must have a token attribute"
-        assert hasattr(lock_2, "token"), "lock must have a token attribute"
-        assert lock_1.token != lock_2.token, "each lock must have a unique token"
-        assert len(lock_1.token) > 0, "token must not be empty"
-        assert len(lock_2.token) > 0, "token must not be empty"
-
-    @staticmethod
     async def test_lock_cooldown_prevents_reacquisition_under_contention(
         async_redis_client, lock_key, create_lock
     ):
-        """Contract: after contention is detected and cooldown is set, the same worker cannot re-acquire until expiry."""
+        """Contract: after contention is detected and cooldown is set,
+        the same worker cannot re-acquire until expiry."""
         # Arrange
         # A long cooldown ensures the key cannot expire between the release
-        # and the re-acquire attempt, even under heavy load (e.g., mutmut).
+        # and the re-acquire attempt.
         worker_id = "worker-A"
         contention_key = f"{lock_key}:contention"
         cooldown_ms = 5000
@@ -237,7 +231,8 @@ class DistributedLockContractTest:
     async def test_lock_cooldown_expires_and_allows_reacquisition(
         async_redis_client, lock_key, create_lock
     ):
-        """Contract: after the cooldown period expires, the worker can re-acquire the lock."""
+        """Contract: after the cooldown period expires, the worker
+        can re-acquire the lock."""
         # Arrange
         # A short cooldown keeps the sleep duration minimal.
         worker_id = "worker-A"

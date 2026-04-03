@@ -40,8 +40,9 @@ class _BareAsyncLimiter(AbstractAsyncDistributedRateLimiter):
     """
 
 
+@pytest.mark.contract
 class TestAbstractDispatchHook:
-    """Contract: unoverridden ``_dispatch_task`` must raise ``NotImplementedError``."""
+    """Verifies that ``_dispatch_task`` enforces the override contract."""
 
     @staticmethod
     @pytest.mark.parametrize(
@@ -50,7 +51,8 @@ class TestAbstractDispatchHook:
         ids=["sync", "async"],
     )
     async def test_dispatch_task_raises_not_implemented(bare_cls):
-        """Contract: ``_dispatch_task`` must raise ``NotImplementedError`` when not overridden."""
+        """Contract: ``_dispatch_task`` must raise ``NotImplementedError``
+        when not overridden."""
         # Arrange
         limiter = bare_cls(
             redis_client=MagicMock(),
@@ -63,7 +65,7 @@ class TestAbstractDispatchHook:
 
         # Act & Assert
         with pytest.raises(NotImplementedError, match="^Subclasses"):
-            result = limiter._dispatch_task("myapp.tasks.noop", {}, "task-1")
+            result = limiter._dispatch_task("myapp.tasks.process", {}, "task-1")
             if inspect.isawaitable(result):
                 await result
 
@@ -105,6 +107,9 @@ class RateLimiterContractTest:
         limiter, async_redis_client, func_path, payload
     ):
         """Contract: scheduled tasks must be marked as in-flight within Redis."""
+        # Arrange
+        limiter._drain_paused_until = 5_000_000_000.0
+
         # Act
         success, task_id = await limiter.schedule_task(func_path, payload)
 
@@ -120,6 +125,9 @@ class RateLimiterContractTest:
         limiter, async_redis_client, func_path, payload
     ):
         """Contract: scheduled tasks must be appended to the buffer."""
+        # Arrange
+        limiter._drain_paused_until = 5_000_000_000.0
+
         # Act
         success, task_id = await limiter.schedule_task(func_path, payload)
 
@@ -130,7 +138,11 @@ class RateLimiterContractTest:
 
     @staticmethod
     async def test_schedule_duplicate_task_returns_false(limiter, func_path, payload):
-        """Contract: scheduling identical tasks must return ``False`` for the duplicate."""
+        """Contract: scheduling identical tasks must return
+        ``False`` for the duplicate."""
+        # Arrange
+        limiter._drain_paused_until = 5_000_000_000.0
+
         # Act
         success_1, task_id_1 = await limiter.schedule_task(func_path, payload)
         success_2, task_id_2 = await limiter.schedule_task(func_path, payload)
@@ -165,10 +177,16 @@ class RateLimiterContractTest:
         assert hasattr(limiter, "concurrency_key"), (
             "limiter must have a 'concurrency_key'"
         )
+        assert hasattr(limiter, "dlq_key"), "limiter must have a 'dlq_key'"
+        assert hasattr(limiter, "lock_key"), "limiter must have a 'lock_key'"
         assert hasattr(limiter, "limit"), "limiter must have a 'limit' attribute"
         assert hasattr(limiter, "window"), "limiter must have a 'window' attribute"
         assert hasattr(limiter, "max_concurrency"), (
             "limiter must have a 'max_concurrency'"
+        )
+        assert hasattr(limiter, "max_age"), "limiter must have a 'max_age' attribute"
+        assert hasattr(limiter, "lease_duration"), (
+            "limiter must have a 'lease_duration'"
         )
 
         # Verify that the attributes have valid types.
@@ -177,14 +195,20 @@ class RateLimiterContractTest:
         assert isinstance(limiter.max_concurrency, int), (
             "max_concurrency must be an int"
         )
+        assert isinstance(limiter.max_age, (int, float)), "max_age must be numeric"
+        assert isinstance(limiter.lease_duration, (int, float)), (
+            "lease_duration must be numeric"
+        )
 
         # Verify that the attributes have valid values.
         assert limiter.limit > 0, "limit must be positive"
         assert limiter.window > 0, "window must be positive"
         assert limiter.max_concurrency > 0, "max_concurrency must be positive"
+        assert limiter.max_age > 0, "max_age must be positive"
+        assert limiter.lease_duration > 0, "lease_duration must be positive"
 
     @staticmethod
-    async def test_schedule_multiple_different_tasks(limiter, async_redis_client):
+    async def test_schedule_multiple_different_tasks(limiter):
         """Contract: multiple distinct tasks must all be scheduled successfully."""
         # Arrange
         tasks = [
@@ -256,7 +280,8 @@ class RateLimiterContractTest:
 
     @staticmethod
     async def test_consume_empty_buffer_returns_unsuccessful(limiter):
-        """Contract: consuming from an empty buffer must return no task and an unsuccessful result."""
+        """Contract: consuming from an empty buffer must return no task and an
+        unsuccessful result."""
         # Act
         result = await limiter.consume()
 
@@ -265,81 +290,50 @@ class RateLimiterContractTest:
         assert result["task"] is None, "consume should return no task on empty buffer"
 
     @staticmethod
-    async def test_consume_expired_field_is_boolean(limiter, func_path, payload):
-        """Contract: the ``consume()`` expired flag must always be a boolean."""
-        # Arrange
-        await limiter.schedule_task(func_path, payload)
-
-        # Act
-        result = await limiter.consume()
-
-        # Assert
-        assert isinstance(result["expired"], bool), "expired must be a bool"
-
-    @staticmethod
-    async def test_consume_result_fields_have_distinct_values(
+    async def test_consume_reflects_correct_state_after_scheduling(
         limiter, func_path, payload
     ):
-        """Contract: ``consume()`` result fields must map to the correct Lua return indices.
+        """Contract: ``consume()`` must reflect the correct limiter state.
 
-        This test creates a state where ``val_previous``, ``val_current``, and
-        ``reset_in_ms`` are distinguishable from one another to catch index swap
-        mutations in the result parsing logic.
+        Schedules three tasks and consumes one. The result must show the
+        correct values for all numeric fields: window counters, token
+        budget, concurrency, buffer depth, and window countdown.
         """
         # Arrange
+        limiter._drain_paused_until = 5_000_000_000.0
+
+        # Schedule three distinct tasks so remaining_tasks=2 after one consume.
         await limiter.schedule_task(func_path, payload)
+        await limiter.schedule_task(func_path, {**payload, "__k": "a"})
+        await limiter.schedule_task(func_path, {**payload, "__k": "b"})
 
         # Act
         result = await limiter.consume()
 
         # Assert
-        # The background drain loop may race with our explicit consume() call.
-        # Regardless of which consumer won, the field mapping remains exercisable:
-        # val_current reflects at least one consume, while val_previous stays zero.
         assert result["val_previous"] == 0, (
             "val_previous should be 0 in the first window"
         )
-        assert result["val_current"] >= 1, (
-            "val_current should reflect at least one consume in the first window"
+        assert result["val_current"] == 1, (
+            "val_current should be exactly 1 after a single consume"
         )
-        assert result["reset_in_ms"] > 0, (
-            "reset_in_ms should be a positive countdown within the current window"
+        assert result["remaining_tokens"] == 4, (
+            "remaining_tokens should be limit minus one after a single consume"
         )
-        assert result["remaining_tasks"] == 0, (
-            "remaining_tasks should be 0 after the only scheduled task is consumed"
+        assert result["active_concurrency"] == 1, (
+            "active_concurrency should be 1 with one dispatched task"
         )
-
-    @staticmethod
-    async def test_execution_lock_context_manager_yields_boolean(limiter):
-        """Contract: ``execution_lock()`` must yield a boolean indicating the acquisition result."""
-        # Act & Assert
-        async with limiter.execution_lock(timeout_ms=50) as acquired:
-            assert isinstance(acquired, bool), "execution_lock must yield a boolean"
-
-    @staticmethod
-    async def test_execution_lock_default_timeout(limiter):
-        """Contract: ``execution_lock()`` must work with the default timeout_ms parameter."""
-        # Act & Assert
-        # Calling without arguments exercises the default timeout_ms=5000.
-        async with limiter.execution_lock() as acquired:
-            assert isinstance(acquired, bool), (
-                "execution_lock with default timeout must yield a boolean"
-            )
-            assert acquired is True, "execution_lock should succeed when uncontested"
-
-    @staticmethod
-    async def test_get_buffer_count_returns_nonnegative_integer(limiter):
-        """Contract: ``get_buffer_count()`` must return a non-negative integer."""
-        # Act
-        count = await limiter.get_buffer_count()
-
-        # Assert
-        assert isinstance(count, int), "buffer count must be an integer"
-        assert count >= 0, "buffer count must be non-negative"
+        assert result["remaining_tasks"] == 2, (
+            "remaining_tasks should be 2 with two tasks still in the buffer"
+        )
+        assert result["reset_in_ms"] > 2, (
+            "reset_in_ms should be a countdown value much larger than 2"
+        )
 
     @staticmethod
     async def test_get_status_returns_dict_with_required_sections(limiter):
-        """Contract: ``get_status()`` must return a dictionary containing all required top-level status sections."""
+        """Contract: ``get_status()`` must return a dictionary with all
+        required sections."""
         # Act
         result = await limiter.get_status()
 

@@ -1,7 +1,7 @@
 # --- Stage 1: Base Python ---
 # Using build args allows easy version updates without editing multiple lines.
 ARG PYTHON_VERSION=3.12
-ARG POETRY_VERSION=2.3.1
+ARG POETRY_VERSION=2.3.3
 
 FROM python:${PYTHON_VERSION}-slim AS base
 
@@ -36,15 +36,15 @@ RUN apt-get update && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Caching.
-RUN poetry install --no-interaction --no-ansi --no-root -E celery -E prometheus
+RUN poetry install --no-interaction --no-ansi --no-root -E celery -E rq -E dramatiq -E huey -E prometheus
 
 # Copy source, tests, and utility scripts.
 COPY src/ ./src/
 COPY tests/ ./tests/
 COPY scripts/ ./scripts/
 
-# Install all dependencies (including the celery and prometheus extras for tests).
-RUN poetry install --no-interaction --no-ansi -E celery -E prometheus
+# Install all dependencies (including the celery, rq and prometheus extras for tests).
+RUN poetry install --no-interaction --no-ansi -E celery -E rq -E dramatiq -E huey -E prometheus
 
 # --- Stage 3: Production ---
 FROM base AS production

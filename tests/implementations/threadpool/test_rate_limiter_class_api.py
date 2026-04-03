@@ -1,11 +1,14 @@
 """Threading-specific class API behavioural tests.
 
-Core class-API behaviour is covered by ``tests/implementations/test_rate_limiter_class_api.py``.
-This module contains only those tests that are specific to the threading backend context.
+Core class-API behaviour is covered by
+``tests/implementations/test_rate_limiter_class_api.py``.
+This module contains only those tests that are specific to
+the threading backend context.
 
 Fixture dependencies:
     - ``redis_client``: from ``tests/conftest.py``.
-    - ``_reset_limiter_class_state``: from ``tests/implementations/threadpool/conftest.py``.
+    - ``_reset_limiter_class_state``: from
+      ``tests/implementations/threadpool/conftest.py``.
 """
 
 import pytest
@@ -13,17 +16,22 @@ import pytest
 from redis_rate_limiter import ThreadPoolRateLimiter
 
 
+@pytest.mark.behavior
 class TestThreadPoolRateLimiterClassApi:
     """Threading-specific tests for class API and backend context behaviour."""
 
     @staticmethod
     def test_configure_without_executor_raises_error(redis_client):
-        """Verify that ``configure`` raises an error when the ``executor`` argument is not provided."""
+        """Verify that ``configure`` raises an error when
+        the ``executor`` argument is not provided."""
         # Arrange
         ThreadPoolRateLimiter._reset()
 
         # Act & Assert
-        with pytest.raises(RuntimeError, match="executor"):
+        with pytest.raises(
+            RuntimeError,
+            match=r"^ThreadPoolRateLimiter\.configure\(redis_client, executor=executor\) must be called",
+        ):
             ThreadPoolRateLimiter.configure(redis_client)
 
     @staticmethod
@@ -33,7 +41,9 @@ class TestThreadPoolRateLimiterClassApi:
         ThreadPoolRateLimiter._reset()
 
         # Assert
-        # Identity check, not truthiness, catches None -> "" mutations.
+        # _has_backend_context uses ``is not None``, so a falsy
+        # non-None value like "" would incorrectly signal that
+        # the executor is configured.
         assert ThreadPoolRateLimiter._executor is None, (
             "_executor must be None after reset, not another falsy value"
         )

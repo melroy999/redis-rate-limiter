@@ -6,8 +6,11 @@ and telemetry accuracy at the Lua level.
 
 Fixture dependencies:
     - ``redis_client``: from ``tests/conftest.py``.
-    - ``base_key``, ``buffer_key``, ``concurrency_key``, ``dlq_key``: from ``tests/lua/conftest.py``.
+    - ``base_key``, ``buffer_key``, ``concurrency_key``,
+      ``dlq_key``: from ``tests/lua/conftest.py``.
 """
+
+import pytest
 
 from tests.lua.conftest import (
     CONSUME_SOURCE,
@@ -16,7 +19,6 @@ from tests.lua.conftest import (
     MAX_AGE,
     MAX_CONCURRENCY,
     WINDOW_SIZE,
-    build_task_json,
     get_redis_timestamp,
     get_window_keys,
 )
@@ -55,12 +57,13 @@ def _add_task_to_buffer(redis_client, buffer_key, task_json, priority=0):
     redis_client.zadd(buffer_key, {task_json: priority})
 
 
+@pytest.mark.behavior
 class TestConsumeReturnValues:
     """Tests for the ``consume.lua`` return value structure and field correctness."""
 
     @staticmethod
     def test_success_returns_eight_element_array(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
         """Verify that a successful consumption returns an 8-element array."""
         # Arrange
@@ -78,7 +81,7 @@ class TestConsumeReturnValues:
 
     @staticmethod
     def test_success_status_code_is_one(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
         """Verify that a successful consumption returns status code 1."""
         # Arrange
@@ -96,9 +99,10 @@ class TestConsumeReturnValues:
 
     @staticmethod
     def test_success_returns_task_json(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
-        """Verify that a successful consumption returns the original task JSON string."""
+        """Verify that a successful consumption returns the original
+        task JSON string."""
         # Arrange
         now = get_redis_timestamp(redis_client)
         task_json = build_task_json("task-1", arrived_at_ms=now * 1000)
@@ -114,7 +118,7 @@ class TestConsumeReturnValues:
 
     @staticmethod
     def test_success_remaining_reflects_post_consume(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
         """Verify that ``remaining`` reflects the post-consume state."""
         # Arrange
@@ -135,7 +139,7 @@ class TestConsumeReturnValues:
 
     @staticmethod
     def test_success_active_concurrency_is_incremented(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
         """Verify that ``active_now`` is incremented after successful consumption."""
         # Arrange
@@ -155,7 +159,7 @@ class TestConsumeReturnValues:
 
     @staticmethod
     def test_success_buffer_count_is_decremented(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
         """Verify that ``buffer_count`` reflects the post-consume buffer size."""
         # Arrange
@@ -177,7 +181,7 @@ class TestConsumeReturnValues:
 
     @staticmethod
     def test_success_current_count_is_incremented(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
         """Verify that the current window count is incremented after consumption."""
         # Arrange
@@ -197,7 +201,7 @@ class TestConsumeReturnValues:
 
     @staticmethod
     def test_denied_status_code_is_zero(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
         """Verify that a denied consumption returns status code 0."""
         # Arrange
@@ -217,7 +221,7 @@ class TestConsumeReturnValues:
 
     @staticmethod
     def test_denied_returns_false_for_task(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
         """Verify that a denied consumption returns a falsy value for the task field."""
         # Arrange
@@ -252,12 +256,13 @@ class TestConsumeReturnValues:
         )
 
 
+@pytest.mark.behavior
 class TestConsumeBoundaryDecisions:
     """Tests for ``consume.lua`` boundary conditions and branching logic."""
 
     @staticmethod
     def test_denies_when_estimate_equals_limit(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
         """Verify that consumption is denied when the estimated count equals the limit.
 
@@ -283,9 +288,10 @@ class TestConsumeBoundaryDecisions:
 
     @staticmethod
     def test_allows_when_estimate_is_one_below_limit(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
-        """Verify that consumption is allowed when the estimated count is one below the limit."""
+        """Verify that consumption is allowed when the estimated
+        count is one below the limit."""
         # Arrange
         now = get_redis_timestamp(redis_client)
         task_json = build_task_json("task-1", arrived_at_ms=now * 1000)
@@ -305,7 +311,7 @@ class TestConsumeBoundaryDecisions:
 
     @staticmethod
     def test_limit_zero_denies_all_requests(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
         """Verify that ``limit=0`` denies all consumption requests."""
         # Arrange
@@ -323,9 +329,10 @@ class TestConsumeBoundaryDecisions:
 
     @staticmethod
     def test_concurrency_at_max_denies_request(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
-        """Verify that consumption is denied when the concurrency set is at ``max_concurrency``."""
+        """Verify that consumption is denied when the concurrency
+        set is at ``max_concurrency``."""
         # Arrange
         now = get_redis_timestamp(redis_client)
         task_json = build_task_json("task-1", arrived_at_ms=now * 1000)
@@ -346,9 +353,10 @@ class TestConsumeBoundaryDecisions:
 
     @staticmethod
     def test_concurrency_below_max_allows_request(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
-        """Verify that consumption is allowed when the concurrency set is one below ``max_concurrency``."""
+        """Verify that consumption is allowed when the concurrency
+        set is one below ``max_concurrency``."""
         # Arrange
         now = get_redis_timestamp(redis_client)
         task_json = build_task_json("task-1", arrived_at_ms=now * 1000)
@@ -368,7 +376,7 @@ class TestConsumeBoundaryDecisions:
 
     @staticmethod
     def test_expired_task_routed_to_dlq(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
         """Verify that an expired task is routed to the DLQ with correct side effects.
 
@@ -378,7 +386,7 @@ class TestConsumeBoundaryDecisions:
         # Arrange
         now = get_redis_timestamp(redis_client)
         expired_arrived_at = (now - MAX_AGE - 10) * 1000
-        inflight_key = "test:inflight:expired-task"
+        inflight_key = f"{base_key}:inflight:expired-task"
         task_json = build_task_json(
             "expired-task",
             arrived_at_ms=expired_arrived_at,
@@ -406,7 +414,7 @@ class TestConsumeBoundaryDecisions:
 
     @staticmethod
     def test_expired_task_does_not_consume_token(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
         """Verify that an expired task does not increment the current window counter."""
         # Arrange
@@ -427,13 +435,13 @@ class TestConsumeBoundaryDecisions:
 
     @staticmethod
     def test_pexpire_set_on_first_increment_only(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
-        """Verify that ``PEXPIRE`` is set on the first increment only.
+        """Verify that the window key's TTL is established once.
 
-        A mutation changing ``current_count == 0`` to ``current_count == 1``
-        would cause the TTL to be reset on every second consume instead of
-        only on the first.
+        The expiry is set when the window counter is first created.
+        Later increments within the same window must not reset the
+        TTL.
         """
         # Arrange
         now = get_redis_timestamp(redis_client)
@@ -463,7 +471,7 @@ class TestConsumeBoundaryDecisions:
 
     @staticmethod
     def test_self_healing_removes_expired_leases(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
         """Verify that expired leases are removed before the rate limit evaluation."""
         # Arrange
@@ -489,7 +497,7 @@ class TestConsumeBoundaryDecisions:
 
     @staticmethod
     def test_self_healing_preserves_valid_leases(
-        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
     ):
         """Verify that valid leases are not removed by the self-healing mechanism."""
         # Arrange
@@ -509,6 +517,7 @@ class TestConsumeBoundaryDecisions:
         )
 
 
+@pytest.mark.behavior
 class TestConsumeTelemetry:
     """Tests for ``consume.lua`` telemetry accuracy in the returned array."""
 
@@ -543,3 +552,6 @@ class TestConsumeTelemetry:
 
         # Assert
         assert result[4] > 0, "reset_in_ms should be positive within a window"
+        assert result[4] <= WINDOW_SIZE * 1000, (
+            "reset_in_ms should not exceed the window size"
+        )

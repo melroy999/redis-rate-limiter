@@ -1,10 +1,12 @@
 """Tests for the ASGI rate limiting middleware.
 
 Fixture dependencies:
-    - ``limiter``, ``_reset_asgi_limiter_class_state``: from ``tests/implementations/asgi/conftest.py``.
+    - ``limiter``, ``_reset_asgi_limiter_class_state``:
+      from ``tests/implementations/asgi/conftest.py``.
 
-Direct static-method tests for ``_send_blocked`` and ``_send_error`` use
-``AsyncMock`` as the ASGI ``send`` callable and do not require fixtures.
+Direct static-method tests for ``_send_blocked`` and
+``_send_error`` use ``AsyncMock`` as the ASGI ``send`` callable
+and do not require fixtures.
 """
 
 import inspect
@@ -49,27 +51,9 @@ async def _capture_response(middleware, scope):
     return messages
 
 
+@pytest.mark.behavior
 class TestRateLimitMiddleware:
     """Tests for the ``RateLimitMiddleware`` ASGI wrapper."""
-
-    @staticmethod
-    async def test_allowed_request_passes_through(limiter):
-        """Verify that an allowed request receives 200 from the inner app."""
-
-        # Arrange
-        async def inner_app(scope, receive, send):
-            await send({"type": "http.response.start", "status": 200, "headers": []})
-            await send({"type": "http.response.body", "body": b"OK"})
-
-        middleware = RateLimitMiddleware(
-            inner_app, limiter=limiter, key_func=by_client_ip
-        )
-
-        # Act
-        messages = await _capture_response(middleware, _make_scope())
-
-        # Assert
-        assert messages[0]["status"] == 200, "allowed request should receive 200"
 
     @staticmethod
     async def test_allowed_response_includes_rate_limit_headers(limiter):
@@ -152,7 +136,8 @@ class TestRateLimitMiddleware:
 
     @staticmethod
     async def test_custom_on_blocked_callback(limiter):
-        """Verify that ``on_blocked`` callback is invoked instead of the default 429."""
+        """Verify that ``on_blocked`` callback is invoked
+        instead of the default 429."""
         # Arrange
         callback_invoked = False
 
@@ -229,7 +214,8 @@ class TestRateLimitMiddleware:
 
     @staticmethod
     async def test_key_func_none_bypasses_rate_limiting(limiter):
-        """Verify that returning ``None`` from ``key_func`` bypasses rate limiting."""
+        """Verify that returning ``None`` from ``key_func``
+        bypasses rate limiting."""
 
         # Arrange
         forwarded_scope = None
@@ -276,14 +262,17 @@ class TestRateLimitMiddleware:
 
     @staticmethod
     async def test_fail_open_allows_on_error(limiter):
-        """Verify that ``fail_open`` mode allows the request when ``acquire`` raises."""
+        """Verify that ``fail_open`` mode allows the request
+        when ``acquire`` raises."""
         # Arrange
         app_invoked = False
+        forwarded_scope = None
         forwarded_receive = None
 
         async def inner_app(scope, receive, send):
-            nonlocal app_invoked, forwarded_receive
+            nonlocal app_invoked, forwarded_scope, forwarded_receive
             app_invoked = True
+            forwarded_scope = scope
             forwarded_receive = receive
             await send({"type": "http.response.start", "status": 200, "headers": []})
             await send({"type": "http.response.body", "body": b"OK"})
@@ -310,13 +299,17 @@ class TestRateLimitMiddleware:
 
         # Assert
         assert app_invoked is True, "fail_open should pass request through on error"
+        assert forwarded_scope is scope, (
+            "fail_open should forward the original scope to inner app"
+        )
         assert forwarded_receive is receive, (
             "fail_open should forward the original receive callable to inner app"
         )
 
     @staticmethod
     async def test_fail_closed_returns_503_on_error(limiter):
-        """Verify that ``fail_closed`` mode returns 503 when ``acquire`` raises."""
+        """Verify that ``fail_closed`` mode returns 503
+        when ``acquire`` raises."""
 
         # Arrange
         async def inner_app(scope, receive, send):
@@ -340,7 +333,8 @@ class TestRateLimitMiddleware:
 
     @staticmethod
     async def test_wrap_send_preserves_existing_headers(limiter):
-        """Verify that ``_wrap_send`` preserves original response headers from the inner app."""
+        """Verify that ``_wrap_send`` preserves original response
+        headers from the inner app."""
 
         # Arrange
         async def inner_app(scope, receive, send):
@@ -368,7 +362,8 @@ class TestRateLimitMiddleware:
 
     @staticmethod
     async def test_wrap_send_header_values_reflect_acquire_result(limiter):
-        """Verify that rate limit header values match the ``acquire()`` result."""
+        """Verify that rate limit header values match the
+        ``acquire()`` result."""
 
         # Arrange
         async def inner_app(scope, receive, send):
@@ -404,7 +399,8 @@ class TestRateLimitMiddleware:
 
     @staticmethod
     async def test_inner_app_receives_working_receive_callable(limiter):
-        """Verify that the inner app receives the original ``receive`` callable, not ``None``."""
+        """Verify that the inner app receives the original
+        ``receive`` callable, not ``None``."""
         # Arrange
         received_body = None
 
@@ -429,7 +425,8 @@ class TestRateLimitMiddleware:
 
     @staticmethod
     async def test_wrap_send_handles_missing_headers_key(limiter):
-        """Verify that ``_wrap_send`` injects headers even when the response lacks a ``headers`` key."""
+        """Verify that ``_wrap_send`` injects headers even when
+        the response lacks a ``headers`` key."""
 
         # Arrange
         async def inner_app(scope, receive, send):
@@ -450,8 +447,10 @@ class TestRateLimitMiddleware:
         )
 
 
+@pytest.mark.behavior
 class TestSendBlockedResponse:
-    """Tests for ``RateLimitMiddleware._send_blocked`` response structure and arithmetic."""
+    """Tests for ``RateLimitMiddleware._send_blocked``
+    response structure and arithmetic."""
 
     @staticmethod
     @pytest.mark.parametrize(
@@ -462,7 +461,8 @@ class TestSendBlockedResponse:
     async def test_send_blocked_retry_after_ceiling_division(
         reset_ms, expected_retry_after
     ):
-        """Verify that ``_send_blocked`` computes ``Retry-After`` via ceiling division."""
+        """Verify that ``_send_blocked`` computes
+        ``Retry-After`` via ceiling division."""
         # Arrange
         send = AsyncMock()
 
@@ -478,7 +478,8 @@ class TestSendBlockedResponse:
 
     @staticmethod
     async def test_send_blocked_response_structure():
-        """Verify that ``_send_blocked`` produces a well-formed 429 response with correct headers."""
+        """Verify that ``_send_blocked`` produces a well-formed
+        429 response with correct headers."""
         # Arrange
         send = AsyncMock()
         reset_ms = 2000
@@ -514,12 +515,15 @@ class TestSendBlockedResponse:
         )
 
 
+@pytest.mark.behavior
 class TestSendErrorResponse:
-    """Tests for ``RateLimitMiddleware._send_error`` response structure."""
+    """Tests for ``RateLimitMiddleware._send_error``
+    response structure."""
 
     @staticmethod
     async def test_send_error_response_structure():
-        """Verify that ``_send_error`` produces a well-formed 503 response."""
+        """Verify that ``_send_error`` produces a well-formed
+        503 response."""
         # Arrange
         send = AsyncMock()
 
@@ -555,12 +559,14 @@ class TestSendErrorResponse:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class TestMiddlewareObservability:
     """Observability tests for the ``RateLimitMiddleware`` log emissions."""
 
     @staticmethod
     async def test_acquire_error_emits_exception_log(limiter, caplog):
-        """Verify that the middleware emits an ERROR log with limiter id and key when ``acquire`` raises."""
+        """Verify that the middleware emits an ERROR log with
+        limiter id and key when ``acquire`` raises."""
 
         # Arrange
         async def inner_app(scope, receive, send):
@@ -586,6 +592,7 @@ class TestMiddlewareObservability:
         assert_log_emitted(
             caplog.records,
             level="ERROR",
+            label="[RateLimitMiddleware]",
             required_fragments=[
                 f"limiter={limiter.id}",
                 "key=127.0.0.1",
@@ -595,19 +602,136 @@ class TestMiddlewareObservability:
 
 
 # ---------------------------------------------------------------------------
+# Boundary tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.behavior
+class TestMiddlewareBoundary:
+    """Boundary condition tests for ``RateLimitMiddleware`` argument forwarding."""
+
+    @staticmethod
+    async def test_acquire_receives_key_from_key_func(limiter):
+        """Verify that ``acquire()`` receives the key returned by
+        ``key_func``, not ``None``."""
+        # Arrange
+        acquired_key = None
+        original_acquire = limiter.acquire
+
+        async def spy_acquire(key):
+            nonlocal acquired_key
+            acquired_key = key
+            return await original_acquire(key)
+
+        limiter.acquire = spy_acquire
+
+        async def inner_app(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"OK"})
+
+        middleware = RateLimitMiddleware(
+            inner_app, limiter=limiter, key_func=by_client_ip
+        )
+
+        # Act
+        await _capture_response(middleware, _make_scope())
+
+        # Assert
+        assert acquired_key is not None, (
+            "acquire must receive the key from key_func, not None"
+        )
+        assert acquired_key == "127.0.0.1", (
+            "acquire must receive the client IP as the rate limit key"
+        )
+
+    @staticmethod
+    async def test_allowed_path_forwards_original_scope_to_inner_app(limiter):
+        """Verify that the inner app receives the original
+        scope object on the allowed (rate limited) path."""
+        # Arrange
+        forwarded_scope = None
+
+        async def inner_app(scope, receive, send):
+            nonlocal forwarded_scope
+            forwarded_scope = scope
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"OK"})
+
+        middleware = RateLimitMiddleware(
+            inner_app, limiter=limiter, key_func=by_client_ip
+        )
+
+        original_scope = _make_scope()
+
+        # Act
+        await _capture_response(middleware, original_scope)
+
+        # Assert
+        assert forwarded_scope is original_scope, (
+            "inner app should receive the original scope object on the allowed path"
+        )
+
+    @staticmethod
+    async def test_on_blocked_receives_scope_and_result(limiter):
+        """Verify that the ``on_blocked`` callback receives the
+        original scope and a valid acquire result."""
+        # Arrange
+        received_scope = None
+        received_result = None
+
+        async def custom_blocked(scope, result, send):
+            nonlocal received_scope, received_result
+            received_scope = scope
+            received_result = result
+            await send({"type": "http.response.start", "status": 503, "headers": []})
+            await send({"type": "http.response.body", "body": b"Custom blocked"})
+
+        async def inner_app(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"OK"})
+
+        middleware = RateLimitMiddleware(
+            inner_app,
+            limiter=limiter,
+            key_func=by_client_ip,
+            on_blocked=custom_blocked,
+        )
+
+        scope = _make_scope(client_ip="10.0.0.99")
+        for _ in range(10):
+            await _capture_response(middleware, scope)
+
+        # Act
+        await _capture_response(middleware, scope)
+
+        # Assert
+        assert received_scope is scope, (
+            "on_blocked callback should receive the original scope object"
+        )
+        assert received_result is not None, (
+            "on_blocked callback should receive the acquire result, not None"
+        )
+        assert received_result["allowed"] is False, (
+            "acquire result passed to on_blocked should indicate a blocked request"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Signature tests
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.signature
 class TestMiddlewareSignatures:
     """Signature tests for ``RateLimitMiddleware`` default parameter values."""
 
     @staticmethod
     def test_middleware_init_default_parameters():
-        """Verify that ``on_error`` and ``on_blocked`` have the expected defaults.
+        """Verify that ``on_error`` and ``on_blocked`` have
+        the expected defaults.
 
-        Mutation target: ``on_error`` and ``on_blocked`` default values in
-        ``RateLimitMiddleware.__init__``.
+        Mutation target: ``on_error`` and ``on_blocked`` default
+        values in ``RateLimitMiddleware.__init__``.
         """
         # Arrange & Act
         sig = inspect.signature(RateLimitMiddleware.__init__)

@@ -9,7 +9,8 @@ Sync implementations can use the ``SyncToAsyncLifecycleAdapter`` from
 
 Fixture dependencies:
     - ``async_redis_client``: from ``tests/conftest.py``.
-    - ``mock_limiter``, ``task_id``, ``inflight_key``, ``create_lifecycle``: provided by this module (or subclass conftest).
+    - ``mock_limiter``, ``task_id``, ``inflight_key``, ``create_lifecycle``:
+      provided by this module (or subclass conftest).
 """
 
 import pytest
@@ -51,7 +52,8 @@ class TaskLifecycleContractTest:
     async def test_lifecycle_removes_task_from_concurrency_set(
         async_redis_client, mock_limiter, task_id, inflight_key, create_lifecycle
     ):
-        """Contract: the task must be removed from the concurrency set after completion."""
+        """Contract: the task must be removed from the concurrency
+        set after completion."""
         # Arrange
         # Simulate a running task within the concurrency set.
         await async_redis_client.zadd(
@@ -108,7 +110,8 @@ class TaskLifecycleContractTest:
     async def test_lifecycle_cleans_up_on_exception(
         async_redis_client, mock_limiter, task_id, inflight_key, create_lifecycle
     ):
-        """Contract: cleanup must be performed even when the task raises an exception."""
+        """Contract: cleanup must be performed even when the task
+        raises an exception."""
         # Arrange
         await async_redis_client.zadd(mock_limiter.concurrency_key, {task_id: 100})
         await async_redis_client.set(inflight_key, "1")
@@ -119,7 +122,6 @@ class TaskLifecycleContractTest:
                 raise ValueError("Task failed")
 
         # Assert
-        # Cleanup should still have been performed.
         assert await async_redis_client.zcard(mock_limiter.concurrency_key) == 0, (
             "task must be removed from concurrency set even after exception"
         )
@@ -131,7 +133,8 @@ class TaskLifecycleContractTest:
     async def test_lifecycle_triggers_consume(
         async_redis_client, mock_limiter, task_id, inflight_key, create_lifecycle
     ):
-        """Contract: the lifecycle must trigger consumption to process subsequent tasks."""
+        """Contract: the lifecycle must trigger consumption to process
+        subsequent tasks."""
         # Arrange
         await async_redis_client.zadd(mock_limiter.concurrency_key, {task_id: 100})
         await async_redis_client.set(inflight_key, "1")

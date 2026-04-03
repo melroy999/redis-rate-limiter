@@ -19,7 +19,6 @@ from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 from tests.algorithms.sliding_window_counter import sliding_window_estimate
-from tests.implementations.conftest import MinimalRateLimiter
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -27,17 +26,9 @@ from tests.implementations.conftest import MinimalRateLimiter
 
 
 @pytest.fixture(scope="module")
-def property_limiter(property_redis_client, module_limiter_id):
+def property_limiter(make_property_limiter):
     """Provide a module-scoped rate limiter for token recovery property tests."""
-    return MinimalRateLimiter(
-        redis_client=property_redis_client,
-        limiter_id=f"{module_limiter_id}_property_token_recovery",
-        limit=10,
-        window=1.0,
-        max_concurrency=5,
-        max_age=3600,
-        lease_duration=30,
-    )
+    return make_property_limiter("token_recovery")
 
 
 # ---------------------------------------------------------------------------
@@ -45,6 +36,7 @@ def property_limiter(property_redis_client, module_limiter_id):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestTokenRecoveryDelayProperties:
     """Property-based tests for the ``_calculate_token_recovery_delay`` calculation.
 
@@ -180,11 +172,14 @@ class TestTokenRecoveryDelayProperties:
         val_current,
         reset_fraction,
     ):
-        """Property: on the primary path, the sliding window estimate is below the limit after waiting the computed delay.
+        """Property: on the primary path, the sliding window
+        estimate is below the limit after waiting the computed
+        delay.
 
-        This property validates the formula correctness by computing the
-        estimate at the projected elapsed time and verifying that it is
-        strictly less than the configured limit.
+        This property validates the formula correctness by
+        computing the estimate at the projected elapsed time
+        and verifying that it is strictly less than the
+        configured limit.
         """
         # Arrange
         # Restrict to the primary path where decay can free a token.

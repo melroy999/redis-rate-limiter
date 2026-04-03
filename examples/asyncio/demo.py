@@ -20,7 +20,6 @@ import time
 import redis.asyncio
 
 from examples.config import (
-    ASYNCIO_MAX_TASKS,
     BURST_COUNT,
     DEDUP_COUNT,
     ERROR_COUNT,
@@ -30,6 +29,7 @@ from examples.config import (
     REDIS_HOST,
     REDIS_PORT,
     WINDOW,
+    WORKER_COUNT,
 )
 from examples.dashboard import Dashboard
 from examples.tasks import ASYNC_FAILING_FUNC_PATH, ASYNC_FUNC_PATH
@@ -113,7 +113,7 @@ async def run_async_demo(scheduler: AsyncIOTaskLimiter) -> None:
         LIMIT,
         WINDOW,
         MAX_CONCURRENCY,
-        ASYNCIO_MAX_TASKS,
+        WORKER_COUNT,
     )
 
     # ---------------------------------------------------------------------------
@@ -219,7 +219,7 @@ async def main() -> None:
     redis_client = await connect_redis()
     await flush_stale_keys(redis_client, LIMITER_ID)
 
-    AsyncIOTaskLimiter.configure(redis_client, max_tasks=ASYNCIO_MAX_TASKS)
+    AsyncIOTaskLimiter.configure(redis_client, max_tasks=WORKER_COUNT)
     scheduler = await AsyncIOTaskLimiter.create(
         limiter_id=LIMITER_ID,
         limit=LIMIT,

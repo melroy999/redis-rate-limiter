@@ -20,25 +20,15 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
-from tests.implementations.conftest import MinimalRateLimiter
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
-def property_limiter(property_redis_client, module_limiter_id):
+def property_limiter(make_property_limiter):
     """Provide a module-scoped rate limiter for in-flight TTL property tests."""
-    return MinimalRateLimiter(
-        redis_client=property_redis_client,
-        limiter_id=f"{module_limiter_id}_property_inflight_ttl",
-        limit=10,
-        window=1.0,
-        max_concurrency=5,
-        max_age=3600,
-        lease_duration=30,
-    )
+    return make_property_limiter("inflight_ttl")
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +36,7 @@ def property_limiter(property_redis_client, module_limiter_id):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestInflightTtlProperties:
     """Property-based tests for the ``_get_inflight_ttl`` calculation.
 
@@ -72,7 +63,8 @@ class TestInflightTtlProperties:
     def test_ttl_lower_bound_is_three(
         property_limiter, window, lease_duration, max_age, max_age_override
     ):
-        """Property: the TTL is always at least 3, given the max(1.0, ...) floor on each component."""
+        """Property: the TTL is always at least 3, given
+        the max(1.0, ...) floor on each component."""
         # Arrange
         property_limiter.window = window
         property_limiter.lease_duration = lease_duration
@@ -104,7 +96,8 @@ class TestInflightTtlProperties:
     def test_ttl_is_monotonic_in_max_age(
         property_limiter, window, lease_duration, max_age_a, max_age_b
     ):
-        """Property: increasing max_age yields a TTL that is greater than or equal to the original."""
+        """Property: increasing max_age yields a TTL that
+        is greater than or equal to the original."""
         # Arrange
         assume(max_age_a <= max_age_b)
         property_limiter.window = window
@@ -118,7 +111,9 @@ class TestInflightTtlProperties:
 
         # Assert
         assert ttl_a <= ttl_b, (
-            f"TTL should be monotonic in max_age: ttl({max_age_a})={ttl_a} > ttl({max_age_b})={ttl_b}"
+            f"TTL should be monotonic in max_age: "
+            f"ttl({max_age_a})={ttl_a} > "
+            f"ttl({max_age_b})={ttl_b}"
         )
 
     @staticmethod
@@ -137,7 +132,9 @@ class TestInflightTtlProperties:
     def test_ttl_is_monotonic_in_lease_duration(
         property_limiter, window, max_age, lease_a, lease_b
     ):
-        """Property: increasing lease_duration yields a TTL that is greater than or equal to the original."""
+        """Property: increasing lease_duration yields a
+        TTL that is greater than or equal to the
+        original."""
         # Arrange
         assume(lease_a <= lease_b)
         property_limiter.window = window
@@ -151,7 +148,9 @@ class TestInflightTtlProperties:
 
         # Assert
         assert ttl_a <= ttl_b, (
-            f"TTL should be monotonic in lease_duration: ttl({lease_a})={ttl_a} > ttl({lease_b})={ttl_b}"
+            f"TTL should be monotonic in "
+            f"lease_duration: ttl({lease_a})={ttl_a}"
+            f" > ttl({lease_b})={ttl_b}"
         )
 
     @staticmethod
@@ -175,7 +174,8 @@ class TestInflightTtlProperties:
     def test_ttl_is_monotonic_in_window(
         property_limiter, max_age, lease_duration, window_a, window_b
     ):
-        """Property: increasing window yields a TTL that is greater than or equal to the original."""
+        """Property: increasing window yields a TTL that
+        is greater than or equal to the original."""
         # Arrange
         assume(window_a <= window_b)
         property_limiter.max_age = max_age
@@ -189,7 +189,9 @@ class TestInflightTtlProperties:
 
         # Assert
         assert ttl_a <= ttl_b, (
-            f"TTL should be monotonic in window: ttl({window_a})={ttl_a} > ttl({window_b})={ttl_b}"
+            f"TTL should be monotonic in window: "
+            f"ttl({window_a})={ttl_a} > "
+            f"ttl({window_b})={ttl_b}"
         )
 
     @staticmethod
@@ -207,7 +209,8 @@ class TestInflightTtlProperties:
     def test_ttl_is_always_an_integer(
         property_limiter, window, lease_duration, max_age
     ):
-        """Property: the TTL is always of type ``int``, as required by the Redis EX option."""
+        """Property: the TTL is always of type ``int``,
+        as required by the Redis EX option."""
         # Arrange
         property_limiter.window = window
         property_limiter.lease_duration = lease_duration

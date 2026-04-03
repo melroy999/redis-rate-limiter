@@ -14,6 +14,8 @@ The suite is structured around both test type and backend scope:
 The following backends are currently supported:
 
 - `tests/implementations/celery/...` for Celery-specific assertions.
+- `tests/implementations/rq/...` for RQ-specific assertions.
+- `tests/implementations/processpool/...` for ProcessPool-specific assertions.
 - `tests/implementations/threadpool/...` for ThreadPool-specific assertions.
 - `tests/implementations/asyncio/...` for AsyncIO-specific assertions.
 - `tests/implementations/asgi/...` for ASGI-specific assertions.
@@ -56,6 +58,17 @@ tests/
 │   │   ├── test_celery_limiter.py      # Celery payload/dispatch behavior
 │   │   ├── test_rate_limiter_class_api.py  # Celery-only class API tests
 │   │   └── test_tasks.py              # Celery task helper tests
+│   ├── rq/                             # RQ-specific implementation tests
+│   │   ├── conftest.py                 # Imports RQ backend fixtures
+│   │   ├── test_contracts.py           # Contract suite against real RQRateLimiter
+│   │   ├── test_rq_limiter.py          # RQ payload/dispatch behavior
+│   │   ├── test_rate_limiter_class_api.py  # RQ-only class API tests
+│   │   └── test_tasks.py              # RQ task helper tests
+│   ├── processpool/                   # ProcessPool-specific implementation tests
+│   │   ├── conftest.py                 # Imports ProcessPool backend fixtures
+│   │   ├── test_contracts.py           # Contract suite against real ProcessPoolRateLimiter
+│   │   ├── test_processpool_limiter.py # ProcessPool dispatch behavior
+│   │   └── test_rate_limiter_class_api.py  # ProcessPool-only class API tests
 │   ├── threadpool/                     # ThreadPool-specific implementation tests
 │   │   ├── conftest.py                 # Imports ThreadPool backend fixtures
 │   │   ├── test_contracts.py           # Contract suite against real ThreadPoolRateLimiter
@@ -91,14 +104,23 @@ tests/
 ├── integration/                        # End-to-end integration tests
 │   ├── test_rate_limiting.py           # Single-consumer rate limiting behavior
 │   ├── test_distributed_rate_limiting.py  # Multi-consumer temporal rate limiting
-│   ├── README.md                       # Platform requirements and timing notes
-│   └── celery/                         # Reserved for Celery-specific integration tests
+│   └── README.md                       # Platform requirements and timing notes
 │
 ├── integrations/                       # Third-party integration tests
 │   └── test_prometheus.py              # Prometheus metrics exporter tests
 │
+├── lua/                                # Lua script unit tests
+│   ├── test_acquire.py                 # ASGI acquire script tests
+│   ├── test_consume.py                 # Consume script boundary and decision tests
+│   ├── test_health.py                  # Health script return value tests
+│   ├── test_lock_scripts.py            # Inline lock script tests
+│   ├── test_renew.py                   # Lease renewal script tests
+│   └── test_schedule.py               # Schedule script tests
+│
 ├── fixtures/                           # Shared backend fixture modules
 │   ├── celery_backend.py               # Celery backend fixture definitions
+│   ├── processpool_backend.py          # ProcessPool backend fixture definitions
+│   ├── rq_backend.py                   # RQ backend fixture definitions
 │   └── threadpool_backend.py           # ThreadPool backend fixture definitions
 │
 ├── helpers/                            # Shared test utilities and strategies
@@ -106,6 +128,10 @@ tests/
 │   ├── strategies.py                   # Shared Hypothesis strategies
 │   ├── adapters.py                     # Sync-to-async adapters for unified contract tests
 │   └── tasks.py                        # Shared task functions for backend tests
+│
+├── plugins/                            # pytest plugins
+│   ├── mutmut_defaults_patch.py        # Patches trampoline defaults during mutmut runs
+│   └── verify_defaults_patch.py        # Verification helper for defaults patching
 │
 ├── conftest.py                         # Global pytest fixtures and configuration
 └── README.md                           # This file
@@ -228,7 +254,7 @@ Integration tests verify the end-to-end behavior of the rate limiter with real R
 @pytest.fixture
 def integration_limiter(redis_client, limiter_id):
     """Create a backend-agnostic limiter for integration tests."""
-    return MinimalRateLimiter(
+    return StubRateLimiter(
         redis_client=redis_client,
         limiter_id=f"{limiter_id}_integration_default",
         limit=5,
@@ -312,10 +338,13 @@ pytest tests/contracts/
 pytest tests/implementations/
 
 # Core implementation tests only (no backend-specific).
-pytest tests/implementations/ --ignore=tests/implementations/celery --ignore=tests/implementations/threadpool --ignore=tests/implementations/asyncio --ignore=tests/implementations/asgi
+pytest tests/implementations/ --ignore=tests/implementations/celery --ignore=tests/implementations/processpool --ignore=tests/implementations/threadpool --ignore=tests/implementations/asyncio --ignore=tests/implementations/asgi
 
 # Celery-specific implementation tests only.
 pytest tests/implementations/celery/
+
+# ProcessPool-specific implementation tests only.
+pytest tests/implementations/processpool/
 
 # ThreadPool-specific implementation tests only.
 pytest tests/implementations/threadpool/
@@ -599,11 +628,11 @@ assert len(results) > 0
 ### Comments Before Lines, Not After
 ```python
 # Recommended.
-# Clean state for each example.
-redis_client.flushdb()
+# Unique key per test for namespace isolation.
+limiter_id = f"limiter_{test_name}_{uuid}"
 
 # Avoid.
-redis_client.flushdb()  # Clean state
+limiter_id = f"limiter_{test_name}_{uuid}"  # Unique key per test
 ```
 
 ## Fixture Architecture
@@ -621,7 +650,7 @@ Fixtures are placed at the **narrowest scope** that serves all their consumers:
 | Level | Location | What belongs here |
 |---|---|---|
 | **Root** | `tests/conftest.py` | Global infrastructure (`redis_client`, `async_redis_client`) and universal identifiers/values (`limiter_id`, `module_limiter_id`, `lock_key`, `func_path`, `payload`) |
-| **Category** | `tests/{category}/conftest.py` | Shared fixtures for a test category (e.g., `implementations/conftest.py` has `generic_limiter`, `tracking_limiter`, while `properties/conftest.py` has `property_redis_client`) |
+| **Category** | `tests/{category}/conftest.py` | Shared fixtures for a test category (e.g., `implementations/conftest.py` has `stub_limiter`, `tracking_limiter`, while `properties/conftest.py` has `property_redis_client`) |
 | **Backend** | `tests/implementations/{backend}/conftest.py` | Backend-specific `limiter` fixture and autouse reset fixtures |
 | **External module** | `tests/fixtures/{backend}_backend.py` | Sync backend fixture definitions re-exported by conftest (Celery, ThreadPool: needed for cross-directory import) |
 | **Test file** | The test file itself | Fixtures used exclusively by that file (`mock_limiter`, `inflight_key`, `create_lifecycle`, local factories) |
@@ -634,7 +663,7 @@ Each backend conftest provides its limiter under the name `limiter`. Contract te
 
 - **Async backends** (AsyncIO): conftest provides `limiter`: the contract test class inherits directly (no override needed).
 - **Sync backends** (Celery, ThreadPool): conftest provides `limiter`: the contract test class overrides with `SyncToAsyncLimiterAdapter` wrapping (genuine transformation, justified).
-- **Generic implementations**: `implementations/conftest.py` provides `generic_limiter` (distinct name because it coexists with backend `limiter` fixtures in the same directory tree): test classes map to `limiter` at class level.
+- **Generic implementations**: `implementations/conftest.py` provides `stub_limiter` (distinct name because it coexists with backend `limiter` fixtures in the same directory tree): test classes map to `limiter` at class level.
 
 **Rule: a fixture override at the class or file level is only justified when it transforms the value.** A pass-through that returns the input unchanged must be removed, and the source fixture should be renamed to match the expected name instead.
 
@@ -651,8 +680,8 @@ Each backend conftest provides its limiter under the name `limiter`. Contract te
 #### Root fixtures (`tests/conftest.py`)
 
 - `_redis_connection` (session): a single Redis connection for the entire test suite (configurable via `REDIS_HOST`/`REDIS_PORT`).
-- `redis_client` (function): wraps `_redis_connection` with `flushdb()` before and after each test.
-- `async_redis_client` (function): a per-test async Redis client with `flushdb()` before and after each test.
+- `redis_client` (function): wraps `_redis_connection` for per-test use; namespace-isolated via unique `limiter_id` and `lock_key` (no `flushdb()`).
+- `async_redis_client` (function): a per-test async Redis client; namespace-isolated via unique keys (no `flushdb()`).
 - `limiter_id` (function): a unique limiter ID per test (UUID-backed).
 - `module_limiter_id` (module): a unique limiter ID per module.
 - `lock_key` (function): a unique lock key per test.
@@ -661,7 +690,7 @@ Each backend conftest provides its limiter under the name `limiter`. Contract te
 
 #### Implementation fixtures (`tests/implementations/conftest.py`)
 
-- `generic_limiter`: a `MinimalRateLimiter` instance (no-op dispatch/schedule) for testing `AbstractDistributedRateLimiter` behavior.
+- `stub_limiter`: a `StubRateLimiter` instance (no-op dispatch/schedule) for testing `AbstractDistributedRateLimiter` behavior.
 - `tracking_limiter`: a `TrackingRateLimiter` instance that records `_dispatch_task()` and `_schedule_drain()` calls.
 - `make_limiter_pool`: a factory fixture that creates N limiter instances sharing the same Redis-backed limiter ID.
 - `task_id`: a unique task ID string for testing.
@@ -671,6 +700,8 @@ Each backend conftest provides its limiter under the name `limiter`. Contract te
 Sync backend fixtures are centralized in `tests/fixtures/` and imported where needed:
 
 - `tests/fixtures/celery_backend.py` defines Celery fixtures (`celery_app`, `celery_config`, `limiter`, class-state reset fixture).
+- `tests/fixtures/processpool_backend.py` defines ProcessPool fixtures (`executor`, `limiter`, class-state reset fixture).
+- `tests/fixtures/rq_backend.py` defines RQ fixtures (`rq_queue`, `limiter`, class-state reset fixture).
 - `tests/fixtures/threadpool_backend.py` defines ThreadPool fixtures (`executor`, `limiter`, class-state reset fixture).
 
 Async backend fixtures are defined directly in their backend-local conftests:

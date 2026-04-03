@@ -50,22 +50,18 @@ class ASGIRateLimiter(AsyncManagedRateLimiter, AbstractAsyncRateLimiter):
 
     @classmethod
     def _has_backend_context(cls) -> bool:
-        """Return ``True``; the ASGI limiter does not require backend context."""
         return True
 
     @classmethod
     def _get_instance_context(cls) -> dict[str, Any]:
-        """Return an empty context dictionary."""
         return {}
 
     @classmethod
     def _reset_backend_context(cls) -> None:
-        """No backend context to clear."""
         pass
 
     @classmethod
     def _configure_hint(cls) -> str:
-        """Return the ``configure`` usage hint for runtime error messages."""
         return "ASGIRateLimiter.configure(redis_client)"
 
     # ---------------------------------------------------------------------------
@@ -102,7 +98,7 @@ class ASGIRateLimiter(AsyncManagedRateLimiter, AbstractAsyncRateLimiter):
         # Eagerly preload the Lua script so the first acquire() avoids a lazy registration round-trip.
         await self._register_script("acquire.lua")
         logger.info(
-            "ASGI rate limiter initialized: id=%s, limit=%d, window_s=%g.",
+            "[ASGIRateLimiter] Initialized: id=%s, limit=%d, window_s=%g.",
             self.id,
             self.limit,
             self.window,
@@ -148,7 +144,7 @@ class ASGIRateLimiter(AsyncManagedRateLimiter, AbstractAsyncRateLimiter):
             )
         except Exception:
             logger.exception(
-                "Acquire failed: limiter=%s, key=%s.",
+                "[ASGIRateLimiter] Acquire failed: limiter=%s, key=%s.",
                 self.id,
                 key,
             )

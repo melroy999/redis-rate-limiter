@@ -43,31 +43,29 @@ def rate_limited(
     def decorator(func: T) -> T:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            # Resolve the limiter identifier.
             _limiter_id = limiter_id or kwargs.get("limiter_id")
             if _limiter_id is None:
+                # fmt: off
                 raise ValueError(
-                    "Missing limiter id. Pass limiter_id to @rate_limited() "
-                    "or provide limiter_id in function kwargs."
+                    "Missing limiter id. Pass limiter_id to @rate_limited() or provide limiter_id in function kwargs."
                 )
+                # fmt: on
 
-            # Retrieve the limiter instance and the associated task identifier.
             limiter_getter = get_limiter or _get_default_limiter
             limiter = limiter_getter(_limiter_id)
             task_id = kwargs.pop("_rate_limit_task_id")
             logger.debug(
-                "Rate-limited decorator entered: limiter=%s, task_id=%s, func=%s.",
+                "[RateLimited] Decorator entered: limiter=%s, task_id=%s, func=%s.",
                 _limiter_id,
                 task_id,
                 func.__qualname__,
             )
 
-            # Execute the task within the rate limiter's lifecycle context manager.
             with limiter.task_lifecycle(task_id):
                 result = func(*args, **kwargs)
 
             logger.debug(
-                "Task execution completed under rate-limited lifecycle: limiter=%s, task_id=%s, func=%s.",
+                "[RateLimited] Task execution completed: limiter=%s, task_id=%s, func=%s.",
                 _limiter_id,
                 task_id,
                 func.__qualname__,

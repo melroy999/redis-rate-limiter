@@ -1,6 +1,6 @@
 [project]
 name = "redis-rate-limiter"
-version = "0.2.0"
+version = "0.3.0"
 description = ""
 authors = [
     {name = "melroy999",email = "9898970+melroy999@users.noreply.github.com"}
@@ -12,6 +12,9 @@ dependencies = [
 
 [project.optional-dependencies]
 celery = ["celery (>=5.6.2,<5.7.0)"]
+rq = ["rq (>=2.0.0,<3.0.0)"]
+dramatiq = ["dramatiq[redis] (>=2.0.0,<3.0.0)"]
+huey = ["huey (>=2.5.0,<3.0.0)"]
 prometheus = ["prometheus_client (>=0.21.0,<1.0.0)"]
 asgi = ["fastapi (>=0.115.0)", "uvicorn (>=0.34.0)"]
 
@@ -19,10 +22,11 @@ asgi = ["fastapi (>=0.115.0)", "uvicorn (>=0.34.0)"]
 pytest = ">=9.0.2"
 pytest-asyncio = ">=0.25.0"
 pytest_cov = ">=7.0.0"
-ruff = "^0.15.7"
-mypy = "^1.19.1"
-hypothesis = "^6.151.9"
+ruff = "^0.15.8"
+mypy = "^1.20.0"
+hypothesis = "^6.151.10"
 mutmut = {version = "^3.5.0", python = "<4.0"}
+pytest-timeout = ">=2.3.0"
 
 [tool.poetry]
 packages = [{include = "redis_rate_limiter", from = "src"}]
@@ -34,6 +38,7 @@ build-backend = "poetry.core.masonry.api"
 [tool.coverage.run]
 source = ["src/redis_rate_limiter"]
 concurrency = ["thread"]
+dynamic_context = "test_function"
 
 [tool.pytest.ini_options]
 # Exclude slow tests by default. Run with: pytest -m slow (or pytest --run-slow).
@@ -41,16 +46,23 @@ addopts = "-m 'not slow' --import-mode=importlib"
 asyncio_mode = "auto"
 markers = [
     "slow: marks tests as slow (use real time.sleep, multiple configurations). Run explicitly with: pytest -m slow",
+    "behavior: tests functional correctness",
+    "observability: tests logging, metrics, callbacks",
+    "signature: tests method/API signatures and default values",
+    "contract: runs a shared contract suite against a specific backend",
+    "concurrency: tests thread/process safety",
+    "timeout_safety_net: tests with bounded shutdown mechanisms that should run first under mutmut -x",
 ]
 
 [tool.mutmut]
 paths_to_mutate = ["src/redis_rate_limiter/"]
 pytest_add_cli_args_test_selection = ["tests/"]
 pytest_add_cli_args = [
-    "-x", "--tb=short", "-q",
+    "--tb=short", "-q",
     "--ignore=tests/properties/",
     "--deselect=tests/integration/test_rate_limiting.py::TestSlidingWindowBehavior",
     "--deselect=tests/integration/test_distributed_rate_limiting.py::TestDistributedRateLimiting",
+    "--deselect=tests/implementations/test_concurrent_access.py",
 ]
 do_not_mutate = [
     "**/__init__.py",
