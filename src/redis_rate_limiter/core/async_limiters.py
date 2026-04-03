@@ -959,6 +959,7 @@ class AbstractAsyncDistributedRateLimiter(
 
             if result["success"]:
                 task = result["task"]
+                assert task is not None, "task must be present when success is True"
                 task_id = task.get("id")
 
                 await self._dispatch_task(

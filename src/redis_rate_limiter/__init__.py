@@ -27,7 +27,7 @@ __all__ = [
 
 # The Celery backend is only available when the celery package is installed.
 try:
-    from redis_rate_limiter.backends.celery import CeleryRateLimiter
+    from redis_rate_limiter.backends.celery import CeleryRateLimiter  # noqa: F401
 
     __all__.append("CeleryRateLimiter")
 except ImportError:
@@ -37,7 +37,7 @@ except ImportError:
 # ValueError is caught because rq calls get_context("fork") at import time,
 # which raises ValueError on Windows (no fork support).
 try:
-    from redis_rate_limiter.backends.rq import RQRateLimiter
+    from redis_rate_limiter.backends.rq import RQRateLimiter  # noqa: F401
 
     __all__.append("RQRateLimiter")
 except (ImportError, ValueError):
@@ -45,7 +45,7 @@ except (ImportError, ValueError):
 
 # The Dramatiq backend is only available when the dramatiq package is installed.
 try:
-    from redis_rate_limiter.backends.dramatiq import DramatiqRateLimiter
+    from redis_rate_limiter.backends.dramatiq import DramatiqRateLimiter  # noqa: F401
 
     __all__.append("DramatiqRateLimiter")
 except ImportError:
@@ -53,7 +53,7 @@ except ImportError:
 
 # The Huey backend is only available when the huey package is installed.
 try:
-    from redis_rate_limiter.backends.huey import HueyRateLimiter
+    from redis_rate_limiter.backends.huey import HueyRateLimiter  # noqa: F401
 
     __all__.append("HueyRateLimiter")
 except ImportError:
@@ -73,7 +73,9 @@ from redis_rate_limiter.backends.threading import ThreadPoolRateLimiter
 
 # The Prometheus integration is only available when the prometheus_client package is installed.
 try:
-    from redis_rate_limiter.integrations.prometheus import PrometheusMetricsExporter
+    from redis_rate_limiter.integrations.prometheus import (
+        PrometheusMetricsExporter,  # noqa: F401
+    )
 
     __all__.append("PrometheusMetricsExporter")
 except ImportError:
