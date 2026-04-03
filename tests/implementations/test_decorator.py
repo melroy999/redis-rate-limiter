@@ -37,6 +37,7 @@ def limiter_mock():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestRateLimitedDecorator:
     """Test suite for decorator-driven task lifecycle wrapping."""
 
@@ -44,7 +45,9 @@ class TestRateLimitedDecorator:
     def test_decorator_wraps_function_in_task_lifecycle(
         limiter_mock, limiter_id, task_id
     ):
-        """Verify that the decorated function execution is wrapped in ``task_lifecycle()``."""
+        """Verify that the decorated function execution is
+        wrapped in ``task_lifecycle()``.
+        """
         # Arrange
         limiter, lifecycle_context = limiter_mock
 
@@ -69,7 +72,9 @@ class TestRateLimitedDecorator:
     def test_decorator_pops_rate_limit_task_id_from_kwargs(
         limiter_mock, limiter_id, task_id
     ):
-        """Verify that ``_rate_limit_task_id`` is consumed and not forwarded to the wrapped function."""
+        """Verify that ``_rate_limit_task_id`` is consumed
+        and not forwarded to the wrapped function.
+        """
         # Arrange
         limiter, _ = limiter_mock
         captured_kwargs = {}
@@ -97,7 +102,9 @@ class TestRateLimitedDecorator:
     def test_decorator_forwards_limiter_id_kwarg_to_wrapped_function(
         limiter_mock, limiter_id, task_id
     ):
-        """Verify that ``limiter_id`` in kwargs is read (not popped) and forwarded to the wrapped function."""
+        """Verify that ``limiter_id`` in kwargs is read
+        (not popped) and forwarded to the wrapped function.
+        """
         # Arrange
         limiter, _ = limiter_mock
         captured_kwargs = {}
@@ -129,7 +136,9 @@ class TestRateLimitedDecorator:
     def test_decorator_resolves_limiter_id_from_argument(
         limiter_mock, limiter_id, task_id
     ):
-        """Verify that the decorator's limiter_id argument takes precedence for limiter lookup."""
+        """Verify that the decorator's limiter_id argument
+        takes precedence for limiter lookup.
+        """
         # Arrange
         limiter, _ = limiter_mock
 
@@ -155,7 +164,9 @@ class TestRateLimitedDecorator:
     def test_decorator_resolves_limiter_id_from_kwargs(
         limiter_mock, limiter_id, task_id
     ):
-        """Verify that the decorator falls back to ``kwargs['limiter_id']`` when the argument is None."""
+        """Verify that the decorator falls back to
+        ``kwargs['limiter_id']`` when the argument is None.
+        """
         # Arrange
         limiter, _ = limiter_mock
 
@@ -181,7 +192,9 @@ class TestRateLimitedDecorator:
     def test_decorator_propagates_wrapped_function_exception(
         limiter_mock, limiter_id, task_id
     ):
-        """Verify that exceptions from the wrapped function propagate and that lifecycle cleanup is performed."""
+        """Verify that exceptions from the wrapped function
+        propagate and that lifecycle cleanup is performed.
+        """
         # Arrange
         limiter, lifecycle_context = limiter_mock
 
@@ -246,7 +259,9 @@ class TestRateLimitedDecorator:
     def test_decorator_uses_injected_limiter_resolver(
         limiter_mock, limiter_id, task_id
     ):
-        """Verify that the decorator can resolve limiters via an injected backend resolver."""
+        """Verify that the decorator can resolve limiters
+        via an injected backend resolver.
+        """
         # Arrange
         limiter, _ = limiter_mock
         resolver = MagicMock(return_value=limiter)
@@ -268,7 +283,9 @@ class TestRateLimitedDecorator:
     def test_decorator_raises_value_error_when_limiter_id_missing(
         limiter_mock, task_id
     ):
-        """Verify that a ``ValueError`` is raised when neither the decorator argument nor kwargs provide a limiter_id."""
+        """Verify that a ``ValueError`` is raised when neither
+        the decorator argument nor kwargs provide a limiter_id.
+        """
         # Arrange
         limiter, _ = limiter_mock
 
@@ -281,12 +298,17 @@ class TestRateLimitedDecorator:
             "redis_rate_limiter.core.decorators._get_default_limiter",
             return_value=limiter,
         ):
-            with pytest.raises(ValueError, match="Missing limiter id"):
+            with pytest.raises(
+                ValueError,
+                match=r"^Missing limiter id\. Pass limiter_id to @rate_limited",
+            ):
                 wrapped_function(_rate_limit_task_id=task_id)
 
     @staticmethod
     def test_decorator_uses_default_limiter_resolver(limiter_mock, limiter_id, task_id):
-        """Verify that ``_get_default_limiter`` is exercised when no custom resolver is provided."""
+        """Verify that ``_get_default_limiter`` is exercised
+        when no custom resolver is provided.
+        """
         # Arrange
         limiter, _ = limiter_mock
 
@@ -309,7 +331,8 @@ class TestRateLimitedDecorator:
 
     @staticmethod
     def test_raises_attribute_error_when_resolver_returns_none(limiter_id, task_id):
-        """Verify that an ``AttributeError`` propagates when the resolver returns ``None``.
+        """Verify that an ``AttributeError`` propagates when
+        the resolver returns ``None``.
 
         The decorator calls ``limiter.task_lifecycle()`` without a ``None``
         check, so a resolver that returns ``None`` raises ``AttributeError``.
@@ -322,14 +345,15 @@ class TestRateLimitedDecorator:
             return "ok"
 
         # Act & Assert
-        with pytest.raises(AttributeError):
+        with pytest.raises(AttributeError, match="task_lifecycle"):
             wrapped_function(_rate_limit_task_id=task_id)
 
     @staticmethod
     def test_propagates_exception_from_lifecycle_enter(
         limiter_mock, limiter_id, task_id
     ):
-        """Verify that an exception from ``task_lifecycle().__enter__`` propagates unchanged.
+        """Verify that an exception from
+        ``task_lifecycle().__enter__`` propagates unchanged.
 
         The context manager entry is not wrapped in a try/except, so
         exceptions from ``__enter__`` propagate directly to the caller.
@@ -352,6 +376,7 @@ class TestRateLimitedDecorator:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class TestRateLimitedDecoratorObservability:
     """Observability tests for the ``rate_limited`` decorator."""
 
@@ -359,7 +384,9 @@ class TestRateLimitedDecoratorObservability:
     def test_decorator_emits_entry_and_completion_debug_logs(
         limiter_mock, limiter_id, task_id, caplog
     ):
-        """Verify that the decorated function emits debug logs for entry and completion."""
+        """Verify that the decorated function emits debug
+        logs for entry and completion.
+        """
         # Arrange
         limiter, _ = limiter_mock
 
@@ -380,36 +407,41 @@ class TestRateLimitedDecoratorObservability:
         # Assert
         assert_log_emitted(
             caplog.records,
-            "DEBUG",
-            [
-                "decorator entered",
+            level="DEBUG",
+            label="[RateLimited]",
+            required_fragments=[
+                "Decorator entered",
                 f"limiter={limiter_id}",
                 f"task_id={task_id}",
-                "func=",
                 "wrapped_function",
             ],
-            "should emit a debug log for the decorator entry with limiter id, task id, and func qualname",
+            message="should emit a debug log for the decorator entry"
+            " with limiter id, task id, and func qualname",
         )
         assert_log_emitted(
             caplog.records,
-            "DEBUG",
-            [
+            level="DEBUG",
+            label="[RateLimited]",
+            required_fragments=[
                 "execution completed",
                 f"limiter={limiter_id}",
                 f"task_id={task_id}",
-                "func=",
                 "wrapped_function",
             ],
-            "should emit a debug log for the task completion with limiter id, task id, and func qualname",
+            message="should emit a debug log for the task completion"
+            " with limiter id, task id, and func qualname",
         )
 
 
+@pytest.mark.behavior
 class TestGetDefaultLimiter:
     """Tests for the ``_get_default_limiter`` module-level helper."""
 
     @staticmethod
     def test_forwards_limiter_id_to_backend_get(limiter_id):
-        """Verify that ``_get_default_limiter`` passes the limiter_id argument to ``ThreadPoolRateLimiter.get``."""
+        """Verify that ``_get_default_limiter`` passes the
+        limiter_id argument to ``ThreadPoolRateLimiter.get``.
+        """
         # Act
         with patch(
             "redis_rate_limiter.backends.threading.ThreadPoolRateLimiter.get",
@@ -426,6 +458,7 @@ class TestGetDefaultLimiter:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.signature
 class TestRateLimitedSignatures:
     """Signature tests for ``rate_limited()`` default parameter values."""
 
@@ -433,7 +466,8 @@ class TestRateLimitedSignatures:
     def test_rate_limited_default_parameters():
         """Verify that ``limiter_id`` and ``get_limiter`` have the expected defaults.
 
-        Mutation target: ``limiter_id`` and ``get_limiter`` default values in ``rate_limited()``.
+        Mutation target: ``limiter_id`` and ``get_limiter``
+        default values in ``rate_limited()``.
         """
         # Arrange & Act
         sig = inspect.signature(rate_limited)

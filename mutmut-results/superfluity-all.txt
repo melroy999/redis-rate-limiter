@@ -1,0 +1,373 @@
+Superfluity Analysis: All test files
+============================================================
+Total classes analyzed: 124
+Total superfluous tests: 113
+
+test_asgi_limiter::TestASGIRateLimiter
+----------------------------------------
+  Tests: 9, Mutation kills: 561
+  Superfluous tests (5):
+    test_acquire_skips_refresh_within_interval (33 kills) subsumed by test_per_identity_isolation (142 kills)
+    test_acquire_refreshes_config_at_interval_boundary (33 kills) subsumed by test_per_identity_isolation (142 kills)
+    test_acquire_allowed_under_limit (46 kills) subsumed by test_per_identity_isolation (142 kills)
+    test_acquire_raises_on_script_failure (14 kills) subsumed by test_per_identity_isolation (142 kills)
+    test_acquire_returns_window_counters (42 kills) subsumed by test_per_identity_isolation (142 kills)
+
+test_async_distributed_lock::TestAsyncDistributedLock
+----------------------------------------
+  Tests: 8, Mutation kills: 468
+  Superfluous tests (1):
+    test_lock_has_unique_token (2 kills) subsumed by test_lock_only_releases_own_token (85 kills)
+
+test_async_drain_loop::TestAsyncDrainLoop
+----------------------------------------
+  Tests: 11, Mutation kills: 228
+  Superfluous tests (1):
+    test_wake_ignores_later_time (20 kills) subsumed by test_shutdown_completes_promptly (25 kills)
+
+test_async_drain_loop::TestAsyncDrainSignalSubscriber
+----------------------------------------
+  Tests: 4, Mutation kills: 40
+  Superfluous tests (1):
+    test_run_processes_message_in_main_task (13 kills) subsumed by test_subscriber_processes_remote_drain_signal (16 kills)
+
+test_async_task_lifecycle::TestAsyncExtendLease
+----------------------------------------
+  Tests: 2, Mutation kills: 107
+  Superfluous tests (1):
+    test_extend_lease_raises_key_error_for_unknown_task (21 kills) subsumed by test_extend_lease_succeeds_for_existing_task (86 kills)
+
+test_async_task_lifecycle::TestAsyncExtendLeaseObservability
+----------------------------------------
+  Tests: 2, Mutation kills: 127
+  Superfluous tests (1):
+    test_extend_lease_unknown_task_emits_debug_log (33 kills) subsumed by test_extend_lease_success_emits_debug_log (94 kills)
+
+test_async_task_lifecycle::TestAsyncTaskLifecycle
+----------------------------------------
+  Tests: 6, Mutation kills: 163
+  Superfluous tests (3):
+    test_lifecycle_triggers_consume_even_on_exception (13 kills) subsumed by test_lifecycle_removes_task_from_concurrency_set (83 kills)
+    test_lifecycle_triggers_consume (13 kills) subsumed by test_lifecycle_removes_task_from_concurrency_set (83 kills)
+    test_lifecycle_removes_active_marker (14 kills) subsumed by test_lifecycle_removes_task_from_concurrency_set (83 kills)
+
+test_async_task_lifecycle::TestAsyncTaskLifecycleImplementation
+----------------------------------------
+  Tests: 8, Mutation kills: 331
+  Superfluous tests (5):
+    test_heartbeat_failure_override_precedence[default_warn_override_kill] (65 kills) subsumed by test_task_lifecycle_passes_all_attributes (70 kills)
+    test_heartbeat_failure_override_precedence[default_kill_override_warn] (64 kills) subsumed by test_task_lifecycle_passes_all_attributes (70 kills)
+    test_lifecycle_handles_redis_failure_during_cleanup (7 kills) subsumed by test_lifecycle_with_multiple_concurrent_tasks (86 kills)
+    test_empty_task_id_skips_inflight_cleanup (11 kills) subsumed by test_lifecycle_with_multiple_concurrent_tasks (86 kills)
+    test_aexit_completes_within_timeout_bound (14 kills) subsumed by test_lifecycle_with_multiple_concurrent_tasks (86 kills)
+
+test_asyncio_limiter::TestAsyncIOTaskLimiter
+----------------------------------------
+  Tests: 10, Mutation kills: 2013
+  Superfluous tests (2):
+    test_schedule_task_returns_success (73 kills) subsumed by test_get_buffer_count_reflects_scheduled_tasks (812 kills)
+    test_has_local_capacity_respects_max_tasks (3 kills) subsumed by test_get_buffer_count_reflects_scheduled_tasks (812 kills)
+
+test_backend_health_monitor::TestAsyncHealthMonitor
+----------------------------------------
+  Tests: 9, Mutation kills: 63
+  Superfluous tests (4):
+    test_is_healthy_recovers_after_healthy_check (5 kills) subsumed by test_health_check_exception_transitions_to_unhealthy (7 kills)
+    test_is_healthy_reflects_unhealthy_state (5 kills) subsumed by test_health_check_exception_transitions_to_unhealthy (7 kills)
+    test_unhealthy_transition_emits_warning_log (9 kills) subsumed by test_exception_transition_emits_warning_log (10 kills)
+    test_is_healthy_defaults_to_true (2 kills) subsumed by test_healthy_to_healthy_emits_no_log (8 kills)
+
+test_backend_health_monitor::TestSyncHealthMonitor
+----------------------------------------
+  Tests: 9, Mutation kills: 63
+  Superfluous tests (4):
+    test_is_healthy_reflects_unhealthy_state (5 kills) subsumed by test_health_check_exception_transitions_to_unhealthy (7 kills)
+    test_is_healthy_recovers_after_healthy_check (5 kills) subsumed by test_health_check_exception_transitions_to_unhealthy (7 kills)
+    test_unhealthy_transition_emits_warning_log (9 kills) subsumed by test_exception_transition_emits_warning_log (10 kills)
+    test_is_healthy_defaults_to_true (2 kills) subsumed by test_healthy_to_healthy_emits_no_log (8 kills)
+
+test_celery_limiter::TestCeleryRateLimiter
+----------------------------------------
+  Tests: 14, Mutation kills: 705
+  Superfluous tests (3):
+    test_dispatch_task_custom_path_sends_data_as_list_arg (21 kills) subsumed by test_dispatch_task_use_executor_false_sends_custom_task (27 kills)
+    test_dispatch_task_send_task_failure_propagates (3 kills) subsumed by test_dispatch_task_missing_meta_uses_default_executor (14 kills)
+    test_enhanced_payload_structure (6 kills) subsumed by test_schedule_task_defaults_use_executor_to_true (233 kills)
+
+test_config_round_trip::TestConfigRoundTripProperties
+----------------------------------------
+  Tests: 2, Mutation kills: 48
+  Superfluous tests (1):
+    test_extra_keys_in_overrides_are_silently_ignored (14 kills) subsumed by test_persist_then_apply_preserves_all_fields (34 kills)
+
+test_contracts::TestThreadPoolContracts
+----------------------------------------
+  Tests: 14, Mutation kills: 1707
+  Superfluous tests (4):
+    test_execution_lock_context_manager_yields_boolean (47 kills) subsumed by test_execution_lock_default_timeout (50 kills)
+    test_consume_expired_field_is_boolean (160 kills) subsumed by test_consume_result_fields_have_distinct_values (348 kills)
+    test_schedule_task_returns_success_and_task_id (57 kills) subsumed by test_consume_result_fields_have_distinct_values (348 kills)
+    test_limiter_has_required_attributes (4 kills) subsumed by test_consume_result_fields_have_distinct_values (348 kills)
+
+test_decorator::TestRateLimitedDecorator
+----------------------------------------
+  Tests: 12, Mutation kills: 131
+  Superfluous tests (6):
+    test_decorator_propagates_wrapped_function_exception (11 kills) subsumed by test_decorator_pops_rate_limit_task_id_from_kwargs (12 kills)
+    test_decorator_uses_injected_limiter_resolver (13 kills) subsumed by test_decorator_uses_default_limiter_resolver (14 kills)
+    test_decorator_raises_when_task_id_missing (10 kills) subsumed by test_decorator_uses_default_limiter_resolver (14 kills)
+    test_raises_attribute_error_when_resolver_returns_none (8 kills) subsumed by test_decorator_resolves_limiter_id_from_kwargs (13 kills)
+    test_propagates_exception_from_lifecycle_enter (9 kills) subsumed by test_decorator_resolves_limiter_id_from_kwargs (13 kills)
+    test_decorator_resolves_limiter_id_from_argument (10 kills) subsumed by test_decorator_resolves_limiter_id_from_kwargs (13 kills)
+
+test_destructor_warning::TestAsyncDestructorWarning
+----------------------------------------
+  Tests: 6, Mutation kills: 94
+  Superfluous tests (1):
+    test_del_warning_category_is_resource_warning (18 kills) subsumed by test_del_warning_contains_shutdown_instruction (19 kills)
+
+test_destructor_warning::TestSyncDestructorWarning
+----------------------------------------
+  Tests: 6, Mutation kills: 94
+  Superfluous tests (1):
+    test_del_warning_category_is_resource_warning (18 kills) subsumed by test_del_warning_contains_limiter_id (19 kills)
+
+test_distributed_lock::TestAsyncContentionAwareCooldown
+----------------------------------------
+  Tests: 7, Mutation kills: 530
+  Superfluous tests (1):
+    test_cooldown_not_set_without_contention (34 kills) subsumed by test_cooldown_key_has_correct_ttl (81 kills)
+
+test_distributed_lock::TestDistributedLock
+----------------------------------------
+  Tests: 8, Mutation kills: 453
+  Superfluous tests (1):
+    test_lock_has_unique_token (2 kills) subsumed by test_lock_only_releases_own_token (77 kills)
+
+test_distributed_lock::TestSyncContentionAwareCooldown
+----------------------------------------
+  Tests: 7, Mutation kills: 579
+  Superfluous tests (1):
+    test_cooldown_not_set_without_contention (34 kills) subsumed by test_cooldown_key_has_correct_ttl (99 kills)
+
+test_drain::TestAsyncDrain
+----------------------------------------
+  Tests: 26, Mutation kills: 686
+  Superfluous tests (3):
+    test_drain_stops_when_buffer_empty (18 kills) subsumed by test_drain_skips_jitter_on_token_recovery_path (67 kills)
+    test_drain_handles_expired_task_without_dispatch (20 kills) subsumed by test_drain_stops_after_expired_task_with_remaining_tasks (26 kills)
+    test_drain_stops_when_concurrency_at_capacity (24 kills) subsumed by test_drain_concurrency_at_capacity_emits_debug_log (42 kills)
+
+test_drain::TestAsyncDrainDisabled
+----------------------------------------
+  Tests: 3, Mutation kills: 116
+  Superfluous tests (1):
+    test_shutdown_is_safe_when_drain_disabled (38 kills) subsumed by test_shutdown_twice_does_not_raise_when_drain_disabled (40 kills)
+
+test_drain::TestAsyncScheduleDrainDelegation
+----------------------------------------
+  Tests: 2, Mutation kills: 3
+  Superfluous tests (1):
+    test_schedule_drain_is_noop_when_drain_loop_is_none (1 kills) subsumed by test_schedule_drain_delegates_to_drain_loop_wake (2 kills)
+
+test_drain::TestSyncDrain
+----------------------------------------
+  Tests: 25, Mutation kills: 688
+  Superfluous tests (3):
+    test_drain_handles_expired_task_without_dispatch (20 kills) subsumed by test_drain_stops_after_expired_task_with_remaining_tasks (26 kills)
+    test_drain_stops_when_buffer_empty (18 kills) subsumed by test_drain_skips_jitter_on_token_recovery_path (67 kills)
+    test_drain_stops_when_concurrency_at_capacity (24 kills) subsumed by test_drain_concurrency_at_capacity_emits_debug_log (42 kills)
+
+test_drain_loop::TestDrainLoop
+----------------------------------------
+  Tests: 10, Mutation kills: 149
+  Superfluous tests (3):
+    test_shutdown_is_idempotent (8 kills) subsumed by test_wake_with_delay_fires_after_delay (22 kills)
+    test_wake_ignores_later_time (18 kills) subsumed by test_drain_loop_survives_drain_exception (20 kills)
+    test_wake_coalesces_to_sooner_time (18 kills) subsumed by test_wake_with_delay_fires_after_delay (22 kills)
+
+test_drain_loop::TestDrainSignalSubscriber
+----------------------------------------
+  Tests: 4, Mutation kills: 40
+  Superfluous tests (1):
+    test_run_processes_message_in_main_thread (13 kills) subsumed by test_subscriber_processes_remote_drain_signal (17 kills)
+
+test_importing::TestImportString
+----------------------------------------
+  Tests: 7, Mutation kills: 57
+  Superfluous tests (5):
+    test_import_string_raises_on_missing_attribute (12 kills) subsumed by test_import_string_resolves_valid_function (14 kills)
+    test_import_string_raises_on_invalid_module (7 kills) subsumed by test_import_string_raises_on_missing_attribute (12 kills)
+    test_import_string_raises_on_malformed_path[whitespace_padded] (7 kills) subsumed by test_import_string_raises_on_missing_attribute (12 kills)
+    test_import_string_raises_on_malformed_path[no_dot] (3 kills) subsumed by test_import_string_raises_type_error_for_non_callable (11 kills)
+    test_import_string_raises_on_malformed_path[empty_string] (3 kills) subsumed by test_import_string_raises_type_error_for_non_callable (11 kills)
+
+test_importing::TestResolveImportPath
+----------------------------------------
+  Tests: 12, Mutation kills: 254
+  Superfluous tests (5):
+    test_rejects_callable_without_qualname_attribute (9 kills) subsumed by test_rejects_functools_partial (10 kills)
+    test_rejects_callable_without_module_attribute (8 kills) subsumed by test_rejects_callable_with_absent_module_attribute (9 kills)
+    test_rejects_static_method_reference (18 kills) subsumed by test_rejects_nested_function (21 kills)
+    test_round_trip_with_import_string (37 kills) subsumed by test_resolves_module_level_class (40 kills)
+    test_resolves_module_level_function (37 kills) subsumed by test_resolves_module_level_class (40 kills)
+
+test_inflight_ttl::TestInflightTtlProperties
+----------------------------------------
+  Tests: 3, Mutation kills: 4
+  Superfluous tests (2):
+    test_ttl_is_monotonic_in_lease_duration (1 kills) subsumed by test_ttl_lower_bound_is_three (2 kills)
+    test_ttl_is_monotonic_in_window (1 kills) subsumed by test_ttl_lower_bound_is_three (2 kills)
+
+test_keys::TestByHeaderProperties
+----------------------------------------
+  Tests: 3, Mutation kills: 12
+  Superfluous tests (1):
+    test_absent_header_returns_none (2 kills) subsumed by test_case_insensitive_name_matching (5 kills)
+
+test_lua_script_infrastructure::TestScriptLoaderFallback
+----------------------------------------
+  Tests: 2, Mutation kills: 7
+  Superfluous tests (1):
+    test_load_lua_script_falls_back_to_second_package (1 kills) subsumed by test_load_lua_script_error_lists_all_packages_comma_separated (6 kills)
+
+test_metrics_callback::TestAsyncMetricsCallback
+----------------------------------------
+  Tests: 11, Mutation kills: 1107
+  Superfluous tests (1):
+    test_metrics_callback_none_by_default (84 kills) subsumed by test_callback_exception_does_not_break_consume (90 kills)
+
+test_metrics_callback::TestSyncMetricsCallback
+----------------------------------------
+  Tests: 11, Mutation kills: 1196
+  Superfluous tests (1):
+    test_metrics_callback_none_by_default (90 kills) subsumed by test_callback_exception_does_not_break_consume (96 kills)
+
+test_middleware::TestRateLimitMiddleware
+----------------------------------------
+  Tests: 12, Mutation kills: 1235
+  Superfluous tests (4):
+    test_allowed_response_includes_rate_limit_headers (98 kills) subsumed by test_wrap_send_header_values_reflect_acquire_result (105 kills)
+    test_non_http_scope_passes_through (8 kills) subsumed by test_blocked_response_includes_retry_after (285 kills)
+    test_key_func_none_bypasses_rate_limiting (9 kills) subsumed by test_blocked_response_includes_retry_after (285 kills)
+    test_fail_open_allows_on_error (16 kills) subsumed by test_blocked_response_includes_retry_after (285 kills)
+
+test_processpool_limiter::TestLocalCapacityGuard
+----------------------------------------
+  Tests: 4, Mutation kills: 32
+  Superfluous tests (1):
+    test_dispatch_task_increments_counter_and_callback_decrements (12 kills) subsumed by test_dispatch_task_increments_counter_additively (13 kills)
+
+test_processpool_limiter::TestProcessPoolRateLimiter
+----------------------------------------
+  Tests: 7, Mutation kills: 44
+  Superfluous tests (1):
+    test_dispatch_task_import_failure_propagates (1 kills) subsumed by test_dispatch_task_resolves_function_path (7 kills)
+
+test_prometheus::TestMetricRegistration
+----------------------------------------
+  Tests: 5, Mutation kills: 179
+  Superfluous tests (2):
+    test_all_expected_metric_names_are_registered (26 kills) subsumed by test_metric_descriptions_match_expected_text (51 kills)
+    test_gauge_label_names (38 kills) subsumed by test_consume_counter_label_names (45 kills)
+
+test_rate_limiter::TestAsyncRateLimiterImplementation
+----------------------------------------
+  Tests: 26, Mutation kills: 2975
+  Superfluous tests (1):
+    test_contention_key_follows_redis_key_convention (1 kills) subsumed by test_schedule_task_equal_priorities_coexist (170 kills)
+
+test_rate_limiter::TestRateLimiterContracts
+----------------------------------------
+  Tests: 15, Mutation kills: 1139
+  Superfluous tests (6):
+    test_execution_lock_context_manager_yields_boolean (47 kills) subsumed by test_execution_lock_default_timeout (50 kills)
+    test_consume_expired_field_is_boolean (152 kills) subsumed by test_consume_result_fields_have_distinct_values (232 kills)
+    test_schedule_multiple_different_tasks (8 kills) subsumed by test_consume_result_fields_have_distinct_values (232 kills)
+    test_schedule_task_returns_success_and_task_id (3 kills) subsumed by test_consume_result_fields_have_distinct_values (232 kills)
+    test_get_inflight_key_format (2 kills) subsumed by test_get_status_returns_dict_with_required_sections (47 kills)
+    test_limiter_has_required_attributes (4 kills) subsumed by test_consume_result_fields_have_distinct_values (232 kills)
+
+test_rate_limiter::TestSyncRateLimiterImplementation
+----------------------------------------
+  Tests: 26, Mutation kills: 3184
+  Superfluous tests (1):
+    test_contention_key_follows_redis_key_convention (1 kills) subsumed by test_get_buffer_count_reflects_scheduled_tasks (247 kills)
+
+test_rate_limiting::TestRateLimitingIntegration
+----------------------------------------
+  Tests: 12, Mutation kills: 4296
+  Superfluous tests (1):
+    test_empty_buffer_returns_no_task (98 kills) subsumed by test_accurate_telemetry_tracking[below_limit] (427 kills)
+
+test_rq_limiter::TestRQRateLimiter
+----------------------------------------
+  Tests: 14, Mutation kills: 660
+  Superfluous tests (4):
+    test_check_backend_health_returns_false_when_no_workers (3 kills) subsumed by test_check_backend_health_returns_false_when_queue_mismatch (4 kills)
+    test_dispatch_task_custom_path_sends_data_as_list_arg (21 kills) subsumed by test_dispatch_task_use_executor_false_enqueues_custom_task (27 kills)
+    test_dispatch_task_enqueue_failure_propagates (3 kills) subsumed by test_dispatch_task_missing_meta_uses_default_executor (12 kills)
+    test_enhanced_payload_structure (6 kills) subsumed by test_schedule_task_defaults_use_executor_to_true (208 kills)
+
+test_smart_jitter::TestSmartJitterProperties
+----------------------------------------
+  Tests: 2, Mutation kills: 12
+  Superfluous tests (1):
+    test_concurrency_pressure_is_monotonic (5 kills) subsumed by test_load_pressure_is_monotonic (7 kills)
+
+test_task_data_helpers::TestInflightTtl
+----------------------------------------
+  Tests: 2, Mutation kills: 50
+  Superfluous tests (1):
+    test_inflight_ttl_uses_per_task_override (24 kills) subsumed by test_inflight_ttl_defaults_to_limiter_max_age (26 kills)
+
+test_task_lifecycle::TestTaskLifecycle
+----------------------------------------
+  Tests: 6, Mutation kills: 157
+  Superfluous tests (3):
+    test_lifecycle_triggers_consume (10 kills) subsumed by test_lifecycle_removes_task_from_concurrency_set (92 kills)
+    test_lifecycle_removes_active_marker (10 kills) subsumed by test_lifecycle_removes_task_from_concurrency_set (92 kills)
+    test_lifecycle_triggers_consume_even_on_exception (10 kills) subsumed by test_lifecycle_removes_task_from_concurrency_set (92 kills)
+
+test_task_lifecycle::TestTaskLifecycleImplementation
+----------------------------------------
+  Tests: 5, Mutation kills: 219
+  Superfluous tests (3):
+    test_heartbeat_failure_override_precedence[default_kill_override_warn] (58 kills) subsumed by test_heartbeat_failure_override_precedence[default_warn_override_kill] (59 kills)
+    test_lifecycle_handles_redis_failure_during_cleanup (4 kills) subsumed by test_lifecycle_with_multiple_concurrent_tasks (90 kills)
+    test_empty_task_id_skips_inflight_cleanup (8 kills) subsumed by test_lifecycle_with_multiple_concurrent_tasks (90 kills)
+
+test_task_lifecycle::TestTaskLifecycleObservability
+----------------------------------------
+  Tests: 2, Mutation kills: 113
+  Superfluous tests (1):
+    test_empty_task_id_emits_removed_inflight_false (31 kills) subsumed by test_lifecycle_cleanup_emits_debug_log (82 kills)
+
+test_threadpool_limiter::TestLocalCapacityGuard
+----------------------------------------
+  Tests: 4, Mutation kills: 30
+  Superfluous tests (1):
+    test_dispatch_task_increments_and_decrements_counter (11 kills) subsumed by test_dispatch_task_increments_counter_additively (12 kills)
+
+test_threadpool_limiter::TestThreadPoolRateLimiter
+----------------------------------------
+  Tests: 4, Mutation kills: 15
+  Superfluous tests (1):
+    test_dispatch_task_import_failure_propagates (1 kills) subsumed by test_dispatch_task_resolves_function_path (5 kills)
+
+test_token_recovery_delay::TestAsyncTokenRecoveryDelay
+----------------------------------------
+  Tests: 8, Mutation kills: 76
+  Superfluous tests (3):
+    test_token_recovery_primary_path_exact_value (15 kills) subsumed by test_token_recovery_primary_path_fractional_wait_ms (16 kills)
+    test_token_recovery_fallback_when_val_current_equals_limit (2 kills) subsumed by test_token_recovery_fallback_when_val_previous_is_zero (4 kills)
+    test_token_recovery_returns_fractional_wait_when_decay_applies (11 kills) subsumed by test_token_recovery_primary_path_exact_value (15 kills)
+
+test_token_recovery_delay::TestSyncTokenRecoveryDelay
+----------------------------------------
+  Tests: 8, Mutation kills: 76
+  Superfluous tests (3):
+    test_token_recovery_primary_path_exact_value (15 kills) subsumed by test_token_recovery_primary_path_fractional_wait_ms (16 kills)
+    test_token_recovery_fallback_when_val_current_equals_limit (2 kills) subsumed by test_token_recovery_fallback_when_val_previous_is_zero (4 kills)
+    test_token_recovery_returns_fractional_wait_when_decay_applies (11 kills) subsumed by test_token_recovery_primary_path_exact_value (15 kills)
+

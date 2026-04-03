@@ -98,7 +98,7 @@ flowchart TD
 
 | Path | Description | Tested by |
 |------|-------------|-----------|
-| Wake(0) fires immediately | `wake(0)` causes prompt `drain()` call | `implementations/test_drain_loop::test_wake_fires_drain_immediately` |
+| Wake(0) fires immediately | `wake(0)` causes prompt `drain()` call | `implementations/test_drain_loop::test_wake_default_delay_is_zero` |
 | Wake(delay) fires after delay | `wake(delay)` waits before calling `drain()` | `implementations/test_drain_loop::test_wake_with_delay_fires_after_delay` |
 | Coalesce to sooner time | `wake(0)` overrides pending `wake(10)` | `implementations/test_drain_loop::test_wake_coalesces_to_sooner_time` |
 | Ignore later time | `wake(10)` does not override pending `wake(0)` | `implementations/test_drain_loop::test_wake_ignores_later_time` |
@@ -106,7 +106,7 @@ flowchart TD
 | Shutdown stops thread | `shutdown()` terminates the drain thread | `implementations/test_drain_loop::test_shutdown_stops_thread` |
 | Lazy start | Thread not created until first `wake()` | `implementations/test_drain_loop::test_lazy_start` |
 | Survives drain exception | Thread continues after `drain()` raises | `implementations/test_drain_loop::test_drain_loop_survives_drain_exception` |
-| Restarts dead thread | `_ensure_started()` detects and replaces dead thread | `implementations/test_drain_loop::test_ensure_started_restarts_dead_thread` |
+| Restarts dead thread | `_ensure_started()` detects and replaces dead thread | `implementations/test_async_drain_loop::test_ensure_started_restarts_dead_task` |
 
 ### Wake Coalescing
 
@@ -157,8 +157,7 @@ flowchart TD
 | Defers when paused | Skips drain, schedules resume | `implementations/test_drain::test_drain_defers_when_paused` |
 | Calls refresh_config | Config refresh before draining | `implementations/test_drain::test_drain_calls_refresh_config_if_available` |
 | Success resets counter | `_consecutive_drain_failures = 0` on success | `implementations/test_drain::test_drain_resets_failure_counter_on_success` |
-| Consume exception → backoff | Catches exception, schedules recovery | `implementations/test_drain::test_drain_handles_consume_exception` |
-| Dispatch exception → backoff | Catches exception, schedules recovery | `implementations/test_drain::test_drain_handles_dispatch_exception` |
+| Consume/dispatch exception → backoff | Catches exception, schedules recovery | `implementations/test_drain::test_drain_backoff_increases_with_consecutive_failures`, `implementations/test_drain::test_drain_consume_exception_emits_error_log` |
 | Escalating backoff | Delay doubles on consecutive failures | `implementations/test_drain::test_drain_backoff_increases_with_consecutive_failures` |
 | Double failure | Recovery scheduling also fails; log critical | `implementations/test_drain::test_drain_handles_double_failure_when_schedule_drain_also_fails` |
 

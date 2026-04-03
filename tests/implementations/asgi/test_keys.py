@@ -1,8 +1,11 @@
 """Tests for the ASGI key extraction functions."""
 
+import pytest
+
 from redis_rate_limiter.backends.asgi.keys import by_client_ip, by_header
 
 
+@pytest.mark.behavior
 class TestByClientIp:
     """Tests for the ``by_client_ip`` key function."""
 
@@ -55,6 +58,7 @@ class TestByClientIp:
         assert result is None, "empty client tuple should yield None"
 
 
+@pytest.mark.behavior
 class TestByHeader:
     """Tests for the ``by_header`` key function factory."""
 

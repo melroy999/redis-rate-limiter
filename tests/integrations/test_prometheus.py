@@ -14,6 +14,7 @@ import pytest
 from prometheus_client import CollectorRegistry
 
 from redis_rate_limiter.integrations.prometheus import PrometheusMetricsExporter
+from tests.helpers.utils import assert_log_emitted
 
 
 @pytest.fixture
@@ -28,6 +29,7 @@ def exporter(registry, limiter_id):
     return PrometheusMetricsExporter(limiter_id=limiter_id, registry=registry)
 
 
+@pytest.mark.behavior
 class TestConsumeCounters:
     """Verify that consume events increment the correct outcome counter."""
 
@@ -125,6 +127,7 @@ class TestConsumeCounters:
         assert value == 5.0, "success counter should accumulate to 5"
 
 
+@pytest.mark.behavior
 class TestConsumeGauges:
     """Verify that consume events update the point-in-time gauges."""
 
@@ -224,6 +227,7 @@ class TestConsumeGauges:
         ), "buffer depth gauge should reflect the latest value"
 
 
+@pytest.mark.behavior
 class TestScheduleCounter:
     """Verify that schedule events increment the correct counter."""
 
@@ -254,6 +258,7 @@ class TestScheduleCounter:
         assert value == 1.0, "scheduled=false counter should be incremented to 1"
 
 
+@pytest.mark.behavior
 class TestMetricRegistration:
     """Verify that Prometheus metrics are registered with the correct identity."""
 
@@ -379,12 +384,14 @@ class TestMetricRegistration:
                         break
 
 
+@pytest.mark.behavior
 class TestEdgeCases:
     """Verify graceful handling of unexpected inputs."""
 
     @staticmethod
     def test_unknown_event_is_ignored(exporter, registry, limiter_id, caplog):
-        """Verify that unknown event names do not raise exceptions and emit a debug log."""
+        """Verify that unknown event names do not raise
+        exceptions and emit a debug log."""
         # Act
         with caplog.at_level(
             logging.DEBUG, logger="redis_rate_limiter.integrations.prometheus"
@@ -393,18 +400,25 @@ class TestEdgeCases:
             exporter("unknown_event", {"key": "value"})
 
         # Assert
-        assert any(
-            record.levelname == "DEBUG"
-            and f"limiter={limiter_id}" in record.message
-            and "event=unknown_event" in record.message
-            for record in caplog.records
-        ), (
-            "should emit a debug log containing the limiter id and the unknown event name"
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label="[PrometheusMetricsExporter]",
+            required_fragments=[
+                f"limiter={limiter_id}",
+                "Ignoring unknown metrics event",
+                "event=unknown_event",
+            ],
+            message=(
+                "should emit a debug log containing the limiter "
+                "id and the unknown event name"
+            ),
         )
 
     @staticmethod
     def test_custom_registry_isolation():
-        """Verify that metrics registered on a custom registry do not appear on another."""
+        """Verify that metrics registered on a custom
+        registry do not appear on another."""
         # Arrange
         registry_a = CollectorRegistry()
         registry_b = CollectorRegistry()
@@ -448,8 +462,11 @@ class TestEdgeCases:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.signature
 class TestPrometheusExporterSignatures:
-    """Signature tests for ``PrometheusMetricsExporter.__init__`` default parameter values."""
+    """Signature tests for
+    ``PrometheusMetricsExporter.__init__`` default
+    parameter values."""
 
     @staticmethod
     def test_registry_default_is_none():

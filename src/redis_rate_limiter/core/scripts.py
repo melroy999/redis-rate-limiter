@@ -40,7 +40,7 @@ def load_lua_script(
             source = resources.files(resource_package).joinpath(script_name)
             content = source.read_text(encoding="utf-8")
             logger.debug(
-                "Lua script loaded: script=%s, package=%s.",
+                "[ScriptLoader] Lua script loaded: script=%s, package=%s.",
                 script_name,
                 resource_package,
             )

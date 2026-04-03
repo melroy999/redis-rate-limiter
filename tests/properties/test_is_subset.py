@@ -6,6 +6,7 @@ is_subset function with arbitrary nested dictionaries.
 No fixture dependencies (pure property-based tests).
 """
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -13,6 +14,7 @@ from tests.helpers.strategies import nested_dict
 from tests.helpers.utils import is_subset
 
 
+@pytest.mark.behavior
 class TestIsSubsetProperties:
     """Property-based tests verifying the mathematical invariants of is_subset."""
 
@@ -45,7 +47,8 @@ class TestIsSubsetProperties:
     def test_adding_keys_to_superset_preserves_subset_relation(
         base, extra_key, extra_value
     ):
-        """Property: adding keys to the superset does not break the subset relationship."""
+        """Property: adding keys to the superset does
+        not break the subset relationship."""
         from hypothesis import assume
 
         # Arrange
@@ -69,7 +72,8 @@ class TestIsSubsetProperties:
         value=st.one_of(st.integers(), st.text(max_size=20)),
     )
     def test_dict_with_extra_key_is_not_subset(key, value):
-        """Property: a dictionary containing a key absent from the superset is not a subset."""
+        """Property: a dictionary containing a key absent
+        from the superset is not a subset."""
         # Arrange
         subset = {key: value, "extra": "value"}
         superset = {key: value}
@@ -88,7 +92,8 @@ class TestIsSubsetProperties:
         value2=st.integers(),
     )
     def test_dict_with_different_value_is_not_subset(key, value1, value2):
-        """Property: if the values differ for the same key, the relation does not hold."""
+        """Property: if the values differ for the same
+        key, the relation does not hold."""
         # Arrange
         # Ensure that the values are actually different
         if value1 == value2:

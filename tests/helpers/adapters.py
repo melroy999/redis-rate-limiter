@@ -1,22 +1,12 @@
 """Adapters for running unified async tests against sync implementations.
 
 These adapters wrap synchronous rate limiters, distributed locks, and task
-lifecycle managers so that async tests can ``await`` their methods. The
-underlying sync Redis calls block the event loop briefly, but this is
-acceptable in a test context where no other async work is running concurrently.
+lifecycle managers so that async tests can ``await`` their methods.
 """
 
 
 class SyncToAsyncLimiterAdapter:
-    """Wraps a sync ``AbstractDistributedRateLimiter`` as an async-compatible limiter.
-
-    Async tests can ``await`` the adapter's methods, which delegate to the
-    underlying synchronous implementation. Attribute access for properties not
-    explicitly wrapped (e.g., ``id``, ``limit``, ``buffer_key``) falls through
-    to the inner object via ``__getattr__``. Attribute writes are proxied to
-    the inner object via ``__setattr__`` so that tests can mutate limiter
-    state (e.g., ``limiter.window = 1.0``) transparently.
-    """
+    """Wraps a sync rate limiter so async tests can ``await`` its methods."""
 
     def __init__(self, inner):
         super().__setattr__("_inner", inner)
@@ -64,11 +54,7 @@ class SyncToAsyncLimiterAdapter:
 
 
 class SyncToAsyncLockAdapter:
-    """Wraps a sync ``DistributedLock`` as an async context manager.
-
-    The sync ``__enter__``/``__exit__`` calls are delegated from
-    ``__aenter__``/``__aexit__`` so that ``async with`` works transparently.
-    """
+    """Wraps a sync ``DistributedLock`` so async tests can use ``async with``."""
 
     def __init__(self, inner):
         self._inner = inner
@@ -84,12 +70,7 @@ class SyncToAsyncLockAdapter:
 
 
 class SyncToAsyncLifecycleAdapter:
-    """Wraps a sync ``TaskLifecycle`` as an async context manager.
-
-    The sync ``__enter__``/``__exit__`` calls are delegated from
-    ``__aenter__``/``__aexit__`` so that ``async with`` works transparently
-    in unified lifecycle contract tests.
-    """
+    """Wraps a sync ``TaskLifecycle`` so async tests can use ``async with``."""
 
     def __init__(self, inner):
         self._inner = inner

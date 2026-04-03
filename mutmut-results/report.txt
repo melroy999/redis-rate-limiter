@@ -1,0 +1,419 @@
+Mutation Testing Report
+============================================================
+Score: 97.68% (4467/4573 killed)
+
+  Killed:      4467
+  Survived:     104
+  Timeout:        2
+  Suspicious:     0
+  No tests:       0
+
+Classification (non-killed mutants)
+------------------------------------------------------------
+  Score 0 (cosmetic):    7
+  Score 1 (argument):    4
+  Score 2 (logic):   83
+  Score 3 (fork-immune):    0
+  Known benign:          12
+
+--- SCORE 2: LOGIC (needs tests) (81) ---
+  [sync/async mirror] DistributedRateLimiter.__del____mutmut_13
+    async_limiters.AbstractAsyncDistributedRateLimiter.__del____mutmut_13
+    limiters.AbstractDistributedRateLimiter.__del____mutmut_13
+    False  ->  None
+
+  [sync/async mirror] DistributedRateLimiter.__del____mutmut_24
+    async_limiters.AbstractAsyncDistributedRateLimiter.__del____mutmut_24
+    limiters.AbstractDistributedRateLimiter.__del____mutmut_24
+    "call await shutdown() to stop background tasks",  ->  "XXcall await shutdown() to stop background tasksXX",
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_148
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_148
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_148
+    0  ->  1
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_166
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_166
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_166
+    <=  ->  <
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_167
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_167
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_167
+    0  ->  1
+
+  [sync/async mirror] DistributedRateLimiter._drain_inner__mutmut_195
+    async_limiters.AbstractAsyncDistributedRateLimiter._drain_inner__mutmut_195
+    limiters.AbstractDistributedRateLimiter._drain_inner__mutmut_195
+    3  ->  4
+
+  [sync/async mirror] DistributedRateLimiter.consume__mutmut_77
+    async_limiters.AbstractAsyncDistributedRateLimiter.consume__mutmut_77
+    limiters.AbstractDistributedRateLimiter.consume__mutmut_77
+    task_id = consume_result["task"]["id"] if consume_result["task"] else None  ->  task_id = None
+
+  [sync/async mirror] DistributedRateLimiter.consume__mutmut_89
+    async_limiters.AbstractAsyncDistributedRateLimiter.consume__mutmut_89
+    limiters.AbstractDistributedRateLimiter.consume__mutmut_89
+    task_id  ->  None
+
+  [sync/async mirror] DistributedRateLimiter.drain__mutmut_14
+    async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_14
+    limiters.AbstractDistributedRateLimiter.drain__mutmut_14
+    <  ->  <=
+
+  [sync/async mirror] DistributedRateLimiter.drain__mutmut_16
+    async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_16
+    limiters.AbstractDistributedRateLimiter.drain__mutmut_16
+    -  ->  +
+
+  [sync/async mirror] DistributedRateLimiter.schedule_task__mutmut_6
+    async_limiters.AbstractAsyncDistributedRateLimiter.schedule_task__mutmut_6
+    limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_6
+    func_path  ->  None
+
+  [sync/async mirror] BackendHealthMonitor.__init____mutmut_6
+    async_limiters.AsyncBackendHealthMonitor.__init____mutmut_6
+    limiters.BackendHealthMonitor.__init____mutmut_6
+    self._task: asyncio.Task[None] | None = None  ->  self._task: asyncio.Task[None] | None = ""
+
+  [sync/async mirror] DistributedLock.__init____mutmut_15
+    async_limiters.AsyncDistributedLock.__init____mutmut_15
+    limiters.DistributedLock.__init____mutmut_15
+    self._cooldown_key = f"{lock_key}:cd:{worker_id}" if worker_id else ""  ->  self._cooldown_key = f"{lock_key}:cd:{worker_id}" if worker_id else "XXXX"
+
+  [sync/async mirror] DistributedLock.__init____mutmut_21
+    async_limiters.AsyncDistributedLock.__init____mutmut_21
+    limiters.DistributedLock.__init____mutmut_21
+    0  ->  1
+
+  [sync/async mirror] DrainLoop.__init____mutmut_4
+    async_limiters.AsyncDrainLoop.__init____mutmut_4
+    limiters.DrainLoop.__init____mutmut_4
+    self._lock  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_55
+    self  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_56
+    float(self.lease_duration)  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.schedule_task__mutmut_108
+    task_id  ->  None
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_47
+    "enabled" if self.metrics_callback else "disabled",  ->  "XXenabledXX" if self.metrics_callback else "disabled",
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_48
+    "enabled" if self.metrics_callback else "disabled",  ->  "ENABLED" if self.metrics_callback else "disabled",
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_51
+    "enabled" if self._backend_health_monitor else "disabled",  ->  "XXenabledXX" if self._backend_health_monitor else "disabled",
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.start__mutmut_52
+    "enabled" if self._backend_health_monitor else "disabled",  ->  "ENABLED" if self._backend_health_monitor else "disabled",
+
+  async_limiters.AsyncBackendHealthMonitor.shutdown__mutmut_1
+    and  ->  or
+
+  async_limiters.AsyncBackendHealthMonitor.shutdown__mutmut_2
+    is not  ->  is
+
+  async_limiters.AsyncBackendHealthMonitor.shutdown__mutmut_3
+    if self._task is not None and not self._task.done():  ->  if self._task is not None and self._task.done():
+
+  async_limiters.AsyncDrainLoop.__init____mutmut_2
+    asyncio.Lock()  ->  None
+
+  async_limiters.AsyncDrainLoop.shutdown__mutmut_10
+    5.0  ->  6.0
+
+  async_limiters.AsyncDrainLoop.shutdown__mutmut_7
+    5.0  ->  None
+
+  async_limiters.AsyncDrainSignalSubscriber._run__mutmut_19
+    sender_id.decode("utf-8")  ->  None
+
+  async_limiters.AsyncDrainSignalSubscriber.shutdown__mutmut_5
+    if self._task is not None and not self._task.done():  ->  if self._task is not None and self._task.done():
+
+  async_limiters.AsyncTaskLifecycle.__aexit____mutmut_14
+    0  ->  None
+
+  async_limiters.AsyncTaskLifecycle._heartbeat_loop__mutmut_22
+    False  ->  None
+
+  limiter.AsyncIOTaskLimiter._dispatch_task__mutmut_24
+    task  ->  None
+
+  limiter.AsyncIOTaskLimiter.shutdown__mutmut_12
+    await asyncio.gather(*self._active_tasks, return_exceptions=True)  ->  await asyncio.gather(return_exceptions=True)
+
+  limiter.DramatiqRateLimiter.__init____mutmut_6
+    broker  ->  None
+
+  limiter.DramatiqRateLimiter._configure_backend__mutmut_11
+    broker  ->  None
+
+  limiter.DramatiqRateLimiter._dispatch_task__mutmut_42
+    func_path  ->  None
+
+  limiter.DramatiqRateLimiter.schedule_task__mutmut_1
+    100  ->  101
+
+  limiter.HueyRateLimiter.__init____mutmut_6
+    huey  ->  None
+
+  limiter.HueyRateLimiter._dispatch_task__mutmut_42
+    func_path  ->  None
+
+  limiter.HueyRateLimiter.schedule_task__mutmut_1
+    100  ->  101
+
+  limiter.RQRateLimiter.schedule_task__mutmut_1
+    100  ->  101
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_110
+    self  ->  None
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_111
+    float(self.lease_duration)  ->  None
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_85
+    "enabled" if self.metrics_callback else "disabled",  ->  "XXenabledXX" if self.metrics_callback else "disabled",
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_86
+    "enabled" if self.metrics_callback else "disabled",  ->  "ENABLED" if self.metrics_callback else "disabled",
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_89
+    "enabled" if has_health_monitor else "disabled",  ->  "XXenabledXX" if has_health_monitor else "disabled",
+
+  limiters.AbstractDistributedRateLimiter.__init____mutmut_90
+    "enabled" if has_health_monitor else "disabled",  ->  "ENABLED" if has_health_monitor else "disabled",
+
+  limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_114
+    task_id  ->  None
+
+  limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_18
+    max_age  ->  None
+
+  limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_49
+    inflight_key  ->  None
+
+  limiters.BackendHealthMonitor.shutdown__mutmut_2
+    5.0  ->  None
+
+  limiters.BackendHealthMonitor.shutdown__mutmut_3
+    5.0  ->  6.0
+
+  limiters.BackendHealthMonitor.start__mutmut_3
+    True  ->  None
+
+  limiters.BackendHealthMonitor.start__mutmut_5
+    self._thread = Thread(target=self._run, daemon=True)  ->  self._thread = Thread(target=self._run, )
+
+  limiters.BackendHealthMonitor.start__mutmut_6
+    True  ->  False
+
+  limiters.DistributedRateLimiterMixin.__init____mutmut_15
+    <  ->  <=
+
+  limiters.DistributedRateLimiterMixin.__init____mutmut_16
+    1  ->  2
+
+  limiters.TaskLifecycle.__exit____mutmut_9
+    0  ->  None
+
+  limiters.TaskLifecycle._heartbeat_loop__mutmut_19
+    False  ->  None
+
+  limiters.TaskLifecycle._heartbeat_loop__mutmut_37
+    break  ->  return
+
+  managed.AsyncManagedRateLimiter.get__mutmut_36
+    instance  ->  None
+
+  managed.SyncManagedRateLimiter.get__mutmut_38
+    instance  ->  None
+
+  x_load_lua_script__mutmut_6
+    "utf-8"  ->  None
+
+  x_load_lua_script__mutmut_8
+    content = source.read_text(encoding="utf-8")  ->  content = source.read_text(encoding="UTF-8")
+
+  x_register_worker__mutmut_6
+    if getattr(generic_rate_limited_worker, "huey", None) is huey_instance:  ->  if getattr(generic_rate_limited_worker, "huey", ) is huey_instance:
+
+--- SCORE 1: ARGUMENT (4) ---
+  [sync/async mirror] DistributedRateLimiter.__init____mutmut_47
+    async_limiters.AbstractAsyncDistributedRateLimiter.__init____mutmut_47
+    limiters.AbstractDistributedRateLimiter.__init____mutmut_47
+    removed self._drain_signal_subscriber: AsyncDrainSignalSubscriber | None = ( argument
+
+  managed.AsyncManagedRateLimiter.get__mutmut_27
+    removed **cls._get_instance_context() argument
+
+  managed.SyncManagedRateLimiter.get__mutmut_28
+    removed **cls._get_instance_context() argument
+
+--- SCORE 0: COSMETIC (7) ---
+  [sync/async mirror] DistributedRateLimiter.drain__mutmut_62
+    async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_62
+    limiters.AbstractDistributedRateLimiter.drain__mutmut_62
+    exc_info boolean swap (cosmetic)
+
+  [sync/async mirror] DistributedRateLimiter.drain__mutmut_76
+    async_limiters.AbstractAsyncDistributedRateLimiter.drain__mutmut_76
+    limiters.AbstractDistributedRateLimiter.drain__mutmut_76
+    exc_info boolean swap (cosmetic)
+
+  [sync/async mirror] BackendHealthMonitor._run_once__mutmut_11
+    async_limiters.AsyncBackendHealthMonitor._run_once__mutmut_11
+    limiters.BackendHealthMonitor._run_once__mutmut_11
+    exc_info boolean swap (cosmetic)
+
+  async_limiters.AsyncDrainSignalSubscriber._run__mutmut_22
+    uppercase on error message
+
+--- TIMEOUTS (2) ---
+  limiters.DrainSignalSubscriber.shutdown__mutmut_1
+  limiters.DrainSignalSubscriber.shutdown__mutmut_2
+
+--- KNOWN BENIGN (12) ---
+  async_limiters.AsyncDrainLoop._wake_async__mutmut_4
+    <  ->  <=
+    reason: when target equals _next_wake, the assignment writes the same value back; the wake time does not change
+
+  async_limiters.AsyncDrainLoop._run__mutmut_11
+    >  ->  >=
+    reason: when remaining equals zero, wait(timeout=0) returns immediately and the next iteration falls through to drain unchanged
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.schedule_task__mutmut_41
+    if not await self.redis.set(inflight_key, "1", ex=inflight_ttl, nx=True):  ->  if not await self.redis.set(inflight_key, "XX1XX", ex=inflight_ttl, nx=True):
+    reason: the inflight key value is never read back; only the key's existence matters (NX flag). any non-empty string is equivalent to "1"
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.schedule_task__mutmut_85
+    removed max_age or "" argument
+    reason: passed to the Lua script as ARGV[3]; tonumber("") and tonumber("XXXX") both return nil, so the max_age override branch is skipped identically
+
+  async_limiters.AbstractAsyncDistributedRateLimiter.schedule_task__mutmut_90
+    max_age or "",  ->  max_age or "XXXX",
+    reason: passed to the Lua script as ARGV[3]; tonumber("") and tonumber("XXXX") both return nil, so the max_age override branch is skipped identically
+
+  limiters.TaskLifecycle.__init____mutmut_9
+    self._thread: Optional[Thread] = None  ->  self._thread: Optional[Thread] = ""
+    reason: both None and empty string are falsy; the only check is `if self._thread and self._thread.is_alive()` which short-circuits identically for both
+
+  limiters.DrainLoop.wake__mutmut_6
+    <  ->  <=
+    reason: when target equals _next_wake, the assignment writes the same value back; the wake time does not change
+
+  limiters.DrainLoop._run__mutmut_8
+    >  ->  >=
+    reason: when remaining equals zero, wait(timeout=0) returns immediately and the next iteration falls through to drain unchanged
+
+  limiters.DistributedRateLimiterMixin._calculate_token_recovery_delay__mutmut_7
+    >=  ->  >
+    reason: when val_current equals limit, the primary decay formula computes reset_in_ms / 1000.0, identical to the fallback return value
+
+  limiters.DistributedRateLimiterMixin._calculate_token_recovery_delay__mutmut_20
+    <=  ->  <
+    reason: when wait_ms equals zero, the fallthrough path returns 0 / 1000.0 = 0.0, identical to the early return of 0.0
+
+  limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_43
+    if not self.redis.set(inflight_key, "1", ex=inflight_ttl, nx=True):  ->  if not self.redis.set(inflight_key, "XX1XX", ex=inflight_ttl, nx=True):
+    reason: the inflight key value is never read back; only the key's existence matters (NX flag). any non-empty string is equivalent to "1"
+
+  limiters.AbstractDistributedRateLimiter.schedule_task__mutmut_96
+    max_age or "",  ->  max_age or "XXXX",
+    reason: passed to the Lua script as ARGV[3]; tonumber("") and tonumber("XXXX") both return nil, so the max_age override branch is skipped identically
+
+Killed-By Summary
+------------------------------------------------------------
+  Mutants with kill data: 4573
+  Killing tests:         561
+  Zero-kill tests:       373 of 923
+
+  Top 20 killing tests:
+      87 kills ( 87 unique)  tests/implementations/test_get_status.py::TestSyncGetStatus::test_get_status_reflects_rate_limit_state
+      71 kills ( 71 unique)  tests/integrations/test_prometheus.py::TestEdgeCases::test_custom_registry_isolation
+      59 kills ( 59 unique)  tests/implementations/test_drain.py::TestSyncDrainObservability::test_drain_rate_limited_emits_info_log
+      55 kills ( 55 unique)  tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterImplementation::test_consume_denied_result_sets_correct_flags
+      46 kills ( 46 unique)  tests/implementations/test_drain.py::TestSyncDrainObservability::test_drain_dispatch_emits_expected_logs
+      41 kills ( 41 unique)  tests/implementations/asgi/test_asgi_limiter.py::TestASGIRateLimiter::test_acquire_returns_remaining_count
+      40 kills ( 40 unique)  tests/implementations/test_limiter_config.py::TestAsyncInitializationLog::test_start_emits_initialization_info_log
+      40 kills ( 40 unique)  tests/implementations/test_metrics_callback.py::TestAsyncMetricsCallback::test_consume_emits_attempt_and_result_debug_logs
+      40 kills ( 40 unique)  tests/implementations/test_importing.py::TestResolveImportPath::test_resolves_module_level_class
+      40 kills ( 40 unique)  tests/implementations/test_drain.py::TestSyncDrainObservability::test_drain_buffer_empty_emits_debug_log
+      40 kills ( 40 unique)  tests/implementations/test_limiter_config.py::TestSyncInitializationLog::test_start_emits_initialization_info_log
+      38 kills ( 38 unique)  tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterObservability::test_schedule_single_task_emits_expected_logs
+      37 kills ( 37 unique)  tests/implementations/test_rate_limiter.py::TestAsyncRateLimiterImplementation::test_payload_serialization_preserves_data[simple_dict]
+      36 kills ( 36 unique)  tests/implementations/test_distributed_lock.py::TestAsyncContentionAwareCooldown::test_cooldown_set_when_contention_detected
+      35 kills ( 35 unique)  tests/implementations/test_async_task_lifecycle.py::TestAsyncExtendLeaseObservability::test_extend_lease_success_emits_debug_log
+      35 kills ( 35 unique)  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_returns_false_when_version_hash_missing
+      35 kills ( 35 unique)  tests/implementations/test_limiter_config.py::TestScheduleTaskPriorityBoundaryDecisions::test_accepts_negative_priority
+      35 kills ( 35 unique)  tests/implementations/test_task_lifecycle.py::TestExtendLeaseObservability::test_extend_lease_success_emits_debug_log
+      35 kills ( 35 unique)  tests/integrations/test_prometheus.py::TestMetricRegistration::test_metric_descriptions_match_expected_text
+      34 kills ( 34 unique)  tests/implementations/test_drain.py::TestAsyncDrainBehavior::test_drain_dispatches_last_task_without_follow_up
+
+Partial Data (SIGXCPU)
+------------------------------------------------------------
+  2 mutants with partial data  (process killed before test completed)
+    limiters.DrainSignalSubscriber.shutdown__mutmut_1
+    limiters.DrainSignalSubscriber.shutdown__mutmut_2
+
+Test Effectiveness (kills per second of test runtime)
+------------------------------------------------------------
+  Top 10 most efficient:
+    226350.6 k/s    40 kills  0.000s  tests/implementations/test_importing.py::TestResolveImportPath::test_resolves_module_level_class
+    189854.8 k/s    71 kills  0.000s  tests/integrations/test_prometheus.py::TestEdgeCases::test_custom_registry_isolation
+    74859.1 k/s    35 kills  0.001s  tests/integrations/test_prometheus.py::TestMetricRegistration::test_metric_descriptions_match_expected_text
+    38314.6 k/s    87 kills  0.002s  tests/implementations/test_get_status.py::TestSyncGetStatus::test_get_status_reflects_rate_limit_state
+    37253.2 k/s    11 kills  0.000s  tests/implementations/test_limiter_config.py::TestBaseConfigBoundaryDecisions::test_rejects_negative_window
+    35208.9 k/s    35 kills  0.001s  tests/implementations/test_rate_limiter_class_api.py::TestRefreshConfig::test_refresh_config_returns_false_when_version_hash_missing
+    33773.3 k/s    25 kills  0.001s  tests/implementations/test_async_drain_loop.py::TestAsyncDrainLoop::test_shutdown_completes_promptly
+    32835.5 k/s    16 kills  0.001s  tests/integrations/test_prometheus.py::TestScheduleCounter::test_scheduled_false
+    30779.1 k/s    11 kills  0.000s  tests/implementations/test_importing.py::TestImportStringObservability::test_import_string_emits_debug_log_for_resolved_import
+    26112.3 k/s    59 kills  0.002s  tests/implementations/test_drain.py::TestSyncDrainObservability::test_drain_rate_limited_emits_info_log
+
+Per-File Survival Rates
+------------------------------------------------------------
+    3.1%   45 survived    0 no tests  1510 total  src/redis_rate_limiter/core/limiters.py
+    3.2%   42 survived    0 no tests  1298 total  src/redis_rate_limiter/core/async_limiters.py
+    1.0%    4 survived    0 no tests   383 total  src/redis_rate_limiter/core/managed.py
+    0.0%    0 survived    0 no tests   176 total  src/redis_rate_limiter/backends/asgi/middleware.py
+    0.0%    0 survived    0 no tests   162 total  src/redis_rate_limiter/core/base.py
+    0.0%    0 survived    0 no tests   148 total  src/redis_rate_limiter/integrations/prometheus.py
+    0.0%    0 survived    0 no tests   113 total  src/redis_rate_limiter/backends/celery/limiter.py
+    0.9%    1 survived    0 no tests   109 total  src/redis_rate_limiter/backends/rq/limiter.py
+    3.0%    3 survived    0 no tests   100 total  src/redis_rate_limiter/backends/huey/limiter.py
+    4.0%    4 survived    0 no tests   100 total  src/redis_rate_limiter/backends/dramatiq/limiter.py
+    2.4%    2 survived    0 no tests    85 total  src/redis_rate_limiter/backends/asyncio/limiter.py
+    0.0%    0 survived    0 no tests    75 total  src/redis_rate_limiter/backends/asgi/limiter.py
+    0.0%    0 survived    0 no tests    74 total  src/redis_rate_limiter/core/importing.py
+    0.0%    0 survived    0 no tests    66 total  src/redis_rate_limiter/backends/processpool/limiter.py
+    0.0%    0 survived    0 no tests    58 total  src/redis_rate_limiter/backends/threading/limiter.py
+    0.0%    0 survived    0 no tests    45 total  src/redis_rate_limiter/core/decorators.py
+    9.5%    2 survived    0 no tests    21 total  src/redis_rate_limiter/core/scripts.py
+    6.7%    1 survived    0 no tests    15 total  src/redis_rate_limiter/backends/huey/tasks/worker.py
+    0.0%    0 survived    0 no tests    13 total  src/redis_rate_limiter/backends/asgi/keys.py
+    0.0%    0 survived    0 no tests    11 total  src/redis_rate_limiter/backends/rq/tasks/worker.py
+    0.0%    0 survived    0 no tests    11 total  src/redis_rate_limiter/backends/celery/tasks/worker.py
+
+Mutation Type Distribution (non-killed)
+------------------------------------------------------------
+  1661 total   34 survived  value_to_none
+   816 total    4 survived  argument_removal
+   497 total    8 survived  string_xx_wrap
+   484 total    6 survived  string_uppercase
+   396 total    9 survived  unknown
+   245 total    9 survived  operator_swap
+   183 total   14 survived  numeric_increment
+   154 total    0 survived  string_lowercase
+    84 total    7 survived  boolean_swap
+    30 total    0 survived  unary_removal
+     8 total    0 survived  augmented_assignment
+     6 total    0 survived  default_param
+     5 total    1 survived  keyword_swap
+     4 total    0 survived  string_method_swap

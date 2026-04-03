@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 import signal
 import time
@@ -109,14 +110,14 @@ class AsyncDistributedLock:
 
         if self.acquired:
             logger.debug(
-                "Dispatch lock acquired (async): key=%s, token=%s, timeout_ms=%d.",
+                "[AsyncDistributedLock] Dispatch lock acquired: key=%s, token=%s, timeout_ms=%d.",
                 self.lock_key,
                 self.token,
                 self.timeout_ms,
             )
         else:
             logger.debug(
-                "Dispatch lock contended (async): key=%s.",
+                "[AsyncDistributedLock] Dispatch lock contended: key=%s.",
                 self.lock_key,
             )
         return bool(self.acquired)
@@ -151,13 +152,13 @@ class AsyncDistributedLock:
 
             if result:
                 logger.debug(
-                    "Dispatch lock released (async): key=%s, token=%s.",
+                    "[AsyncDistributedLock] Dispatch lock released: key=%s, token=%s.",
                     self.lock_key,
                     self.token,
                 )
             else:
                 logger.debug(
-                    "Dispatch lock already expired before release (async): key=%s, token=%s.",
+                    "[AsyncDistributedLock] Dispatch lock already expired before release: key=%s, token=%s.",
                     self.lock_key,
                     self.token,
                 )
@@ -212,7 +213,7 @@ class AsyncTaskLifecycle:
 
                 if not self.is_healthy:
                     logger.info(
-                        "Heartbeat connection restored for task %s on limiter %s.",
+                        "[AsyncTaskLifecycle] Heartbeat connection restored for task %s on limiter %s.",
                         self.task_id,
                         self.limiter.id,
                     )
@@ -222,7 +223,7 @@ class AsyncTaskLifecycle:
 
                 if self.on_failure_action == "kill":
                     logger.critical(
-                        "Heartbeat failed for task %s: %s, terminating worker.",
+                        "[AsyncTaskLifecycle] Heartbeat failed for task %s: %s, terminating worker.",
                         self.task_id,
                         e,
                     )
@@ -230,7 +231,7 @@ class AsyncTaskLifecycle:
                     return
                 else:
                     logger.critical(
-                        "Heartbeat failed for task %s: %s, flagged as unhealthy.",
+                        "[AsyncTaskLifecycle] Heartbeat failed for task %s: %s, flagged as unhealthy.",
                         self.task_id,
                         e,
                     )
@@ -239,7 +240,7 @@ class AsyncTaskLifecycle:
         """Start the heartbeat task."""
         self._task = asyncio.create_task(self._heartbeat_loop())
         logger.debug(
-            "Task lifecycle entered (async): limiter=%s, task_id=%s, heartbeat_interval_s=%.3f.",
+            "[AsyncTaskLifecycle] Task lifecycle entered: limiter=%s, task_id=%s, heartbeat_interval_s=%.3f.",
             self.limiter.id,
             self.task_id,
             self.interval,
@@ -270,7 +271,7 @@ class AsyncTaskLifecycle:
                 # fmt: on
 
             logger.debug(
-                "Concurrency slot released and inflight key cleared (async): limiter=%s, task_id=%s, removed_concurrency=%s, removed_inflight=%s.",
+                "[AsyncTaskLifecycle] Concurrency slot released and inflight key cleared: limiter=%s, task_id=%s, removed_concurrency=%s, removed_inflight=%s.",
                 self.limiter.id,
                 self.task_id,
                 removed_concurrency == 1,
@@ -278,7 +279,7 @@ class AsyncTaskLifecycle:
             )
         finally:
             logger.debug(
-                "Task lifecycle exited, triggering follow-up consume (async): limiter=%s, task_id=%s.",
+                "[AsyncTaskLifecycle] Task lifecycle exited, triggering follow-up consume: limiter=%s, task_id=%s.",
                 self.limiter.id,
                 self.task_id,
             )
@@ -374,7 +375,7 @@ class AsyncDrainLoop:
                 await self._limiter.drain()
             except Exception:
                 logger.exception(
-                    "Unhandled exception escaped drain() in AsyncDrainLoop: limiter=%s.",
+                    "[AsyncDrainLoop] Unhandled exception escaped drain(): limiter=%s.",
                     self._limiter.id,
                 )
 
@@ -415,7 +416,7 @@ class AsyncDrainSignalSubscriber:
                 if self._shutdown:
                     return
                 logger.exception(
-                    "Drain signal subscriber error (async): limiter=%s.",
+                    "[AsyncDrainSignalSubscriber] Drain signal subscriber error: limiter=%s.",
                     self._limiter.id,
                 )
                 await asyncio.sleep(1.0)
@@ -428,6 +429,81 @@ class AsyncDrainSignalSubscriber:
             await self._pubsub.aclose()
         except Exception:
             pass
+        if self._task is not None and not self._task.done():
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+
+
+class AsyncBackendHealthMonitor:
+    """Periodically checks whether the execution backend is operational (async).
+
+    Mirrors ``BackendHealthMonitor`` from ``limiters.py`` using
+    ``asyncio.create_task()`` and ``asyncio.Event``.
+    """
+
+    def __init__(
+        self,
+        limiter: AbstractAsyncDistributedRateLimiter,
+        interval: float,
+    ) -> None:
+        self._limiter = limiter
+        self._interval = interval
+        self._healthy = True
+        self._shutdown_event = asyncio.Event()
+        self._task: asyncio.Task[None] | None = None
+
+    @property
+    def is_healthy(self) -> bool:
+        return self._healthy
+
+    def start(self) -> None:
+        self._task = asyncio.create_task(self._run())
+
+    async def _run(self) -> None:
+        while not self._shutdown_event.is_set():
+            try:
+                await asyncio.wait_for(
+                    self._shutdown_event.wait(), timeout=self._interval
+                )
+            except asyncio.TimeoutError:
+                pass
+            if not self._shutdown_event.is_set():
+                await self._run_once()
+
+    async def _run_once(self) -> None:
+        try:
+            healthy = await self._limiter._check_backend_health()
+        except Exception:
+            logger.debug(
+                "[AsyncBackendHealthMonitor] Backend health check raised an exception: limiter=%s.",
+                self._limiter.id,
+                exc_info=True,
+            )
+            healthy = False
+
+        if self._healthy and not healthy:
+            # fmt: off
+            logger.warning(
+                "[AsyncBackendHealthMonitor] Backend health check failed: limiter=%s. Workers may be unavailable; dispatched tasks will not complete until the backend recovers.",
+                self._limiter.id,
+            )
+            # fmt: on
+        elif not self._healthy and healthy:
+            # fmt: off
+            logger.info(
+                "[AsyncBackendHealthMonitor] Backend health check recovered: limiter=%s. Workers are available again.",
+                self._limiter.id,
+            )
+            # fmt: on
+
+        self._healthy = healthy
+
+    async def shutdown(self) -> None:
+        """Signal the health check task to terminate and wait for it to complete."""
+        self._shutdown_event.set()
         if self._task is not None and not self._task.done():
             self._task.cancel()
             try:
@@ -472,6 +548,8 @@ class AbstractAsyncDistributedRateLimiter(
             limit: The maximum number of tasks permitted per time window.
             window: The time window in seconds.
             max_concurrency: The maximum number of tasks that may execute concurrently.
+                For external broker backends, this value should match the total worker
+                capacity of the fleet (see the backend class docstrings for details).
             max_age: The maximum queue residence time in seconds.
             lease_duration: The concurrency slot lease duration in seconds.
             on_heartbeat_failure: The heartbeat failure strategy.
@@ -511,11 +589,33 @@ class AbstractAsyncDistributedRateLimiter(
             self._drain_loop = None
             self._drain_signal_subscriber = None
 
+        # Backend health monitor (created eagerly, started in start()).
+        if (
+            drain_enabled
+            and type(self)._check_backend_health
+            is not AbstractAsyncDistributedRateLimiter._check_backend_health
+        ):
+            self._backend_health_monitor: AsyncBackendHealthMonitor | None = (
+                AsyncBackendHealthMonitor(self, interval=float(self.lease_duration))
+            )
+        else:
+            self._backend_health_monitor = None
+
+    async def _check_backend_health(self) -> bool:
+        """Check whether the execution backend is operational (async).
+
+        The base implementation returns ``True`` (always healthy), which is
+        correct for in-process backends. Distributed backends should override
+        this method to verify that remote workers are available.
+        """
+        return True
+
     async def start(self) -> None:
         """Perform async initialization that cannot occur in ``__init__``.
 
         Registers Lua scripts with the Redis server and starts the drain
-        signal subscriber. Must be called after construction.
+        signal subscriber and backend health monitor. Must be called after
+        construction.
         """
         await super().start()
 
@@ -525,11 +625,9 @@ class AbstractAsyncDistributedRateLimiter(
         await self._register_script("health.lua")
         await self._register_script("renew.lua")
 
-        if self._drain_signal_subscriber is not None:
-            await self._drain_signal_subscriber.start()
-
         logger.info(
-            "Async rate limiter initialized: id=%s, limit=%d, window_s=%g, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s, drain_enabled=%s.",
+            "[%s] Rate limiter initialized: id=%s, limit=%d, window_s=%g, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s, drain_enabled=%s, backend_health_monitor=%s.",
+            type(self).__name__,
             self.id,
             self.limit,
             self.window,
@@ -542,7 +640,14 @@ class AbstractAsyncDistributedRateLimiter(
             self.jitter_max_pct,
             "enabled" if self.metrics_callback else "disabled",
             self.drain_enabled,
+            "enabled" if self._backend_health_monitor else "disabled",
         )
+
+        if self._drain_signal_subscriber is not None:
+            await self._drain_signal_subscriber.start()
+
+        if self._backend_health_monitor is not None:
+            self._backend_health_monitor.start()
 
     # ---------------------------------------------------------------------------
     # Task scheduling
@@ -553,7 +658,8 @@ class AbstractAsyncDistributedRateLimiter(
         try:
             removed = await self.redis.delete(inflight_key)
             logger.debug(
-                "Inflight cleanup attempted (async): limiter=%s, task_id=%s, inflight_key=%s, removed=%s.",
+                "[%s] Inflight cleanup attempted: limiter=%s, task_id=%s, inflight_key=%s, removed=%s.",
+                type(self).__name__,
                 self.id,
                 task_id,
                 inflight_key,
@@ -561,7 +667,8 @@ class AbstractAsyncDistributedRateLimiter(
             )
         except Exception as cleanup_error:
             logger.warning(
-                "Failed to cleanup inflight key after schedule failure (async): limiter=%s, task_id=%s, error=%s.",
+                "[%s] Failed to cleanup inflight key after schedule failure: limiter=%s, task_id=%s, error=%s.",
+                type(self).__name__,
                 self.id,
                 task_id,
                 cleanup_error,
@@ -584,11 +691,18 @@ class AbstractAsyncDistributedRateLimiter(
 
         Returns:
             A tuple of (``was_scheduled``, ``task_id``).
+
+        Raises:
+            ValueError: If ``priority`` is not a finite number.
         """
+        if not math.isfinite(priority):
+            raise ValueError(f"priority must be a finite number, got {priority}")
+
         task_signature = self._get_task_signature_str(func_path, payload)
         task_id = hashlib.md5(task_signature.encode()).hexdigest()
         logger.debug(
-            "Scheduling task attempt (async): limiter=%s, task_id=%s, func_path=%s, priority=%d.",
+            "[%s] Scheduling task attempt: limiter=%s, task_id=%s, func_path=%s, priority=%d.",
+            type(self).__name__,
             self.id,
             task_id,
             func_path,
@@ -599,7 +713,8 @@ class AbstractAsyncDistributedRateLimiter(
         inflight_ttl = self._get_inflight_ttl(max_age_override=max_age)
         if not await self.redis.set(inflight_key, "1", ex=inflight_ttl, nx=True):
             logger.debug(
-                "Task already in-flight (async): limiter=%s, task_id=%s.",
+                "[%s] Task already in-flight: limiter=%s, task_id=%s.",
+                type(self).__name__,
                 self.id,
                 task_id,
             )
@@ -618,7 +733,8 @@ class AbstractAsyncDistributedRateLimiter(
                 max_age or "",
             )
             logger.info(
-                "Task scheduled (async): limiter=%s, task_id=%s, func_path=%s, priority=%d.",
+                "[%s] Task scheduled: limiter=%s, task_id=%s, func_path=%s, priority=%d.",
+                type(self).__name__,
                 self.id,
                 task_id,
                 func_path,
@@ -642,7 +758,9 @@ class AbstractAsyncDistributedRateLimiter(
         Returns:
             A result containing the task data if consumption was successful.
         """
-        logger.debug("Consume attempt started (async): limiter=%s.", self.id)
+        logger.debug(
+            "[%s] Consume attempt started: limiter=%s.", type(self).__name__, self.id
+        )
 
         # fmt: off
         result = cast(  # pragma: no mutate
@@ -682,12 +800,16 @@ class AbstractAsyncDistributedRateLimiter(
         }
         task_id = consume_result["task"]["id"] if consume_result["task"] else None
         logger.debug(
-            "Consume result (async): limiter=%s, success=%s, task_id=%s, remaining_tokens=%d, active_concurrency=%d.",
+            "[%s] Consume result: limiter=%s, success=%s, expired=%s, task_id=%s, remaining_tokens=%d, active_concurrency=%d, remaining_tasks=%d, reset_in_ms=%d.",
+            type(self).__name__,
             self.id,
             consume_result["success"],
+            consume_result["expired"],
             task_id,
             consume_result["remaining_tokens"],
             consume_result["active_concurrency"],
+            consume_result["remaining_tasks"],
+            consume_result["reset_in_ms"],
         )
         self._emit_metric(
             "consume",
@@ -725,7 +847,8 @@ class AbstractAsyncDistributedRateLimiter(
         # fmt: on
 
         logger.debug(
-            "Lease extension result (async): limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
+            "[%s] Lease extension result: limiter=%s, task_id=%s, duration_s=%d, renewed=%s.",
+            type(self).__name__,
             self.id,
             task_id,
             duration,
@@ -754,10 +877,14 @@ class AbstractAsyncDistributedRateLimiter(
             if hasattr(self, "refresh_config"):
                 await self.refresh_config()
 
-            if hasattr(self, "_paused_until") and time.time() < self._paused_until:
-                remaining = self._paused_until - time.time()
+            if (
+                hasattr(self, "_drain_paused_until")
+                and time.time() < self._drain_paused_until
+            ):
+                remaining = self._drain_paused_until - time.time()
                 logger.debug(
-                    "Drain deferred (async): limiter=%s is paused for %.3fs.",
+                    "[%s] Drain deferred: limiter=%s is paused for %.3fs for window transition.",
+                    type(self).__name__,
                     self.id,
                     remaining,
                 )
@@ -773,7 +900,8 @@ class AbstractAsyncDistributedRateLimiter(
                 0.1 * (2 ** (self._consecutive_drain_failures - 1)),
             )
             logger.error(
-                "Drain failed (async, attempt #%d), scheduling recovery in %.3fs: limiter=%s.",
+                "[%s] Drain failed (attempt #%d), scheduling recovery in %.3fs: limiter=%s.",
+                type(self).__name__,
                 self._consecutive_drain_failures,
                 delay,
                 self.id,
@@ -782,19 +910,23 @@ class AbstractAsyncDistributedRateLimiter(
             try:
                 self._schedule_drain(delay=delay)
             except Exception:
+                # fmt: off
                 logger.critical(
-                    "Recovery scheduling also failed (async): limiter=%s.",
+                    "[%s] Recovery scheduling also failed: limiter=%s. Drain loop will resume on next trigger_consume() or task completion.",
+                    type(self).__name__,
                     self.id,
                     exc_info=True,
                 )
+                # fmt: on
 
     async def _drain_inner(self) -> None:
         """Execute the core drain logic: consume, dispatch, and schedule a follow-up."""
-        logger.debug("Drain loop start (async): limiter=%s.", self.id)
+        logger.debug("[%s] Drain loop start: limiter=%s.", type(self).__name__, self.id)
 
         if not self._has_local_capacity():
             logger.debug(
-                "Drain deferred: local execution capacity reached (async) for limiter=%s.",
+                "[%s] Drain deferred: local execution capacity reached for limiter=%s.",
+                type(self).__name__,
                 self.id,
             )
             self._schedule_drain(delay=self._token_interval)
@@ -802,13 +934,15 @@ class AbstractAsyncDistributedRateLimiter(
 
         async with self.execution_lock() as acquired:
             logger.debug(
-                "Drain lock result (async): limiter=%s, acquired=%s.",
+                "[%s] Drain lock acquisition result: limiter=%s, acquired=%s.",
+                type(self).__name__,
                 self.id,
                 acquired,
             )
             if not acquired:
                 logger.debug(
-                    "Drain skipped: lock held by another drainer (async): limiter=%s.",
+                    "[%s] Drain skipped because lock is held by another drainer: limiter=%s.",
+                    type(self).__name__,
                     self.id,
                 )
                 self._schedule_backup_drain()
@@ -818,13 +952,15 @@ class AbstractAsyncDistributedRateLimiter(
 
             if result["expired"]:
                 logger.warning(
-                    "Expired task moved to DLQ during consume (async): limiter=%s.",
+                    "[%s] Expired task moved to DLQ during consume: limiter=%s.",
+                    type(self).__name__,
                     self.id,
                 )
 
-            if result["success"] and result["task"]:
+            if result["success"]:
                 task = result["task"]
-                task_id = task.get("id", "")
+                assert task is not None, "task must be present when success is True"
+                task_id = task.get("id")
 
                 await self._dispatch_task(
                     func_path=task["func_path"],
@@ -832,7 +968,8 @@ class AbstractAsyncDistributedRateLimiter(
                     task_id=task_id,
                 )
                 logger.info(
-                    "Task dispatched (async): limiter=%s, task_id=%s, func_path=%s.",
+                    "[%s] Task dispatched: limiter=%s, task_id=%s, func_path=%s.",
+                    type(self).__name__,
                     self.id,
                     task_id,
                     task["func_path"],
@@ -840,7 +977,8 @@ class AbstractAsyncDistributedRateLimiter(
 
                 if result["remaining_tasks"] > 0:
                     logger.debug(
-                        "More tasks remain, scheduling follow-up drain (async): limiter=%s, remaining=%d.",
+                        "[%s] More tasks remain, scheduling immediate follow-up drain: limiter=%s, remaining_tasks=%d.",
+                        type(self).__name__,
                         self.id,
                         result["remaining_tasks"],
                     )
@@ -848,12 +986,15 @@ class AbstractAsyncDistributedRateLimiter(
 
             elif result["remaining_tasks"] == 0:
                 logger.debug(
-                    "Drain stopped: buffer empty (async) for limiter=%s.", self.id
+                    "[%s] Drain stopped: buffer empty for limiter=%s.",
+                    type(self).__name__,
+                    self.id,
                 )
 
             elif result["active_concurrency"] >= self.max_concurrency:
                 logger.debug(
-                    "Drain stopped: concurrency at capacity (async) for limiter=%s (active=%d, max=%d).",
+                    "[%s] Drain stopped: concurrency at capacity for limiter=%s (active=%d, max=%d).",
+                    type(self).__name__,
                     self.id,
                     result["active_concurrency"],
                     self.max_concurrency,
@@ -865,7 +1006,7 @@ class AbstractAsyncDistributedRateLimiter(
                 base_delay = self._calculate_token_recovery_delay(
                     val_previous=val_previous,
                     val_current=val_current,
-                    reset_in_ms=result.get("reset_in_ms", 0),
+                    reset_in_ms=result["reset_in_ms"],
                 )
 
                 is_fallback = val_previous <= 0 or val_current >= self.limit
@@ -880,12 +1021,16 @@ class AbstractAsyncDistributedRateLimiter(
 
                 delay_seconds = round(max(0.001, base_delay + jitter), 3)
                 logger.info(
-                    "Rate limited (async): limiter=%s, delay_s=%.3f, base_delay_s=%.3f, jitter_s=%.3f, remaining_tasks=%d.",
+                    "[%s] Rate limited, scheduling retry: limiter=%s, delay_s=%.3f, base_delay_s=%.3f, jitter_s=%.3f, remaining_tasks=%d, val_previous=%d, val_current=%d, fallback=%s.",
+                    type(self).__name__,
                     self.id,
                     delay_seconds,
                     base_delay,
                     jitter,
                     result["remaining_tasks"],
+                    val_previous,
+                    val_current,
+                    is_fallback,
                 )
                 self._schedule_drain(delay=delay_seconds)
 
@@ -914,7 +1059,11 @@ class AbstractAsyncDistributedRateLimiter(
 
     async def trigger_consume(self) -> None:
         """Trigger consumption from the task queue."""
-        logger.debug("Trigger consume scheduling drain (async): limiter=%s.", self.id)
+        logger.debug(
+            "[%s] Trigger consume scheduling drain: limiter=%s.",
+            type(self).__name__,
+            self.id,
+        )
         self._schedule_drain()
         await self._publish_drain_signal()
 
@@ -924,7 +1073,8 @@ class AbstractAsyncDistributedRateLimiter(
             await self.redis.publish(self._drain_signal_channel, self._worker_id)
         except Exception:
             logger.debug(
-                "Failed to publish drain signal (async): limiter=%s.",
+                "[%s] Failed to publish drain signal: limiter=%s.",
+                type(self).__name__,
                 self.id,
             )
 
@@ -933,14 +1083,18 @@ class AbstractAsyncDistributedRateLimiter(
     # ---------------------------------------------------------------------------
 
     async def shutdown(self) -> None:
-        """Stop the drain loop and signal subscriber.
+        """Stop the drain loop, signal subscriber, and backend health monitor.
 
         This method must be called when a limiter instance is no longer needed.
         Each limiter created with ``drain_enabled=True`` (the default) runs
-        background asyncio tasks for the drain loop and the Redis Pub/Sub signal
-        subscriber. Failing to call ``shutdown()`` will leak these tasks.
+        background asyncio tasks for the drain loop, the Redis Pub/Sub signal
+        subscriber, and (when the backend overrides ``_check_backend_health``)
+        the backend health monitor. Failing to call ``shutdown()`` will leak
+        these tasks.
         """
         self._shutdown_called = True
+        if self._backend_health_monitor is not None:
+            await self._backend_health_monitor.shutdown()
         if self._drain_loop is not None:
             await self._drain_loop.shutdown()
         if self._drain_signal_subscriber is not None:
@@ -959,7 +1113,6 @@ class AbstractAsyncDistributedRateLimiter(
                 f"limiter={self.id!r} was not shut down; "
                 "call await shutdown() to stop background tasks",
                 ResourceWarning,
-                stacklevel=1,
             )
 
     def execution_lock(self, timeout_ms: int = 5000) -> AsyncDistributedLock:

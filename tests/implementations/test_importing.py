@@ -10,6 +10,7 @@ from redis_rate_limiter import import_string, resolve_import_path
 from tests.helpers.utils import assert_log_emitted
 
 
+@pytest.mark.behavior
 class TestImportString:
     """Test suite for ``import_string()`` behavior."""
 
@@ -26,14 +27,18 @@ class TestImportString:
 
     @staticmethod
     def test_import_string_raises_type_error_for_non_callable():
-        """Verify that ``import_string()`` raises a TypeError for non-callable targets."""
+        """Verify that ``import_string()`` raises a TypeError
+        for non-callable targets.
+        """
         # Act & Assert
-        with pytest.raises(TypeError, match="not callable"):
+        with pytest.raises(TypeError, match=r"^Object at .* is not callable"):
             import_string("json.__doc__")
 
     @staticmethod
     def test_import_string_raises_on_invalid_module():
-        """Verify that ``import_string()`` raises a ModuleNotFoundError for a missing module."""
+        """Verify that ``import_string()`` raises a
+        ModuleNotFoundError for a missing module.
+        """
         # Act & Assert
         with pytest.raises(
             ModuleNotFoundError, match="No module named 'missing_module_for_tests'"
@@ -42,7 +47,9 @@ class TestImportString:
 
     @staticmethod
     def test_import_string_raises_on_missing_attribute():
-        """Verify that ``import_string()`` raises an AttributeError for a missing attribute."""
+        """Verify that ``import_string()`` raises an
+        AttributeError for a missing attribute.
+        """
         # Act & Assert
         with pytest.raises(
             AttributeError,
@@ -65,12 +72,15 @@ class TestImportString:
         expected_exception: type[Exception],
         expected_match: str,
     ):
-        """Verify that ``import_string()`` raises an exception on structurally invalid import paths."""
+        """Verify that ``import_string()`` raises an exception
+        on structurally invalid import paths.
+        """
         # Act & Assert
         with pytest.raises(expected_exception, match=expected_match):
             import_string(invalid_path)
 
 
+@pytest.mark.behavior
 class TestResolveImportPath:
     """Test suite for ``resolve_import_path()`` behavior."""
 
@@ -98,7 +108,8 @@ class TestResolveImportPath:
 
         # Assert
         assert result == "json.encoder.JSONEncoder", (
-            "resolve_import_path should return the defining module path for json.JSONEncoder"
+            "resolve_import_path should return the defining"
+            " module path for json.JSONEncoder"
         )
 
     @staticmethod
@@ -123,7 +134,7 @@ class TestResolveImportPath:
         fn = lambda x: x  # noqa: E731
 
         # Act & Assert
-        with pytest.raises(ValueError, match="lambda"):
+        with pytest.raises(ValueError, match=r"^Cannot resolve import path for lambda"):
             resolve_import_path(fn)
 
     @staticmethod
@@ -135,7 +146,9 @@ class TestResolveImportPath:
             pass
 
         # Act & Assert
-        with pytest.raises(ValueError, match="nested function or closure"):
+        with pytest.raises(
+            ValueError, match=r"^Cannot resolve import path for nested function"
+        ):
             resolve_import_path(inner_function)
 
     @staticmethod
@@ -145,12 +158,16 @@ class TestResolveImportPath:
         encoder = json.JSONEncoder()
 
         # Act & Assert
-        with pytest.raises(ValueError, match="class-bound callable"):
+        with pytest.raises(
+            ValueError, match=r"^Cannot resolve import path for class-bound callable"
+        ):
             resolve_import_path(encoder.encode)
 
     @staticmethod
     def test_rejects_static_method_reference():
-        """Verify that a reference to a static method via class attribute is rejected."""
+        """Verify that a reference to a static method via
+        class attribute is rejected.
+        """
 
         # Arrange
         class Example:
@@ -159,17 +176,24 @@ class TestResolveImportPath:
                 pass
 
         # Act & Assert
-        with pytest.raises(ValueError, match="class-bound callable|nested function"):
+        with pytest.raises(
+            ValueError,
+            match=r"^Cannot resolve import path for (class-bound callable|nested function)",
+        ):
             resolve_import_path(Example.helper)
 
     @staticmethod
     def test_rejects_functools_partial():
-        """Verify that ``functools.partial`` objects are rejected with a ``ValueError``."""
+        """Verify that ``functools.partial`` objects are
+        rejected with a ``ValueError``.
+        """
         # Arrange
         fn = functools.partial(json.dumps, indent=2)
 
         # Act & Assert
-        with pytest.raises(ValueError, match="missing __module__ or __qualname__"):
+        with pytest.raises(
+            ValueError, match=r"^Cannot resolve import path: .* is missing __module__"
+        ):
             resolve_import_path(fn)
 
     @staticmethod
@@ -197,7 +221,9 @@ class TestResolveImportPath:
         fn.__module__ = None  # type: ignore[assignment]
 
         # Act & Assert
-        with pytest.raises(ValueError, match="missing __module__ or __qualname__"):
+        with pytest.raises(
+            ValueError, match=r"^Cannot resolve import path: .* is missing __module__"
+        ):
             resolve_import_path(fn)
 
     @staticmethod
@@ -205,7 +231,6 @@ class TestResolveImportPath:
         """Verify that a callable missing ``__qualname__`` is rejected."""
 
         # Arrange
-        # Simulate via a simple namespace-like callable that lacks __qualname__.
         class BareCallable:
             """Callable wrapper that deliberately omits __qualname__."""
 
@@ -218,14 +243,19 @@ class TestResolveImportPath:
         fn.__qualname__ = None  # type: ignore[assignment]
 
         # Act & Assert
-        with pytest.raises(ValueError, match="missing __module__ or __qualname__"):
+        with pytest.raises(
+            ValueError, match=r"^Cannot resolve import path: .* is missing __module__"
+        ):
             resolve_import_path(fn)
 
     @staticmethod
     def test_rejects_callable_with_absent_module_attribute():
-        """Verify that a callable whose ``__module__`` attribute is truly absent is rejected with ``ValueError``.
+        """Verify that a callable whose ``__module__`` attribute
+        is truly absent is rejected with ``ValueError``.
 
-        Mutation target: ``None`` default in ``getattr(fn, "__module__", None)`` in ``_resolve_import_path()``.
+        Mutation target: ``None`` default in
+        ``getattr(fn, "__module__", None)`` in
+        ``_resolve_import_path()``.
         """
 
         # Arrange
@@ -246,15 +276,18 @@ class TestResolveImportPath:
         fn = NoModuleCallable()
 
         # Act & Assert
-        with pytest.raises(ValueError, match="missing __module__ or __qualname__"):
+        with pytest.raises(
+            ValueError, match=r"^Cannot resolve import path: .* is missing __module__"
+        ):
             resolve_import_path(fn)
 
     @staticmethod
     def test_rejects_callable_that_fails_round_trip_verification():
-        """Verify that a callable whose derived path resolves to a different object is rejected."""
+        """Verify that a callable whose derived path resolves
+        to a different object is rejected.
+        """
 
         # Arrange
-        # A callable that claims to live at ``json.loads`` but is not ``json.loads``.
         class Impostor:
             """Callable that lies about its module and qualname."""
 
@@ -265,7 +298,7 @@ class TestResolveImportPath:
                 pass
 
         # Act & Assert
-        with pytest.raises(ValueError, match="Round-trip verification failed"):
+        with pytest.raises(ValueError, match=r"^Round-trip verification failed"):
             resolve_import_path(Impostor)
 
 
@@ -274,12 +307,15 @@ class TestResolveImportPath:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class TestImportStringObservability:
     """Observability tests for ``import_string()``."""
 
     @staticmethod
     def test_import_string_emits_debug_log_for_resolved_import(caplog):
-        """Verify that ``import_string()`` emits a debug log with the import path, module, and callable."""
+        """Verify that ``import_string()`` emits a debug log
+        with the import path, module, and callable.
+        """
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.importing"):
             import_string("json.dumps")
@@ -287,18 +323,27 @@ class TestImportStringObservability:
         # Assert
         assert_log_emitted(
             caplog.records,
-            "DEBUG",
-            ["import_path=json.dumps", "module=json", "callable=dumps"],
-            "should emit a debug log for the resolved import with import path, module, and callable",
+            level="DEBUG",
+            label="[ImportResolver]",
+            required_fragments=[
+                "import_path=json.dumps",
+                "module=json",
+                "callable=dumps",
+            ],
+            message="should emit a debug log for the resolved import"
+            " with import path, module, and callable",
         )
 
 
+@pytest.mark.observability
 class TestResolveImportPathObservability:
     """Observability tests for ``resolve_import_path()``."""
 
     @staticmethod
     def test_emits_debug_log_on_success(caplog):
-        """Verify that ``resolve_import_path()`` emits a debug log with the resolved path."""
+        """Verify that ``resolve_import_path()`` emits a debug
+        log with the resolved path.
+        """
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.importing"):
             resolve_import_path(json.dumps)
@@ -306,7 +351,8 @@ class TestResolveImportPathObservability:
         # Assert
         assert_log_emitted(
             caplog.records,
-            "DEBUG",
-            ["callable=", "import_path=json.dumps"],
-            "should emit a debug log with the callable and resolved import path",
+            level="DEBUG",
+            label="[ImportResolver]",
+            required_fragments=["callable=<function dumps", "import_path=json.dumps"],
+            message="should emit a debug log with the callable and resolved import path",
         )

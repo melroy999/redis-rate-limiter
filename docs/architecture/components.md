@@ -24,7 +24,7 @@ graph LR
     end
 
     subgraph Backends ["Backend"]
-        BackendBlock["CeleryRateLimiter,<br>ThreadPoolRateLimiter,<br>AsyncIOTaskLimiter,<br>ASGIRateLimiter"]
+        BackendBlock["CeleryRateLimiter,<br>DramatiqRateLimiter,<br>HueyRateLimiter,<br>RQRateLimiter,<br>ThreadPoolRateLimiter,<br>AsyncIOTaskLimiter,<br>ASGIRateLimiter"]
     end
 
     subgraph Execution ["Task Execution"]
@@ -34,7 +34,7 @@ graph LR
     User -->|"schedule_task()"| LimiterBlock
     LimiterBlock -->|"Lua scripts"| RedisBlock
     LimiterBlock -->|"_dispatch_task()"| BackendBlock
-    BackendBlock -->|"send_task() / submit()"| ExecBlock
+    BackendBlock -->|"send_task() / actor.send() / submit()"| ExecBlock
     ExecBlock -->|"cleanup + renew"| RedisBlock
     ExecBlock -.->|"trigger_consume()<br>feedback loop"| LimiterBlock
 
@@ -48,7 +48,7 @@ graph LR
 
 - *Blue subgraph* (Rate Limiter Core): the scheduler, drain loop, distributed lock and consumer components that orchestrate task flow.
 - *Orange subgraph* (Redis): all Lua scripts and data structures that constitute the single source of truth.
-- *Green subgraph* (Backend): the interchangeable dispatch backends (Celery, ThreadPool, AsyncIO and ASGI).
+- *Green subgraph* (Backend): the interchangeable dispatch backends (Celery, Dramatiq, Huey, RQ, ThreadPool, AsyncIO and ASGI).
 - *Purple subgraph* (Task Execution): the worker or thread that runs the user function and the `TaskLifecycle` context manager that manages the concurrency lease.
 - *Solid arrows* represent synchronous calls or Redis commands.
 - *Dashed arrow* represents the feedback loop, i.e., the path through which task completion triggers the next drain cycle.
@@ -115,6 +115,9 @@ graph TD
 
     subgraph Backends ["Backend"]
         Celery["CeleryRateLimiter<br>app.send_task()"]
+        Dramatiq["DramatiqRateLimiter<br>actor.send()"]
+        Huey["HueyRateLimiter<br>huey_task()"]
+        RQ["RQRateLimiter<br>queue.enqueue()"]
         ThreadPool["ThreadPoolRateLimiter<br>executor.submit()"]
         AsyncIO["AsyncIOTaskLimiter<br>asyncio.create_task()"]
     end
@@ -129,9 +132,15 @@ graph TD
     LuaScripts -->|"ZADD lease"| ConcurrencySet
     LuaScripts -->|"RPUSH expired"| DLQ
     Consumer -->|"_dispatch_task()"| Celery
+    Consumer -->|"_dispatch_task()"| Dramatiq
+    Consumer -->|"_dispatch_task()"| Huey
+    Consumer -->|"_dispatch_task()"| RQ
     Consumer -->|"_dispatch_task()"| ThreadPool
     Consumer -->|"_dispatch_task()"| AsyncIO
     Celery -->|"send_task()"| Worker
+    Dramatiq -->|"actor.send()"| Worker
+    Huey -->|"huey_task()"| Worker
+    RQ -->|"queue.enqueue()"| Worker
     ThreadPool -->|"submit()"| Worker
     AsyncIO -->|"create_task()"| Worker
 
@@ -144,14 +153,14 @@ graph TD
 
 | Arrow | Interaction | Tested by |
 |-------|-------------|-----------|
-| DrainLoop → Lock | drain() acquires dispatch_lock | `implementations/test_drain_loop::test_wake_fires_drain_immediately`, `implementations/test_drain::test_drain_schedules_backup_when_lock_contended` |
+| DrainLoop → Lock | drain() acquires dispatch_lock | `implementations/test_drain_loop::test_wake_default_delay_is_zero`, `implementations/test_drain::test_drain_schedules_backup_when_lock_contended` |
 | Lock → Consumer | Lock acquired, proceed | `implementations/test_concurrent_access::test_distributed_lock_serializes_drains` |
 | Consumer → LuaScripts | EVALSHA consume.lua | `contracts/test_rate_limiter::test_consume_returns_expected_structure`, `implementations/test_lua_script_infrastructure::test_eval_script_recovers_from_transient_noscript` |
 | LuaScripts → WindowCounters | GET/INCR rate check | `integration/test_rate_limiting::test_basic_rate_limit_enforcement` |
 | LuaScripts → ConcurrencySet | ZADD lease slot | `integration/test_rate_limiting::test_concurrency_limit_enforcement` |
 | LuaScripts → DLQ | RPUSH expired task | `integration/test_rate_limiting::test_expired_task_moved_to_dlq` |
-| Consumer → Backends | _dispatch_task() | `implementations/celery/test_celery_limiter::test_dispatch_task_use_executor_true_sends_generic_worker`, `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_submits_to_executor`, `implementations/asyncio/test_asyncio_limiter::test_dispatch_task_creates_asyncio_task` |
-| Backends → Worker | send_task() / submit() / create_task() | `implementations/celery/test_celery_limiter::test_dispatch_task_use_executor_false_sends_custom_task`, `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_resolves_function_path`, `implementations/asyncio/test_asyncio_limiter::test_dispatch_sync_function_raises_type_error` |
+| Consumer → Backends | _dispatch_task() | `implementations/celery/test_celery_limiter::test_dispatch_task_use_executor_true_sends_generic_worker`, `implementations/dramatiq/test_dramatiq_limiter::test_dispatch_task_use_executor_true_sends_generic_worker`, `implementations/huey/test_huey_limiter::test_dispatch_task_use_executor_true_calls_generic_worker`, `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_submits_to_executor`, `implementations/asyncio/test_asyncio_limiter::test_dispatch_task_creates_asyncio_task` |
+| Backends → Worker | send_task() / actor.send() / huey_task() / queue.enqueue() / submit() / create_task() | `implementations/celery/test_celery_limiter::test_dispatch_task_use_executor_false_sends_custom_task`, `implementations/dramatiq/test_dramatiq_limiter::test_dispatch_task_use_executor_false_sends_custom_actor`, `implementations/huey/test_huey_limiter::test_dispatch_task_use_executor_false_calls_custom_task`, `implementations/rq/test_rq_limiter::test_dispatch_task_use_executor_true_enqueues_generic_worker`, `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_resolves_function_path`, `implementations/asyncio/test_asyncio_limiter::test_dispatch_sync_function_raises_type_error` |
 
 ## Execution and Completion
 
@@ -189,7 +198,7 @@ graph TD
 | Arrow | Interaction | Tested by |
 |-------|-------------|-----------|
 | Worker → Lifecycle | Wraps execution in TaskLifecycle | `implementations/test_decorator::test_decorator_wraps_function_in_task_lifecycle`, `implementations/threadpool/test_threadpool_limiter::test_dispatch_task_wraps_in_lifecycle` |
-| Lifecycle → LuaScripts | EVALSHA renew.lua heartbeat | `implementations/test_task_lifecycle::test_heartbeat_loop_extends_lease_periodically`, `implementations/test_task_lifecycle::test_extend_lease_succeeds_for_existing_task`, `implementations/test_task_lifecycle::test_extend_lease_passes_correct_arguments_to_lua` |
+| Lifecycle → LuaScripts | EVALSHA renew.lua heartbeat | `implementations/test_task_lifecycle::test_heartbeat_loop_calls_extend_lease_with_correct_parameters`, `implementations/test_task_lifecycle::test_extend_lease_succeeds_for_existing_task` |
 | Lifecycle → DrainLoop | trigger_consume() feedback loop | `contracts/test_task_lifecycle::test_lifecycle_triggers_consume` |
 
 ## ASGI Request Flow
@@ -238,10 +247,10 @@ graph TD
 
 | Arrow | Interaction | Tested by |
 |-------|-------------|-----------|
-| Request → KeyFunc | key_func extracts identity from scope | `implementations/asgi/test_keys::test_by_client_ip_extracts_ip`, `implementations/asgi/test_keys::test_by_header_extracts_value` |
-| KeyFunc → Acquire | acquire() called with extracted key | `implementations/asgi/test_asgi_limiter::test_acquire_within_limit_returns_allowed` |
-| Acquire → AcquireLua | EVALSHA acquire.lua | `implementations/asgi/test_asgi_limiter::test_acquire_exceeding_limit_returns_denied` |
+| Request → KeyFunc | key_func extracts identity from scope | `implementations/asgi/test_keys::test_extracts_ip_from_client_tuple`, `implementations/asgi/test_keys::test_extracts_header_value` |
+| KeyFunc → Acquire | acquire() called with extracted key | `implementations/asgi/test_asgi_limiter::test_acquire_allowed_under_limit` |
+| Acquire → AcquireLua | EVALSHA acquire.lua | `implementations/asgi/test_asgi_limiter::test_acquire_denied_at_limit` |
 | Allowed → Headers → InnerApp | Rate limit headers injected | `implementations/asgi/test_middleware::test_allowed_response_includes_rate_limit_headers` |
-| Not allowed → Blocked | 429 response returned | `implementations/asgi/test_middleware::test_blocked_response_returns_429` |
+| Not allowed → Blocked | 429 response returned | `implementations/asgi/test_middleware::test_blocked_request_returns_429` |
 | Exception → fail_open | Request proceeds | `implementations/asgi/test_middleware::test_fail_open_allows_on_error` |
 | Exception → fail_closed | 503 response returned | `implementations/asgi/test_middleware::test_fail_closed_returns_503_on_error` |

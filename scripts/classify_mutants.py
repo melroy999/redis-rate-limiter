@@ -1,9 +1,13 @@
 """Classify mutmut survivors by relevancy to prioritize remediation effort.
 
-Parses ``mutmut-results/results.txt`` and ``mutmut-results/diffs.txt``, then
-assigns each surviving mutation a relevancy score (0 to 3) based on the type
-of change. Mutations are grouped by score with the most actionable items
-printed first. Sync/async mirror pairs are collapsed into a single entry.
+Assigns each surviving mutation a relevancy score (0 to 3) based on the type
+of change. Sync/async mirror pairs are collapsed into a single entry.
+
+This module is imported as a library by ``generate_mutmut_report.py``, which
+calls ``_classify``, ``_find_mirrors``, ``_match_known_benign``, and related
+helpers directly. The ``main`` entry point and ``_format_report`` function are
+retained for standalone use with pre-generated ``diffs.txt`` / ``results.txt``
+files.
 
 Relevancy scores:
 
@@ -26,9 +30,9 @@ Relevancy scores:
 Additionally, a **known benign** allowlist (``_KNOWN_BENIGN``) holds mutations
 that have been manually verified as producing identical behavior. Each entry
 specifies a method pattern, the expected diff description, and a reason. These
-are separated from scored mutations and printed in their own report section.
+are separated from scored mutations and listed in their own report section.
 
-Usage::
+Usage (standalone)::
 
     python scripts/classify_mutants.py
     python scripts/classify_mutants.py mutmut-results/diffs.txt
@@ -152,6 +156,30 @@ def _extract_diff_lines(body: str) -> tuple[list[str], list[str], list[str]]:
     return old, new, context
 
 
+def _split_context_around_mutation(body: str) -> tuple[list[str], list[str]]:
+    """Split context lines into those before and after the mutation."""
+    before: list[str] = []
+    after: list[str] = []
+    in_hunk = False
+    seen_mutation = False
+
+    for line in body.splitlines():
+        if line.startswith("@@"):
+            in_hunk = True
+            continue
+        if not in_hunk:
+            continue
+        if line.startswith(("-", "+")) and not line.startswith(("---", "+++")):
+            seen_mutation = True
+        elif line.startswith(" "):
+            if seen_mutation:
+                after.append(line[1:])
+            else:
+                before.append(line[1:])
+
+    return before, after
+
+
 # ---------------------------------------------------------------------------
 # String mutation detection
 # ---------------------------------------------------------------------------
@@ -248,12 +276,23 @@ def _is_default_param_mutation(old_lines: list[str], new_lines: list[str]) -> bo
 
 _LOGGER_PATTERN = re.compile(r"logger\.(debug|info|warning|error|exception|critical)\(")
 _RAISE_PATTERN = re.compile(r"\braise\b|\bException\b|\bError\(")
+_FORMAT_SPEC_PATTERN = re.compile(r"""['"].*%[sdfiexXog]""")
 
 
 def _has_logger_context(context_lines: list[str], old_lines: list[str]) -> bool:
     """Check if the diff is within a logger call."""
     all_lines = context_lines + old_lines
     return any(_LOGGER_PATTERN.search(line) for line in all_lines)
+
+
+def _old_is_format_string(old_lines: list[str]) -> bool:
+    """Return True when the mutated line itself contains a printf-style format specifier.
+
+    Used to distinguish mutations *on* a logger format string from mutations on
+    adjacent code (e.g., a redis.set value or a logger argument like ``self.token``)
+    that merely appear near a logger call in the diff context.
+    """
+    return any(_FORMAT_SPEC_PATTERN.search(line) for line in old_lines)
 
 
 def _has_raise_context(context_lines: list[str], old_lines: list[str]) -> bool:
@@ -290,22 +329,25 @@ def _has_asgi_body_context(
 _FORMAT_STRING_PATTERN = re.compile(r'["\'].*%[sd]')
 
 
-def _has_logger_format_context(context_lines: list[str], old_lines: list[str]) -> bool:
+def _has_logger_format_context(
+    context_lines: list[str], old_lines: list[str], body: str = ""
+) -> bool:
     """Check if the diff is a trailing argument to a logger format call.
 
-    Catches value-to-None mutations on logger arguments when the
-    ``logger.<level>(`` call opening is outside the diff hunk boundary.
-    Detects the pattern by looking for format string specifiers (``%s``,
-    ``%d``, ``%.3f``) in context lines.
+    Only considers context lines BEFORE the mutation, so that a logger
+    call appearing after the mutation does not cause a false positive.
     """
-    all_lines = context_lines + old_lines
+    if body:
+        before, _ = _split_context_around_mutation(body)
+    else:
+        before = context_lines
+
+    all_lines = before + old_lines
     has_format_string = any(
         re.search(r'["\'].*%[sdfiexXog]', line) for line in all_lines
     )
     if not has_format_string:
         return False
-    # Verify the mutated line looks like a trailing function argument
-    # (indented, possibly with a trailing comma).
     for line in old_lines:
         stripped = line.strip()
         if stripped and (stripped.endswith(",") or stripped.endswith(")")):
@@ -625,6 +667,7 @@ def _classify(diff: MutationDiff) -> tuple[int, str, str]:
     old = diff.old_lines
     new = diff.new_lines
     ctx = diff.context_lines
+    body = diff.body
 
     # 0. Default parameter mutation on a def signature (fork-immune).
     if _is_default_param_mutation(old, new):
@@ -635,15 +678,24 @@ def _classify(diff: MutationDiff) -> tuple[int, str, str]:
     # 1. String mutations (XX wrap, lowercase, uppercase).
     string_type = _detect_string_mutation(old, new)
     if string_type is not None:
-        logger_level = _get_logger_level(ctx, old)
-        if logger_level is not None:
-            desc = f"{string_type.replace('_', ' ')} on logger.{logger_level} format string"
-            return 0, f"string_{string_type}", desc
+        # Only classify as a logger format-string mutation when the mutated
+        # line itself contains a printf-style format specifier.  Without this
+        # guard, any string literal that happens to sit near a logger call in
+        # the diff context (e.g. redis.set("1", …) followed by logger.debug)
+        # would be mislabelled as a format-string mutation.
+        if _old_is_format_string(old):
+            logger_level = _get_logger_level(ctx, old, body)
+            if logger_level is not None:
+                desc = f"{string_type.replace('_', ' ')} on logger.{logger_level} format string"
+                return 0, f"string_{string_type}", desc
         if _has_raise_context(ctx, old):
             desc = f"{string_type.replace('_', ' ')} on error message"
             return 0, f"string_{string_type}", desc
         if _has_asgi_body_context(ctx, old, new):
             desc = f"{string_type.replace('_', ' ')} on ASGI response body text"
+            return 0, f"string_{string_type}", desc
+        if _has_logger_format_context(ctx, old, body):
+            desc = f"{string_type.replace('_', ' ')} on logger format argument"
             return 0, f"string_{string_type}", desc
         # String mutation outside logger/raise/ASGI-body context is real logic.
         old_str = old[0].strip() if old else ""
@@ -690,14 +742,20 @@ def _classify(diff: MutationDiff) -> tuple[int, str, str]:
     # 9. Value to None.
     none_desc = _detect_value_to_none(old, new)
     if none_desc is not None:
-        logger_level = _get_logger_level(ctx, old)
+        logger_level = _get_logger_level(ctx, old, body)
         if logger_level is not None:
+            if _old_is_format_string(old):
+                return (
+                    0,
+                    "value_to_none",
+                    f"format string  ->  None on logger.{logger_level}",
+                )
             return (
                 0,
                 "value_to_none",
-                f"format string  ->  None on logger.{logger_level}",
+                f"{none_desc} (logger.{logger_level} argument)",
             )
-        if _has_logger_format_context(ctx, old):
+        if _has_logger_format_context(ctx, old, body):
             return (
                 0,
                 "value_to_none",
@@ -721,10 +779,28 @@ def _classify(diff: MutationDiff) -> tuple[int, str, str]:
     return 2, "unknown", desc
 
 
-def _get_logger_level(context_lines: list[str], old_lines: list[str]) -> str | None:
-    """Extract the logger level from context if a logger call is present."""
-    all_lines = context_lines + old_lines
-    for line in all_lines:
+def _get_logger_level(
+    context_lines: list[str], old_lines: list[str], body: str = ""
+) -> str | None:
+    """Extract the logger level if the mutated line is inside a logger call.
+
+    Only considers the old lines themselves and context lines that appear
+    BEFORE the mutation in the diff hunk. A logger call that appears only
+    AFTER the mutation means the mutation is adjacent, not inside.
+    """
+    # Check the mutated line itself first.
+    for line in old_lines:
+        match = _LOGGER_PATTERN.search(line)
+        if match:
+            return match.group(1)
+
+    # Check context before the mutation.
+    if body:
+        before, _ = _split_context_around_mutation(body)
+    else:
+        before = context_lines
+
+    for line in before:
         match = _LOGGER_PATTERN.search(line)
         if match:
             return match.group(1)
@@ -747,9 +823,10 @@ def _shorten_name(mutation_id: str) -> str:
     """
     # Strip the common package prefix.
     name = mutation_id
-    prefix = "celery_rate_limiter."
-    if name.startswith(prefix):
-        name = name[len(prefix) :]
+    for prefix in ("redis_rate_limiter.", "celery_rate_limiter."):
+        if name.startswith(prefix):
+            name = name[len(prefix) :]
+            break
 
     # Strip intermediate subpackage segments (keep last module before xǁ).
     xsep = ".\x01"  # placeholder
@@ -989,78 +1066,12 @@ _KNOWN_BENIGN: list[tuple[str, str, str]] = [
         " next iteration falls through to drain unchanged",
     ),
     (
-        "DrainLoop.wake",
-        "def wake(self, delay: float = 0.0) -> None:"
-        "  ->  def wake(self, delay: float = 1.0) -> None:",
-        "fork-immune: default parameter value is tested by"
-        " test_wake_default_delay_is_zero (signature inspection)"
-        " and test_wake_default_delay_fires_immediately (behavioral)",
-    ),
-    (
-        "TaskLifecycle.__init__",
-        'on_heartbeat_failure: Literal["warn", "kill"] = "warn",'
-        '  ->  on_heartbeat_failure: Literal["warn", "kill"] = "XXwarnXX",',
-        "fork-immune: default parameter value is tested by"
-        " test_default_on_heartbeat_failure_is_warn (signature inspection)",
-    ),
-    (
         "TaskLifecycle.__init__",
         "self._thread: Optional[Thread] = None"
         '  ->  self._thread: Optional[Thread] = ""',
         "both None and empty string are falsy; the only check is"
         " `if self._thread and self._thread.is_alive()` which"
         " short-circuits identically for both",
-    ),
-    (
-        "RateLimitMiddleware.__init__",
-        'on_error: Literal["fail_open", "fail_closed"] = "fail_open",'
-        '  ->  on_error: Literal["fail_open", "fail_closed"] = "XXfail_openXX",',
-        "fork-immune: default parameter value is tested by"
-        " test_default_on_error_is_fail_open (signature inspection)",
-    ),
-    (
-        "RateLimitMiddleware.__init__",
-        'on_error: Literal["fail_open", "fail_closed"] = "fail_open",'
-        '  ->  on_error: Literal["fail_open", "fail_closed"] = "FAIL_OPEN",',
-        "fork-immune: default parameter value is tested by"
-        " test_default_on_error_is_fail_open (signature inspection);"
-        " .lower() normalization makes uppercase equivalent at runtime",
-    ),
-    (
-        "_schedule_drain",
-        "def _schedule_drain(self, delay: float = 0.0) -> None:"
-        "  ->  def _schedule_drain(self, delay: float = 1.0) -> None:",
-        "fork-immune: default parameter value is tested by"
-        " test_async_schedule_drain_default_delay_is_zero and"
-        " test_sync_schedule_drain_default_delay_is_zero (signature inspection)",
-    ),
-    (
-        "AsyncDistributedLock.__init__",
-        'contention_key: str = "",  ->  contention_key: str = "XXXX",',
-        "fork-immune: default parameter value is tested by"
-        " test_async_distributed_lock_contention_key_defaults_to_empty"
-        " (signature inspection)",
-    ),
-    (
-        "TaskLifecycle.__init__",
-        'on_heartbeat_failure: Literal["warn", "kill"] = "warn",'
-        '  ->  on_heartbeat_failure: Literal["warn", "kill"] = "WARN",',
-        "fork-immune: default parameter value is tested by"
-        " test_default_on_heartbeat_failure_is_warn (signature inspection);"
-        " .lower() normalization makes uppercase equivalent at runtime",
-    ),
-    (
-        "CeleryRateLimiter.schedule_task",
-        "True  ->  False",
-        "fork-immune: default parameter value (use_executor=True) is tested by"
-        " test_schedule_task_use_executor_default_is_true (signature inspection)",
-    ),
-    (
-        "SyncManagedRateLimiter.get",
-        "SyncManagedRateLimiter  ->  None",
-        "cast() is a type-checking no-op that returns its second argument"
-        " unchanged at runtime regardless of the first argument"
-        " (documented equivalent mutant per TESTING_GUIDELINES.md Section 6.3)",
     ),
     (
         "_calculate_token_recovery_delay",
@@ -1074,13 +1085,56 @@ _KNOWN_BENIGN: list[tuple[str, str, str]] = [
         "when val_current equals limit, the primary decay formula computes"
         " reset_in_ms / 1000.0, identical to the fallback return value",
     ),
+    (
+        "schedule_task",
+        'redis.set(inflight_key, "1"',
+        "the inflight key value is never read back; only the key's existence"
+        ' matters (NX flag). any non-empty string is equivalent to "1"',
+    ),
+    (
+        "schedule_task",
+        'max_age or ""',
+        'passed to the Lua script as ARGV[3]; tonumber("") and tonumber("XXXX")'
+        " both return nil, so the max_age override branch is skipped identically",
+    ),
+    (
+        "DistributedLock.__enter__",
+        "self.token  ->  None (logger.debug argument)",
+        "changes the token field in the acquired-lock debug log from the lock"
+        " token UUID to None; no test asserts the token value in lock log"
+        " messages, and the lock acquisition/release logic is unaffected",
+    ),
+    (
+        "AsyncDistributedLock.__aenter__",
+        "self.token  ->  None (logger.debug argument)",
+        "async mirror of DistributedLock.__enter__ token log argument; same"
+        " reasoning applies",
+    ),
+    (
+        "DistributedLock.__exit__",
+        "self.token  ->  None (logger.debug argument)",
+        "changes the token field in the released/expired-lock debug logs from"
+        " the lock token UUID to None; no test asserts the token value in lock"
+        " log messages, and the release logic is unaffected",
+    ),
+    (
+        "AsyncDistributedLock.__aexit__",
+        "self.token  ->  None (logger.debug argument)",
+        "async mirror of DistributedLock.__exit__ token log argument; same"
+        " reasoning applies",
+    ),
 ]
 
 
 def _match_known_benign(short_name: str, description: str) -> str | None:
-    """Return the reason if the mutation matches a known benign entry, else None."""
+    """Return the reason if the mutation matches a known benign entry, else None.
+
+    ``method_pattern`` is matched as a substring of ``short_name``.
+    ``desc_pattern`` is matched as a substring of ``description``, so entries
+    can use a concise identifying fragment rather than the full classifier output.
+    """
     for method_pattern, desc_pattern, reason in _KNOWN_BENIGN:
-        if method_pattern in short_name and desc_pattern == description:
+        if method_pattern in short_name and desc_pattern in description:
             return reason
     return None
 

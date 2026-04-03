@@ -9,6 +9,8 @@ Fixture dependencies:
     - ``base_key``: from ``tests/lua/conftest.py``.
 """
 
+import pytest
+
 from tests.lua.conftest import ACQUIRE_SOURCE, LIMIT, WINDOW_SIZE, get_window_keys
 
 
@@ -17,6 +19,7 @@ def _eval_acquire(redis_client, base_key, window_size=WINDOW_SIZE, limit=LIMIT):
     return redis_client.eval(ACQUIRE_SOURCE, 1, base_key, window_size, limit)
 
 
+@pytest.mark.behavior
 class TestAcquireReturnValues:
     """Tests for the ``acquire.lua`` return value structure and field correctness."""
 
@@ -51,7 +54,8 @@ class TestAcquireReturnValues:
 
     @staticmethod
     def test_allowed_current_count_is_incremented(redis_client, base_key):
-        """Verify that the current window count is incremented after an allowed request."""
+        """Verify that the current window count is incremented
+        after an allowed request."""
         # Act
         result = _eval_acquire(redis_client, base_key)
 
@@ -75,7 +79,8 @@ class TestAcquireReturnValues:
 
     @staticmethod
     def test_denied_does_not_increment_counter(redis_client, base_key):
-        """Verify that a denied request does not increment the current window counter."""
+        """Verify that a denied request does not increment the
+        current window counter."""
         # Arrange
         current_key, _ = get_window_keys(redis_client, base_key)
         redis_client.set(current_key, str(LIMIT))
@@ -89,6 +94,7 @@ class TestAcquireReturnValues:
         )
 
 
+@pytest.mark.behavior
 class TestAcquireBoundaryDecisions:
     """Tests for ``acquire.lua`` boundary conditions."""
 
@@ -112,7 +118,8 @@ class TestAcquireBoundaryDecisions:
 
     @staticmethod
     def test_allows_when_estimate_is_one_below_limit(redis_client, base_key):
-        """Verify that acquisition is allowed when the estimated count is one below the limit."""
+        """Verify that acquisition is allowed when the estimated
+        count is one below the limit."""
         # Arrange
         current_key, _ = get_window_keys(redis_client, base_key)
         redis_client.set(current_key, str(LIMIT - 1))
@@ -127,11 +134,11 @@ class TestAcquireBoundaryDecisions:
 
     @staticmethod
     def test_pexpire_set_on_first_increment_only(redis_client, base_key):
-        """Verify that ``PEXPIRE`` is set on the first increment only.
+        """Verify that the window key's TTL is established once.
 
-        A mutation changing ``current_count == 0`` to ``current_count == 1``
-        would cause the TTL to be reset on every second acquire instead of
-        only on the first.
+        The expiry is set when the window counter is first created.
+        Later increments within the same window must not reset the
+        TTL.
         """
         # Act
         # First acquire: sets PEXPIRE.

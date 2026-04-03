@@ -21,8 +21,6 @@ import pytest
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
-from tests.implementations.conftest import MinimalRateLimiter
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -43,14 +41,11 @@ random_stream_strategy = st.lists(
 
 
 @pytest.fixture(scope="module")
-def property_limiter(property_redis_client, module_limiter_id):
+def property_limiter(make_property_limiter):
     """Provide a module-scoped rate limiter for jitter property tests."""
-    return MinimalRateLimiter(
-        redis_client=property_redis_client,
-        limiter_id=f"{module_limiter_id}_property_jitter",
-        limit=10,
+    return make_property_limiter(
+        "jitter",
         window=1,
-        max_concurrency=5,
         jitter_enabled=True,
         jitter_min_pct=0.02,
         jitter_max_pct=0.08,
@@ -62,6 +57,7 @@ def property_limiter(property_redis_client, module_limiter_id):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestSmartJitterProperties:
     """Property-based tests for the smart jitter mechanism.
 
@@ -145,7 +141,9 @@ class TestSmartJitterProperties:
         assert not monotonicity_violations, (
             f"paired jitter monotonicity violated for load pressure; "
             f"violations={len(monotonicity_violations)}, first={first_violation}, "
-            f"avg_low={avg_low:.4f}, avg_medium={avg_medium:.4f}, avg_high={avg_high:.4f}"
+            f"avg_low={avg_low:.4f}, "
+            f"avg_medium={avg_medium:.4f}, "
+            f"avg_high={avg_high:.4f}"
         )
 
     @staticmethod
@@ -160,7 +158,8 @@ class TestSmartJitterProperties:
     def test_concurrency_pressure_is_monotonic(
         property_limiter, random_stream, low_active, high_active
     ):
-        """Property: paired random streams preserve the concurrency-based jitter ordering."""
+        """Property: paired random streams preserve the
+        concurrency-based jitter ordering."""
         # Arrange
         assume(low_active < high_active)
         samples = len(random_stream)

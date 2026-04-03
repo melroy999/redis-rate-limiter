@@ -8,6 +8,8 @@ Fixture dependencies:
     - ``redis_client``, ``lock_key``: from ``tests/conftest.py``.
 """
 
+import pytest
+
 from tests.lua.conftest import (
     COOLDOWN_MS,
     LOCK_ACQUIRE_SCRIPT,
@@ -17,6 +19,7 @@ from tests.lua.conftest import (
 )
 
 
+@pytest.mark.behavior
 class TestLockAcquireScript:
     """Tests for ``LOCK_ACQUIRE_SCRIPT``: contention-aware lock acquisition."""
 
@@ -140,6 +143,7 @@ class TestLockAcquireScript:
         assert pttl > 0, "contention counter should have a positive PTTL"
 
 
+@pytest.mark.behavior
 class TestLockReleaseScript:
     """Tests for ``LOCK_RELEASE_SCRIPT``: contention-aware lock release."""
 
@@ -196,7 +200,8 @@ class TestLockReleaseScript:
 
     @staticmethod
     def test_sets_cooldown_when_contention_detected(redis_client, lock_key):
-        """Verify that a cooldown key is set when contention was detected during the lock hold."""
+        """Verify that a cooldown key is set when contention
+        was detected during the lock hold."""
         # Arrange
         cooldown_key = f"{lock_key}:cd:worker-1"
         contention_key = f"{lock_key}:contention"
@@ -274,6 +279,7 @@ class TestLockReleaseScript:
         )
 
 
+@pytest.mark.behavior
 class TestLockSimpleReleaseScript:
     """Tests for ``LOCK_SIMPLE_RELEASE_SCRIPT``: non-contention lock release."""
 

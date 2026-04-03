@@ -13,6 +13,7 @@ import json
 import time
 
 import pytest
+from redis import Redis
 
 from redis_rate_limiter.core.limiters import (
     LOCK_ACQUIRE_SCRIPT,
@@ -42,7 +43,7 @@ COOLDOWN_MS: int = 1000
 
 
 def get_window_keys(
-    redis_client,  # type: ignore[no-untyped-def]
+    redis_client: Redis,
     base_key: str,
     window_size: int = WINDOW_SIZE,
 ) -> tuple[str, str]:
@@ -84,7 +85,7 @@ def get_window_keys(
     return current_key, previous_key
 
 
-def get_redis_timestamp(redis_client) -> int:  # type: ignore[no-untyped-def]
+def get_redis_timestamp(redis_client: Redis) -> int:
     """Return the current Redis server timestamp in seconds.
 
     Args:
@@ -97,7 +98,8 @@ def get_redis_timestamp(redis_client) -> int:  # type: ignore[no-untyped-def]
     return redis_time[0]
 
 
-def build_task_json(
+def _build_task_json(
+    base_key: str,
     task_id: str,
     func_path: str = "test.task",
     payload: dict | None = None,
@@ -111,11 +113,13 @@ def build_task_json(
     ``schedule.lua`` tests, omit it (the script injects ``__meta_arrived_at``).
 
     Args:
+        base_key: The test's base key prefix, used to namespace auto-generated
+            inflight keys (e.g., ``"rl:limiter_test_abc_12345678"``).
         task_id: Unique task identifier.
         func_path: Dotted function path for task dispatch.
         payload: Task payload dictionary. Defaults to an empty dict.
-        inflight_key: The Redis key used for deduplication. Defaults to
-            ``"test:inflight:{task_id}"``.
+        inflight_key: The Redis key used for deduplication. When not provided,
+            derived as ``"{base_key}:inflight:{task_id}"``.
         arrived_at_ms: The arrival timestamp in milliseconds. If provided,
             included as ``__meta_arrived_at`` in the JSON.
 
@@ -126,11 +130,25 @@ def build_task_json(
         "id": task_id,
         "func_path": func_path,
         "payload": payload or {},
-        "inflight_key": inflight_key or f"test:inflight:{task_id}",
+        "inflight_key": inflight_key or f"{base_key}:inflight:{task_id}",
     }
     if arrived_at_ms is not None:
         data["__meta_arrived_at"] = arrived_at_ms
     return json.dumps(data, sort_keys=True)
+
+
+@pytest.fixture
+def build_task_json(base_key: str):
+    """Provide a factory for building JSON task strings with
+    namespace-isolated inflight keys.
+
+    The returned callable has the same signature as the underlying
+    ``_build_task_json`` helper, but with ``base_key`` pre-bound from the
+    test's fixture scope.
+    """
+    from functools import partial
+
+    return partial(_build_task_json, base_key)
 
 
 @pytest.fixture

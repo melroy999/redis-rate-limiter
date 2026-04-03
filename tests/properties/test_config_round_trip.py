@@ -1,7 +1,8 @@
 """Property-based tests for the configuration persist/hydrate round-trip invariants.
 
-These tests verify that the ``_build_persist_config`` to JSON to ``_apply_config_overrides``
-cycle preserves all configuration fields. The persist/apply chain is the mechanism
+These tests verify that the ``_build_persist_config`` to JSON to
+``_apply_config_overrides`` cycle preserves all configuration fields.
+The persist/apply chain is the mechanism
 by which the ``ManagedRateLimiter`` class API synchronizes configuration between
 multiple worker processes via Redis.
 
@@ -25,25 +26,15 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from tests.implementations.conftest import MinimalRateLimiter
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
-def property_limiter(property_redis_client, module_limiter_id):
+def property_limiter(make_property_limiter):
     """Provide a module-scoped rate limiter for config round-trip property tests."""
-    return MinimalRateLimiter(
-        redis_client=property_redis_client,
-        limiter_id=f"{module_limiter_id}_property_config_round_trip",
-        limit=10,
-        window=1.0,
-        max_concurrency=5,
-        max_age=3600,
-        lease_duration=30,
-    )
+    return make_property_limiter("config_round_trip")
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +42,7 @@ def property_limiter(property_redis_client, module_limiter_id):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestConfigRoundTripProperties:
     """Property-based tests for the configuration persist/apply round-trip.
 
@@ -109,17 +101,21 @@ class TestConfigRoundTripProperties:
 
         # Assert
         assert property_limiter.limit == limit, (
-            f"limit should survive round-trip: expected {limit}, got {property_limiter.limit}"
+            f"limit should survive round-trip: "
+            f"expected {limit}, got {property_limiter.limit}"
         )
         assert property_limiter.window == pytest.approx(window), (
-            f"window should survive round-trip: expected {window}, got {property_limiter.window}"
+            f"window should survive round-trip: "
+            f"expected {window}, got {property_limiter.window}"
         )
         assert property_limiter.max_concurrency == max_concurrency, (
             f"max_concurrency should survive round-trip: expected {max_concurrency}, "
             f"got {property_limiter.max_concurrency}"
         )
         assert property_limiter.max_age == max_age, (
-            f"max_age should survive round-trip: expected {max_age}, got {property_limiter.max_age}"
+            f"max_age should survive round-trip: "
+            f"expected {max_age}, "
+            f"got {property_limiter.max_age}"
         )
         assert property_limiter.lease_duration == lease_duration, (
             f"lease_duration should survive round-trip: expected {lease_duration}, "
@@ -163,7 +159,8 @@ class TestConfigRoundTripProperties:
         extra_key,
         extra_value,
     ):
-        """Property: unknown keys in the overrides dictionary do not raise exceptions or corrupt state."""
+        """Property: unknown keys in the overrides dictionary
+        do not raise exceptions or corrupt state."""
         # Arrange
         # Set the window first so the apply does not trigger a pause.
         property_limiter.window = window

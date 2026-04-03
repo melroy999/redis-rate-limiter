@@ -6,7 +6,7 @@ recovery path for both sync and async implementations.
 
 Fixture dependencies:
     - ``redis_client``, ``async_redis_client``: from ``tests/conftest.py``.
-    - ``generic_limiter``: from ``tests/implementations/conftest.py``.
+    - ``stub_limiter``: from ``tests/implementations/conftest.py``.
 """
 
 import logging
@@ -27,6 +27,7 @@ from tests.helpers.utils import assert_log_emitted
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 @pytest.mark.parametrize(
     "lua_script",
     [
@@ -40,42 +41,42 @@ class TestScriptRegistration:
     """Tests for ``_register_script`` caching and error handling."""
 
     @staticmethod
-    def test_register_script_uses_cached_source(generic_limiter, lua_script):
-        """Verify that script sources are loaded from disk only once and subsequently served from the cache."""
+    def test_register_script_uses_cached_source(stub_limiter, lua_script):
+        """Verify that script sources are loaded from disk only
+        once and subsequently served from the cache.
+        """
         # Arrange
-        # Simulate a script that has already been loaded into the source cache.
         existing_content = "return 1"
-        generic_limiter._script_sources[lua_script] = existing_content
+        stub_limiter._script_sources[lua_script] = existing_content
 
         # Act
-        # Mock the resource loader to track the number of invocations.
         with patch("redis_rate_limiter.core.scripts.resources.files") as mock_files:
-            generic_limiter._register_script(lua_script)
+            stub_limiter._register_script(lua_script)
 
             # Assert
             mock_files.assert_not_called()
 
-        assert generic_limiter._script_sources[lua_script] == existing_content, (
+        assert stub_limiter._script_sources[lua_script] == existing_content, (
             "cached script content should not be modified"
         )
 
     @staticmethod
     def test_register_script_raises_import_error_on_missing_source(
-        generic_limiter, lua_script
+        stub_limiter, lua_script
     ):
-        """Verify that an ImportError is raised when the Lua script cannot be loaded from any resource package."""
+        """Verify that an ImportError is raised when the Lua
+        script cannot be loaded from any resource package.
+        """
         # Arrange
-        # Ensure the script source is not cached.
-        generic_limiter._script_sources.pop(lua_script, None)
+        stub_limiter._script_sources.pop(lua_script, None)
 
         # Act & Assert
-        # Mock the resource loader to simulate a file system error.
         with patch(
             "redis_rate_limiter.core.scripts.resources.files",
             side_effect=FileNotFoundError("File system error"),
         ) as mock_files:
-            with pytest.raises(ImportError, match=f"Could not load {lua_script}"):
-                generic_limiter._register_script(lua_script)
+            with pytest.raises(ImportError, match=f"^Could not load {lua_script}"):
+                stub_limiter._register_script(lua_script)
 
             # Verify that all configured package candidates were attempted.
             assert mock_files.call_count == len(DEFAULT_RESOURCE_PACKAGES), (
@@ -83,15 +84,17 @@ class TestScriptRegistration:
             )
 
 
+@pytest.mark.behavior
 class TestScriptLoaderFallback:
     """Tests for the Lua script loader fallback mechanism."""
 
     @staticmethod
-    def test_load_lua_script_falls_back_to_second_package(generic_limiter):
-        """Verify that the script loader succeeds via the second package when the first raises ModuleNotFoundError."""
+    def test_load_lua_script_falls_back_to_second_package(stub_limiter):
+        """Verify that the script loader succeeds via the second
+        package when the first raises ModuleNotFoundError.
+        """
         # Arrange
-        # Ensure the script source is not cached so the loader is invoked.
-        generic_limiter._script_sources.pop("schedule.lua", None)
+        stub_limiter._script_sources.pop("schedule.lua", None)
 
         from importlib import resources as real_resources
 
@@ -109,10 +112,10 @@ class TestScriptLoaderFallback:
             "redis_rate_limiter.core.scripts.resources.files",
             side_effect=selective_files,
         ):
-            generic_limiter._register_script("schedule.lua")
+            stub_limiter._register_script("schedule.lua")
 
         # Assert
-        assert "schedule.lua" in generic_limiter._script_sources, (
+        assert "schedule.lua" in stub_limiter._script_sources, (
             "script source should be loaded after fallback to second package"
         )
         assert call_count["n"] == 2, (
@@ -121,19 +124,18 @@ class TestScriptLoaderFallback:
 
     @staticmethod
     def test_load_lua_script_error_lists_all_packages_comma_separated():
-        """Verify that the ImportError message joins per-package errors with a comma separator."""
+        """Verify that the ImportError message joins per-package
+        errors with a comma separator.
+        """
         # Arrange
         packages = ("fake.package.alpha", "fake.package.beta")
 
         # Act
-        with pytest.raises(ImportError) as exc_info:
+        with pytest.raises(ImportError, match="fake.package.alpha") as exc_info:
             load_lua_script("nonexistent.lua", resource_packages=packages)
 
         # Assert
         message = str(exc_info.value)
-        assert "fake.package.alpha" in message, (
-            "error message should mention the first package attempted"
-        )
         assert "fake.package.beta" in message, (
             "error message should mention the second package attempted"
         )
@@ -143,17 +145,22 @@ class TestScriptLoaderFallback:
 
 
 class _BareSyncLimiter(AbstractSyncRateLimiter):
-    """Subclass of the sync base without mixin logic, used to test ``_eval_script`` in isolation."""
+    """Subclass of the sync base without mixin logic,
+    used to test ``_eval_script`` in isolation.
+    """
 
     pass
 
 
 class _BareAsyncLimiter(AbstractAsyncRateLimiter):
-    """Subclass of the async base without mixin logic, used to test ``_eval_script`` in isolation."""
+    """Subclass of the async base without mixin logic,
+    used to test ``_eval_script`` in isolation.
+    """
 
     pass
 
 
+@pytest.mark.behavior
 class TestSyncEvalScript:
     """Tests for ``AbstractSyncRateLimiter._eval_script`` NOSCRIPT recovery."""
 
@@ -171,7 +178,9 @@ class TestSyncEvalScript:
 
     @staticmethod
     def test_eval_script_recovers_from_transient_noscript(limiter):
-        """Verify that ``_eval_script`` re-registers and retries on a single NoScriptError."""
+        """Verify that ``_eval_script`` re-registers and
+        retries on a single NoScriptError.
+        """
         # Arrange
         real_evalsha = limiter.redis.evalsha
         real_script_load = limiter.redis.script_load
@@ -215,7 +224,9 @@ class TestSyncEvalScript:
 
     @staticmethod
     def test_eval_script_raises_runtime_error_on_permanent_noscript(limiter):
-        """Verify that ``_eval_script`` raises RuntimeError when the script cannot be retained."""
+        """Verify that ``_eval_script`` raises RuntimeError
+        when the script cannot be retained.
+        """
         # Arrange
         with patch.object(
             limiter.redis,
@@ -249,7 +260,58 @@ class TestSyncEvalScript:
                 "evalsha should not retry on non-NoScriptError exceptions"
             )
 
+    @staticmethod
+    def test_eval_script_passes_registered_sha_to_evalsha(limiter):
+        """Verify that ``_eval_script`` forwards the registered
+        SHA as the first argument to ``evalsha``."""
+        # Arrange
+        expected_sha = limiter._script_shas["health.lua"]
 
+        # Act
+        with patch.object(limiter.redis, "evalsha", return_value=1) as mock_evalsha:
+            limiter._eval_script("health.lua", 0)
+
+        # Assert
+        mock_evalsha.assert_called_once_with(expected_sha, 0)
+
+    @staticmethod
+    def test_eval_script_lazy_registers_missing_script(redis_client):
+        """Verify that ``_eval_script`` lazily registers a script
+        that was not pre-registered.
+        """
+        # Arrange
+        limiter = _BareSyncLimiter(
+            redis_client=redis_client,
+            limiter_id="eval_script_lazy_sync",
+            limit=5,
+            window=60,
+        )
+        assert "health.lua" not in limiter._script_shas, (
+            "script should not be pre-registered"
+        )
+
+        # Act
+        result = limiter._eval_script(
+            "health.lua",
+            3,
+            "eval_script_lazy_sync",
+            "eval_script_lazy_sync:buffer",
+            "eval_script_lazy_sync:concurrency",
+            60,
+            5,
+            2,
+        )
+
+        # Assert
+        assert "health.lua" in limiter._script_shas, (
+            "script should be registered after lazy _eval_script call"
+        )
+        assert result is not None, (
+            "eval_script should return the script result after lazy registration"
+        )
+
+
+@pytest.mark.behavior
 class TestAsyncEvalScript:
     """Tests for ``AbstractAsyncRateLimiter._eval_script`` NOSCRIPT recovery."""
 
@@ -267,7 +329,9 @@ class TestAsyncEvalScript:
 
     @staticmethod
     async def test_eval_script_recovers_from_transient_noscript(limiter):
-        """Verify that the async ``_eval_script`` re-registers and retries on a single NoScriptError."""
+        """Verify that the async ``_eval_script`` re-registers
+        and retries on a single NoScriptError.
+        """
         # Arrange
         real_evalsha = limiter.redis.evalsha
         real_script_load = limiter.redis.script_load
@@ -313,7 +377,9 @@ class TestAsyncEvalScript:
     async def test_eval_script_raises_runtime_error_on_permanent_noscript(
         limiter,
     ):
-        """Verify that the async ``_eval_script`` raises RuntimeError when the script cannot be retained."""
+        """Verify that the async ``_eval_script`` raises
+        RuntimeError when the script cannot be retained.
+        """
 
         # Arrange
         async def always_fail(*args, **kwargs):
@@ -355,12 +421,68 @@ class TestAsyncEvalScript:
                 "evalsha should not retry on non-NoScriptError exceptions"
             )
 
+    @staticmethod
+    async def test_eval_script_passes_registered_sha_to_evalsha(limiter):
+        """Verify that the async ``_eval_script`` forwards the
+        registered SHA as the first argument to ``evalsha``."""
+        # Arrange
+        expected_sha = limiter._script_shas["health.lua"]
+
+        # Act
+        async def return_one(*args, **kwargs):
+            return 1
+
+        with patch.object(
+            limiter.redis, "evalsha", side_effect=return_one
+        ) as mock_evalsha:
+            await limiter._eval_script("health.lua", 0)
+
+        # Assert
+        mock_evalsha.assert_called_once_with(expected_sha, 0)
+
+    @staticmethod
+    async def test_eval_script_lazy_registers_missing_script(async_redis_client):
+        """Verify that the async ``_eval_script`` lazily registers
+        a script that was not pre-registered.
+        """
+        # Arrange
+        limiter = _BareAsyncLimiter(
+            redis_client=async_redis_client,
+            limiter_id="eval_script_lazy_async",
+            limit=5,
+            window=60,
+        )
+        assert "health.lua" not in limiter._script_shas, (
+            "script should not be pre-registered"
+        )
+
+        # Act
+        result = await limiter._eval_script(
+            "health.lua",
+            3,
+            "eval_script_lazy_async",
+            "eval_script_lazy_async:buffer",
+            "eval_script_lazy_async:concurrency",
+            60,
+            5,
+            2,
+        )
+
+        # Assert
+        assert "health.lua" in limiter._script_shas, (
+            "script should be registered after lazy _eval_script call"
+        )
+        assert result is not None, (
+            "eval_script should return the script result after lazy registration"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Observability tests
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class TestScriptLoaderFallbackObservability:
     """Observability tests for the Lua script loader debug log emission."""
 
@@ -372,23 +494,29 @@ class TestScriptLoaderFallbackObservability:
             load_lua_script("schedule.lua")
 
         # Assert
-        # The log message must include both the script name and the package that
-        # resolved it. Removing the resource_package argument from the logger.debug
-        # call would cause the package name to be absent from the formatted message.
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label="[ScriptLoader]",
+            required_fragments=["script=schedule.lua"],
+            message="should emit a debug log for a successful script load",
+        )
+        # The resolved package must also appear in the log message.
         debug_records = [
             r
             for r in caplog.records
-            if r.levelname == "DEBUG" and "schedule.lua" in r.getMessage()
+            if r.levelname == "DEBUG" and r.message.startswith("[ScriptLoader]")
         ]
-        assert len(debug_records) == 1, (
-            "exactly one debug log should be emitted for a successful script load"
-        )
-        message = debug_records[0].getMessage()
-        assert any(pkg in message for pkg in DEFAULT_RESOURCE_PACKAGES), (
-            f"debug log must include the resolved resource package name, got: {message}"
+        assert any(
+            f"package={pkg}" in debug_records[0].message
+            for pkg in DEFAULT_RESOURCE_PACKAGES
+        ), (
+            f"debug log must include the resolved resource package name,"
+            f" got: {debug_records[0].message}"
         )
 
 
+@pytest.mark.observability
 class TestSyncEvalScriptObservability:
     """Observability tests for sync ``_eval_script`` NOSCRIPT recovery log emission."""
 
@@ -406,7 +534,9 @@ class TestSyncEvalScriptObservability:
 
     @staticmethod
     def test_noscript_recovery_emits_warning_log(limiter, caplog):
-        """Verify that NOSCRIPT recovery emits a WARNING log with limiter id and script name."""
+        """Verify that NOSCRIPT recovery emits a WARNING log
+        with limiter id and script name.
+        """
         # Arrange
         real_evalsha = limiter.redis.evalsha
         real_script_load = limiter.redis.script_load
@@ -442,11 +572,16 @@ class TestSyncEvalScriptObservability:
         assert_log_emitted(
             caplog.records,
             level="WARNING",
+            label="[_BareSyncLimiter]",
             required_fragments=[f"limiter={limiter.id}", "script=health.lua"],
-            message="should emit a warning log containing the limiter id and script name on NOSCRIPT recovery",
+            message=(
+                "should emit a warning log containing the limiter"
+                " id and script name on NOSCRIPT recovery"
+            ),
         )
 
 
+@pytest.mark.observability
 class TestAsyncEvalScriptObservability:
     """Observability tests for async ``_eval_script`` NOSCRIPT recovery log emission."""
 
@@ -464,7 +599,9 @@ class TestAsyncEvalScriptObservability:
 
     @staticmethod
     async def test_noscript_recovery_emits_warning_log(limiter, caplog):
-        """Verify that async NOSCRIPT recovery emits a WARNING log with limiter id and script name."""
+        """Verify that async NOSCRIPT recovery emits a WARNING
+        log with limiter id and script name.
+        """
         # Arrange
         real_evalsha = limiter.redis.evalsha
         real_script_load = limiter.redis.script_load
@@ -500,6 +637,88 @@ class TestAsyncEvalScriptObservability:
         assert_log_emitted(
             caplog.records,
             level="WARNING",
+            label="[_BareAsyncLimiter]",
             required_fragments=[f"limiter={limiter.id}", "script=health.lua"],
-            message="should emit a warning log containing the limiter id and script name on async NOSCRIPT recovery",
+            message=(
+                "should emit a warning log containing the limiter"
+                " id and script name on async NOSCRIPT recovery"
+            ),
+        )
+
+
+@pytest.mark.observability
+class TestSyncRegisterScriptObservability:
+    """Observability tests for sync ``_register_script`` debug log emission."""
+
+    @staticmethod
+    def test_register_script_emits_debug_log(redis_client, caplog):
+        """Verify that ``_register_script()`` emits a DEBUG log
+        with limiter id, script name, and SHA."""
+        # Arrange
+        limiter = _BareSyncLimiter(
+            redis_client=redis_client,
+            limiter_id="register_script_sync",
+            limit=5,
+            window=60,
+        )
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.base"):
+            limiter._register_script("health.lua")
+
+        # Assert
+        sha = limiter._script_shas["health.lua"]
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label="[_BareSyncLimiter]",
+            required_fragments=[
+                "Lua script registered",
+                f"limiter={limiter.id}",
+                "script=health.lua",
+                f"sha={sha}",
+            ],
+            message=(
+                "should emit a debug log containing the limiter id,"
+                " script name, and sha on successful registration"
+            ),
+        )
+
+
+@pytest.mark.observability
+class TestAsyncRegisterScriptObservability:
+    """Observability tests for async ``_register_script`` debug log emission."""
+
+    @staticmethod
+    async def test_register_script_emits_debug_log(async_redis_client, caplog):
+        """Verify that async ``_register_script()`` emits a DEBUG log
+        with limiter id, script name, and SHA."""
+        # Arrange
+        limiter = _BareAsyncLimiter(
+            redis_client=async_redis_client,
+            limiter_id="register_script_async",
+            limit=5,
+            window=60,
+        )
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.base"):
+            await limiter._register_script("health.lua")
+
+        # Assert
+        sha = limiter._script_shas["health.lua"]
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label="[_BareAsyncLimiter]",
+            required_fragments=[
+                "Lua script registered",
+                f"limiter={limiter.id}",
+                "script=health.lua",
+                f"sha={sha}",
+            ],
+            message=(
+                "should emit a debug log containing the limiter id,"
+                " script name, and sha on successful async registration"
+            ),
         )

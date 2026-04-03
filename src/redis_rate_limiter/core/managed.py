@@ -103,10 +103,11 @@ class ManagedRateLimiterMixin:
     def _require_internal_construction(cls, sentinel: Any) -> None:
         """Reject direct constructor invocations that bypass the managed class API."""
         if sentinel is not cls._SENTINEL:
+            # fmt: off
             raise RuntimeError(
-                f"Direct {cls.__name__}() construction is not supported. "
-                f"Use {cls._configure_hint()} then {cls.__name__}.create() or {cls.__name__}.get()."
+                f"Direct {cls.__name__}() construction is not supported. Use {cls._configure_hint()} then {cls.__name__}.create() or {cls.__name__}.get()."
             )
+            # fmt: on
 
     @classmethod
     def _require_configured(cls) -> None:
@@ -143,7 +144,7 @@ class ManagedRateLimiterMixin:
         """
         return dict(
             json.loads(
-                raw_config.decode("utf-8")
+                raw_config.decode("utf-8")  # pragma: no mutate
                 if isinstance(raw_config, bytes)
                 else str(raw_config)
             )
@@ -166,7 +167,7 @@ class ManagedRateLimiterMixin:
         )
         # fmt: on
         return int(
-            version_value.decode("utf-8")
+            version_value.decode("utf-8")  # pragma: no mutate
             if isinstance(version_value, bytes)
             else version_value
         )
@@ -199,7 +200,7 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
         """Configure the shared Redis client and backend context for class-level API usage."""
         cls._redis_client = redis_client
         cls._configure_backend(**backend_context)
-        logger.info("%s configured.", cls.__name__)
+        logger.info("[%s] Configured.", cls.__name__)
 
     def __init__(
         self,
@@ -259,7 +260,7 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
             cls._persist_config(instance)
 
         logger.info(
-            "%s created: limiter=%s, config=%s, persist=%s.",
+            "[%s] Created: limiter=%s, config=%s, persist=%s.",
             cls.__name__,
             limiter_id,
             config,
@@ -283,7 +284,7 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
         """
         if limiter_id in cls._instances:
             logger.debug(
-                "%s resolved from local cache: limiter=%s.",
+                "[%s] Resolved from local cache: limiter=%s.",
                 cls.__name__,
                 limiter_id,
             )
@@ -298,10 +299,11 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
 
         raw_config = cls._redis_client.hget(cls._REGISTRY_KEY, limiter_id)
         if raw_config is None:
+            # fmt: off
             raise ValueError(
-                f"Limiter '{limiter_id}' not found in local cache or Redis. "
-                f"Ensure it was created via {cls.__name__}.create()."
+                f"Limiter '{limiter_id}' not found in local cache or Redis. Ensure it was created via {cls.__name__}.create()."
             )
+            # fmt: on
 
         config = cls._parse_raw_config(raw_config)
         instance = cls(
@@ -318,7 +320,7 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
 
         cls._instances[limiter_id] = instance
         logger.debug(
-            "%s hydrated from Redis: limiter=%s.",
+            "[%s] Hydrated from Redis: limiter=%s.",
             cls.__name__,
             limiter_id,
         )
@@ -345,7 +347,7 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
         cls._persist_config(instance)
 
         logger.info(
-            "%s updated: limiter=%s, overrides=%s.",
+            "[%s] Updated: limiter=%s, overrides=%s.",
             cls.__name__,
             limiter_id,
             overrides,
@@ -362,11 +364,11 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
         assert cls._redis_client is not None
         config = instance._build_persist_config()
         cls._redis_client.hset(cls._REGISTRY_KEY, instance.id, json.dumps(config))
-        cls._redis_client.hincrby(cls._VERSION_KEY, instance.id, 1)
-
-        raw_version = cls._redis_client.hget(cls._VERSION_KEY, instance.id)
-        if raw_version is not None:
-            instance._config_version = cls._parse_version(raw_version)
+        # fmt: off
+        instance._config_version = cast(  # pragma: no mutate
+            int, cls._redis_client.hincrby(cls._VERSION_KEY, instance.id)
+        )
+        # fmt: on
 
     def refresh_config(self) -> bool:
         """Apply a newer persisted configuration from Redis when a version change is detected.
@@ -390,7 +392,8 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
             config = self._parse_raw_config(raw_config)
         except (json.JSONDecodeError, TypeError) as error:
             logger.warning(
-                "Config refresh skipped due to malformed persisted config: limiter=%s, error=%s.",
+                "[%s] Config refresh skipped due to malformed persisted config: limiter=%s, error=%s.",
+                type(self).__name__,
                 self.id,
                 error,
             )
@@ -399,9 +402,10 @@ class SyncManagedRateLimiter(ManagedRateLimiterMixin):
         self._apply_config_overrides(config)
         self._config_version = remote_version
         logger.info(
-            "Config refreshed: limiter=%s, version=%d.",
+            "[%s] Config refreshed: limiter=%s, version=%d.",
+            type(self).__name__,
             self.id,
-            remote_version,
+            self._config_version,
         )
         return True
 
@@ -418,7 +422,8 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
 
     if TYPE_CHECKING:
         id: str
-        redis: Any  # AsyncRedis; using Any to avoid shadowing the module name.
+        # AsyncRedis; using Any to avoid shadowing the module name.
+        redis: Any
         _config_version: int
 
         def _apply_config_overrides(self, overrides: dict[str, Any]) -> None: ...
@@ -436,7 +441,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         """Configure the shared async Redis client and backend context for class-level API usage."""
         cls._redis_client = redis_client
         cls._configure_backend(**backend_context)
-        logger.info("%s configured.", cls.__name__)
+        logger.info("[%s] Configured.", cls.__name__)
 
     def __init__(
         self,
@@ -499,7 +504,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
             await cls._persist_config(instance)
 
         logger.info(
-            "%s created: limiter=%s, config=%s, persist=%s.",
+            "[%s] Created: limiter=%s, config=%s, persist=%s.",
             cls.__name__,
             limiter_id,
             config,
@@ -526,7 +531,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         """
         if limiter_id in cls._instances:
             logger.debug(
-                "%s resolved from local cache: limiter=%s.",
+                "[%s] Resolved from local cache: limiter=%s.",
                 cls.__name__,
                 limiter_id,
             )
@@ -545,10 +550,11 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         )
         # fmt: on
         if raw_config is None:
+            # fmt: off
             raise ValueError(
-                f"Limiter '{limiter_id}' not found in local cache or Redis. "
-                f"Ensure it was created via {cls.__name__}.create()."
+                f"Limiter '{limiter_id}' not found in local cache or Redis. Ensure it was created via {cls.__name__}.create()."
             )
+            # fmt: on
 
         config = cls._parse_raw_config(raw_config)
         instance = cls(
@@ -570,7 +576,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
 
         cls._instances[limiter_id] = instance
         logger.debug(
-            "%s hydrated from Redis: limiter=%s.",
+            "[%s] Hydrated from Redis: limiter=%s.",
             cls.__name__,
             limiter_id,
         )
@@ -596,7 +602,7 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         await cls._persist_config(instance)
 
         logger.info(
-            "%s updated: limiter=%s, overrides=%s.",
+            "[%s] Updated: limiter=%s, overrides=%s.",
             cls.__name__,
             limiter_id,
             overrides,
@@ -618,16 +624,12 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
             Awaitable,
             cls._redis_client.hset(cls._REGISTRY_KEY, instance.id, json.dumps(config)),
         )
-        await cast(  # pragma: no mutate
-            Awaitable, cls._redis_client.hincrby(cls._VERSION_KEY, instance.id, 1)
-        )
-
-        raw_version = await cast(  # pragma: no mutate
-            Awaitable, cls._redis_client.hget(cls._VERSION_KEY, instance.id)
+        instance._config_version = int(
+            await cast(  # pragma: no mutate
+                Awaitable, cls._redis_client.hincrby(cls._VERSION_KEY, instance.id)
+            )
         )
         # fmt: on
-        if raw_version is not None:
-            instance._config_version = cls._parse_version(raw_version)
 
     async def refresh_config(self) -> bool:
         """Apply a newer persisted configuration from Redis when a version change is detected.
@@ -651,7 +653,8 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
             config = self._parse_raw_config(raw_config)
         except (json.JSONDecodeError, TypeError) as error:
             logger.warning(
-                "Config refresh skipped due to malformed persisted config: limiter=%s, error=%s.",
+                "[%s] Config refresh skipped due to malformed persisted config: limiter=%s, error=%s.",
+                type(self).__name__,
                 self.id,
                 error,
             )
@@ -660,8 +663,9 @@ class AsyncManagedRateLimiter(ManagedRateLimiterMixin):
         self._apply_config_overrides(config)
         self._config_version = remote_version
         logger.info(
-            "Config refreshed (async): limiter=%s, version=%d.",
+            "[%s] Config refreshed: limiter=%s, version=%d.",
+            type(self).__name__,
             self.id,
-            remote_version,
+            self._config_version,
         )
         return True

@@ -12,7 +12,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from tests.implementations.conftest import MinimalRateLimiter
+from tests.helpers.utils import clear_limiter_keys
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -20,19 +20,10 @@ from tests.implementations.conftest import MinimalRateLimiter
 
 
 @pytest.fixture(scope="module")
-def property_limiter(
-    property_redis_client,
-    module_limiter_id,
-):
+def property_limiter(make_property_limiter):
     """Provide a module-scoped rate limiter for concurrency-invariant property tests."""
-    return MinimalRateLimiter(
-        redis_client=property_redis_client,
-        limiter_id=f"{module_limiter_id}_property_concurrency",
-        limit=10_000,
-        window=60,
-        max_concurrency=3,
-        max_age=3600,
-        lease_duration=30,
+    return make_property_limiter(
+        "concurrency", limit=10_000, window=60, max_concurrency=3
     )
 
 
@@ -41,6 +32,7 @@ def property_limiter(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestConcurrencyInvariantProperties:
     """Property-based tests verifying that the concurrency bound is never violated."""
 
@@ -58,19 +50,22 @@ class TestConcurrencyInvariantProperties:
     def test_active_concurrency_never_exceeds_max(
         property_limiter, property_redis_client, operations
     ):
-        """Property: the active concurrency never exceeds the configured max_concurrency."""
+        """Property: the active concurrency never exceeds
+        the configured max_concurrency."""
         # Arrange
-        property_redis_client.flushdb()
+        clear_limiter_keys(property_redis_client, property_limiter)
         next_payload_id = 0
         active_task_ids = set()
+        all_scheduled_task_ids = []
 
         # Act & Assert
         for operation in operations:
             if operation == "schedule":
-                property_limiter.schedule_task(
+                _success, task_id = property_limiter.schedule_task(
                     "myapp.tasks.work",
                     {"payload_id": next_payload_id},
                 )
+                all_scheduled_task_ids.append(task_id)
                 next_payload_id += 1
             elif operation == "consume":
                 result = property_limiter.consume()
@@ -79,7 +74,8 @@ class TestConcurrencyInvariantProperties:
                 assert (
                     result["active_concurrency"] <= property_limiter.max_concurrency
                 ), (
-                    "consume should never report active_concurrency above max_concurrency"
+                    "consume should never report"
+                    " active_concurrency above max_concurrency"
                 )
             else:
                 if active_task_ids:
@@ -97,4 +93,6 @@ class TestConcurrencyInvariantProperties:
             ), "concurrency set cardinality must never exceed max_concurrency"
 
         # Cleanup
-        property_redis_client.flushdb()
+        clear_limiter_keys(property_redis_client, property_limiter)
+        for task_id in all_scheduled_task_ids:
+            property_redis_client.delete(property_limiter.get_inflight_key(task_id))

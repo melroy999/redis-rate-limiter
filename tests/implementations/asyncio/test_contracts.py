@@ -6,12 +6,16 @@ defined in the accompanying conftest module.
 
 Fixture dependencies:
     - ``async_redis_client``, ``limiter_id``: from ``tests/conftest.py``.
-    - ``limiter``, ``_reset_asyncio_limiter_class_state``: from ``tests/implementations/asyncio/conftest.py``.
+    - ``limiter``, ``_reset_asyncio_limiter_class_state``:
+      from ``tests/implementations/asyncio/conftest.py``.
 """
+
+import pytest
 
 from tests.contracts.test_rate_limiter import RateLimiterContractTest
 
 
+@pytest.mark.contract
 class TestAsyncIOContracts(RateLimiterContractTest):
     """Verify that ``AsyncIOTaskLimiter`` satisfies all rate limiter contracts."""
 

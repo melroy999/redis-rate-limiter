@@ -8,10 +8,11 @@ Fixture dependencies:
     - ``base_key``, ``buffer_key``, ``concurrency_key``: from ``tests/lua/conftest.py``.
 """
 
+import pytest
+
 from tests.lua.conftest import (
     HEALTH_SOURCE,
     WINDOW_SIZE,
-    build_task_json,
     get_redis_timestamp,
     get_window_keys,
 )
@@ -26,6 +27,7 @@ def _eval_health(
     )
 
 
+@pytest.mark.behavior
 class TestHealthReturnValues:
     """Tests for the ``health.lua`` return value structure and field accuracy."""
 
@@ -108,7 +110,7 @@ class TestHealthReturnValues:
 
     @staticmethod
     def test_buffer_count_reflects_buffer_sorted_set(
-        redis_client, base_key, buffer_key, concurrency_key
+        redis_client, base_key, buffer_key, concurrency_key, build_task_json
     ):
         """Verify that ``result[5]`` reflects the buffer sorted set cardinality."""
         # Arrange
@@ -123,12 +125,13 @@ class TestHealthReturnValues:
         assert result[5] == 2, "buffer_count should reflect buffer set cardinality"
 
 
+@pytest.mark.behavior
 class TestHealthReadOnly:
     """Tests verifying that ``health.lua`` does not modify Redis state."""
 
     @staticmethod
     def test_does_not_modify_redis_state(
-        redis_client, base_key, buffer_key, concurrency_key
+        redis_client, base_key, buffer_key, concurrency_key, build_task_json
     ):
         """Verify that ``health.lua`` is purely read-only.
 

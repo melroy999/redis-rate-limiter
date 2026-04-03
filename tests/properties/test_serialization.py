@@ -16,8 +16,8 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from tests.helpers.strategies import nested_dict
-from tests.helpers.utils import dict_equals_approx
-from tests.implementations.conftest import MinimalRateLimiter
+from tests.helpers.utils import clear_limiter_keys, dict_equals_approx
+from tests.implementations.conftest import StubRateLimiter
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -25,20 +25,9 @@ from tests.implementations.conftest import MinimalRateLimiter
 
 
 @pytest.fixture(scope="module")
-def property_limiter(
-    property_redis_client,
-    module_limiter_id,
-):
+def property_limiter(make_property_limiter):
     """Provide the default module-scoped rate limiter for property-based tests."""
-    return MinimalRateLimiter(
-        redis_client=property_redis_client,
-        limiter_id=f"{module_limiter_id}_property_default",
-        limit=100,
-        window=60,
-        max_concurrency=50,
-        max_age=3600,
-        lease_duration=30,
-    )
+    return make_property_limiter("default", limit=100, window=60, max_concurrency=50)
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +35,7 @@ def property_limiter(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.behavior
 class TestSerializationProperties:
     """Property-based tests verifying payload serialization invariants through Redis."""
 
@@ -57,7 +47,8 @@ class TestSerializationProperties:
     def test_json_payload_survives_redis_round_trip(
         property_limiter, property_redis_client, payload, func_path
     ):
-        """Property: any JSON-serializable dict payload survives a Redis round-trip unchanged.
+        """Property: any JSON-serializable dict payload survives
+        a Redis round-trip unchanged.
 
         This property verifies that, regardless of the dictionary structure (i.e.,
         nested dicts, lists as values, primitives, Unicode), the data is preserved
@@ -69,7 +60,7 @@ class TestSerializationProperties:
         """
         # Arrange
         # Ensure a clean state for each example.
-        property_redis_client.flushdb()
+        clear_limiter_keys(property_redis_client, property_limiter)
 
         # Act
         try:
@@ -94,20 +85,11 @@ class TestSerializationProperties:
             task_data = json.loads(task_data_str)
 
             # Extract the payload from the stored task data.
-            # The limiter wraps payloads with metadata: {"data": ..., "meta": {...}}
-            stored_enhanced_payload = task_data.get("payload")
-            if (
-                isinstance(stored_enhanced_payload, dict)
-                and "data" in stored_enhanced_payload
-            ):
-                # Extract only the data portion
-                stored_payload = stored_enhanced_payload["data"]
-            else:
-                # Fallback for non-enhanced payloads
-                stored_payload = stored_enhanced_payload
+            stored_payload = task_data.get("payload")
 
             # The payload should survive the round-trip intact.
-            # Approximate equality is used for floats to account for JSON precision limits.
+            # Approximate equality is used for floats to account
+            # for JSON precision limits.
             assert dict_equals_approx(stored_payload, payload), (
                 f"payload mismatch after round-trip\n"
                 f"original: {payload}\n"
@@ -115,8 +97,9 @@ class TestSerializationProperties:
             )
 
         finally:
-            # Cleanup.
-            property_redis_client.flushdb()
+            # Cleanup
+            clear_limiter_keys(property_redis_client, property_limiter)
+            property_redis_client.delete(property_limiter.get_inflight_key(task_id))
 
     @staticmethod
     @given(
@@ -138,7 +121,7 @@ class TestSerializationProperties:
         This verifies that the rate limiter does not reject valid dictionary payloads.
         """
         # Arrange
-        property_redis_client.flushdb()
+        clear_limiter_keys(property_redis_client, property_limiter)
 
         # Act
         success, task_id = property_limiter.schedule_task(func_path, payload)
@@ -151,7 +134,8 @@ class TestSerializationProperties:
         ), "task should be marked as in-flight"
 
         # Cleanup
-        property_redis_client.flushdb()
+        clear_limiter_keys(property_redis_client, property_limiter)
+        property_redis_client.delete(property_limiter.get_inflight_key(task_id))
 
     @staticmethod
     @given(payload=nested_dict)
@@ -159,12 +143,13 @@ class TestSerializationProperties:
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
     def test_task_signature_is_deterministic(payload):
-        """Property: repeated signature generation for the same payload is deterministic."""
+        """Property: repeated signature generation for the
+        same payload is deterministic."""
         # Act
-        signature_1 = MinimalRateLimiter._get_task_signature_str(
+        signature_1 = StubRateLimiter._get_task_signature_str(
             "myapp.tasks.process", payload
         )
-        signature_2 = MinimalRateLimiter._get_task_signature_str(
+        signature_2 = StubRateLimiter._get_task_signature_str(
             "myapp.tasks.process", payload
         )
 

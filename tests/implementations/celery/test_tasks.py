@@ -7,17 +7,21 @@ Fixture dependencies:
 import logging
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from redis_rate_limiter.backends.celery.limiter import CeleryRateLimiter
 from redis_rate_limiter.backends.celery.tasks.worker import generic_rate_limited_worker
 from tests.helpers.utils import assert_log_emitted
 
 
+@pytest.mark.behavior
 class TestGenericWorkerTask:
     """Test suite for the ``generic_rate_limited_worker`` task behaviour."""
 
     @staticmethod
     def test_generic_worker_resolves_and_executes_function():
-        """Verify that the generic worker resolves the callable and executes it with the payload keyword arguments."""
+        """Verify that the generic worker resolves the callable
+        and executes it with the payload keyword arguments."""
         # Arrange
         limiter = MagicMock()
         lifecycle_context = MagicMock()
@@ -56,12 +60,14 @@ class TestGenericWorkerTask:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.observability
 class TestGenericWorkerTaskObservability:
     """Observability tests for the ``generic_rate_limited_worker`` log emissions."""
 
     @staticmethod
     def test_generic_worker_emits_debug_log(caplog):
-        """Verify that the generic worker emits a DEBUG log with the limiter id and func path."""
+        """Verify that the generic worker emits a DEBUG log
+        with the limiter id and func path."""
         # Arrange
         limiter = MagicMock()
         lifecycle_context = MagicMock()
@@ -91,6 +97,7 @@ class TestGenericWorkerTaskObservability:
         assert_log_emitted(
             caplog.records,
             level="DEBUG",
+            label="[CeleryGenericWorker]",
             required_fragments=[
                 "limiter=worker_limiter",
                 "func_path=json.dumps",

@@ -41,23 +41,16 @@ ERROR_COUNT = (
 PRIORITY_SEED = 42  # seed value for reproducible random task priorities
 
 # ---------------------------------------------------------------------------
-# ThreadPool backend
+# Backend worker count (shared across all task-oriented backends)
 # ---------------------------------------------------------------------------
 
-THREADPOOL_MAX_WORKERS = 4  # number of workers in the thread pool
+WORKER_COUNT = 4  # number of workers, threads, or tasks per backend
 
 # ---------------------------------------------------------------------------
 # Celery backend
 # ---------------------------------------------------------------------------
 
-CELERY_WORKER_CONCURRENCY = 4  # number of concurrent worker processes
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # number of tasks prefetched per worker at a time
-
-# ---------------------------------------------------------------------------
-# AsyncIO backend
-# ---------------------------------------------------------------------------
-
-ASYNCIO_MAX_TASKS = 4  # maximum number of concurrent asyncio tasks
 
 # ---------------------------------------------------------------------------
 # ASGI middleware

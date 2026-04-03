@@ -8,6 +8,8 @@ Fixture dependencies:
     - ``concurrency_key``: from ``tests/lua/conftest.py``.
 """
 
+import pytest
+
 from tests.lua.conftest import LEASE_DURATION, RENEW_SOURCE, get_redis_timestamp
 
 
@@ -16,6 +18,7 @@ def _eval_renew(redis_client, concurrency_key, task_id, lease_duration=LEASE_DUR
     return redis_client.eval(RENEW_SOURCE, 1, concurrency_key, task_id, lease_duration)
 
 
+@pytest.mark.behavior
 class TestRenew:
     """Tests for the ``renew.lua`` lease renewal script."""
 
@@ -60,7 +63,8 @@ class TestRenew:
 
     @staticmethod
     def test_does_not_add_new_member_on_missing_task(redis_client, concurrency_key):
-        """Verify that renewing a missing task does not add it to the concurrency set."""
+        """Verify that renewing a missing task does not add it
+        to the concurrency set."""
         # Act
         _eval_renew(redis_client, concurrency_key, "nonexistent-task")
 
@@ -82,5 +86,6 @@ class TestRenew:
 
         # Assert
         assert redis_client.zscore(concurrency_key, "task-2") == original_task2_score, (
-            "other members' scores should be unchanged after renewing a different member"
+            "other members' scores should be unchanged after"
+            " renewing a different member"
         )

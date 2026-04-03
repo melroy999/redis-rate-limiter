@@ -21,6 +21,7 @@ def create_lock():
     return AsyncDistributedLock
 
 
+@pytest.mark.contract
 class TestAsyncDistributedLock(DistributedLockContractTest):
     """Contract compliance for the async Redis-based ``AsyncDistributedLock`` implementation."""
 

@@ -15,6 +15,8 @@ Tracks compliance of each file against `TESTING_GUIDELINES.md`. Files are checke
 - [x] `tests/helpers/tasks.py`
 - [x] `tests/helpers/utils.py`
 - [x] `tests/fixtures/celery_backend.py`
+- [x] `tests/fixtures/processpool_backend.py`
+- [x] `tests/fixtures/rq_backend.py`
 - [x] `tests/fixtures/threadpool_backend.py`
 
 ## Batch 2: algorithms/
@@ -27,6 +29,7 @@ Tracks compliance of each file against `TESTING_GUIDELINES.md`. Files are checke
 - [x] `tests/contracts/test_rate_limiter.py`
 - [x] `tests/contracts/test_task_lifecycle.py`
 - [x] `tests/contracts/test_distributed_lock.py`
+- [x] `tests/contracts/test_managed_mixin.py`
 
 ## Batch 4: implementations/ core mixins
 
@@ -97,6 +100,21 @@ Tracks compliance of each file against `TESTING_GUIDELINES.md`. Files are checke
 - [x] `tests/integration/test_distributed_rate_limiting.py`
 - [x] `tests/integrations/test_prometheus.py`
 
+## Batch 10: Post-migration additions
+
+- [x] `tests/implementations/test_backend_health_monitor.py`
+- [x] `tests/implementations/test_destructor_warning.py`
+- [x] `tests/implementations/test_optional_imports.py`
+- [x] `tests/lua/conftest.py`
+- [x] `tests/lua/test_acquire.py`
+- [x] `tests/lua/test_consume.py`
+- [x] `tests/lua/test_health.py`
+- [x] `tests/lua/test_lock_scripts.py`
+- [x] `tests/lua/test_renew.py`
+- [x] `tests/lua/test_schedule.py`
+- [x] `tests/plugins/mutmut_defaults_patch.py`
+- [x] `tests/plugins/verify_defaults_patch.py`
+
 ## Deferred Testing Decisions
 
 Decisions made during migration review where a coverage gap was identified but deferred to a more appropriate future test category. Each entry references the relevant section of `TESTING_GUIDELINES.md`.
@@ -117,14 +135,16 @@ Decisions made during migration review where a coverage gap was identified but d
 
 ### Deferred to configuration edge cases (Section 11.1)
 
-| Gap | Rationale | Future location |
-|---|---|---|
-| `window_ms=0` causes `ZeroDivisionError` in the reference implementation | Should be rejected at configuration time, not handled in the algorithm. Testing this belongs in a configuration validation test. | `tests/implementations/` (Section 11.1: "`window=0` or very small windows") |
-| Negative values for `limit`, `window`, `max_concurrency` | Same as above; should be rejected at configuration time. | `tests/implementations/` (Section 11.1: "Negative values") |
-| `elapsed_ms > window_ms` or `elapsed_ms < 0` | Impossible inputs; the window counter resets before `elapsed_ms` exceeds `window_ms`, and Redis TIME is monotonically non-decreasing. No value at the algorithm level or the Lua level. | N/A (not testable; document as a non-issue) |
-| `max_concurrency=0` | Would make the `active_concurrency >= max_concurrency` check always true, effectively disabling task dispatch. Should be rejected at configuration time. | `tests/implementations/` (Section 11.1) |
-| `lease_duration=0` | `_get_inflight_ttl` floors at `max(1.0, ...)`, but the Lua consume script receives the raw value as ARGV. Should be rejected or documented as a minimum. | `tests/implementations/` (Section 11.1) |
-| Priority boundary values (`priority=0`, negative, extreme float64) | Priority is stored as a Redis ZSET score (double-precision float). Extreme values may lose precision; zero and negative priorities could violate ordering assumptions. Should be validated at configuration time. | `tests/implementations/` (Section 11.1) |
+*All items in this section have been resolved.*
+
+| Gap | Resolution |
+|---|---|
+| ~~`window_ms=0` causes `ZeroDivisionError` in the reference implementation~~ | Resolved: `TestBaseConfigBoundaryDecisions.test_rejects_zero_window` in `tests/implementations/test_limiter_config.py`. Validation added to `AbstractRateLimiter.__init__`. |
+| ~~Negative values for `limit`, `window`, `max_concurrency`~~ | Resolved: `TestBaseConfigBoundaryDecisions` (negative `limit`, negative `window`) and `TestMixinConfigBoundaryDecisions` (negative `max_concurrency`) in `tests/implementations/test_limiter_config.py`. |
+| `elapsed_ms > window_ms` or `elapsed_ms < 0` | N/A: impossible inputs; the window counter resets before `elapsed_ms` exceeds `window_ms`, and Redis TIME is monotonically non-decreasing. Documented as a non-issue. |
+| ~~`max_concurrency=0`~~ | Resolved: `TestMixinConfigBoundaryDecisions.test_rejects_zero_max_concurrency` in `tests/implementations/test_limiter_config.py`. Minimum of 1 enforced. |
+| ~~`lease_duration=0`~~ | Resolved: `TestMixinConfigBoundaryDecisions.test_rejects_zero_lease_duration` in `tests/implementations/test_limiter_config.py`. Minimum of 1 enforced. |
+| ~~Priority boundary values (`priority=0`, negative, extreme float64)~~ | Resolved: `TestScheduleTaskPriorityBoundaryDecisions` and `TestAsyncScheduleTaskPriorityBoundaryDecisions` in `tests/implementations/test_limiter_config.py`. Non-finite values rejected; zero and negative priorities accepted as valid ZSET scores. |
 
 ### Deferred to Lua script tests (Section 10) and Lua-level contracts
 

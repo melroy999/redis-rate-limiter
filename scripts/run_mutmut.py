@@ -1,4 +1,5 @@
-"""Wrapper that patches mutmut 3.5.0 to support mutation of decorated functions.
+"""Wrapper that patches mutmut 3.5.0 to support mutation of decorated functions
+and killed-by test tracking.
 
 mutmut unconditionally skips all decorated functions/methods (issue #387).
 This script patches the relevant functions at runtime before invoking the
@@ -18,10 +19,19 @@ Patches applied:
    ``@staticmethod`` (uses ``ClassName.attr`` lookups, no self_arg).
 4. ``trampoline_impl``: adds ``orig_is_unbound`` parameter so the
    trampoline prepends ``cls`` to ``orig()`` calls for classmethods.
+5. ``PytestRunner.run_tests`` and ``SourceFileMutationData.register_result``:
+   tracks which test killed each mutant via a pytest plugin and temp-file
+   IPC between forked children and the parent process. Always runs with
+   ``-x`` (first-killer mode) for fast blind spot analysis. Killed-by data
+   is accumulated in memory and flushed to
+   ``/tmp/mutmut_killed_by_results.json`` at exit.
 """
 
 from __future__ import annotations
 
+import atexit
+import os
+import signal
 import sys
 from collections.abc import Iterable, Sequence
 from typing import Union
@@ -39,6 +49,8 @@ from mutmut.trampoline_templates import (
     create_trampoline_lookup,
     mangle_function_name,
 )
+from mutmut_shared import KilledByAccumulator
+from mutmut_shared import KilledByCollector as _KilledByCollectorBase
 
 # ---------------------------------------------------------------------------
 # Decorator classification
@@ -407,6 +419,138 @@ def _mutmut_trampoline(orig, mutants, call_args, call_kwargs, self_arg=None, ori
 
 
 # ---------------------------------------------------------------------------
+# Patch 5: killed-by test tracking
+# ---------------------------------------------------------------------------
+
+# Per-child temp directory for IPC and aggregated results file written by
+# the parent. Both use absolute paths so they are independent of cwd.
+_KILLED_BY_DIR = "/tmp/mutmut_killed_by"
+_KILLED_BY_RESULTS = "/tmp/mutmut_killed_by_results.json"
+
+_accumulator = KilledByAccumulator(_KILLED_BY_RESULTS, _KILLED_BY_DIR)
+
+# Cache of ``@pytest.mark.signature`` test node IDs, populated once per
+# process by ``_collect_signature_test_ids()``.
+_signature_test_ids: list[str] | None = None
+
+
+class KilledByCollector(_KilledByCollectorBase):
+    """Pytest plugin that captures the nodeid of the first failing test.
+
+    With ``-x``, pytest stops at the first failure, so at most one
+    killer is recorded. Extends :class:`~mutmut_shared.KilledByCollector`
+    with ``current_test`` tracking so the SIGXCPU handler can report
+    which test was mid-execution when the process was killed.
+    """
+
+    def __init__(self, mutant_name: str | None = None) -> None:
+        super().__init__(mutant_name, killed_by_dir=_KILLED_BY_DIR)
+        self.current_test: str | None = None
+
+    def _extra_payload(self) -> dict:
+        if self.current_test is not None:
+            return {"killed_during": self.current_test}
+        return {}
+
+    def pytest_runtest_call(self, item) -> None:  # type: ignore[no-untyped-def]
+        """Track the test that is about to execute its call phase."""
+        self.current_test = item.nodeid
+
+    def pytest_runtest_makereport(self, item, call) -> None:  # type: ignore[no-untyped-def]
+        super().pytest_runtest_makereport(item, call)
+        if call.when == "call":
+            self.current_test = None
+
+
+def _collect_signature_test_ids() -> list[str]:
+    """Return all test node IDs marked with ``@pytest.mark.signature``.
+
+    Runs ``pytest --collect-only`` inside the mutants working directory so
+    that paths match the node IDs mutmut uses during test execution.
+    Collection results are cached in ``_signature_test_ids`` and reused
+    across all mutants in the same process.
+    """
+    global _signature_test_ids
+    if _signature_test_ids is not None:
+        return _signature_test_ids
+
+    import pytest
+    from mutmut.__main__ import change_cwd
+
+    collected: list[str] = []
+
+    class _Collector:
+        def pytest_collection_finish(self, session) -> None:  # type: ignore[no-untyped-def]
+            for item in session.items:
+                collected.append(item.nodeid)
+
+    with change_cwd("mutants"):
+        pytest.main(
+            ["--collect-only", "-q", "--no-header", "-m", "signature"],
+            plugins=[_Collector()],
+        )
+
+    _signature_test_ids = collected
+    return _signature_test_ids
+
+
+def _patched_run_tests(self, *, mutant_name, tests):  # type: ignore[no-untyped-def]
+    """Replacement for ``PytestRunner.run_tests`` that injects the
+    ``KilledByCollector`` plugin and writes killed-by data to a temp file.
+
+    Always runs with ``-x`` so that pytest stops at the first failure
+    (first-killer mode for fast blind spot analysis).
+    """
+    from mutmut.__main__ import change_cwd
+
+    collector = KilledByCollector(mutant_name=mutant_name)
+
+    # Register a SIGXCPU handler that flushes partial data before the
+    # process is terminated by mutmut's RLIMIT_CPU backstop.
+    original_sigxcpu = None
+    if mutant_name is not None and hasattr(signal, "SIGXCPU"):
+        original_sigxcpu = signal.getsignal(signal.SIGXCPU)
+
+        def _sigxcpu_handler(signum, frame):  # type: ignore[no-untyped-def]
+            collector.write_temp_file(partial=True)
+            # Re-raise to let the default handler terminate the process.
+            signal.signal(signal.SIGXCPU, signal.SIG_DFL)
+            os.kill(os.getpid(), signal.SIGXCPU)
+
+        signal.signal(signal.SIGXCPU, _sigxcpu_handler)
+
+    pytest_args = ["-x", "-q", "-p", "no:randomly", "-p", "no:random-order"]
+    if tests:
+        pytest_args += list(tests)
+        # Always append signature tests: coverage-based selection never includes
+        # them because ``def func(...):`` lines execute at module import time
+        # (before any test context is active), so they appear under no test
+        # node ID in the coverage database. Default-parameter mutations on
+        # functions that also have body coverage would therefore be tested
+        # without ``inspect.signature`` assertions and survive.
+        sig_ids = _collect_signature_test_ids()
+        already = set(tests)
+        pytest_args += [nid for nid in sig_ids if nid not in already]
+    else:
+        pytest_args += self._pytest_add_cli_args_test_selection
+    with change_cwd("mutants"):
+        result = int(self.execute_pytest(pytest_args, plugins=[collector]))
+
+    # Restore original SIGXCPU handler.
+    if original_sigxcpu is not None:
+        signal.signal(signal.SIGXCPU, original_sigxcpu)
+
+    # Write final (complete) killed-by data, overwriting any partial
+    # flush from the incremental writes.
+    collector.write_temp_file(partial=False)
+
+    return result
+
+
+_patched_sfmd_register_result = _accumulator.make_register_result_patch()
+
+
+# ---------------------------------------------------------------------------
 # Apply all patches
 # ---------------------------------------------------------------------------
 
@@ -436,6 +580,13 @@ def _apply_patches() -> None:
         leading_lines=[cst.EmptyLine(), cst.EmptyLine()]
     )
     file_mutation.trampoline_impl_cst = new_cst  # type: ignore[attr-defined]
+
+    # Patch 5: killed-by test tracking via temp-file IPC.
+    from mutmut.__main__ import PytestRunner, SourceFileMutationData
+
+    SourceFileMutationData.register_result = _patched_sfmd_register_result  # type: ignore[assignment]
+    PytestRunner.run_tests = _patched_run_tests  # type: ignore[assignment]
+    atexit.register(_accumulator.flush)
 
 
 # ---------------------------------------------------------------------------

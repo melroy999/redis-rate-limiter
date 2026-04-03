@@ -40,31 +40,28 @@ class ThreadPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimit
         """
         executor = backend_context.get("executor")
         if executor is None:
+            # fmt: off
             raise RuntimeError(
-                "ThreadPoolRateLimiter.configure(redis_client, executor=executor) "
-                "must be called before create() or get()."
+                "ThreadPoolRateLimiter.configure(redis_client, executor=executor) must be called before create() or get()."
             )
+            # fmt: on
         cls._executor = executor
 
     @classmethod
     def _has_backend_context(cls) -> bool:
-        """Determine whether the executor context has been configured."""
         return cls._executor is not None
 
     @classmethod
     def _get_instance_context(cls) -> dict[str, Any]:
-        """Provide the constructor context required for concrete instance creation."""
         assert cls._executor is not None
         return {"executor": cls._executor}
 
     @classmethod
     def _reset_backend_context(cls) -> None:
-        """Clear the executor context held at the class level."""
         cls._executor = None
 
     @classmethod
     def _configure_hint(cls) -> str:
-        """Return the ``configure`` usage hint to be included in runtime error messages."""
         return "ThreadPoolRateLimiter.configure(redis_client, executor=executor)"
 
     # ---------------------------------------------------------------------------
@@ -90,6 +87,7 @@ class ThreadPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimit
         """
         super().__init__(redis_client, _sentinel=_sentinel, **kwargs)
         self.executor = executor
+        self._local_max_workers: int = getattr(executor, "_max_workers")
         self._local_dispatched: int = 0
         self._local_dispatch_lock = threading.Lock()
 
@@ -106,7 +104,7 @@ class ThreadPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimit
         in the thread pool.
         """
         with self._local_dispatch_lock:
-            return self._local_dispatched < self.executor._max_workers
+            return self._local_dispatched < self._local_max_workers
 
     # ---------------------------------------------------------------------------
     # Backend dispatch
@@ -128,7 +126,7 @@ class ThreadPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimit
 
         self.executor.submit(_run_task)
         logger.debug(
-            "Task submitted to thread pool: limiter=%s, task_id=%s, func_path=%s, local_dispatched=%d.",
+            "[ThreadPoolRateLimiter] Task submitted to thread pool: limiter=%s, task_id=%s, func_path=%s, local_dispatched=%d.",
             self.id,
             task_id,
             func_path,
