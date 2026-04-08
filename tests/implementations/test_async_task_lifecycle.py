@@ -17,12 +17,13 @@ import inspect
 import logging
 import os
 import signal
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from redis_rate_limiter.core import AsyncTaskLifecycle
+from redis_rate_limiter.core.async_limiters import AsyncHeartbeatScheduler
+from redis_rate_limiter.core.scripts import load_lua_script
 from tests.contracts.test_task_lifecycle import TaskLifecycleContractTest
 from tests.helpers.utils import assert_log_emitted
 from tests.implementations.conftest import (
@@ -31,19 +32,32 @@ from tests.implementations.conftest import (
     HeartbeatFailureMode,
 )
 
+RELEASE_SOURCE = load_lua_script("release.lua")
+
+
+def _make_async_eval_script(async_redis_client):
+    """Return a real async ``_eval_script`` implementation for the given client."""
+    sources: dict[str, str] = {}
+
+    async def _eval_script(script_name, num_keys, *args):
+        if script_name not in sources:
+            sources[script_name] = load_lua_script(script_name)
+        return await async_redis_client.eval(sources[script_name], num_keys, *args)
+
+    return _eval_script
+
 
 @pytest.fixture
-def mock_limiter(async_redis_client, limiter_id, task_id):
+async def mock_limiter(async_redis_client, limiter_id, task_id):
     """Create a mock async limiter that uses the real async Redis client
     but mocks internal helpers.
 
-    This fixture provides a limiter with real async Redis operations but mocked
-    backend-specific methods, thereby avoiding the need for a full backend setup.
-
-    ``MagicMock`` is used as the base rather than ``AsyncMock`` because the
-    lifecycle code calls ``get_inflight_key()`` synchronously (without ``await``).
-    Methods that the lifecycle awaits (``trigger_consume``, ``extend_lease``) are
-    explicitly set to ``AsyncMock`` instances.
+    Provides a limiter with real async Redis operations but mocked
+    backend-specific methods. ``_eval_script`` is wired to actually run
+    scripts through the async Redis client so that ``release.lua`` (and
+    any other scripts the lifecycle invokes) take effect, and a real
+    ``AsyncHeartbeatScheduler`` is attached so heartbeat behaviour can
+    be tested end-to-end.
     """
     limiter = MagicMock()
 
@@ -59,7 +73,22 @@ def mock_limiter(async_redis_client, limiter_id, task_id):
     # Async methods that the lifecycle awaits.
     limiter.trigger_consume = AsyncMock()
     limiter.extend_lease = AsyncMock(return_value=None)
-    return limiter
+    limiter._eval_script = AsyncMock(
+        side_effect=_make_async_eval_script(async_redis_client)
+    )
+
+    # release.lua needs the drain channel and worker id; set them
+    # explicitly so the script's PUBLISH targets a real channel.
+    limiter._drain_signal_channel = f"{limiter_id}:drain_signal"
+    limiter._worker_id = f"{limiter_id}_worker"
+
+    # Attach a real shared async heartbeat scheduler so registration /
+    # renewal actually fires when tests enter an AsyncTaskLifecycle.
+    limiter._heartbeat_scheduler = AsyncHeartbeatScheduler(limiter)
+
+    yield limiter
+
+    await limiter._heartbeat_scheduler.shutdown()
 
 
 @pytest.fixture
@@ -149,74 +178,20 @@ class TestAsyncTaskLifecycleImplementation:
         async_redis_client, mock_limiter, task_id, inflight_key
     ):
         """Verify that the lifecycle raises an exception but still
-        triggers consume on Redis failure.
+        wakes the local drain loop on Redis failure.
         """
         # Arrange
-        with patch.object(
-            mock_limiter.redis,
-            "zrem",
-            side_effect=Exception("Redis connection lost"),
-        ) as mock_zrem:
-            # Act & Assert
-            with pytest.raises(Exception, match="Redis connection lost"):
-                async with AsyncTaskLifecycle(mock_limiter, task_id):
-                    pass
+        # The cleanup path calls release.lua via _eval_script; simulate a
+        # Redis failure by making _eval_script raise on the cleanup call.
+        mock_limiter._eval_script.side_effect = Exception("Redis connection lost")
 
-            mock_zrem.assert_called_once()
+        # Act & Assert
+        with pytest.raises(Exception, match="Redis connection lost"):
+            async with AsyncTaskLifecycle(mock_limiter, task_id):
+                pass
 
-        mock_limiter.trigger_consume.assert_called_once()
-
-    @staticmethod
-    async def test_aexit_cancels_stuck_heartbeat_task(mock_limiter, task_id):
-        """Verify that ``__aexit__`` cancels the heartbeat task when it
-        does not finish within the timeout.
-        """
-        # Arrange
-        lifecycle = AsyncTaskLifecycle(mock_limiter, task_id)
-
-        async def _hang_forever():
-            await asyncio.Event().wait()
-
-        stuck_task = asyncio.create_task(_hang_forever())
-        lifecycle._task = stuck_task
-
-        # Act
-        await asyncio.wait_for(
-            lifecycle.__aexit__(None, None, None),
-            timeout=3.0,
-        )
-
-        # Assert
-        assert stuck_task.cancelled(), (
-            "stuck heartbeat task should be cancelled by the __aexit__ timeout"
-        )
-
-    @staticmethod
-    async def test_aexit_completes_within_timeout_bound(mock_limiter, task_id):
-        """Verify that ``__aexit__`` completes within the 1-second
-        timeout bound when the heartbeat task is stuck.
-        """
-        # Arrange
-        lifecycle = AsyncTaskLifecycle(mock_limiter, task_id)
-
-        async def _hang_forever():
-            await asyncio.Event().wait()
-
-        stuck_task = asyncio.create_task(_hang_forever())
-        lifecycle._task = stuck_task
-
-        # Act
-        start = time.monotonic()
-        await asyncio.wait_for(
-            lifecycle.__aexit__(None, None, None),
-            timeout=3.0,
-        )
-        elapsed = time.monotonic() - start
-
-        # Assert
-        assert elapsed < 2.0, (
-            f"__aexit__ should complete within the timeout bound, took {elapsed:.2f}s"
-        )
+        mock_limiter._eval_script.assert_called_once()
+        mock_limiter._schedule_drain.assert_called_once()
 
     @staticmethod
     async def test_empty_task_id_skips_inflight_cleanup(async_redis_client, limiter_id):
@@ -227,15 +202,23 @@ class TestAsyncTaskLifecycleImplementation:
         limiter.concurrency_key = f"{limiter_id}:concurrency"
         limiter.id = limiter_id
         limiter.lease_duration = 0.2
-        limiter.trigger_consume = AsyncMock()
         limiter.extend_lease = AsyncMock(return_value=None)
+        limiter._eval_script = AsyncMock(
+            side_effect=_make_async_eval_script(async_redis_client)
+        )
+        limiter._drain_signal_channel = f"{limiter_id}:drain_signal"
+        limiter._worker_id = f"{limiter_id}_worker"
+        limiter._heartbeat_scheduler = AsyncHeartbeatScheduler(limiter)
 
-        # Act
-        async with AsyncTaskLifecycle(limiter, task_id=""):
-            pass
+        try:
+            # Act
+            async with AsyncTaskLifecycle(limiter, task_id=""):
+                pass
+        finally:
+            await limiter._heartbeat_scheduler.shutdown()
 
         # Assert
-        limiter.trigger_consume.assert_called_once()
+        limiter._schedule_drain.assert_called_once()
 
     @staticmethod
     @pytest.mark.parametrize(
@@ -329,6 +312,34 @@ class TestAsyncTaskLifecycleObservability:
     """
 
     @staticmethod
+    async def test_lifecycle_entry_emits_debug_log(mock_limiter, task_id, caplog):
+        """Verify that lifecycle entry emits a DEBUG log with limiter
+        id, task id, and heartbeat interval.
+        """
+        # Act
+        with caplog.at_level(
+            logging.DEBUG, logger="redis_rate_limiter.core.async_limiters"
+        ):
+            async with AsyncTaskLifecycle(mock_limiter, task_id):
+                pass
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label="[AsyncTaskLifecycle]",
+            required_fragments=[
+                f"limiter={mock_limiter.id}",
+                f"task_id={task_id}",
+                f"heartbeat_interval_s={mock_limiter.lease_duration / 2:.1f}",
+            ],
+            message=(
+                "should emit a debug log for lifecycle entry"
+                " with limiter id, task id, and heartbeat interval"
+            ),
+        )
+
+    @staticmethod
     async def test_lifecycle_cleanup_emits_debug_log(
         async_redis_client, mock_limiter, task_id, inflight_key, caplog
     ):
@@ -374,15 +385,23 @@ class TestAsyncTaskLifecycleObservability:
         limiter.concurrency_key = f"{limiter_id}:concurrency"
         limiter.id = limiter_id
         limiter.lease_duration = 0.2
-        limiter.trigger_consume = AsyncMock()
         limiter.extend_lease = AsyncMock(return_value=None)
+        limiter._eval_script = AsyncMock(
+            side_effect=_make_async_eval_script(async_redis_client)
+        )
+        limiter._drain_signal_channel = f"{limiter_id}:drain_signal"
+        limiter._worker_id = f"{limiter_id}_worker"
+        limiter._heartbeat_scheduler = AsyncHeartbeatScheduler(limiter)
 
-        # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="redis_rate_limiter.core.async_limiters"
-        ):
-            async with AsyncTaskLifecycle(limiter, task_id=""):
-                pass
+        try:
+            # Act
+            with caplog.at_level(
+                logging.DEBUG, logger="redis_rate_limiter.core.async_limiters"
+            ):
+                async with AsyncTaskLifecycle(limiter, task_id=""):
+                    pass
+        finally:
+            await limiter._heartbeat_scheduler.shutdown()
 
         # Assert
         assert_log_emitted(
@@ -422,19 +441,17 @@ class TestAsyncTaskLifecycleObservability:
 
 
 # ---------------------------------------------------------------------------
-# Heartbeat loop tests
+# Heartbeat scheduler tests
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.behavior
-class TestAsyncHeartbeatLoop:
-    """Tests for the async heartbeat loop that periodically extends the task lease."""
+class TestAsyncTaskLifecycleInterval:
+    """Verify the lifecycle exposes the heartbeat interval to its callers."""
 
     @staticmethod
     async def test_heartbeat_interval_calculation(mock_limiter, task_id):
-        """Verify that the heartbeat interval is correctly calculated
-        as ``lease_duration / 2``.
-        """
+        """Verify that ``lifecycle.interval`` is ``lease_duration / 2``."""
         # Arrange & Act
         lifecycle = AsyncTaskLifecycle(mock_limiter, task_id)
 
@@ -444,30 +461,86 @@ class TestAsyncHeartbeatLoop:
             f"interval must be lease_duration / 2 = {expected_interval} seconds"
         )
 
+
+@pytest.mark.behavior
+class TestAsyncHeartbeatScheduler:
+    """Tests for the shared ``AsyncHeartbeatScheduler``."""
+
+    @staticmethod
+    async def test_register_returns_entry_with_initial_state(mock_limiter, task_id):
+        """Verify that register returns an entry with the expected fields."""
+        # Act
+        entry = await mock_limiter._heartbeat_scheduler.register(task_id, "warn")
+
+        try:
+            # Assert
+            assert entry.task_id == task_id, "entry must carry the task id"
+            assert entry.on_failure_action == "warn", (
+                "entry must carry the on_failure_action"
+            )
+            assert entry.is_healthy is True, "entry must start in a healthy state"
+        finally:
+            await mock_limiter._heartbeat_scheduler.deregister(task_id)
+
+    @staticmethod
+    async def test_register_then_deregister_removes_entry(mock_limiter, task_id):
+        """Verify that ``get_entry`` returns ``None`` after deregistration."""
+        # Arrange
+        await mock_limiter._heartbeat_scheduler.register(task_id, "warn")
+
+        # Act
+        await mock_limiter._heartbeat_scheduler.deregister(task_id)
+
+        # Assert
+        assert (
+            await mock_limiter._heartbeat_scheduler.get_entry(task_id) is None
+        ), "deregistered task must not be retrievable via get_entry"
+
     @staticmethod
     @pytest.mark.timeout_safety_net
-    async def test_heartbeat_loop_restores_health_on_recovery(
+    async def test_multiple_tasks_renewed_independently(mock_limiter):
+        """Verify that several tasks registered concurrently all see renewals."""
+        # Arrange
+        task_ids = ["task_a", "task_b", "task_c"]
+        for tid in task_ids:
+            await mock_limiter._heartbeat_scheduler.register(tid, "warn")
+
+        try:
+            # Act
+            await asyncio.sleep(0.75 * mock_limiter.lease_duration)
+
+            # Assert
+            renewed_ids = {
+                call[0][0] for call in mock_limiter.extend_lease.call_args_list
+            }
+            for tid in task_ids:
+                assert tid in renewed_ids, (
+                    f"extend_lease must be called for registered task {tid}"
+                )
+        finally:
+            for tid in task_ids:
+                await mock_limiter._heartbeat_scheduler.deregister(tid)
+
+    @staticmethod
+    @pytest.mark.timeout_safety_net
+    async def test_heartbeat_recovery_restores_entry_health(
         async_redis_client, mock_limiter, task_id
     ):
-        """Verify that the heartbeat loop restores the health status
-        after recovering from a failure.
-        """
+        """Verify that an unhealthy entry recovers when ``extend_lease`` succeeds."""
         # Act
         async with AsyncTaskLifecycle(mock_limiter, task_id) as lifecycle:
             lifecycle.is_healthy = False
             await asyncio.sleep(0.75 * mock_limiter.lease_duration)
 
             # Assert
-            assert lifecycle.is_healthy, "lifecycle must restore health after recovery"
+            assert lifecycle.is_healthy, "entry must restore health after recovery"
 
     @staticmethod
     @pytest.mark.timeout_safety_net
-    async def test_heartbeat_loop_flags_unhealthy_on_failure_warn_mode(
+    async def test_heartbeat_failure_warn_mode_marks_entry_unhealthy(
         async_redis_client, mock_limiter, task_id
     ):
-        """Verify that the heartbeat loop flags the lifecycle as
-        unhealthy on failure in warn mode.
-        """
+        """Verify that warn mode flags the entry as unhealthy on failure."""
         # Arrange
         mock_limiter.extend_lease = AsyncMock(
             side_effect=Exception("Simulated Redis failure")
@@ -482,7 +555,7 @@ class TestAsyncHeartbeatLoop:
 
                 # Assert
                 assert not lifecycle.is_healthy, (
-                    "lifecycle must be marked unhealthy after heartbeat failure"
+                    "entry must be marked unhealthy after heartbeat failure"
                 )
                 assert mock_kill.call_count == 0, (
                     "os.kill must not be called in warn mode"
@@ -490,12 +563,10 @@ class TestAsyncHeartbeatLoop:
 
     @staticmethod
     @pytest.mark.timeout_safety_net
-    async def test_heartbeat_loop_terminates_worker_on_failure_kill_mode(
+    async def test_heartbeat_failure_kill_mode_terminates_worker(
         async_redis_client, mock_limiter, task_id
     ):
-        """Verify that the heartbeat loop terminates the worker on
-        failure in kill mode.
-        """
+        """Verify that kill mode terminates the worker on failure."""
         # Arrange
         mock_limiter.extend_lease = AsyncMock(
             side_effect=Exception("Simulated Redis failure")
@@ -514,31 +585,11 @@ class TestAsyncHeartbeatLoop:
                 mock_kill.assert_called_with(os.getpid(), signal.SIGTERM)
 
     @staticmethod
-    async def test_aexit_without_aenter_skips_task_join(
-        async_redis_client, mock_limiter, task_id
-    ):
-        """Verify that ``__aexit__`` completes cleanly when ``_task`` is ``None``."""
-        # Arrange
-        lifecycle = AsyncTaskLifecycle(mock_limiter, task_id)
-        assert lifecycle._task is None, "task must be None before __aenter__"
-
-        # Act
-        await lifecycle.__aexit__(None, None, None)
-
-        # Assert
-        assert lifecycle._stop_event.is_set(), (
-            "stop event must be set even without a prior __aenter__"
-        )
-        mock_limiter.trigger_consume.assert_called_once()
-
-    @staticmethod
     @pytest.mark.timeout_safety_net
-    async def test_heartbeat_loop_calls_extend_lease_with_correct_parameters(
+    async def test_extend_lease_called_with_correct_parameters(
         async_redis_client, mock_limiter, task_id
     ):
-        """Verify that the heartbeat loop calls ``extend_lease`` with
-        the correct ``task_id`` and duration.
-        """
+        """Verify that ``extend_lease`` is called with the right task id and duration."""
         # Act
         async with AsyncTaskLifecycle(mock_limiter, task_id):
             await asyncio.sleep(0.75 * mock_limiter.lease_duration)
@@ -554,42 +605,84 @@ class TestAsyncHeartbeatLoop:
             )
 
 
+@pytest.mark.behavior
+class TestAsyncHeartbeatSchedulerBoundary:
+    """Boundary tests for ``AsyncHeartbeatScheduler`` task management."""
+
+    @staticmethod
+    async def test_lazy_task_start(async_redis_client, limiter_id):
+        """Verify that the worker task is not started until first register."""
+        # Arrange
+        limiter = MagicMock()
+        limiter.id = limiter_id
+        limiter.lease_duration = 0.2
+        scheduler = AsyncHeartbeatScheduler(limiter)
+
+        try:
+            # Assert
+            assert scheduler._task is None, (
+                "worker task must not exist before any task is registered"
+            )
+        finally:
+            await scheduler.shutdown()
+
+    @staticmethod
+    async def test_shutdown_is_idempotent(async_redis_client, limiter_id):
+        """Verify that calling shutdown twice does not raise."""
+        # Arrange
+        limiter = MagicMock()
+        limiter.id = limiter_id
+        limiter.lease_duration = 0.2
+        limiter.extend_lease = AsyncMock(return_value=None)
+        scheduler = AsyncHeartbeatScheduler(limiter)
+        await scheduler.register("task-1", "warn")
+
+        # Act
+        await scheduler.shutdown()
+        await scheduler.shutdown()  # second call must be safe
+
+        # Assert: no exception raised; task is no longer running.
+        assert scheduler._task is None or scheduler._task.done(), (
+            "worker task must be stopped after shutdown"
+        )
+
+    @staticmethod
+    async def test_task_restart_after_shutdown_and_reregister(
+        async_redis_client, limiter_id
+    ):
+        """Verify that registering after shutdown revives the worker task."""
+        # Arrange
+        limiter = MagicMock()
+        limiter.id = limiter_id
+        limiter.lease_duration = 0.2
+        limiter.extend_lease = AsyncMock(return_value=None)
+        scheduler = AsyncHeartbeatScheduler(limiter)
+        await scheduler.register("task-1", "warn")
+        await scheduler.shutdown()
+
+        # Act
+        await scheduler.register("task-2", "warn")
+
+        try:
+            # Assert
+            assert scheduler._task is not None, (
+                "scheduler must spawn a new task after shutdown + register"
+            )
+            assert not scheduler._task.done(), (
+                "scheduler task must be running after restart"
+            )
+        finally:
+            await scheduler.shutdown()
+
+
 # ---------------------------------------------------------------------------
-# Heartbeat observability tests
+# Heartbeat scheduler observability tests
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.observability
-class TestAsyncHeartbeatLoopObservability:
-    """Observability tests for log emissions from the async heartbeat loop."""
-
-    @staticmethod
-    async def test_lifecycle_entry_emits_debug_log(mock_limiter, task_id, caplog):
-        """Verify that lifecycle entry emits a DEBUG log with limiter
-        id, task id, and heartbeat interval.
-        """
-        # Act
-        with caplog.at_level(
-            logging.DEBUG, logger="redis_rate_limiter.core.async_limiters"
-        ):
-            async with AsyncTaskLifecycle(mock_limiter, task_id):
-                await asyncio.sleep(0.75 * mock_limiter.lease_duration)
-
-        # Assert
-        assert_log_emitted(
-            caplog.records,
-            level="DEBUG",
-            label="[AsyncTaskLifecycle]",
-            required_fragments=[
-                f"limiter={mock_limiter.id}",
-                f"task_id={task_id}",
-                f"heartbeat_interval_s={mock_limiter.lease_duration / 2:.1f}",
-            ],
-            message=(
-                "should emit a debug log for lifecycle entry"
-                " with limiter id, task id, and heartbeat interval"
-            ),
-        )
+class TestAsyncHeartbeatSchedulerObservability:
+    """Observability tests for log emissions from the shared async scheduler."""
 
     @staticmethod
     async def test_heartbeat_recovery_emits_info_log(mock_limiter, task_id, caplog):

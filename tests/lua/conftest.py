@@ -28,6 +28,7 @@ CONSUME_SOURCE: str = load_lua_script("consume.lua")
 ACQUIRE_SOURCE: str = load_lua_script("acquire.lua")
 HEALTH_SOURCE: str = load_lua_script("health.lua")
 RENEW_SOURCE: str = load_lua_script("renew.lua")
+RELEASE_SOURCE: str = load_lua_script("release.lua")
 SCHEDULE_SOURCE: str = load_lua_script("schedule.lua")
 
 # Default window size for sliding window tests (seconds).

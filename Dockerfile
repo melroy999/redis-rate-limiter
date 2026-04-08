@@ -46,7 +46,17 @@ COPY scripts/ ./scripts/
 # Install all dependencies (including the celery, rq and prometheus extras for tests).
 RUN poetry install --no-interaction --no-ansi -E celery -E rq -E dramatiq -E huey -E prometheus
 
-# --- Stage 3: Production ---
+# --- Stage 3: Benchmarks ---
+# Extends the test stage with benchmark-specific dependencies and files.
+FROM test AS benchmark
+
+# Install benchmark dependencies (pytest-benchmark, numpy).
+RUN poetry install --no-interaction --no-ansi --no-root --only dev
+
+# Copy benchmark suite.
+COPY benchmarks/ ./benchmarks/
+
+# --- Stage 4: Production ---
 FROM base AS production
 
 # Caching.

@@ -10,6 +10,10 @@ import itertools
 
 import pytest
 
+from benchmarks.helpers import bulk_fill_buffer
+
+pytestmark = pytest.mark.benchmark(group="end-to-end")
+
 
 # ---------------------------------------------------------------------------
 # schedule_task() benchmarks
@@ -57,41 +61,61 @@ class TestConsume:
         benchmark(limiter.consume)
 
     def test_consume_with_tasks(self, benchmark, limiter):
-        """Measure consume() latency when a task is available.
+        """Measure consume() + task_lifecycle latency with tasks available.
 
-        Pre-fills the buffer before each round so that consume() always
-        finds work. The task lifecycle is completed immediately to free
-        the concurrency slot.
+        The buffer is refilled outside the timer via a ``pedantic`` setup
+        callback so that the measurement reflects only the consume and
+        lifecycle cost, not the schedule path.
         """
+        bulk_fill_buffer(limiter, 1)
+        refill_counter = itertools.count(start=1)
+
+        def _refill_one():
+            i = next(refill_counter)
+            bulk_fill_buffer(limiter, 1, start_id=i)
 
         def _consume_one():
-            limiter.schedule_task("bench.module.func", {"seq": 0})
             result = limiter.consume()
             if result["success"]:
                 with limiter.task_lifecycle(result["task"]["id"]):
                     pass
 
-        benchmark(_consume_one)
+        benchmark.pedantic(
+            _consume_one,
+            setup=_refill_one,
+            rounds=2000,
+            warmup_rounds=10,
+        )
 
-    @pytest.mark.parametrize("buffer_depth", [10, 100, 1000])
+    @pytest.mark.parametrize("buffer_depth", [10, 100, 1000, 10000, 100000, 1000000])
     def test_consume_vs_buffer_depth(self, benchmark, limiter, buffer_depth):
         """Measure how buffer depth affects consume() latency.
 
         A larger sorted set (ZRANGE + ZREM) may increase per-call cost.
+        Pre-fills the buffer once via a single bulk ZADD, then uses a
+        ``pedantic`` setup callback to add one task back between every
+        round so the buffer never deviates from ``buffer_depth``.
         """
-        # Pre-fill the buffer to the target depth.
-        for i in range(buffer_depth):
-            limiter.schedule_task("bench.module.func", {"depth": i})
+        bulk_fill_buffer(limiter, buffer_depth)
+
+        refill_counter = itertools.count(start=buffer_depth)
+
+        def _refill_one():
+            i = next(refill_counter)
+            bulk_fill_buffer(limiter, 1, start_id=i)
 
         def _consume_one():
             result = limiter.consume()
             if result["success"]:
                 with limiter.task_lifecycle(result["task"]["id"]):
                     pass
-                # Replenish so the buffer stays at target depth.
-                limiter.schedule_task("bench.module.func", {"depth": 0})
 
-        benchmark(_consume_one)
+        benchmark.pedantic(
+            _consume_one,
+            setup=_refill_one,
+            rounds=1000,
+            warmup_rounds=10,
+        )
 
 
 # ---------------------------------------------------------------------------

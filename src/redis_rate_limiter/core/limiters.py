@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import heapq
 import json
 import logging
 import math
@@ -10,6 +11,7 @@ import signal
 import time
 import uuid
 import warnings
+from dataclasses import dataclass
 from threading import Condition, Event, Lock, Thread
 from typing import (
     TYPE_CHECKING,
@@ -261,6 +263,174 @@ class DistributedLock:
 
 
 # noinspection PyUnnecessaryCast
+@dataclass
+class HeartbeatEntry:
+    """Per-task state tracked by ``HeartbeatScheduler``.
+
+    The ``generation`` counter implements lazy heap deletion: a popped
+    heap tuple whose generation does not match the live entry is treated
+    as stale and skipped, avoiding O(N) ``heap.remove()`` calls.
+    """
+
+    task_id: str
+    on_failure_action: str  # "warn" or "kill"
+    is_healthy: bool = True
+    generation: int = 0
+
+
+class HeartbeatScheduler:
+    """Single background thread that renews concurrency leases for many tasks.
+
+    Tasks are registered on lifecycle entry and deregistered on exit.
+    Renewal happens on the shared thread at ``lease_duration / 2``.
+    Renewals run outside the lock so a slow Redis call cannot block
+    registrations or deregistrations on the fast path.
+    """
+
+    def __init__(self, limiter: AbstractDistributedRateLimiter) -> None:
+        self._limiter = limiter
+        self._interval = limiter.lease_duration / 2
+        self._condition: Condition = Condition(Lock())
+        self._entries: dict[str, HeartbeatEntry] = {}
+        self._heap: list[tuple[float, str, int]] = []
+        self._shutdown = False
+        self._thread: Optional[Thread] = None
+
+    def register(
+        self,
+        task_id: str,
+        on_failure_action: str,
+    ) -> HeartbeatEntry:
+        """Register a task for periodic lease renewal.
+
+        Returns the live ``HeartbeatEntry`` so the caller can read its
+        ``is_healthy`` field. An empty ``task_id`` creates the entry but
+        schedules no renewal, so callers may safely manage tasks that
+        never reached the in-flight stage.
+        """
+        with self._condition:
+            entry = HeartbeatEntry(
+                task_id=task_id,
+                on_failure_action=on_failure_action,
+            )
+            self._entries[task_id] = entry
+            if task_id:
+                due = time.monotonic() + self._interval
+                heapq.heappush(self._heap, (due, task_id, entry.generation))
+                self._ensure_started_locked()
+                self._condition.notify()
+            return entry
+
+    def deregister(self, task_id: str) -> None:
+        """Stop receiving renewals for the given task.
+
+        Heap tuples for the deregistered task are left in place and
+        dropped lazily by ``_run`` when popped.
+        """
+        with self._condition:
+            self._entries.pop(task_id, None)
+
+    def get_entry(self, task_id: str) -> Optional[HeartbeatEntry]:
+        """Return the live entry for ``task_id``, or ``None`` if not registered."""
+        with self._condition:
+            return self._entries.get(task_id)
+
+    def shutdown(self) -> None:
+        """Signal the worker thread to stop and wait for it to exit."""
+        with self._condition:
+            self._shutdown = True
+            self._condition.notify_all()
+        if self._thread is not None:
+            self._thread.join(timeout=5.0)
+
+    def _ensure_started_locked(self) -> None:
+        """Lazily spawn (or respawn) the worker thread.
+
+        Must be called with ``self._condition`` held.
+        """
+        if self._thread is None or not self._thread.is_alive():
+            self._shutdown = False
+            self._thread = Thread(
+                target=self._run,
+                name=f"HeartbeatScheduler-{self._limiter.id}",
+                daemon=True,
+            )
+            self._thread.start()
+
+    def _run(self) -> None:
+        """Sleep until the next due renewal, perform it, repeat."""
+        while True:
+            with self._condition:
+                if self._shutdown:
+                    return
+                if not self._heap:
+                    self._condition.wait(timeout=self._interval)
+                    continue
+
+                due, task_id, generation = self._heap[0]
+                now = time.monotonic()
+                if due > now:
+                    self._condition.wait(timeout=due - now)
+                    continue
+
+                heapq.heappop(self._heap)
+                entry = self._entries.get(task_id)
+                if entry is None or entry.generation != generation:
+                    # Stale heap entry: task was deregistered or already
+                    # rescheduled at a later time. Drop without renewing.
+                    continue
+
+                task_id_snapshot = entry.task_id
+                on_failure = entry.on_failure_action
+
+            self._renew_one(task_id_snapshot, on_failure)
+
+            with self._condition:
+                entry = self._entries.get(task_id_snapshot)
+                if entry is not None:
+                    entry.generation += 1
+                    next_due = time.monotonic() + self._interval
+                    heapq.heappush(
+                        self._heap,
+                        (next_due, task_id_snapshot, entry.generation),
+                    )
+
+    def _renew_one(self, task_id: str, on_failure_action: str) -> None:
+        """Perform one lease renewal and update the entry's health state."""
+        try:
+            self._limiter.extend_lease(task_id, self._limiter.lease_duration)
+        except Exception as e:
+            with self._condition:
+                entry = self._entries.get(task_id)
+                if entry is not None:
+                    entry.is_healthy = False
+
+            if on_failure_action == "kill":
+                logger.critical(
+                    "[TaskLifecycle] Heartbeat failed for task %s: %s - terminating worker.",
+                    task_id,
+                    e,
+                )
+                os.kill(os.getpid(), signal.SIGTERM)
+                return
+            logger.critical(
+                "[TaskLifecycle] Heartbeat failed for task %s: %s - flagged as unhealthy.",
+                task_id,
+                e,
+            )
+            return
+
+        with self._condition:
+            entry = self._entries.get(task_id)
+            if entry is not None and not entry.is_healthy:
+                entry.is_healthy = True
+                logger.info(
+                    "[TaskLifecycle] Heartbeat connection restored for task %s on limiter %s.",
+                    task_id,
+                    self._limiter.id,
+                )
+
+
 class TaskLifecycle:
     """Context manager responsible for concurrency slot cleanup upon task completion."""
 
@@ -280,47 +450,30 @@ class TaskLifecycle:
         self.limiter = limiter
         self.task_id = task_id
         self.interval = self.limiter.lease_duration / 2
-
-        self._stop_event: Event = Event()
-        self._thread: Optional[Thread] = None
         self.on_failure_action = on_heartbeat_failure.lower()
-        self.is_healthy = True
+        self._entry: Optional[HeartbeatEntry] = None
 
-    def _heartbeat_loop(self) -> None:
-        """Background task that periodically renews the lease on a concurrency slot."""
-        while not self._stop_event.wait(timeout=self.interval):
-            try:
-                self.limiter.extend_lease(self.task_id, self.limiter.lease_duration)
+    @property
+    def is_healthy(self) -> bool:
+        """Report whether the most recent heartbeat for this task succeeded.
 
-                if not self.is_healthy:
-                    logger.info(
-                        "[TaskLifecycle] Heartbeat connection restored for task %s on limiter %s.",
-                        self.task_id,
-                        self.limiter.id,
-                    )
-                    self.is_healthy = True
-            except Exception as e:
-                self.is_healthy = False
+        Before ``__enter__`` and after ``__exit__`` the task has no live
+        scheduler entry, so ``True`` is returned.
+        """
+        if self._entry is None:
+            return True
+        return self._entry.is_healthy
 
-                if self.on_failure_action == "kill":
-                    logger.critical(
-                        "[TaskLifecycle] Heartbeat failed for task %s: %s - terminating worker.",
-                        self.task_id,
-                        e,
-                    )
-                    os.kill(os.getpid(), signal.SIGTERM)
-                    break
-                else:
-                    logger.critical(
-                        "[TaskLifecycle] Heartbeat failed for task %s: %s - flagged as unhealthy.",
-                        self.task_id,
-                        e,
-                    )
+    @is_healthy.setter
+    def is_healthy(self, value: bool) -> None:
+        if self._entry is not None:
+            self._entry.is_healthy = value
 
     def __enter__(self) -> TaskLifecycle:
-        """Start the heartbeat thread that periodically renews the concurrency lease."""
-        self._thread = Thread(target=self._heartbeat_loop, daemon=True)
-        self._thread.start()
+        """Register the task with the shared heartbeat scheduler."""
+        self._entry = self.limiter._heartbeat_scheduler.register(
+            self.task_id, self.on_failure_action
+        )
         logger.debug(
             "[TaskLifecycle] Task lifecycle entered: limiter=%s, task_id=%s, heartbeat_interval_s=%.3f.",
             self.limiter.id,
@@ -330,25 +483,37 @@ class TaskLifecycle:
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Stop the heartbeat thread, release the concurrency slot, and trigger a follow-up drain."""
-        self._stop_event.set()
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=1.0)
+        """Deregister heartbeat, release concurrency + inflight, publish drain signal, and wake the local drain loop.
+
+        The release script (KEYS[3] = drain channel, ARGV[2] = worker id)
+        also publishes the cross-process wake-up, so the only step left
+        in Python is the local ``_schedule_drain`` notification of this
+        worker's own drain loop.
+        """
+        self.limiter._heartbeat_scheduler.deregister(self.task_id)
 
         try:
-            removed_concurrency = self.limiter.redis.zrem(
-                self.limiter.concurrency_key, self.task_id
+            inflight_key = (
+                self.limiter.get_inflight_key(self.task_id) if self.task_id else ""
             )
-
-            inflight_removed = 0
-            if self.task_id:
-                inflight_key = self.limiter.get_inflight_key(self.task_id)
-
-                # fmt: off
-                inflight_removed = cast(  # pragma: no mutate
-                    int, self.limiter.redis.delete(inflight_key)
-                )
-                # fmt: on
+            # fmt: off
+            result = cast(  # pragma: no mutate
+                list[int],
+                self.limiter._eval_script(
+                    "release.lua",
+                    3,
+                    # KEYS: [concurrency, inflight, drain_channel]
+                    self.limiter.concurrency_key,
+                    inflight_key,
+                    self.limiter._drain_signal_channel,
+                    # ARGV: [task_id, worker_id]
+                    self.task_id,
+                    self.limiter._worker_id,
+                ),
+            )
+            # fmt: on
+            removed_concurrency = int(result[0])
+            inflight_removed = int(result[1])
 
             logger.debug(
                 "[TaskLifecycle] Concurrency slot released and inflight key cleared: limiter=%s, task_id=%s, removed_concurrency=%s, removed_inflight=%s.",
@@ -363,7 +528,7 @@ class TaskLifecycle:
                 self.limiter.id,
                 self.task_id,
             )
-            self.limiter.trigger_consume()
+            self.limiter._schedule_drain()
 
 
 class DrainLoop:
@@ -1004,6 +1169,9 @@ class AbstractDistributedRateLimiter(
         self._register_script("schedule.lua")
         self._register_script("health.lua")
         self._register_script("renew.lua")
+        self._register_script("release.lua")
+
+        self._heartbeat_scheduler: HeartbeatScheduler = HeartbeatScheduler(self)
 
         # Detect whether the concrete subclass provides a custom health check
         # (i.e., overrides the default no-op) before starting any threads,
@@ -1576,6 +1744,7 @@ class AbstractDistributedRateLimiter(
             self._drain_loop.shutdown()
         if self._drain_signal_subscriber is not None:
             self._drain_signal_subscriber.shutdown()
+        self._heartbeat_scheduler.shutdown()
 
     def __del__(self) -> None:
         """Emit a warning if shutdown() was not called.

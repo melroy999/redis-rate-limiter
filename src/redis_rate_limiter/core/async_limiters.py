@@ -29,6 +29,8 @@ from typing import (
 
 import redis.asyncio
 
+import heapq
+
 from redis_rate_limiter.core.base import AbstractAsyncRateLimiter
 from redis_rate_limiter.core.limiters import (
     LOCK_ACQUIRE_SCRIPT,
@@ -36,6 +38,7 @@ from redis_rate_limiter.core.limiters import (
     LOCK_SIMPLE_RELEASE_SCRIPT,
     ConsumeResult,
     DistributedRateLimiterMixin,
+    HeartbeatEntry,
     TaskData,
 )
 
@@ -164,11 +167,183 @@ class AsyncDistributedLock:
                 )
 
 
+class AsyncHeartbeatScheduler:
+    """Single asyncio task that renews concurrency leases for many tasks.
+
+    Async mirror of ``HeartbeatScheduler`` in ``limiters.py``. Tasks are
+    registered on lifecycle entry and deregistered on exit. Renewal happens
+    on the shared ``asyncio.Task`` at the limiter-wide heartbeat interval
+    (``lease_duration / 2``). Renewals run outside the lock so a slow
+    Redis call cannot block other registrations or deregistrations.
+    """
+
+    def __init__(self, limiter: AbstractAsyncDistributedRateLimiter) -> None:
+        self._limiter = limiter
+        self._interval = limiter.lease_duration / 2
+        self._lock: asyncio.Lock = asyncio.Lock()
+        self._wakeup: asyncio.Event = asyncio.Event()
+        self._entries: dict[str, HeartbeatEntry] = {}
+        self._heap: list[tuple[float, str, int]] = []
+        self._shutdown = False
+        self._task: Optional[asyncio.Task[None]] = None
+
+    async def register(
+        self,
+        task_id: str,
+        on_failure_action: str,
+    ) -> HeartbeatEntry:
+        """Register a task for periodic lease renewal.
+
+        Returns the live ``HeartbeatEntry`` so the caller can read its
+        ``is_healthy`` field. An empty ``task_id`` creates the entry but
+        schedules no renewal, so callers may safely manage tasks that
+        never reached the in-flight stage.
+        """
+        async with self._lock:
+            entry = HeartbeatEntry(
+                task_id=task_id,
+                on_failure_action=on_failure_action,
+            )
+            self._entries[task_id] = entry
+            if task_id:
+                due = time.monotonic() + self._interval
+                heapq.heappush(self._heap, (due, task_id, entry.generation))
+                self._ensure_started_locked()
+                self._wakeup.set()
+            return entry
+
+    async def deregister(self, task_id: str) -> None:
+        """Stop receiving renewals for the given task.
+
+        Heap tuples for the deregistered task are left in place and
+        dropped lazily by ``_run`` when popped.
+        """
+        async with self._lock:
+            self._entries.pop(task_id, None)
+
+    async def get_entry(self, task_id: str) -> Optional[HeartbeatEntry]:
+        """Return the live entry for ``task_id``, or ``None`` if not registered."""
+        async with self._lock:
+            return self._entries.get(task_id)
+
+    async def shutdown(self) -> None:
+        """Signal the worker task to stop and wait for it to exit."""
+        async with self._lock:
+            self._shutdown = True
+            self._wakeup.set()
+        if self._task is not None and not self._task.done():
+            try:
+                await asyncio.wait_for(self._task, timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                self._task.cancel()
+
+    def _ensure_started_locked(self) -> None:
+        """Lazily spawn (or respawn) the worker task.
+
+        Must be called with ``self._lock`` held.
+        """
+        if self._task is None or self._task.done():
+            self._shutdown = False
+            self._task = asyncio.create_task(self._run())
+
+    async def _run(self) -> None:
+        """Sleep until the next due renewal, perform it, repeat."""
+        while True:
+            async with self._lock:
+                if self._shutdown:
+                    return
+                if not self._heap:
+                    self._wakeup.clear()
+                    wait_for_event = self._wakeup.wait()
+                    timeout = self._interval
+                else:
+                    due, task_id, generation = self._heap[0]
+                    now = time.monotonic()
+                    if due > now:
+                        self._wakeup.clear()
+                        wait_for_event = self._wakeup.wait()
+                        timeout = due - now
+                    else:
+                        wait_for_event = None
+
+            if wait_for_event is not None:
+                try:
+                    await asyncio.wait_for(wait_for_event, timeout=timeout)
+                except asyncio.TimeoutError:
+                    pass
+                continue
+
+            async with self._lock:
+                if not self._heap:
+                    continue
+                due, task_id, generation = self._heap[0]
+                if due > time.monotonic():
+                    continue
+                heapq.heappop(self._heap)
+                entry = self._entries.get(task_id)
+                if entry is None or entry.generation != generation:
+                    # Stale heap entry: task was deregistered or already
+                    # rescheduled at a later time. Drop without renewing.
+                    continue
+
+                task_id_snapshot = entry.task_id
+                on_failure = entry.on_failure_action
+
+            await self._renew_one(task_id_snapshot, on_failure)
+
+            async with self._lock:
+                entry = self._entries.get(task_id_snapshot)
+                if entry is not None:
+                    entry.generation += 1
+                    next_due = time.monotonic() + self._interval
+                    heapq.heappush(
+                        self._heap,
+                        (next_due, task_id_snapshot, entry.generation),
+                    )
+
+    async def _renew_one(self, task_id: str, on_failure_action: str) -> None:
+        """Perform one lease renewal and update the entry's health state."""
+        try:
+            await self._limiter.extend_lease(
+                task_id, self._limiter.lease_duration
+            )
+        except Exception as e:
+            async with self._lock:
+                entry = self._entries.get(task_id)
+                if entry is not None:
+                    entry.is_healthy = False
+
+            if on_failure_action == "kill":
+                logger.critical(
+                    "[AsyncTaskLifecycle] Heartbeat failed for task %s: %s, terminating worker.",
+                    task_id,
+                    e,
+                )
+                os.kill(os.getpid(), signal.SIGTERM)
+                return
+            logger.critical(
+                "[AsyncTaskLifecycle] Heartbeat failed for task %s: %s, flagged as unhealthy.",
+                task_id,
+                e,
+            )
+            return
+
+        async with self._lock:
+            entry = self._entries.get(task_id)
+            if entry is not None and not entry.is_healthy:
+                entry.is_healthy = True
+                logger.info(
+                    "[AsyncTaskLifecycle] Heartbeat connection restored for task %s on limiter %s.",
+                    task_id,
+                    self._limiter.id,
+                )
+
+
 class AsyncTaskLifecycle:
     """Async context manager responsible for concurrency slot cleanup upon task completion.
 
-    Mirrors ``TaskLifecycle`` from ``limiters.py`` using ``asyncio.Task`` for the
-    heartbeat loop and ``asyncio.Event`` for stop signaling.
+    Mirrors ``TaskLifecycle`` from ``limiters.py``; delegates heartbeat
+    work to the shared ``AsyncHeartbeatScheduler`` on the limiter.
     """
 
     def __init__(
@@ -187,58 +362,30 @@ class AsyncTaskLifecycle:
         self.limiter = limiter
         self.task_id = task_id
         self.interval = self.limiter.lease_duration / 2
-
-        self._stop_event: asyncio.Event = asyncio.Event()
-        self._task: Optional[asyncio.Task[None]] = None
-
         self.on_failure_action = on_heartbeat_failure.lower()
-        self.is_healthy = True
+        self._entry: Optional[HeartbeatEntry] = None
 
-    async def _heartbeat_loop(self) -> None:
-        """Background coroutine that periodically renews the lease on a concurrency slot."""
-        while not self._stop_event.is_set():
-            try:
-                await asyncio.wait_for(self._stop_event.wait(), timeout=self.interval)
+    @property
+    def is_healthy(self) -> bool:
+        """Report whether the most recent heartbeat for this task succeeded.
 
-                # Stop event was set.
-                return
-            except asyncio.TimeoutError:
-                # Interval elapsed; renew the lease.
-                pass
+        Before ``__aenter__`` and after ``__aexit__`` the task has no live
+        scheduler entry, so ``True`` is returned.
+        """
+        if self._entry is None:
+            return True
+        return self._entry.is_healthy
 
-            try:
-                await self.limiter.extend_lease(
-                    self.task_id, self.limiter.lease_duration
-                )
-
-                if not self.is_healthy:
-                    logger.info(
-                        "[AsyncTaskLifecycle] Heartbeat connection restored for task %s on limiter %s.",
-                        self.task_id,
-                        self.limiter.id,
-                    )
-                    self.is_healthy = True
-            except Exception as e:
-                self.is_healthy = False
-
-                if self.on_failure_action == "kill":
-                    logger.critical(
-                        "[AsyncTaskLifecycle] Heartbeat failed for task %s: %s, terminating worker.",
-                        self.task_id,
-                        e,
-                    )
-                    os.kill(os.getpid(), signal.SIGTERM)
-                    return
-                else:
-                    logger.critical(
-                        "[AsyncTaskLifecycle] Heartbeat failed for task %s: %s, flagged as unhealthy.",
-                        self.task_id,
-                        e,
-                    )
+    @is_healthy.setter
+    def is_healthy(self, value: bool) -> None:
+        if self._entry is not None:
+            self._entry.is_healthy = value
 
     async def __aenter__(self) -> AsyncTaskLifecycle:
-        """Start the heartbeat task."""
-        self._task = asyncio.create_task(self._heartbeat_loop())
+        """Register the task with the shared async heartbeat scheduler."""
+        self._entry = await self.limiter._heartbeat_scheduler.register(
+            self.task_id, self.on_failure_action
+        )
         logger.debug(
             "[AsyncTaskLifecycle] Task lifecycle entered: limiter=%s, task_id=%s, heartbeat_interval_s=%.3f.",
             self.limiter.id,
@@ -248,27 +395,37 @@ class AsyncTaskLifecycle:
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Stop the heartbeat task, release the concurrency slot, and trigger a follow-up drain."""
-        self._stop_event.set()
-        if self._task is not None and not self._task.done():
-            try:
-                await asyncio.wait_for(self._task, timeout=1.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                self._task.cancel()
+        """Deregister heartbeat, release concurrency + inflight, publish drain signal, and wake the local drain loop.
+
+        The release script (KEYS[3] = drain channel, ARGV[2] = worker id)
+        also publishes the cross-process wake-up, so the only step left
+        in Python is the local ``_schedule_drain`` notification of this
+        worker's own drain loop.
+        """
+        await self.limiter._heartbeat_scheduler.deregister(self.task_id)
 
         try:
-            removed_concurrency = await self.limiter.redis.zrem(
-                self.limiter.concurrency_key, self.task_id
+            inflight_key = (
+                self.limiter.get_inflight_key(self.task_id) if self.task_id else ""
             )
-
-            inflight_removed = 0
-            if self.task_id:
-                inflight_key = self.limiter.get_inflight_key(self.task_id)
-                # fmt: off
-                inflight_removed = cast(  # pragma: no mutate
-                    int, await self.limiter.redis.delete(inflight_key)
-                )
-                # fmt: on
+            # fmt: off
+            result = cast(  # pragma: no mutate
+                list[int],
+                await self.limiter._eval_script(
+                    "release.lua",
+                    3,
+                    # KEYS: [concurrency, inflight, drain_channel]
+                    self.limiter.concurrency_key,
+                    inflight_key,
+                    self.limiter._drain_signal_channel,
+                    # ARGV: [task_id, worker_id]
+                    self.task_id,
+                    self.limiter._worker_id,
+                ),
+            )
+            # fmt: on
+            removed_concurrency = int(result[0])
+            inflight_removed = int(result[1])
 
             logger.debug(
                 "[AsyncTaskLifecycle] Concurrency slot released and inflight key cleared: limiter=%s, task_id=%s, removed_concurrency=%s, removed_inflight=%s.",
@@ -283,7 +440,7 @@ class AsyncTaskLifecycle:
                 self.limiter.id,
                 self.task_id,
             )
-            await self.limiter.trigger_consume()
+            self.limiter._schedule_drain()
 
 
 class AsyncDrainLoop:
@@ -624,6 +781,14 @@ class AbstractAsyncDistributedRateLimiter(
         await self._register_script("schedule.lua")
         await self._register_script("health.lua")
         await self._register_script("renew.lua")
+        await self._register_script("release.lua")
+
+        # Async scheduler is created here (rather than in __init__) because
+        # asyncio.create_task requires a running event loop, which is only
+        # guaranteed once start() has been entered.
+        self._heartbeat_scheduler: AsyncHeartbeatScheduler = AsyncHeartbeatScheduler(
+            self
+        )
 
         logger.info(
             "[%s] Rate limiter initialized: id=%s, limit=%d, window_s=%g, max_concurrency=%d, max_age_s=%d, lease_duration_s=%d, heartbeat_failure=%s, jitter_enabled=%s, jitter_min_pct=%.3f, jitter_max_pct=%.3f, metrics_callback=%s, drain_enabled=%s, backend_health_monitor=%s.",
@@ -1099,6 +1264,8 @@ class AbstractAsyncDistributedRateLimiter(
             await self._drain_loop.shutdown()
         if self._drain_signal_subscriber is not None:
             await self._drain_signal_subscriber.shutdown()
+        if getattr(self, "_heartbeat_scheduler", None) is not None:
+            await self._heartbeat_scheduler.shutdown()
 
     def __del__(self) -> None:
         """Emit a warning if shutdown() was not called.

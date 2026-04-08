@@ -112,6 +112,26 @@ services:
     profiles:
       - superfluity
 
+  # Benchmark runner service.
+  benchmark:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: benchmark
+    container_name: redis-rate-limiter-benchmark
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PYTHONPATH: /app
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: poetry run pytest benchmarks/ -v --benchmark-max-time=5.0 --benchmark-warmup=on
+    networks:
+      - rate-limiter-network
+    profiles:
+      - benchmark
+
   # Optional: Redis Commander (web UI for debugging).
   redis-commander:
     image: rediscommander/redis-commander:latest
