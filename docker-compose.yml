@@ -132,6 +132,31 @@ services:
     profiles:
       - benchmark
 
+  # Free-threaded Python 3.14 contention benchmark (PEP 703 / no-GIL).
+  # Run with: docker compose --profile benchmark-ft up --build --abort-on-container-exit --exit-code-from benchmark-ft
+  benchmark-ft:
+    build:
+      context: .
+      dockerfile: Dockerfile.freethreaded
+    container_name: redis-rate-limiter-benchmark-ft
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PYTHONPATH: /app
+      PYTHON_GIL: "0"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: >-
+      bash -c "
+        python -c 'import sys; print(\"free-threaded:\", not sys._is_gil_enabled())' &&
+        pytest benchmarks/test_contention.py -v -s --benchmark-max-time=5.0 --benchmark-warmup=on
+      "
+    networks:
+      - rate-limiter-network
+    profiles:
+      - benchmark-ft
+
   # Optional: Redis Commander (web UI for debugging).
   redis-commander:
     image: rediscommander/redis-commander:latest

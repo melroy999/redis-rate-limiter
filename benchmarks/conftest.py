@@ -62,7 +62,9 @@ def pytest_benchmark_update_json(config, benchmarks, output_json):
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """Print percentile and cost-decomposition summary tables."""
+    """Print percentile, cost-decomposition, and contention summary tables."""
+    _print_contention_results(terminalreporter)
+
     session = getattr(config, "_benchmarksession", None)
     if session is None:
         return
@@ -73,6 +75,37 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 
     _print_percentiles(terminalreporter, benchmarks)
     _print_cost_decomposition(terminalreporter, benchmarks)
+
+
+def _print_contention_results(terminalreporter):
+    """Print a summary of contention benchmark results collected via record_property."""
+    results = []
+    for report in terminalreporter.stats.get("passed", []):
+        for key, value in getattr(report, "user_properties", []):
+            if key == "contention_result":
+                results.append(value)
+
+    if not results:
+        return
+
+    terminalreporter.section("contention benchmark")
+    header = (
+        f"{'Variant':<10} {'Scenario':<10} {'N':>4} "
+        f"{'Total':>10} {'Rate/s':>10} {'Per-drainer'}"
+    )
+    terminalreporter.line(header)
+    terminalreporter.line("-" * len(header))
+
+    def _sort_key(r):
+        return (r["variant"], r["scenario"], r["num_drainers"])
+
+    for r in sorted(results, key=_sort_key):
+        rate = r["total"] / r["duration"] if r["duration"] > 0 else 0.0
+        shares = ", ".join(str(c) for c in r["per_drainer"])
+        terminalreporter.line(
+            f"{r['variant']:<10} {r['scenario']:<10} {r['num_drainers']:>4} "
+            f"{r['total']:>10} {rate:>10.1f} [{shares}]"
+        )
 
 
 def _print_percentiles(terminalreporter, benchmarks):
