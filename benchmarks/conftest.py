@@ -6,16 +6,20 @@ benchmark. Percentiles are also embedded into the JSON output via the
 ``pytest_benchmark_update_json`` hook.
 """
 
+import asyncio
 import os
-from typing import Callable, Optional
+import time as _time
+from typing import Any, Callable, Optional
 from uuid import uuid4
 
 import numpy as np
 import pytest
 import redis
+import redis.asyncio as aioredis
 from pytest_benchmark.stats import Stats
 
 from redis_rate_limiter import AbstractDistributedRateLimiter
+from redis_rate_limiter.core.async_limiters import AbstractAsyncDistributedRateLimiter
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +78,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         return
 
     _print_percentiles(terminalreporter, benchmarks)
-    _print_cost_decomposition(terminalreporter, benchmarks)
+    _print_instrumented_decomposition(terminalreporter, benchmarks)
 
 
 def _print_contention_results(terminalreporter):
@@ -108,6 +112,41 @@ def _print_contention_results(terminalreporter):
         )
 
 
+def _print_instrumented_decomposition(terminalreporter, benchmarks):
+    """Print per-iteration cost decomposition from instrumented limiter tests."""
+    results = []
+    for report in terminalreporter.stats.get("passed", []):
+        for key, value in getattr(report, "user_properties", []):
+            if key == "decomposition_result":
+                results.append(value)
+
+    if not results:
+        return
+
+    lua_vm_by_name: dict[str, float] = {}
+    for bench in benchmarks:
+        if bench.group == "lua-vm":
+            lua_vm_by_name[bench.name] = bench.stats.median
+
+    terminalreporter.section("instrumented cost decomposition (per-iteration median)")
+    header = (
+        f"{'Variant':<8} {'Name':<30} {'Lua VM':>12} {'RTT':>12} {'Py':>12} {'Total':>12}"
+    )
+    terminalreporter.line(header)
+    terminalreporter.line("-" * len(header))
+
+    for r in sorted(results, key=lambda x: (x["variant"], x["test_name"])):
+        lua = lua_vm_by_name.get(r["test_name"], 0.0) * 1e6
+        rtt = r["rtt_median"] * 1e6
+        py = r["py_median"] * 1e6
+        total = r["e2e_median"] * 1e6
+        lua_str = f"{lua:>10.2f}us" if lua > 0 else f"{'—':>12}"
+        terminalreporter.line(
+            f"{r['variant']:<8} {r['test_name']:<30} "
+            f"{lua_str} {rtt:>10.2f}us {py:>10.2f}us {total:>10.2f}us"
+        )
+
+
 def _print_percentiles(terminalreporter, benchmarks):
     """Print a per-benchmark p95/p99/p99.9 table."""
     terminalreporter.section("benchmark percentiles")
@@ -122,82 +161,6 @@ def _print_percentiles(terminalreporter, benchmarks):
         p999_us = pcts["p99.9"] * 1e6
         terminalreporter.line(
             f"{bench.name:<60} {p95_us:>10.2f}us {p99_us:>10.2f}us {p999_us:>10.2f}us"
-        )
-
-
-# Number of Redis round trips an end-to-end test performs. The cost
-# decomposition multiplies the per-call RTT by this count so the
-# Python overhead column reflects only Python work, not unaccounted
-# RTTs from secondary Redis calls. Tests not listed default to 1.
-#
-# consume + lifecycle now does 2 calls: consume.lua + release.lua
-# (release.lua atomically performs ZREM + DEL + PUBLISH on the drain
-# signal, so the publish no longer adds a separate round trip).
-# schedule_task does 3 calls: SET NX inflight + schedule.lua +
-# drain-signal PUBLISH.
-REDIS_CALLS_BY_TEST = {
-    "test_consume_empty_buffer": 1,
-    "test_consume_with_tasks": 2,
-    "test_consume_vs_buffer_depth": 2,  # all parametrizations
-    "test_schedule_task": 3,
-    "test_schedule_task_with_priority": 3,  # all parametrizations
-    "test_schedule_and_consume": 5,  # schedule_task (3) + consume + release (2)
-}
-
-
-def _redis_calls_for(test_name: str) -> int:
-    """Return the expected Redis call count for the given test."""
-    base = test_name.split("[", 1)[0]
-    return REDIS_CALLS_BY_TEST.get(base, 1)
-
-
-def _print_cost_decomposition(terminalreporter, benchmarks):
-    """Print a per-test breakdown of Lua VM, RTT, and Python overhead.
-
-    For every test name that has a measurement in all three groups
-    (lua-vm, evalsha-wallclock, end-to-end) the median latency is split
-    into:
-
-        Lua VM    = primary script's lua-vm median (single script)
-        RTT (Nx)  = N * (evalsha-wallclock - lua-vm), where N is the
-                    number of Redis calls the end-to-end test makes
-        Py        = end-to-end - Lua VM - RTT
-                    (residual; includes any secondary Lua scripts'
-                     execution time, which is small compared to RTT)
-        Total     = end-to-end median
-    """
-    by_name: dict[str, dict[str, float]] = {}
-    for bench in benchmarks:
-        by_name.setdefault(bench.name, {})[bench.group] = bench.stats.median
-
-    decomposable = [
-        (name, groups)
-        for name, groups in by_name.items()
-        if {"lua-vm", "evalsha-wallclock", "end-to-end"} <= groups.keys()
-    ]
-    if not decomposable:
-        return
-
-    terminalreporter.section("benchmark cost decomposition (median)")
-    header = (
-        f"{'Name':<40} {'Lua VM':>12} {'RTT (Nx)':>16} "
-        f"{'Py':>12} {'Total':>12}"
-    )
-    terminalreporter.line(header)
-    terminalreporter.line("-" * len(header))
-
-    for name, groups in sorted(decomposable):
-        lua = groups["lua-vm"] * 1e6
-        wall = groups["evalsha-wallclock"] * 1e6
-        e2e = groups["end-to-end"] * 1e6
-        per_call_rtt = wall - lua
-        n_calls = _redis_calls_for(name)
-        rtt = per_call_rtt * n_calls
-        py = e2e - lua - rtt
-        rtt_label = f"{rtt:>10.2f}us ({n_calls}x)"
-        terminalreporter.line(
-            f"{name:<40} {lua:>10.2f}us {rtt_label:>16} "
-            f"{py:>10.2f}us {e2e:>10.2f}us"
         )
 
 
@@ -235,6 +198,144 @@ class _BenchmarkLimiter(AbstractDistributedRateLimiter):
         pass
 
 
+class _InstrumentedLimiter(AbstractDistributedRateLimiter):
+    """Limiter that times every Redis call for per-iteration cost decomposition."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._call_timings: list[float] = []
+
+    def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
+        pass
+
+    def _schedule_drain(self, delay: float = 0.0) -> None:
+        pass
+
+    def _eval_script(self, script_name: str, num_keys: int, *args: Any) -> Any:
+        t0 = _time.perf_counter()
+        result = super()._eval_script(script_name, num_keys, *args)
+        self._call_timings.append(_time.perf_counter() - t0)
+        return result
+
+    def _publish_drain_signal(self) -> None:
+        t0 = _time.perf_counter()
+        super()._publish_drain_signal()
+        self._call_timings.append(_time.perf_counter() - t0)
+
+    def schedule_task(self, func_path, payload, priority=100, max_age=None):
+        # Wrap the SET NX call inside schedule_task by timing the whole
+        # method and letting _eval_script and _publish_drain_signal record
+        # their own sub-timings. The SET NX timing is captured by
+        # overriding the redis.set call path.
+        original_set = self.redis.set
+
+        def _timed_set(*a: Any, **kw: Any) -> Any:
+            t0 = _time.perf_counter()
+            result = original_set(*a, **kw)
+            self._call_timings.append(_time.perf_counter() - t0)
+            return result
+
+        self.redis.set = _timed_set  # type: ignore[assignment]
+        try:
+            return super().schedule_task(func_path, payload, priority, max_age)
+        finally:
+            self.redis.set = original_set  # type: ignore[assignment]
+
+    def pop_timings(self) -> list[float]:
+        timings = self._call_timings
+        self._call_timings = []
+        return timings
+
+
+class _AsyncInstrumentedLimiter(AbstractAsyncDistributedRateLimiter):
+    """Async limiter that times every Redis call for per-iteration cost decomposition."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._call_timings: list[float] = []
+
+    async def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
+        pass
+
+    def _schedule_drain(self, delay: float = 0.0) -> None:
+        pass
+
+    async def _eval_script(self, script_name: str, num_keys: int, *args: Any) -> Any:
+        t0 = _time.perf_counter()
+        result = await super()._eval_script(script_name, num_keys, *args)
+        self._call_timings.append(_time.perf_counter() - t0)
+        return result
+
+    async def _publish_drain_signal(self) -> None:
+        t0 = _time.perf_counter()
+        await super()._publish_drain_signal()
+        self._call_timings.append(_time.perf_counter() - t0)
+
+    async def schedule_task(self, func_path, payload, priority=100, max_age=None):
+        original_set = self.redis.set
+
+        async def _timed_set(*a: Any, **kw: Any) -> Any:
+            t0 = _time.perf_counter()
+            result = await original_set(*a, **kw)
+            self._call_timings.append(_time.perf_counter() - t0)
+            return result
+
+        self.redis.set = _timed_set  # type: ignore[assignment]
+        try:
+            return await super().schedule_task(func_path, payload, priority, max_age)
+        finally:
+            self.redis.set = original_set  # type: ignore[assignment]
+
+    def pop_timings(self) -> list[float]:
+        timings = self._call_timings
+        self._call_timings = []
+        return timings
+
+
+@pytest.fixture
+def instrumented_limiter(redis_client, limiter_id):
+    """Instrumented sync limiter that records per-Redis-call timings."""
+    redis_client.flushdb()
+    instance = _InstrumentedLimiter(
+        redis_client=redis_client,
+        limiter_id=limiter_id,
+        limit=10_000_000,
+        window=60,
+        max_concurrency=10_000_000,
+        max_age=3600,
+        lease_duration=30,
+    )
+    yield instance
+    instance.shutdown()
+
+
+@pytest.fixture
+def async_instrumented_limiter(redis_client, limiter_id):
+    """Instrumented async limiter that records per-Redis-call timings."""
+    redis_client.flushdb()
+    loop = asyncio.new_event_loop()
+    async_redis = aioredis.Redis(
+        host=REDIS_HOST, port=REDIS_PORT, decode_responses=True
+    )
+    instance = _AsyncInstrumentedLimiter(
+        redis_client=async_redis,
+        limiter_id=limiter_id,
+        limit=10_000_000,
+        window=60,
+        max_concurrency=10_000_000,
+        max_age=3600,
+        lease_duration=30,
+        drain_enabled=False,
+    )
+    loop.run_until_complete(instance.start())
+    try:
+        yield loop, instance
+    finally:
+        loop.run_until_complete(instance.shutdown())
+        loop.run_until_complete(async_redis.aclose())
+        loop.close()
+
+
 @pytest.fixture
 def limiter(redis_client, limiter_id):
     """Provide a lightweight limiter instance for benchmarking.
@@ -256,6 +357,50 @@ def limiter(redis_client, limiter_id):
     )
     yield instance
     instance.shutdown()
+
+
+class _AsyncBenchmarkLimiter(AbstractAsyncDistributedRateLimiter):
+    """Async mirror of ``_BenchmarkLimiter`` for the async hot-path tests."""
+
+    async def _dispatch_task(
+        self, func_path: str, payload: dict, task_id: str
+    ) -> None:
+        pass
+
+    def _schedule_drain(self, delay: float = 0.0) -> None:
+        pass
+
+
+@pytest.fixture
+def async_limiter(redis_client, limiter_id):
+    """Provide an async limiter plus the event loop driving it.
+
+    Returns ``(loop, limiter)``. Tests pass ``loop.run_until_complete(coro)``
+    inside the benchmark callable so the standard ``benchmark(...)`` /
+    ``pedantic`` mechanics work unchanged on async code.
+    """
+    redis_client.flushdb()
+    loop = asyncio.new_event_loop()
+    async_redis = aioredis.Redis(
+        host=REDIS_HOST, port=REDIS_PORT, decode_responses=True
+    )
+    instance = _AsyncBenchmarkLimiter(
+        redis_client=async_redis,
+        limiter_id=limiter_id,
+        limit=10_000_000,
+        window=60,
+        max_concurrency=10_000_000,
+        max_age=3600,
+        lease_duration=30,
+        drain_enabled=False,
+    )
+    loop.run_until_complete(instance.start())
+    try:
+        yield loop, instance
+    finally:
+        loop.run_until_complete(instance.shutdown())
+        loop.run_until_complete(async_redis.aclose())
+        loop.close()
 
 
 # ---------------------------------------------------------------------------

@@ -126,7 +126,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    command: poetry run pytest benchmarks/ -v --benchmark-max-time=5.0 --benchmark-warmup=on
+    command: poetry run pytest benchmarks/ -v -s --benchmark-max-time=5.0 --benchmark-warmup=on
     networks:
       - rate-limiter-network
     profiles:

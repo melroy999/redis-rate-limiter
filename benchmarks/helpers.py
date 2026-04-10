@@ -10,8 +10,13 @@ def bulk_fill_buffer(
     start_id: int = 0,
     func_path: str | None = None,
     payload: dict | None = None,
+    redis_client=None,
 ) -> None:
-    """Insert ``count`` minimal tasks into the buffer in a single ZADD call."""
+    """Insert ``count`` minimal tasks into the buffer in a single ZADD call.
+
+    ``redis_client`` overrides ``limiter.redis`` and is required when the
+    limiter holds an async client (since this helper is sync).
+    """
     if count <= 0:
         return
     now_ms = int(time.time() * 1000)
@@ -24,4 +29,5 @@ def bulk_fill_buffer(
         return task
 
     mapping = {json.dumps(_task(i)): 100 for i in range(count)}
-    limiter.redis.zadd(limiter.buffer_key, mapping)
+    client = redis_client if redis_client is not None else limiter.redis
+    client.zadd(limiter.buffer_key, mapping)

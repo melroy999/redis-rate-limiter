@@ -139,3 +139,63 @@ class TestRoundTrip:
                     pass
 
         benchmark(_round_trip)
+
+
+# ---------------------------------------------------------------------------
+# Async mirrors of the above benchmarks
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.benchmark(group="async-end-to-end")
+class TestAsyncScheduleTask:
+    """Async mirror of ``TestScheduleTask`` driving ``redis.asyncio``."""
+
+    def test_schedule_task(self, benchmark, async_limiter):
+        loop, limiter = async_limiter
+        counter = itertools.count()
+
+        def _schedule():
+            i = next(counter)
+            loop.run_until_complete(
+                limiter.schedule_task("bench.module.func", {"seq": i})
+            )
+
+        benchmark(_schedule)
+
+
+@pytest.mark.benchmark(group="async-end-to-end")
+class TestAsyncConsume:
+    """Async mirror of ``TestConsume``."""
+
+    def test_consume_empty_buffer(self, benchmark, async_limiter):
+        loop, limiter = async_limiter
+
+        def _consume():
+            loop.run_until_complete(limiter.consume())
+
+        benchmark(_consume)
+
+    def test_consume_with_tasks(self, benchmark, async_limiter, redis_client):
+        loop, limiter = async_limiter
+        bulk_fill_buffer(limiter, 1, redis_client=redis_client)
+        refill_counter = itertools.count(start=1)
+
+        def _refill_one():
+            i = next(refill_counter)
+            bulk_fill_buffer(limiter, 1, start_id=i, redis_client=redis_client)
+
+        async def _consume_one_async():
+            result = await limiter.consume()
+            if result["success"]:
+                async with limiter.task_lifecycle(result["task"]["id"]):
+                    pass
+
+        def _consume_one():
+            loop.run_until_complete(_consume_one_async())
+
+        benchmark.pedantic(
+            _consume_one,
+            setup=_refill_one,
+            rounds=2000,
+            warmup_rounds=10,
+        )

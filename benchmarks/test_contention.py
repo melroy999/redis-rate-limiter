@@ -66,6 +66,7 @@ future regression in the dispatch path surfaces as a test failure.
 
 import asyncio
 import multiprocessing as mp
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -295,9 +296,10 @@ def test_contention_threads(
 
     redis_client.flushdb()
     limiter_id = f"contention_thr_{scenario}_{uuid4().hex[:8]}"
+    test_label = f"threads/{scenario}/N={num_drainers}"
+    sys.stderr.write(f"\n[{test_label}] prefill start\n")
+    sys.stderr.flush()
 
-    # Each drainer gets its own executor so the _has_local_capacity() check
-    # reflects per-drainer saturation, exactly as in the demo's per-pod pools.
     seeder_executor = ThreadPoolExecutor(max_workers=2)
     seeder, _ = _make_limiter(
         redis_client, limiter_id, seeder_executor, limit, window, max_concurrency
@@ -307,16 +309,23 @@ def test_contention_threads(
     finally:
         seeder.shutdown()
         seeder_executor.shutdown(wait=False)
+    sys.stderr.write(f"[{test_label}] prefill done\n")
+    sys.stderr.flush()
 
     barrier = threading.Barrier(num_drainers)
     counters: list[_DispatchCounter | None] = [None] * num_drainers
+    drainer_clients: list[redis.Redis] = []
     drainer_executors: list[ThreadPoolExecutor] = []
 
     def _drain(index: int) -> None:
+        drainer_client = redis.Redis(
+            host=REDIS_HOST, port=REDIS_PORT, decode_responses=True
+        )
+        drainer_clients.append(drainer_client)
         drainer_executor = ThreadPoolExecutor(max_workers=executor_workers)
         drainer_executors.append(drainer_executor)
         limiter, counter = _make_limiter(
-            redis_client,
+            drainer_client,
             limiter_id,
             drainer_executor,
             limit,
@@ -324,25 +333,43 @@ def test_contention_threads(
             max_concurrency,
         )
         counters[index] = counter
+        sys.stderr.write(f"[{test_label}] drainer {index} created, waiting on barrier\n")
+        sys.stderr.flush()
         try:
-            barrier.wait()
+            barrier.wait(timeout=10)
             deadline = time.monotonic() + duration
             limiter.trigger_consume()
             while time.monotonic() < deadline:
                 time.sleep(0.05)
+            sys.stderr.write(f"[{test_label}] drainer {index} run complete, dispatched={counter.count}\n")
+            sys.stderr.flush()
         finally:
             limiter.shutdown()
+            sys.stderr.write(f"[{test_label}] drainer {index} limiter shutdown done\n")
+            sys.stderr.flush()
+            drainer_executor.shutdown(wait=True)
+            sys.stderr.write(f"[{test_label}] drainer {index} executor shutdown done\n")
+            sys.stderr.flush()
 
     threads = [
         threading.Thread(target=_drain, args=(i,)) for i in range(num_drainers)
     ]
+    sys.stderr.write(f"[{test_label}] spawning {num_drainers} drainers\n")
+    sys.stderr.flush()
     for t in threads:
         t.start()
-    for t in threads:
-        t.join()
 
-    for ex in drainer_executors:
-        ex.shutdown(wait=False)
+    for i, t in enumerate(threads):
+        t.join(timeout=duration + 30)
+        if t.is_alive():
+            sys.stderr.write(f"[{test_label}] WARNING: drainer {i} did not exit after join timeout\n")
+            sys.stderr.flush()
+
+    sys.stderr.write(f"[{test_label}] all drainers joined\n")
+    sys.stderr.flush()
+
+    for c in drainer_clients:
+        c.close()
 
     results = [c.count if c is not None else 0 for c in counters]
     _record(request, "threads", scenario, num_drainers, sum(results), duration, results)
