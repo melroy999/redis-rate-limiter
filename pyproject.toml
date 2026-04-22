@@ -15,7 +15,7 @@ celery = ["celery (>=5.6.2,<5.7.0)"]
 rq = ["rq (>=2.0.0,<3.0.0)"]
 dramatiq = ["dramatiq[redis] (>=2.0.0,<3.0.0)"]
 huey = ["huey (>=2.5.0,<3.0.0)"]
-prometheus = ["prometheus_client (>=0.21.0,<1.0.0)"]
+prometheus = ["prometheus_client (>=0.25.0,<1.0.0)"]
 asgi = ["fastapi (>=0.115.0)", "uvicorn (>=0.34.0)"]
 
 [tool.poetry.group.dev.dependencies]
