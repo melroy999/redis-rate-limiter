@@ -9,10 +9,40 @@ import logging
 import math
 import time
 from contextlib import contextmanager
-from threading import Timer
-from typing import Generator
+from threading import Thread, Timer
+from typing import Any, Generator
 
 import pytest
+
+
+def shutdown_completes_within(subject: Any, timeout: float = 1.0) -> bool:
+    """Return ``True`` if ``subject.shutdown()`` completes within ``timeout`` seconds.
+
+    Runs ``shutdown`` on a daemon thread so the caller is never blocked
+    longer than the timeout. Designed for ``timeout_safety_net`` tests
+    that catch mutations which prevent the subject's internal stop
+    mechanism from firing.
+    """
+    thread = Thread(target=subject.shutdown, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+    return not thread.is_alive()
+
+
+async def async_shutdown_completes_within(subject: Any, timeout: float = 1.0) -> bool:
+    """Return ``True`` if ``await subject.shutdown()`` completes within ``timeout`` seconds.
+
+    Measures elapsed wall-clock time rather than relying on
+    ``asyncio.wait_for`` to raise ``TimeoutError``: a ``shutdown``
+    that catches ``CancelledError`` (common pattern) returns normally
+    even when cancelled, defeating ``wait_for``'s exception path.
+    """
+    start = time.monotonic()
+    try:
+        await asyncio.wait_for(subject.shutdown(), timeout=timeout)
+    except asyncio.TimeoutError:
+        return False
+    return (time.monotonic() - start) < timeout
 
 
 @contextmanager
@@ -217,6 +247,39 @@ def clear_limiter_keys(redis_client, limiter) -> None:
         f"{limiter.id}:concurrency",
         f"{limiter.id}:dlq",
     )
+
+
+@contextmanager
+def property_test_cleanup(
+    redis_client: Any,
+    limiter: Any,
+    task_ids: list[str] | None = None,
+) -> Generator[list[str], None, None]:
+    """Context manager that ensures clean Redis state for property-based tests.
+
+    On entry, clears the limiter's non-expiring keys to ensure a clean
+    starting state. On exit, clears the same keys again and deletes all
+    in-flight keys for the collected task IDs.
+
+    Args:
+        redis_client: A sync Redis client.
+        limiter: The rate limiter instance whose keys should be cleaned.
+        task_ids: Optional pre-populated list of task IDs. If ``None``,
+            a fresh empty list is created. Callers should append task IDs
+            to this list as tasks are scheduled during the test.
+
+    Yields:
+        A mutable list of task IDs. The caller should append IDs of any
+        tasks scheduled during the test body.
+    """
+    ids: list[str] = task_ids if task_ids is not None else []
+    clear_limiter_keys(redis_client, limiter)
+    try:
+        yield ids
+    finally:
+        clear_limiter_keys(redis_client, limiter)
+        for tid in ids:
+            redis_client.delete(limiter.get_inflight_key(tid))
 
 
 def cleanup_managed_limiter(redis_client, limiter_id: str) -> None:

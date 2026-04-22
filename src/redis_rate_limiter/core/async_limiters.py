@@ -226,6 +226,8 @@ class AsyncHeartbeatScheduler:
         async with self._lock:
             return self._entries.get(task_id)
 
+    _shutdown_timeout: float = 5.0
+
     async def shutdown(self) -> None:
         """Signal the worker task to stop and wait for it to exit."""
         async with self._lock:
@@ -233,7 +235,7 @@ class AsyncHeartbeatScheduler:
             self._wakeup.set()
         if self._task is not None and not self._task.done():
             try:
-                await asyncio.wait_for(self._task, timeout=5.0)
+                await asyncio.wait_for(self._task, timeout=self._shutdown_timeout)
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 self._task.cancel()
 
@@ -307,7 +309,7 @@ class AsyncHeartbeatScheduler:
             await self._limiter.extend_lease(
                 task_id, self._limiter.lease_duration
             )
-        except Exception as e:
+        except redis.RedisError as e:
             async with self._lock:
                 entry = self._entries.get(task_id)
                 if entry is not None:

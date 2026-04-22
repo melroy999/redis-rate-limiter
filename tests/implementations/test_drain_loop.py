@@ -17,7 +17,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from redis_rate_limiter.core.limiters import DrainLoop, DrainSignalSubscriber
-from tests.helpers.utils import assert_log_emitted, shutdown_timer
+from tests.helpers.utils import (
+    assert_log_emitted,
+    shutdown_completes_within,
+    shutdown_timer,
+)
 from tests.implementations.conftest import StubRateLimiter
 
 
@@ -130,10 +134,7 @@ class TestDrainLoop:
         # shutdown() has an internal 5.0s join; mutations that break the
         # _shutdown flag (e.g., None/False) cause the full 5s block, which
         # triggers SIGXCPU under mutmut before the assertion can run.
-        shutdown_thread = Thread(target=loop.shutdown, daemon=True)
-        shutdown_thread.start()
-        shutdown_thread.join(timeout=1.0)
-        completed = not shutdown_thread.is_alive()
+        completed = shutdown_completes_within(loop, timeout=1.0)
 
         # Assert
         assert completed, (
@@ -564,6 +565,32 @@ class TestDrainSignalSubscriber:
         # Assert
         assert subscriber._shutdown is True, (
             "shutdown flag should be True even when pubsub cleanup raises"
+        )
+
+    @staticmethod
+    @pytest.mark.timeout_safety_net
+    def test_shutdown_completes_promptly(redis_client, limiter_id):
+        """Verify that ``shutdown()`` completes well under the 0.5s
+        poll fallback interval.
+        """
+        # Arrange
+        limiter = MagicMock()
+        limiter.id = limiter_id
+        limiter.redis = redis_client
+        limiter._worker_id = f"{limiter_id}_worker"
+        subscriber = DrainSignalSubscriber(limiter)
+        subscriber.start()
+
+        # Let the listener thread reach its first get_message poll.
+        time.sleep(0.05)
+
+        # Act
+        completed = shutdown_completes_within(subscriber, timeout=0.1)
+
+        # Assert
+        assert completed, (
+            "shutdown() should complete within 0.1s; "
+            "a timeout indicates _shutdown or the publish-wake was mutated"
         )
 
 

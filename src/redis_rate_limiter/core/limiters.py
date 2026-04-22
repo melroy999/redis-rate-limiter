@@ -24,6 +24,7 @@ from typing import (
     cast,
 )
 
+import redis
 from redis import Redis
 
 from redis_rate_limiter.core.base import AbstractRateLimiter, AbstractSyncRateLimiter
@@ -399,7 +400,7 @@ class HeartbeatScheduler:
         """Perform one lease renewal and update the entry's health state."""
         try:
             self._limiter.extend_lease(task_id, self._limiter.lease_duration)
-        except Exception as e:
+        except redis.RedisError as e:
             with self._condition:
                 entry = self._entries.get(task_id)
                 if entry is not None:
@@ -659,11 +660,15 @@ class DrainSignalSubscriber:
                 time.sleep(1.0)
 
     def shutdown(self) -> None:
-        """Stop the subscriber thread and release the Pub/Sub connection."""
+        """Stop the subscriber thread.
+
+        Publishes a sentinel message to the subscriber's own channel so
+        the listener's ``get_message`` returns immediately instead of
+        waiting out its poll timeout.
+        """
         self._shutdown = True
         try:
-            self._pubsub.unsubscribe()
-            self._pubsub.close()
+            self._limiter.redis.publish(self._channel, "")
         except Exception:
             pass
         if self._thread is not None:

@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tests.helpers.utils import assert_log_emitted
+from tests.helpers.utils import assert_log_emitted, assert_log_emitted_with_exc_info
 
 
 @pytest.mark.behavior
@@ -109,11 +109,12 @@ class TestProcessPoolRateLimiter:
         limiter, payload, func_path, task_id
     ):
         """Verify that ``_dispatch_task`` exits the task
-        lifecycle when the future completes."""
+        lifecycle when the future completes successfully."""
         # Arrange
         mock_lifecycle = MagicMock()
         mock_lifecycle.__enter__ = MagicMock(return_value=None)
         mock_future = MagicMock(spec=Future)
+        mock_future.exception.return_value = None
         callbacks = []
         mock_future.add_done_callback.side_effect = lambda cb: callbacks.append(cb)
 
@@ -131,7 +132,7 @@ class TestProcessPoolRateLimiter:
         # Assert
         assert len(callbacks) == 1, "exactly one done callback should be registered"
 
-        # Simulate future completion.
+        # Simulate successful future completion.
         callbacks[0](mock_future)
         mock_lifecycle.__exit__.assert_called_once_with(None, None, None)
 
@@ -229,6 +230,7 @@ class TestLocalCapacityGuard:
         decrements it."""
         # Arrange
         mock_future = MagicMock(spec=Future)
+        mock_future.exception.return_value = None
         callbacks = []
         mock_future.add_done_callback.side_effect = lambda cb: callbacks.append(cb)
 
@@ -268,8 +270,10 @@ class TestLocalCapacityGuard:
             callbacks.append(cb)
 
         mock_future_1 = MagicMock(spec=Future)
+        mock_future_1.exception.return_value = None
         mock_future_1.add_done_callback.side_effect = capture_callback
         mock_future_2 = MagicMock(spec=Future)
+        mock_future_2.exception.return_value = None
         mock_future_2.add_done_callback.side_effect = capture_callback
 
         submit_returns = iter([mock_future_1, mock_future_2])
@@ -353,4 +357,59 @@ class TestProcessPoolDispatchObservability:
             message="should emit a debug log containing the "
             "limiter id, task id, func path, and "
             "local dispatch count",
+        )
+
+    @staticmethod
+    def test_task_exception_emits_error_log(
+        limiter, payload, func_path, task_id, caplog
+    ):
+        """Verify that the done callback emits an ERROR log
+        with attached exception context and forwards the
+        exception triple to ``lifecycle.__exit__`` when the
+        future resolves with an exception."""
+        # Arrange
+        mock_lifecycle = MagicMock()
+        mock_lifecycle.__enter__ = MagicMock(return_value=None)
+        mock_future = MagicMock(spec=Future)
+        try:
+            raise ValueError("boom")
+        except ValueError as captured:
+            task_exception = captured
+        mock_future.exception.return_value = task_exception
+        callbacks: list = []
+        mock_future.add_done_callback.side_effect = lambda cb: callbacks.append(cb)
+
+        # Act
+        with caplog.at_level(
+            logging.ERROR, logger="redis_rate_limiter.backends.processpool.limiter"
+        ):
+            with (
+                patch.object(limiter, "task_lifecycle", return_value=mock_lifecycle),
+                patch(
+                    "redis_rate_limiter.backends.processpool.limiter.import_string",
+                    return_value=MagicMock(),
+                ),
+                patch.object(limiter.executor, "submit", return_value=mock_future),
+            ):
+                limiter._dispatch_task(func_path, payload, task_id)
+                assert len(callbacks) == 1, (
+                    "exactly one done callback should be registered"
+                )
+                callbacks[0](mock_future)
+
+        # Assert
+        assert_log_emitted_with_exc_info(
+            caplog.records,
+            level="ERROR",
+            label="[ProcessPoolRateLimiter]",
+            required_fragments=[
+                f"limiter={limiter.id}",
+                f"task_id={task_id}",
+                f"func_path={func_path}",
+            ],
+            message="should emit an error log with exception "
+            "context when the child process raises",
+        )
+        mock_lifecycle.__exit__.assert_called_once_with(
+            ValueError, task_exception, task_exception.__traceback__
         )
