@@ -1712,15 +1712,15 @@ test = ["coverage", "pytest", "pytest-cov"]
 
 [[package]]
 name = "uvicorn"
-version = "0.42.0"
+version = "0.45.0"
 description = "The lightning-fast ASGI server."
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
 markers = "extra == \"asgi\""
 files = [
-    {file = "uvicorn-0.42.0-py3-none-any.whl", hash = "sha256:96c30f5c7abe6f74ae8900a70e92b85ad6613b745d4879eb9b16ccad15645359"},
-    {file = "uvicorn-0.42.0.tar.gz", hash = "sha256:9b1f190ce15a2dd22e7758651d9b6d12df09a13d51ba5bf4fc33c383a48e1775"},
+    {file = "uvicorn-0.45.0-py3-none-any.whl", hash = "sha256:2db26f588131aeec7439de00f2dd52d5f210710c1f01e407a52c90b880d1fd4f"},
+    {file = "uvicorn-0.45.0.tar.gz", hash = "sha256:3fe650df136c5bd2b9b06efc5980636344a2fbb840e9ddd86437d53144fa335d"},
 ]
 
 [package.dependencies]
@@ -1767,4 +1767,4 @@ rq = ["rq"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12"
-content-hash = "e9dd9ce4092c080b71e2000ff31efa73eaa186fd2b7ed5923688d7a789685792"
+content-hash = "08222c072b53955f4498b0150bbc575714905077b22a3bf1ef5c4ea904492882"
