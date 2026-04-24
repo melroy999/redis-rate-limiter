@@ -103,6 +103,38 @@ class TestConsumeCounters:
         assert value == 1.0, "expired counter should be incremented to 1"
 
     @staticmethod
+    def test_empty_increments_counter(exporter, registry, limiter_id):
+        """Verify that an idle-drain consume event (buffer empty, not success,
+        not expired) increments the empty counter rather than the rejected one.
+        """
+        # Act
+        exporter(
+            "consume",
+            {
+                "success": False,
+                "expired": False,
+                "remaining_tokens": 10,
+                "active_concurrency": 0,
+                "reset_in_ms": 0,
+                "remaining_tasks": 0,
+            },
+        )
+
+        # Assert
+        empty_value = registry.get_sample_value(
+            "redis_rate_limiter_consume_total",
+            {"limiter_id": limiter_id, "outcome": "empty"},
+        )
+        assert empty_value == 1.0, "empty counter should be incremented to 1"
+        rejected_value = registry.get_sample_value(
+            "redis_rate_limiter_consume_total",
+            {"limiter_id": limiter_id, "outcome": "rejected"},
+        )
+        assert rejected_value in (None, 0.0), (
+            "rejected counter must not fire for an empty-buffer idle tick"
+        )
+
+    @staticmethod
     def test_multiple_events_accumulate(exporter, registry, limiter_id):
         """Verify that multiple consume events accumulate in the counter."""
         # Act

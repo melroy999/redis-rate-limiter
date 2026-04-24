@@ -207,7 +207,7 @@
     },
     {
       "title": "Consume Outcomes",
-      "description": "Breakdown of consume operations by outcome: success (task dispatched), rejected (rate limit reached), expired (task exceeded max_age).",
+      "description": "Breakdown of consume operations by outcome: success (task dispatched), rejected (rate limit or concurrency cap hit with tasks pending), expired (task exceeded max_age), empty (idle drain tick on an empty buffer).",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
       "fieldConfig": {
@@ -240,6 +240,12 @@
             "matcher": { "id": "byName", "options": "expired" },
             "properties": [
               { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "empty" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "grey", "mode": "fixed" } }
             ]
           }
         ]
