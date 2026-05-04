@@ -9,6 +9,13 @@ helpers directly. The ``main`` entry point and ``_format_report`` function are
 retained for standalone use with pre-generated ``diffs.txt`` / ``results.txt``
 files.
 
+Type resolution accepts an optional ``MutationKind`` record carrying the
+libcst operator name captured at generation time by ``run_mutmut.py``
+Patch 6. When present, the operator name supplies the ``mutation_type``
+label as ground truth; the legacy diff-only cascade in
+``_resolve_type_from_diff`` runs as a fallback so the standalone CLI keeps
+working on artifacts produced before Patch 6 existed.
+
 Relevancy scores:
 
 - **0 (cosmetic)**: string mutations (XX wrap, lowercase, uppercase) inside
@@ -60,6 +67,21 @@ class MutationDiff:
     old_lines: list[str] = field(default_factory=list)
     new_lines: list[str] = field(default_factory=list)
     context_lines: list[str] = field(default_factory=list)
+
+
+@dataclass
+class MutationKind:
+    """Captured mutation metadata loaded from ``mutmut_mutation_types.json``."""
+
+    operator: str | None = None
+    line: int | None = None
+    source_file: str | None = None
+    function: str | None = None
+    is_default_param: bool = False
+    original_node_type: str | None = None
+    mutated_node_type: str | None = None
+    original: str | None = None
+    mutated: str | None = None
 
 
 @dataclass
@@ -661,122 +683,213 @@ def _detect_string_method_swap(
 # Classification
 # ---------------------------------------------------------------------------
 
+# Operators that emit multiple distinct kinds (operator_string,
+# operator_name, operator_assignment, operator_lambda) are not listed
+# here; they are sub-resolved against the diff in ``_resolve_type``.
+_OPERATOR_TO_TYPE: dict[str, str] = {
+    "operator_number": "numeric_increment",
+    "operator_swap_op": "operator_swap",
+    "operator_arg_removal": "argument_removal",
+    "operator_remove_unary_ops": "unary_removal",
+    "operator_augmented_assignment": "augmented_assignment",
+    "operator_symmetric_string_methods_swap": "string_method_swap",
+    "operator_unsymmetrical_string_methods_swap": "string_method_swap",
+    "operator_keywords": "keyword_swap",
+    "operator_dict_arguments": "dict_keyword_xx_wrap",
+    "operator_lambda": "lambda_body",
+    "operator_match": "match_case_drop",
+}
 
-def _classify(diff: MutationDiff) -> tuple[int, str, str]:
-    """Classify a mutation and return (score, mutation_type, description)."""
+
+def _fallback_desc(diff: MutationDiff) -> str:
+    """Return a one-line summary of the diff for use as a description."""
+    old = diff.old_lines
+    new = diff.new_lines
+    old_summary = old[0].strip() if old else "(empty)"
+    new_summary = new[0].strip() if new else "(empty)"
+    if len(old) > 1 or len(new) > 1:
+        return f"{len(old)} line(s) removed, {len(new)} line(s) added"
+    return f"{old_summary}  ->  {new_summary}"
+
+
+def _describe(diff: MutationDiff, mutation_type: str) -> str:
+    """Render a description in the same format the legacy cascade produces,
+    so that ``_KNOWN_BENIGN`` substring matches keep working unchanged."""
+    old = diff.old_lines
+    new = diff.new_lines
+
+    if mutation_type == "argument_removal":
+        return _detect_argument_removal(old, new) or _fallback_desc(diff)
+    if mutation_type == "operator_swap":
+        return _detect_operator_swap(old, new) or _fallback_desc(diff)
+    if mutation_type == "string_method_swap":
+        return _detect_string_method_swap(old, new) or _fallback_desc(diff)
+    if mutation_type == "unary_removal":
+        return _detect_unary_removal(old, new) or _fallback_desc(diff)
+    if mutation_type == "augmented_assignment":
+        return _detect_augmented_to_simple(old, new) or _fallback_desc(diff)
+    if mutation_type == "keyword_swap":
+        return _detect_keyword_swap(old, new) or _fallback_desc(diff)
+    if mutation_type == "numeric_increment":
+        return _detect_numeric_increment(old, new) or _fallback_desc(diff)
+    if mutation_type.startswith("string_"):
+        old_str = old[0].strip() if old else ""
+        new_str = new[0].strip() if new else ""
+        return f"{old_str}  ->  {new_str}"
+    return _fallback_desc(diff)
+
+
+def _resolve_type(diff: MutationDiff, captured: MutationKind | None) -> tuple[str, str]:
+    """Return ``(mutation_type, base_description)`` for a mutation, preferring
+    the captured operator name and falling back to diff heuristics."""
+    if captured is not None and captured.operator:
+        op = captured.operator
+
+        if op in _OPERATOR_TO_TYPE:
+            mutation_type = _OPERATOR_TO_TYPE[op]
+            return mutation_type, _describe(diff, mutation_type)
+
+        if op == "operator_string":
+            sub = _detect_string_mutation(diff.old_lines, diff.new_lines)
+            mutation_type = f"string_{sub}" if sub else "string_unknown"
+            return mutation_type, _describe(diff, mutation_type)
+
+        if op == "operator_name":
+            # True <-> False, deepcopy <-> copy.
+            bool_desc = _detect_boolean_swap(diff.old_lines, diff.new_lines)
+            if bool_desc is not None:
+                return "boolean_swap", bool_desc
+            return "name_swap", _fallback_desc(diff)
+
+        if op == "operator_assignment":
+            # a = val -> a = None, or a = None -> a = "".
+            none_desc = _detect_value_to_none(diff.old_lines, diff.new_lines)
+            if none_desc is not None:
+                return "value_to_none", none_desc
+            return "value_to_empty_string", _fallback_desc(diff)
+
+    return _resolve_type_from_diff(diff)
+
+
+def _resolve_type_from_diff(diff: MutationDiff) -> tuple[str, str]:
+    """Legacy diff-based type detection (used as fallback when no captured
+    metadata is available)."""
+    old = diff.old_lines
+    new = diff.new_lines
+
+    string_type = _detect_string_mutation(old, new)
+    if string_type is not None:
+        old_str = old[0].strip() if old else ""
+        new_str = new[0].strip() if new else ""
+        return f"string_{string_type}", f"{old_str}  ->  {new_str}"
+
+    arg_desc = _detect_argument_removal(old, new)
+    if arg_desc is not None:
+        return "argument_removal", arg_desc
+
+    op_desc = _detect_operator_swap(old, new)
+    if op_desc is not None:
+        return "operator_swap", op_desc
+
+    bool_desc = _detect_boolean_swap(old, new)
+    if bool_desc is not None:
+        return "boolean_swap", bool_desc
+
+    kw_desc = _detect_keyword_swap(old, new)
+    if kw_desc is not None:
+        return "keyword_swap", kw_desc
+
+    unary_desc = _detect_unary_removal(old, new)
+    if unary_desc is not None:
+        return "unary_removal", unary_desc
+
+    aug_desc = _detect_augmented_to_simple(old, new)
+    if aug_desc is not None:
+        return "augmented_assignment", aug_desc
+
+    method_desc = _detect_string_method_swap(old, new)
+    if method_desc is not None:
+        return "string_method_swap", method_desc
+
+    none_desc = _detect_value_to_none(old, new)
+    if none_desc is not None:
+        return "value_to_none", none_desc
+
+    num_desc = _detect_numeric_increment(old, new)
+    if num_desc is not None:
+        return "numeric_increment", num_desc
+
+    return "unknown", _fallback_desc(diff)
+
+
+def _score(
+    diff: MutationDiff,
+    mutation_type: str,
+    captured: MutationKind | None,
+    base_description: str,
+) -> tuple[int, str]:
+    """Apply context-driven scoring rules and return ``(score, description)``.
+
+    Cosmetic promotion (score 0) does not gate on the operator name; the
+    logger / raise / ASGI / exc_info / value-to-None checks are run against
+    the diff so that ``_KNOWN_BENIGN`` description substrings keep matching
+    regardless of which operator produced the symptom.
+    """
     old = diff.old_lines
     new = diff.new_lines
     ctx = diff.context_lines
     body = diff.body
 
-    # 0. Default parameter mutation on a def signature (fork-immune).
-    if _is_default_param_mutation(old, new):
+    if (captured is not None and captured.is_default_param) or (
+        captured is None and _is_default_param_mutation(old, new)
+    ):
         old_summary = old[0].strip() if old else "(empty)"
         new_summary = new[0].strip() if new else "(empty)"
-        return 3, "default_param", f"{old_summary}  ->  {new_summary}"
+        return 3, f"{old_summary}  ->  {new_summary}"
 
-    # 1. String mutations (XX wrap, lowercase, uppercase).
-    string_type = _detect_string_mutation(old, new)
-    if string_type is not None:
-        # Only classify as a logger format-string mutation when the mutated
-        # line itself contains a printf-style format specifier.  Without this
-        # guard, any string literal that happens to sit near a logger call in
-        # the diff context (e.g. redis.set("1", …) followed by logger.debug)
-        # would be mislabelled as a format-string mutation.
+    if mutation_type.startswith("string_") and mutation_type != "string_unknown":
+        sub = mutation_type[len("string_") :]
+        readable = sub.replace("_", " ")
         if _old_is_format_string(old):
             logger_level = _get_logger_level(ctx, old, body)
             if logger_level is not None:
-                desc = f"{string_type.replace('_', ' ')} on logger.{logger_level} format string"
-                return 0, f"string_{string_type}", desc
+                return 0, f"{readable} on logger.{logger_level} format string"
         if _has_raise_context(ctx, old):
-            desc = f"{string_type.replace('_', ' ')} on error message"
-            return 0, f"string_{string_type}", desc
+            return 0, f"{readable} on error message"
         if _has_asgi_body_context(ctx, old, new):
-            desc = f"{string_type.replace('_', ' ')} on ASGI response body text"
-            return 0, f"string_{string_type}", desc
+            return 0, f"{readable} on ASGI response body text"
         if _has_logger_format_context(ctx, old, body):
-            desc = f"{string_type.replace('_', ' ')} on logger format argument"
-            return 0, f"string_{string_type}", desc
-        # String mutation outside logger/raise/ASGI-body context is real logic.
-        old_str = old[0].strip() if old else ""
-        new_str = new[0].strip() if new else ""
-        return 2, f"string_{string_type}", f"{old_str}  ->  {new_str}"
+            return 0, f"{readable} on logger format argument"
+        return 2, base_description
 
-    # 2. Argument removal.
-    arg_desc = _detect_argument_removal(old, new)
-    if arg_desc is not None:
-        return 1, "argument_removal", arg_desc
+    if mutation_type == "boolean_swap" and _is_exc_info_swap(old):
+        return 0, "exc_info boolean swap (cosmetic)"
 
-    # 3. Operator swap.
-    op_desc = _detect_operator_swap(old, new)
-    if op_desc is not None:
-        return 2, "operator_swap", op_desc
-
-    # 4. Boolean swap.
-    bool_desc = _detect_boolean_swap(old, new)
-    if bool_desc is not None:
-        if _is_exc_info_swap(old):
-            return 0, "boolean_swap", "exc_info boolean swap (cosmetic)"
-        return 2, "boolean_swap", bool_desc
-
-    # 5. Keyword swap.
-    kw_desc = _detect_keyword_swap(old, new)
-    if kw_desc is not None:
-        return 2, "keyword_swap", kw_desc
-
-    # 6. Unary removal.
-    unary_desc = _detect_unary_removal(old, new)
-    if unary_desc is not None:
-        return 2, "unary_removal", unary_desc
-
-    # 7. Augmented to simple assignment.
-    aug_desc = _detect_augmented_to_simple(old, new)
-    if aug_desc is not None:
-        return 2, "augmented_assignment", aug_desc
-
-    # 8. String method swap.
-    method_desc = _detect_string_method_swap(old, new)
-    if method_desc is not None:
-        return 2, "string_method_swap", method_desc
-
-    # 9. Value to None.
+    # Run on the diff, not the operator name, so that an arg-replaced-with-None
+    # mutation hits the same cosmetic-in-logger rule as an assignment-to-None.
     none_desc = _detect_value_to_none(old, new)
     if none_desc is not None:
         logger_level = _get_logger_level(ctx, old, body)
         if logger_level is not None:
             if _old_is_format_string(old):
-                return (
-                    0,
-                    "value_to_none",
-                    f"format string  ->  None on logger.{logger_level}",
-                )
-            return (
-                0,
-                "value_to_none",
-                f"{none_desc} (logger.{logger_level} argument)",
-            )
+                return 0, f"format string  ->  None on logger.{logger_level}"
+            return 0, f"{none_desc} (logger.{logger_level} argument)"
         if _has_logger_format_context(ctx, old, body):
-            return (
-                0,
-                "value_to_none",
-                f"{none_desc} (logger format argument)",
-            )
-        return 2, "value_to_none", none_desc
+            return 0, f"{none_desc} (logger format argument)"
 
-    # 10. Numeric increment.
-    num_desc = _detect_numeric_increment(old, new)
-    if num_desc is not None:
-        return 2, "numeric_increment", num_desc
+    if mutation_type == "argument_removal":
+        return 1, base_description
 
-    # 11. Fallback: show the raw diff lines.
-    old_summary = old[0].strip() if old else "(empty)"
-    new_summary = new[0].strip() if new else "(empty)"
-    if len(old) > 1 or len(new) > 1:
-        desc = f"{len(old)} line(s) removed, {len(new)} line(s) added"
-    else:
-        desc = f"{old_summary}  ->  {new_summary}"
+    return 2, base_description
 
-    return 2, "unknown", desc
+
+def _classify(
+    diff: MutationDiff, captured: MutationKind | None = None
+) -> tuple[int, str, str]:
+    """Classify a mutation and return ``(score, mutation_type, description)``."""
+    mutation_type, base_description = _resolve_type(diff, captured)
+    score, description = _score(diff, mutation_type, captured, base_description)
+    return score, mutation_type, description
 
 
 def _get_logger_level(
@@ -1145,7 +1258,9 @@ def _match_known_benign(short_name: str, description: str) -> str | None:
 
 
 def classify(
-    diffs_path: Path, results_path: Path | None = None
+    diffs_path: Path,
+    results_path: Path | None = None,
+    mutation_types: dict[str, MutationKind] | None = None,
 ) -> tuple[
     list[ClassifiedMutation],
     list[str],
@@ -1156,6 +1271,12 @@ def classify(
 
     Returns (classified_mutations, timeout_names, no_test_names, benign_mutations).
     Each benign entry is a (mutation, reason) pair.
+
+    When ``mutation_types`` is supplied, per-mutant operator metadata captured
+    by ``scripts/run_mutmut.py`` Patch 6 is passed into ``_classify`` so the
+    type label comes from mutmut's libcst dispatch instead of diff heuristics.
+    A missing or empty mapping triggers the legacy diff-based cascade,
+    preserving compatibility with artifacts produced before Patch 6 existed.
     """
     if results_path is None:
         results_path = diffs_path.parent / "results.txt"
@@ -1186,7 +1307,8 @@ def classify(
         if diff.name in {n for n in timeout_names + no_test_names}:
             continue
 
-        score, mutation_type, description = _classify(diff)
+        captured = mutation_types.get(diff.name) if mutation_types else None
+        score, mutation_type, description = _classify(diff, captured)
         short_name = _shorten_name(diff.name)
         cm = ClassifiedMutation(
             diff=diff,

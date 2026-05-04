@@ -48,6 +48,7 @@ from classify_mutants import (  # noqa: E402
     _SCORE_NOTES,
     ClassifiedMutation,
     MutationDiff,
+    MutationKind,
     _classify,
     _extract_diff_lines,
     _find_mirrors,
@@ -199,6 +200,38 @@ def _load_killed_by_raw(path: Path) -> dict:
         return {}
 
 
+def _load_mutation_types(path: Path) -> dict[str, MutationKind]:
+    """Load per-mutant operator metadata captured by run_mutmut.py Patch 6.
+
+    A missing or unreadable file yields ``{}``, which falls the classifier
+    back to its diff-based heuristics for every mutant.
+    """
+    try:
+        with open(path) as f:
+            raw = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+
+    result: dict[str, MutationKind] = {}
+    for mutant_id, entry in raw.items():
+        if not isinstance(entry, dict):
+            continue
+        result[mutant_id] = MutationKind(
+            operator=entry.get("operator"),
+            line=entry.get("line"),
+            source_file=entry.get("source_file"),
+            function=entry.get("function"),
+            is_default_param=bool(entry.get("is_default_param", False)),
+            original_node_type=entry.get("original_node_type"),
+            mutated_node_type=entry.get("mutated_node_type"),
+            original=entry.get("original"),
+            mutated=entry.get("mutated"),
+        )
+    return result
+
+
 def _parse_killed_by(
     raw: dict[str, dict[str, object]],
 ) -> tuple[
@@ -335,6 +368,7 @@ def _build_records(
     tests_ran_data: dict[str, list[str]] | None = None,
     partial_data: dict[str, bool] | None = None,
     killed_during_data: dict[str, str] | None = None,
+    mutation_types: dict[str, MutationKind] | None = None,
 ) -> list[MutantRecord]:
     """Build a ``MutantRecord`` for every mutant."""
     records: list[MutantRecord] = []
@@ -342,6 +376,7 @@ def _build_records(
     tests_ran_data = tests_ran_data or {}
     partial_data = partial_data or {}
     killed_during_data = killed_during_data or {}
+    mutation_types = mutation_types or {}
 
     for name, (status, duration, source_path) in all_meta.items():
         short_name = _shorten_name(name)
@@ -372,7 +407,8 @@ def _build_records(
                     new_lines=new_lines,
                     context_lines=ctx_lines,
                 )
-                score, mutation_type, description = _classify(mutation_diff)
+                captured = mutation_types.get(name)
+                score, mutation_type, description = _classify(mutation_diff, captured)
                 record.classification_score = score
                 record.mutation_type = mutation_type
                 record.classification_desc = description
@@ -965,6 +1001,15 @@ def main() -> None:
         help="path to the killed-by JSON (default: /tmp/mutmut_killed_by_results.json)",
     )
     parser.add_argument(
+        "--mutation-types",
+        default="/app/mutation-output/mutation-types.json",
+        help=(
+            "path to the per-mutant operator metadata JSON"
+            " (default: /app/mutation-output/mutation-types.json);"
+            " missing file falls back to diff heuristics"
+        ),
+    )
+    parser.add_argument(
         "--include-killed",
         action="store_true",
         help="include killed mutants in the JSON output (increases file size)",
@@ -998,6 +1043,18 @@ def main() -> None:
     print(f"  {len(killed_by)} mutants with killed-by data.", flush=True)
     if partial_count:
         print(f"  {partial_count} mutants with partial data (SIGXCPU).", flush=True)
+
+    mutation_types = _load_mutation_types(Path(args.mutation_types))
+    if mutation_types:
+        print(
+            f"  {len(mutation_types)} mutants with captured operator metadata.",
+            flush=True,
+        )
+    else:
+        print(
+            "  No captured operator metadata; classifier will use diff heuristics.",
+            flush=True,
+        )
 
     # Load mutmut-stats.json for test mapping and durations.
     stats_path = Path("mutants/mutmut-stats.json")
@@ -1044,6 +1101,7 @@ def main() -> None:
         tests_ran_data or None,
         partial_data or None,
         killed_during_data or None,
+        mutation_types or None,
     )
     _attach_mirror_keys(records)
 

@@ -83,6 +83,7 @@ services:
       - ./mutants:/app/mutants
     command: >-
       bash -c "
+        find /app/mutants -mindepth 1 -delete;
         python scripts/run_mutmut.py run 2>&1 | tee /tmp/mutmut-run.log;
         MUTMUT_EXIT=$${PIPESTATUS[0]};
         if [ $$MUTMUT_EXIT -ne 0 ]; then

@@ -25,11 +25,19 @@ Patches applied:
    ``-x`` (first-killer mode) for fast blind spot analysis. Killed-by data
    is accumulated in memory and flushed to
    ``/tmp/mutmut_killed_by_results.json`` at exit.
+6. ``mutate_file_contents`` and ``MutationVisitor._create_mutations``:
+   captures the libcst operator name, source line, and a structural
+   default-parameter flag for every mutation at generation time, keyed by
+   the canonical mutmut mutant ID. Records are flushed to
+   ``/tmp/mutmut_mutation_types.json`` at exit, where the classifier joins
+   them in to use the operator name as ground truth instead of inferring
+   it from a unified diff.
 """
 
 from __future__ import annotations
 
 import atexit
+import json
 import os
 import signal
 import sys
@@ -37,12 +45,14 @@ from collections.abc import Iterable, Sequence
 from typing import Union
 
 import libcst as cst
+from libcst.metadata import PositionProvider
 from mutmut import file_mutation, trampoline_templates
 from mutmut.file_mutation import (
     MODULE_STATEMENT,
     NEVER_MUTATE_FUNCTION_CALLS,
     NEVER_MUTATE_FUNCTION_NAMES,
     Mutation,
+    OuterFunctionProvider,
     deep_replace,
 )
 from mutmut.trampoline_templates import (
@@ -201,6 +211,15 @@ def _patched_function_trampoline_arrangement(
         function_no_decorators.with_changes(name=cst.Name(mangled_name + "_orig"))
     )
 
+    get_mutant_name = None
+    if _current_source_file is not None:
+        try:
+            from mutmut.__main__ import get_mutant_name as _gmn
+
+            get_mutant_name = _gmn
+        except Exception:
+            get_mutant_name = None
+
     # Mutated versions of the function (no decorators).
     for i, mutant in enumerate(mutants):
         mutant_name = f"{mangled_name}_{i + 1}"
@@ -210,6 +229,17 @@ def _patched_function_trampoline_arrangement(
             mutated_method, mutant.original_node, mutant.mutated_node
         )
         nodes.append(mutated_method)  # type: ignore[arg-type]
+
+        if get_mutant_name is not None and _current_source_file is not None:
+            from pathlib import Path
+
+            try:
+                full_mutant_id = get_mutant_name(
+                    Path(_current_source_file), mutant_name
+                )
+            except Exception:
+                continue
+            _record_mutation_metadata(mutant, full_mutant_id, function, class_name)
 
     mutants_dict = list(
         cst.parse_module(
@@ -551,6 +581,150 @@ _patched_sfmd_register_result = _accumulator.make_register_result_patch()
 
 
 # ---------------------------------------------------------------------------
+# Patch 6: capture mutation operator metadata at generation time
+# ---------------------------------------------------------------------------
+
+_MUTATION_TYPES_FILE = "/app/mutation-output/mutation-types.json"
+
+_current_source_file: str | None = None
+_operator_by_mutation_id: dict[int, dict[str, object]] = {}
+_default_param_lines: set[int] = set()
+_mutation_type_records: dict[str, dict[str, object]] = {}
+
+_original_mutate_file_contents = file_mutation.mutate_file_contents
+
+
+def _patched_mutate_file_contents(
+    filename: str,
+    code: str,
+    covered_lines: Union[set[int], None] = None,
+) -> tuple[str, Sequence[str]]:
+    """Wrap ``mutate_file_contents`` to reset per-file scratch state and
+    pre-scan default-parameter line ranges before mutmut's own parse runs."""
+    global _current_source_file
+    _current_source_file = str(filename)
+    _operator_by_mutation_id.clear()
+    _default_param_lines.clear()
+
+    try:
+        _populate_default_param_lines(code)
+    except Exception:
+        # A scan failure here only loses the structural is_default_param
+        # signal; the regex fallback in classify_mutants still catches the
+        # common single-line def case.
+        pass
+
+    return _original_mutate_file_contents(filename, code, covered_lines)  # type: ignore[no-any-return]
+
+
+def _populate_default_param_lines(code: str) -> None:
+    """Populate ``_default_param_lines`` with every line covered by a
+    ``cst.Param.default`` subtree in the module."""
+    module = cst.parse_module(code)
+    wrapper = cst.metadata.MetadataWrapper(module)
+
+    class _Scanner(cst.CSTVisitor):
+        METADATA_DEPENDENCIES = (PositionProvider,)
+
+        def visit_Param(self, node: cst.Param) -> None:
+            if node.default is None:
+                return
+            try:
+                pos = self.get_metadata(PositionProvider, node.default)
+            except KeyError:
+                return
+            for line in range(pos.start.line, pos.end.line + 1):
+                _default_param_lines.add(line)
+
+    wrapper.visit(_Scanner())
+
+
+def _patched_create_mutations(
+    self: file_mutation.MutationVisitor,
+    node: cst.CSTNode,
+) -> None:
+    """Create mutations and record per-Mutation operator metadata.
+
+    Mirrors the upstream ``MutationVisitor._create_mutations`` body, but
+    additionally captures ``operator.__name__``, the source line, the
+    default-parameter flag, and the original/mutated CST node types into
+    ``_operator_by_mutation_id`` keyed by ``id(mutation)``. The trampoline
+    arrangement patch reads this side-channel when assigning mutant indices.
+    """
+    position = self.get_metadata(PositionProvider, node, None)
+    line = position.start.line if position is not None else None
+    is_default_param = line is not None and line in _default_param_lines
+
+    for t, operator in self._operators:
+        if isinstance(node, t):
+            for mutated_node in operator(node):
+                mutation = Mutation(
+                    original_node=node,
+                    mutated_node=mutated_node,
+                    contained_by_top_level_function=self.get_metadata(  # type: ignore[arg-type]
+                        OuterFunctionProvider, node, None
+                    ),
+                )
+                _operator_by_mutation_id[id(mutation)] = {
+                    "operator": operator.__name__,
+                    "line": line,
+                    "is_default_param": is_default_param,
+                    "original_node_type": type(node).__name__,
+                    "mutated_node_type": type(mutated_node).__name__,
+                }
+                self.mutations.append(mutation)
+
+
+def _record_mutation_metadata(
+    mutant: Mutation,
+    full_mutant_id: str,
+    function: cst.FunctionDef,
+    class_name: str | None,
+) -> None:
+    """Emit a metadata record for a single mutant, keyed by its full ID.
+
+    No-op if the side-channel is empty, which keeps the trampoline patch
+    safe to import from callers that do not apply Patch 6 (e.g.
+    ``analyze_superfluity.py``).
+    """
+    captured = _operator_by_mutation_id.get(id(mutant))
+    if captured is None or _current_source_file is None:
+        return
+
+    function_label = (
+        f"{class_name}.{function.name.value}"
+        if class_name is not None
+        else function.name.value
+    )
+    record: dict[str, object] = {
+        "operator": captured.get("operator"),
+        "line": captured.get("line"),
+        "source_file": _current_source_file,
+        "function": function_label,
+        "is_default_param": captured.get("is_default_param", False),
+        "original_node_type": captured.get("original_node_type"),
+        "mutated_node_type": captured.get("mutated_node_type"),
+    }
+    try:
+        empty_module = cst.Module(body=[])
+        record["original"] = empty_module.code_for_node(mutant.original_node).strip()
+        record["mutated"] = empty_module.code_for_node(mutant.mutated_node).strip()
+    except Exception:
+        # Some CST nodes (e.g. bare operators) are not standalone-printable.
+        pass
+    _mutation_type_records[full_mutant_id] = record
+
+
+def _flush_mutation_types() -> None:
+    """atexit-registered writer for the per-mutant metadata JSON."""
+    if not _mutation_type_records:
+        return
+    os.makedirs(os.path.dirname(_MUTATION_TYPES_FILE), exist_ok=True)
+    with open(_MUTATION_TYPES_FILE, "w") as f:
+        json.dump(_mutation_type_records, f, indent=2)
+
+
+# ---------------------------------------------------------------------------
 # Apply all patches
 # ---------------------------------------------------------------------------
 
@@ -587,6 +761,17 @@ def _apply_patches() -> None:
     SourceFileMutationData.register_result = _patched_sfmd_register_result  # type: ignore[assignment]
     PytestRunner.run_tests = _patched_run_tests  # type: ignore[assignment]
     atexit.register(_accumulator.flush)
+
+    # Patch 6: capture mutation operator metadata at generation time.
+    # mutmut.__main__ does ``from mutmut.file_mutation import mutate_file_contents``,
+    # so patching only the file_mutation attribute does not propagate to the
+    # call site at __main__.py:346. Patch both bindings.
+    import mutmut.__main__ as _mutmut_main
+
+    file_mutation.mutate_file_contents = _patched_mutate_file_contents  # type: ignore[assignment]
+    _mutmut_main.mutate_file_contents = _patched_mutate_file_contents  # type: ignore[assignment]
+    file_mutation.MutationVisitor._create_mutations = _patched_create_mutations  # type: ignore[assignment]
+    atexit.register(_flush_mutation_types)
 
 
 # ---------------------------------------------------------------------------
