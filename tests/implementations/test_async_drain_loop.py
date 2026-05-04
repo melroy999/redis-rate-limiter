@@ -179,41 +179,6 @@ class TestAsyncDrainLoop:
         assert loop._task.done(), "task should be done after shutdown"
 
     @staticmethod
-    async def test_shutdown_completes_promptly():
-        """Verify that ``shutdown()`` completes well within
-        its internal 5.0s timeout.
-        """
-        # Arrange
-        limiter = MagicMock()
-        drain_called = asyncio.Event()
-        limiter.drain = AsyncMock(side_effect=lambda: drain_called.set())
-        loop = AsyncDrainLoop(limiter, watchdog_interval=60.0)
-
-        # Act
-        # Start the task and let it complete one drain cycle so it is
-        # blocked on _condition.wait() when shutdown is called.
-        loop.wake(0)
-        await asyncio.wait_for(drain_called.wait(), timeout=2.0)
-
-        start = time.monotonic()
-        try:
-            await asyncio.wait_for(loop.shutdown(), timeout=1.0)
-            completed = True
-        except asyncio.TimeoutError:
-            completed = False
-        elapsed = time.monotonic() - start
-
-        # Assert
-        assert completed, (
-            "shutdown() should complete within 1.0s; "
-            "a timeout indicates notify() or _shutdown assignment was mutated"
-        )
-        assert elapsed < 1.0, (
-            f"shutdown() took {elapsed:.2f}s; should complete promptly "
-            "when the condition is notified correctly"
-        )
-
-    @staticmethod
     async def test_shutdown_is_idempotent():
         """Verify that calling ``shutdown()`` twice does not raise."""
         # Arrange

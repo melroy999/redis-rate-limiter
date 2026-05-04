@@ -429,26 +429,6 @@ class TestAsyncHealthMonitorLifecycle:
         return AsyncBackendHealthMonitor(mock_limiter, interval=1.0)
 
     @staticmethod
-    @pytest.mark.timeout_safety_net
-    async def test_shutdown_cancels_task(monitor):
-        """Verify that ``shutdown()`` cancels the background asyncio task cleanly."""
-        # Arrange
-        monitor.start()
-
-        # Act
-        shutdown_task = asyncio.create_task(monitor.shutdown())
-        await asyncio.sleep(0.05)
-
-        # Assert
-        assert shutdown_task.done(), (
-            "shutdown() should complete promptly; "
-            "still running indicates the _run loop did not exit"
-        )
-        assert monitor._task is None or monitor._task.done(), (
-            "background task should be done after shutdown"
-        )
-
-    @staticmethod
     async def test_monitor_not_started_for_default_implementation(
         async_stub_limiter,
     ):

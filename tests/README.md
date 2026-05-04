@@ -52,6 +52,8 @@ tests/
 │   ├── test_async_task_lifecycle.py     # Async lifecycle implementation tests
 │   ├── test_decorator.py               # Decorator behavior (core)
 │   ├── test_importing.py               # Dynamic import helper behavior
+│   ├── test_loop_safety_net.py         # Hang/spin safety-net tests for sync persistent loops
+│   ├── test_async_loop_safety_net.py   # Hang/spin safety-net tests for async persistent loops
 │   ├── celery/                         # Celery-specific implementation tests
 │   │   ├── conftest.py                 # Imports Celery backend fixtures
 │   │   ├── test_contracts.py           # Contract suite against real CeleryRateLimiter
@@ -496,6 +498,10 @@ Contains shared utility functions used across multiple tests:
 
 - `is_subset(target, superset)`: a recursive dictionary subset checker.
 - `dict_equals_approx(left, right)`: approximate equality for nested structures, with configurable tolerance for float comparisons.
+- `assert_log_emitted(...)` / `assert_log_emitted_with_exc_info(...)`: standard log-record assertions for observability tests.
+- `shutdown_completes_within(subject, timeout)` / `async_shutdown_completes_within(...)`: wall-clock-bounded hang detection for `shutdown()` paths in `timeout_safety_net` tests.
+- `shutdown_timer(obj, timeout, attr)`: context manager that flips a `_shutdown` flag after a timeout, used to bound `_run()` loops in `timeout_safety_net` tests.
+- `cap_iterations(target, attr, ...)`: counting-stub context manager that detects spin-class mutations on persistent loops; mocks the loop's I/O primitive and yields a count callable for post-hoc assertion. See `TESTING_GUIDELINES.md` Section 5.4 for the hang-vs-spin distinction.
 
 **Usage:**
 

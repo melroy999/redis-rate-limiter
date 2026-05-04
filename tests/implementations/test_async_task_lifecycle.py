@@ -29,8 +29,6 @@ from redis_rate_limiter.core.scripts import load_lua_script
 from tests.contracts.test_task_lifecycle import TaskLifecycleContractTest
 from tests.helpers.utils import (
     assert_log_emitted,
-    async_shutdown_completes_within,
-    shutdown_timer,
 )
 from tests.implementations.conftest import (
     HEARTBEAT_OVERRIDE_CASES,
@@ -726,95 +724,6 @@ class TestAsyncHeartbeatSchedulerBoundary:
         # Assert
         assert lifecycle.is_healthy is True, (
             "is_healthy must return True when no scheduler entry exists"
-        )
-
-    @staticmethod
-    @pytest.mark.timeout_safety_net
-    async def test_shutdown_completes_promptly(limiter_id):
-        """Verify that ``shutdown()`` completes well within its internal
-        timeout.
-        """
-        # Arrange
-        limiter = MagicMock()
-        limiter.id = limiter_id
-        limiter.lease_duration = 60.0
-        limiter.extend_lease = AsyncMock(return_value=None)
-        scheduler = AsyncHeartbeatScheduler(limiter)
-        await scheduler.register("task-1", "warn")
-
-        # Act
-        completed = await async_shutdown_completes_within(scheduler, timeout=1.0)
-
-        # Assert
-        assert completed, (
-            "shutdown() should complete within 1.0s; "
-            "a timeout indicates _shutdown assignment was mutated"
-        )
-
-    @staticmethod
-    @pytest.mark.timeout_safety_net
-    async def test_run_does_not_starve_event_loop(limiter_id):
-        """Verify that ``_run`` does not starve the event loop."""
-        # Arrange
-        limiter = MagicMock()
-        limiter.id = limiter_id
-        limiter.lease_duration = 10.0
-        limiter.extend_lease = AsyncMock(return_value=None)
-        scheduler = AsyncHeartbeatScheduler(limiter)
-        await scheduler.register("task-1", "warn")
-
-        # Act
-        with shutdown_timer(scheduler, timeout=0.3):
-            start = time.monotonic()
-            await asyncio.sleep(0.05)
-            elapsed = time.monotonic() - start
-        await async_shutdown_completes_within(scheduler, timeout=1.0)
-
-        # Assert
-        assert elapsed < 0.2, (
-            f"asyncio.sleep(0.05) took {elapsed:.2f}s; "
-            "_run is starving the event loop with a busy loop"
-        )
-
-    @staticmethod
-    @pytest.mark.timeout_safety_net
-    async def test_run_iteration_rate_is_bounded(limiter_id):
-        """Verify that ``_run`` does not tight-loop in either the
-        empty-heap or due-entry branch.
-        """
-        # Arrange
-        limiter = MagicMock()
-        limiter.id = limiter_id
-        limiter.lease_duration = 0.05
-        limiter.extend_lease = AsyncMock(return_value=None)
-        scheduler = AsyncHeartbeatScheduler(limiter)
-
-        deadline = time.monotonic() + 0.3
-        original_acquire = scheduler._lock.acquire
-
-        async def acquire_with_deadline():
-            if time.monotonic() > deadline:
-                raise RuntimeError("lock acquisition rate exceeds test deadline")
-            return await original_acquire()
-
-        mock_acquire = AsyncMock(side_effect=acquire_with_deadline)
-        scheduler._lock.acquire = mock_acquire
-
-        await scheduler.register("task-1", "warn")
-        await asyncio.sleep(0.08)
-        await scheduler.deregister("task-1")
-        await asyncio.sleep(0.08)
-
-        # Act
-        try:
-            await async_shutdown_completes_within(scheduler, timeout=1.0)
-        except RuntimeError:
-            pass
-
-        # Assert
-        assert mock_acquire.call_count < 60, (
-            f"_lock acquired {mock_acquire.call_count} times in 0.16s; "
-            "suggests _run is tight-looping"
         )
 
     @staticmethod

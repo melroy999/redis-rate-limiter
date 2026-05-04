@@ -25,6 +25,8 @@ Test files belong in the directory that matches their scope and subject.
 
 When adding a new backend, create the corresponding subdirectory under `tests/implementations/` and a fixture module under `tests/fixtures/`.
 
+**Exception: loop safety-net tests live together, not next to their component.** Tests whose primary purpose is detecting a hang or spin failure mode in a persistent loop belong in `tests/implementations/test_loop_safety_net.py` (sync) or `tests/implementations/test_async_loop_safety_net.py` (async), regardless of which component they cover. This consolidates the safety-net audit surface. The exception applies only to *intent-driven* safety-net tests; behavioral tests that incidentally use a bounded primitive (e.g., `TaskLifecycle.__exit__`) keep the `timeout_safety_net` marker but stay in their behavioral home file. See Section 5.4 for the hang-vs-spin classification.
+
 ### 1.2 Class Naming Conventions
 
 | Pattern | Purpose | Example |
@@ -365,10 +367,26 @@ assert not any(
 | Async operations that should complete promptly | `asyncio.wait_for(coro, timeout=N)` | `await asyncio.wait_for(loop.shutdown(), timeout=1.0)` |
 | Sync thread synchronization | `Event.wait(timeout=N)` | `fired = drain_called.wait(timeout=2.0)` |
 | Shutdown timer for `_run()` loop tests | `shutdown_timer()` context manager | `with shutdown_timer(subscriber): subscriber._run()` |
+| Iteration-throttle bypass detection | `cap_iterations()` context manager | `with cap_iterations(limiter, "consume", return_value=stub): ...` |
 
 **`shutdown_timer` usage**: use `shutdown_timer()` from `tests.helpers.utils` instead of inline `Timer` construction. Apply only to tests that call `_run()` directly (or `start()`+`shutdown()` where the Timer is the existing guard). Do NOT add to `shutdown()` / lifecycle / health-monitor tests; these already have bounded timeouts and adding a timer would mask mutations.
 
-**Priority marker**: tests with bounded shutdown mechanisms must be decorated with `@pytest.mark.timeout_safety_net`. This includes tests using `shutdown_timer()`, tests with bounded `Thread.join(timeout=)`, and tests using `TaskLifecycle` / `AsyncTaskLifecycle` context managers (whose `__exit__` / `__aexit__` has a bounded join). A `pytest_collection_modifyitems` hook in `tests/conftest.py` moves these tests to the front of the collection so they fail fast under mutmut's `-x` mode, preventing SIGXCPU.
+**Priority marker**: tests with bounded shutdown mechanisms must be decorated with `@pytest.mark.timeout_safety_net`. This includes tests using `shutdown_timer()`, tests with bounded `Thread.join(timeout=)`, tests using `TaskLifecycle` / `AsyncTaskLifecycle` context managers (whose `__exit__` / `__aexit__` has a bounded join), and tests using `cap_iterations()` to detect iteration-throttle bypass. A `pytest_collection_modifyitems` hook in `tests/conftest.py` moves these tests to the front of the collection so they fail fast under mutmut's `-x` mode, preventing SIGXCPU.
+
+**Hang vs. spin: choose the right detection mechanism.** A `timeout_safety_net` test catches one of two distinct mutation failure modes, and using the wrong tool turns the test itself into a cross-process resource hog under mutmut's parallel execution.
+
+| Failure mode | What it looks like | Detection tool |
+|---|---|---|
+| **Hang** | Code blocks forever or fails to terminate (e.g., `Event.wait(timeout=None)` blocks because the timeout literal was nulled). | Wall-clock-based: `shutdown_completes_within`, `shutdown_timer`, bounded `Thread.join`. |
+| **Spin** | Code iterates without throttling (e.g., a poll loop's floor literal mutated to `0`, producing thousands of iterations per second). | `cap_iterations()` with mocked I/O. |
+
+A wall-clock-based test cannot reliably detect a spin: by the time a 1-second cap fires, the spinning loop has already executed 100k+ iterations and (if I/O is real) flooded shared resources (Redis) the whole time. An iteration-cap test cannot detect a hang: the count stays at 1 if the first iteration blocks forever, and the test passes erroneously.
+
+**Critical rule: never combine real I/O + wall-clock detection in a `timeout_safety_net` test.** A wall-clock-based test that runs real I/O will, under any spin-class mutation in the surrounding code, hold the real I/O path open for the full timeout duration. Under mutmut's parallel execution this floods Redis and cascades timeouts onto unrelated mutants in other parallel children. Examples of safe wall-clock tests: `shutdown_completes_within(loop)` where `loop` is built with mocked dependencies; `shutdown_timer(subscriber)` where `subscriber._pubsub` is a `MagicMock`. The unsafe pattern is wrapping any real Redis-touching call in a wall-clock cap to detect spin; use `cap_iterations()` with the I/O primitive mocked instead.
+
+**`cap_iterations` usage**: install on the loop's I/O primitive so mutations on the surrounding throttle (smart-jitter floor, watchdog interval, sleep literal) trip the cap. The mock prevents real I/O from being touched, so the test cannot itself flood shared resources under any mutation. For background loops (drain, heartbeat, subscriber) where the `AssertionError` raised by the cap is swallowed by the loop's own exception handler, inspect the yielded count via `count()` after a bounded `time.sleep` / `asyncio.sleep`. For foreground loops where the cap's `AssertionError` propagates to the test thread, the cap is the failure mechanism directly.
+
+**File placement for intent-driven safety-net tests**: tests whose primary purpose is hang or spin detection live in `tests/implementations/test_loop_safety_net.py` (sync) and `tests/implementations/test_async_loop_safety_net.py` (async), per the Section 1.1 exception. Behavioral tests that incidentally use a bounded primitive keep the `timeout_safety_net` marker but remain in their natural home file. The discriminator: if removing the bounded primitive would make the test meaningless, it belongs in the safety-net file; if removing it would change the test's *implementation* but not its *intent*, it belongs in the behavioral file.
 
 ### 5.5 `time.sleep()` Rules
 

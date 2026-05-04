@@ -11,7 +11,7 @@ Fixture dependencies:
 import inspect
 import logging
 import time
-from threading import Event, Thread
+from threading import Event
 from unittest.mock import MagicMock
 
 import pytest
@@ -19,7 +19,6 @@ import pytest
 from redis_rate_limiter.core.limiters import DrainLoop, DrainSignalSubscriber
 from tests.helpers.utils import (
     assert_log_emitted,
-    shutdown_completes_within,
     shutdown_timer,
 )
 from tests.implementations.conftest import StubRateLimiter
@@ -112,36 +111,6 @@ class TestDrainLoop:
         # Assert
         assert fired, "watchdog should fire drain even without explicit wake"
         limiter.drain.assert_called()
-
-    @staticmethod
-    @pytest.mark.timeout_safety_net
-    def test_shutdown_completes_promptly():
-        """Verify that ``shutdown()`` completes well within
-        its internal 5.0s join timeout.
-        """
-        # Arrange
-        limiter = MagicMock()
-        drain_called = Event()
-        limiter.drain.side_effect = lambda: drain_called.set()
-        loop = DrainLoop(limiter, watchdog_interval=60.0)
-
-        # Act
-        # Start the thread and let it complete one drain cycle so it is
-        # blocked on _condition.wait() when shutdown is called.
-        loop.wake(0)
-        drain_called.wait(timeout=2.0)
-
-        # shutdown() has an internal 5.0s join; mutations that break the
-        # _shutdown flag (e.g., None/False) cause the full 5s block, which
-        # triggers SIGXCPU under mutmut before the assertion can run.
-        completed = shutdown_completes_within(loop, timeout=1.0)
-
-        # Assert
-        assert completed, (
-            "shutdown() should complete within 1.0s; "
-            "a timeout indicates _shutdown assignment was mutated"
-        )
-        assert not loop._thread.is_alive(), "thread should be stopped after shutdown"
 
     @staticmethod
     def test_shutdown_is_idempotent():
@@ -565,32 +534,6 @@ class TestDrainSignalSubscriber:
         # Assert
         assert subscriber._shutdown is True, (
             "shutdown flag should be True even when pubsub cleanup raises"
-        )
-
-    @staticmethod
-    @pytest.mark.timeout_safety_net
-    def test_shutdown_completes_promptly(redis_client, limiter_id):
-        """Verify that ``shutdown()`` completes well under the 0.5s
-        poll fallback interval.
-        """
-        # Arrange
-        limiter = MagicMock()
-        limiter.id = limiter_id
-        limiter.redis = redis_client
-        limiter._worker_id = f"{limiter_id}_worker"
-        subscriber = DrainSignalSubscriber(limiter)
-        subscriber.start()
-
-        # Let the listener thread reach its first get_message poll.
-        time.sleep(0.05)
-
-        # Act
-        completed = shutdown_completes_within(subscriber, timeout=0.1)
-
-        # Assert
-        assert completed, (
-            "shutdown() should complete within 0.1s; "
-            "a timeout indicates _shutdown or the publish-wake was mutated"
         )
 
 

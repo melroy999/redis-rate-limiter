@@ -25,7 +25,7 @@ from redis_rate_limiter import TaskLifecycle
 from redis_rate_limiter.core.limiters import HeartbeatScheduler
 from redis_rate_limiter.core.scripts import load_lua_script
 from tests.contracts.test_task_lifecycle import TaskLifecycleContractTest
-from tests.helpers.utils import assert_log_emitted, shutdown_completes_within
+from tests.helpers.utils import assert_log_emitted
 from tests.implementations.conftest import (
     HEARTBEAT_OVERRIDE_CASES,
     HeartbeatFailureMode,
@@ -709,29 +709,6 @@ class TestHeartbeatSchedulerBoundary:
         # Assert
         assert lifecycle.is_healthy is True, (
             "is_healthy must return True when no scheduler entry exists"
-        )
-
-    @staticmethod
-    @pytest.mark.timeout_safety_net
-    def test_shutdown_completes_promptly(limiter_id):
-        """Verify that ``shutdown()`` completes well within its internal
-        5.0s join timeout.
-        """
-        # Arrange
-        limiter = MagicMock()
-        limiter.id = limiter_id
-        limiter.lease_duration = 60.0
-        limiter.extend_lease.return_value = None
-        scheduler = HeartbeatScheduler(limiter)
-        scheduler.register("task-1", "warn")
-
-        # Act
-        completed = shutdown_completes_within(scheduler, timeout=1.0)
-
-        # Assert
-        assert completed, (
-            "shutdown() should complete within 1.0s; "
-            "a timeout indicates _shutdown assignment was mutated"
         )
 
     @staticmethod

@@ -10,7 +10,7 @@ import math
 import time
 from contextlib import contextmanager
 from threading import Thread, Timer
-from typing import Any, Generator
+from typing import Any, Callable, Generator, Optional
 
 import pytest
 
@@ -43,6 +43,77 @@ async def async_shutdown_completes_within(subject: Any, timeout: float = 1.0) ->
     except asyncio.TimeoutError:
         return False
     return (time.monotonic() - start) < timeout
+
+
+@contextmanager
+def cap_iterations(
+    target: Any,
+    attr: str,
+    *,
+    return_value: Any = None,
+    side_effect: Optional[Callable[..., Any]] = None,
+    cap: int = 10000,
+) -> Generator[Callable[[], int], None, None]:
+    """Patch ``target.attr`` with a counting stub for spin-class mutation detection.
+
+    Replaces the named attribute with a stub that records each invocation
+    and returns either ``side_effect(*args, **kwargs)`` (when supplied) or
+    ``return_value``. After ``cap`` calls the stub raises
+    ``AssertionError`` to terminate runaway loops cheaply.
+
+    The stub flavor is selected by introspecting the original attribute:
+    coroutine functions get an ``async def`` stub, others get a plain
+    function. When the original is async and ``side_effect`` returns a
+    coroutine, the stub awaits it.
+
+    Yields a zero-argument callable that returns the current invocation
+    count, so background-loop tests can assert on iteration rate after a
+    bounded sleep:
+
+        rate_limited = {"success": False, ..., "remaining_tasks": 1}
+        with cap_iterations(limiter, "consume", return_value=rate_limited) as count:
+            limiter.trigger_consume()
+            time.sleep(0.5)
+        assert count() < 50, f"drain spun: {count()} iterations in 0.5s"
+
+    Foreground tests where the AssertionError propagates can rely on the
+    cap as the failure mechanism directly: install the wrapped callable on
+    a synchronous code path and expect ``AssertionError`` (or whichever
+    exception the surrounding code raises first).
+    """
+    state = {"count": 0}
+    original = getattr(target, attr)
+    is_async = asyncio.iscoroutinefunction(original)
+    label = f"{type(target).__name__}.{attr}"
+
+    def _resolve(args: tuple, kwargs: dict) -> Any:
+        if side_effect is not None:
+            return side_effect(*args, **kwargs)
+        return return_value
+
+    if is_async:
+
+        async def _stub(*args: Any, **kwargs: Any) -> Any:
+            state["count"] += 1
+            if state["count"] > cap:
+                raise AssertionError(f"call count exceeded cap of {cap} on {label}")
+            result = _resolve(args, kwargs)
+            if asyncio.iscoroutine(result):
+                result = await result
+            return result
+    else:
+
+        def _stub(*args: Any, **kwargs: Any) -> Any:
+            state["count"] += 1
+            if state["count"] > cap:
+                raise AssertionError(f"call count exceeded cap of {cap} on {label}")
+            return _resolve(args, kwargs)
+
+    setattr(target, attr, _stub)
+    try:
+        yield lambda: state["count"]
+    finally:
+        setattr(target, attr, original)
 
 
 @contextmanager
