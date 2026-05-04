@@ -25,7 +25,6 @@ import pytest
 
 from benchmarks.helpers import bulk_fill_buffer
 
-
 # ---------------------------------------------------------------------------
 # Script invocation helpers
 # ---------------------------------------------------------------------------
@@ -197,12 +196,16 @@ def _run_consume_at_depth(bench_fn, limiter, buffer_depth: int, **kwargs):
 
 
 def _run_async_consume_empty(bench_fn, loop, limiter):
-    bench_fn(lambda: loop.run_until_complete(async_call_consume_lua(limiter)), rounds=ROUNDS)
+    bench_fn(
+        lambda: loop.run_until_complete(async_call_consume_lua(limiter)), rounds=ROUNDS
+    )
 
 
 def _run_async_consume_with_tasks(bench_fn, loop, limiter, redis_client):
     bulk_fill_buffer(limiter, ROUNDS + 1, redis_client=redis_client)
-    bench_fn(lambda: loop.run_until_complete(async_call_consume_lua(limiter)), rounds=ROUNDS)
+    bench_fn(
+        lambda: loop.run_until_complete(async_call_consume_lua(limiter)), rounds=ROUNDS
+    )
 
 
 def _run_async_schedule(bench_fn, loop, limiter):
@@ -219,7 +222,10 @@ def _run_async_schedule(bench_fn, loop, limiter):
 
 def _run_async_acquire(bench_fn, loop, limiter):
     key = f"{limiter.id}:acquire"
-    bench_fn(lambda: loop.run_until_complete(async_call_acquire_lua(limiter, key)), rounds=ROUNDS)
+    bench_fn(
+        lambda: loop.run_until_complete(async_call_acquire_lua(limiter, key)),
+        rounds=ROUNDS,
+    )
 
 
 def _run_release(bench_fn, limiter, **kwargs):
@@ -270,16 +276,22 @@ def _run_async_set_nx(bench_fn, loop, limiter):
 
     def _call():
         i = next(counter)
-        loop.run_until_complete(async_call_set_nx(limiter, f"{limiter.id}:bench_nx:{i}"))
+        loop.run_until_complete(
+            async_call_set_nx(limiter, f"{limiter.id}:bench_nx:{i}")
+        )
 
     bench_fn(_call, rounds=ROUNDS)
 
 
 def _run_async_publish(bench_fn, loop, limiter):
-    bench_fn(lambda: loop.run_until_complete(async_call_publish(limiter)), rounds=ROUNDS)
+    bench_fn(
+        lambda: loop.run_until_complete(async_call_publish(limiter)), rounds=ROUNDS
+    )
 
 
-def _run_async_consume_at_depth(bench_fn, loop, limiter, buffer_depth: int, redis_client):
+def _run_async_consume_at_depth(
+    bench_fn, loop, limiter, buffer_depth: int, redis_client
+):
     bulk_fill_buffer(limiter, buffer_depth, redis_client=redis_client)
 
     refill_counter = itertools.count(start=buffer_depth)
@@ -405,6 +417,10 @@ class TestAsyncEvalshaWallClock:
         _run_async_publish(wall_benchmark, loop, limiter)
 
     @pytest.mark.parametrize("buffer_depth", BUFFER_DEPTHS)
-    def test_consume_vs_buffer_depth(self, wall_benchmark, async_limiter, redis_client, buffer_depth):
+    def test_consume_vs_buffer_depth(
+        self, wall_benchmark, async_limiter, redis_client, buffer_depth
+    ):
         loop, limiter = async_limiter
-        _run_async_consume_at_depth(wall_benchmark, loop, limiter, buffer_depth, redis_client)
+        _run_async_consume_at_depth(
+            wall_benchmark, loop, limiter, buffer_depth, redis_client
+        )

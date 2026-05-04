@@ -72,8 +72,9 @@ class TestSyncDecomposition:
             rtt_samples.append(sum(limiter.pop_timings()))
 
         benchmark(_run)
-        _record_decomposition(request, "sync", "test_consume_empty_buffer",
-                              benchmark, rtt_samples)
+        _record_decomposition(
+            request, "sync", "test_consume_empty_buffer", benchmark, rtt_samples
+        )
 
     def test_consume_with_tasks(self, benchmark, request, instrumented_limiter):
         limiter = instrumented_limiter
@@ -94,8 +95,9 @@ class TestSyncDecomposition:
             rtt_samples.append(sum(limiter.pop_timings()))
 
         benchmark.pedantic(_run, setup=_refill, rounds=ROUNDS, warmup_rounds=10)
-        _record_decomposition(request, "sync", "test_consume_with_tasks",
-                              benchmark, rtt_samples)
+        _record_decomposition(
+            request, "sync", "test_consume_with_tasks", benchmark, rtt_samples
+        )
 
     def test_schedule_task(self, benchmark, request, instrumented_limiter):
         limiter = instrumented_limiter
@@ -109,8 +111,9 @@ class TestSyncDecomposition:
             rtt_samples.append(sum(limiter.pop_timings()))
 
         benchmark(_run)
-        _record_decomposition(request, "sync", "test_schedule_task",
-                              benchmark, rtt_samples)
+        _record_decomposition(
+            request, "sync", "test_schedule_task", benchmark, rtt_samples
+        )
 
     def test_schedule_and_consume(self, benchmark, request, instrumented_limiter):
         limiter = instrumented_limiter
@@ -128,8 +131,9 @@ class TestSyncDecomposition:
             rtt_samples.append(sum(limiter.pop_timings()))
 
         benchmark(_run)
-        _record_decomposition(request, "sync", "test_schedule_and_consume",
-                              benchmark, rtt_samples)
+        _record_decomposition(
+            request, "sync", "test_schedule_and_consume", benchmark, rtt_samples
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -140,8 +144,7 @@ class TestSyncDecomposition:
 class TestAsyncDecomposition:
     """Per-iteration cost decomposition through the async Redis client."""
 
-    def test_consume_empty_buffer(self, benchmark, request,
-                                  async_instrumented_limiter):
+    def test_consume_empty_buffer(self, benchmark, request, async_instrumented_limiter):
         loop, limiter = async_instrumented_limiter
         rtt_samples: list[float] = []
 
@@ -151,11 +154,13 @@ class TestAsyncDecomposition:
             rtt_samples.append(sum(limiter.pop_timings()))
 
         benchmark(_run)
-        _record_decomposition(request, "async", "test_consume_empty_buffer",
-                              benchmark, rtt_samples)
+        _record_decomposition(
+            request, "async", "test_consume_empty_buffer", benchmark, rtt_samples
+        )
 
-    def test_consume_with_tasks(self, benchmark, request,
-                                async_instrumented_limiter, redis_client):
+    def test_consume_with_tasks(
+        self, benchmark, request, async_instrumented_limiter, redis_client
+    ):
         loop, limiter = async_instrumented_limiter
         bulk_fill_buffer(limiter, 1, redis_client=redis_client)
         refill_counter = itertools.count(start=1)
@@ -177,11 +182,11 @@ class TestAsyncDecomposition:
             rtt_samples.append(sum(limiter.pop_timings()))
 
         benchmark.pedantic(_run, setup=_refill, rounds=ROUNDS, warmup_rounds=10)
-        _record_decomposition(request, "async", "test_consume_with_tasks",
-                              benchmark, rtt_samples)
+        _record_decomposition(
+            request, "async", "test_consume_with_tasks", benchmark, rtt_samples
+        )
 
-    def test_schedule_task(self, benchmark, request,
-                           async_instrumented_limiter):
+    def test_schedule_task(self, benchmark, request, async_instrumented_limiter):
         loop, limiter = async_instrumented_limiter
         counter = itertools.count()
         rtt_samples: list[float] = []
@@ -195,11 +200,11 @@ class TestAsyncDecomposition:
             rtt_samples.append(sum(limiter.pop_timings()))
 
         benchmark(_run)
-        _record_decomposition(request, "async", "test_schedule_task",
-                              benchmark, rtt_samples)
+        _record_decomposition(
+            request, "async", "test_schedule_task", benchmark, rtt_samples
+        )
 
-    def test_schedule_and_consume(self, benchmark, request,
-                                  async_instrumented_limiter):
+    def test_schedule_and_consume(self, benchmark, request, async_instrumented_limiter):
         loop, limiter = async_instrumented_limiter
         counter = itertools.count()
         rtt_samples: list[float] = []
@@ -218,5 +223,6 @@ class TestAsyncDecomposition:
             rtt_samples.append(sum(limiter.pop_timings()))
 
         benchmark(_run)
-        _record_decomposition(request, "async", "test_schedule_and_consume",
-                              benchmark, rtt_samples)
+        _record_decomposition(
+            request, "async", "test_schedule_and_consume", benchmark, rtt_samples
+        )

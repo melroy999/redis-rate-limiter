@@ -333,7 +333,9 @@ def test_contention_threads(
             max_concurrency,
         )
         counters[index] = counter
-        sys.stderr.write(f"[{test_label}] drainer {index} created, waiting on barrier\n")
+        sys.stderr.write(
+            f"[{test_label}] drainer {index} created, waiting on barrier\n"
+        )
         sys.stderr.flush()
         try:
             barrier.wait(timeout=10)
@@ -341,7 +343,9 @@ def test_contention_threads(
             limiter.trigger_consume()
             while time.monotonic() < deadline:
                 time.sleep(0.05)
-            sys.stderr.write(f"[{test_label}] drainer {index} run complete, dispatched={counter.count}\n")
+            sys.stderr.write(
+                f"[{test_label}] drainer {index} run complete, dispatched={counter.count}\n"
+            )
             sys.stderr.flush()
         finally:
             limiter.shutdown()
@@ -351,9 +355,7 @@ def test_contention_threads(
             sys.stderr.write(f"[{test_label}] drainer {index} executor shutdown done\n")
             sys.stderr.flush()
 
-    threads = [
-        threading.Thread(target=_drain, args=(i,)) for i in range(num_drainers)
-    ]
+    threads = [threading.Thread(target=_drain, args=(i,)) for i in range(num_drainers)]
     sys.stderr.write(f"[{test_label}] spawning {num_drainers} drainers\n")
     sys.stderr.flush()
     for t in threads:
@@ -362,7 +364,9 @@ def test_contention_threads(
     for i, t in enumerate(threads):
         t.join(timeout=duration + 30)
         if t.is_alive():
-            sys.stderr.write(f"[{test_label}] WARNING: drainer {i} did not exit after join timeout\n")
+            sys.stderr.write(
+                f"[{test_label}] WARNING: drainer {i} did not exit after join timeout\n"
+            )
             sys.stderr.flush()
 
     sys.stderr.write(f"[{test_label}] all drainers joined\n")
@@ -480,7 +484,9 @@ def test_contention_processes(
         idx, count = queue.get_nowait()
         results[idx] = count
 
-    _record(request, "processes", scenario, num_drainers, sum(results), duration, results)
+    _record(
+        request, "processes", scenario, num_drainers, sum(results), duration, results
+    )
     _assert_throughput("processes", scenario, num_drainers, sum(results))
 
 
@@ -518,7 +524,9 @@ async def test_contention_coroutines(
         redis_client, limiter_id, seeder_executor, limit, window, max_concurrency
     )
     try:
-        bulk_fill_buffer(seeder, prefill, func_path=ASYNC_FUNC_PATH, payload=task_payload)
+        bulk_fill_buffer(
+            seeder, prefill, func_path=ASYNC_FUNC_PATH, payload=task_payload
+        )
     finally:
         seeder.shutdown()
         seeder_executor.shutdown(wait=False)
@@ -530,7 +538,12 @@ async def test_contention_coroutines(
         client = aioredis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
         async_clients.append(client)
         limiter, counter = await _make_async_limiter(
-            client, limiter_id, executor_workers, limit, window, max_concurrency,
+            client,
+            limiter_id,
+            executor_workers,
+            limit,
+            window,
+            max_concurrency,
         )
         limiters.append(limiter)
         counters.append(counter)
@@ -546,5 +559,7 @@ async def test_contention_coroutines(
             await client.aclose()
 
     results = [c.count for c in counters]
-    _record(request, "coroutines", scenario, num_drainers, sum(results), duration, results)
+    _record(
+        request, "coroutines", scenario, num_drainers, sum(results), duration, results
+    )
     _assert_throughput("coroutines", scenario, num_drainers, sum(results))

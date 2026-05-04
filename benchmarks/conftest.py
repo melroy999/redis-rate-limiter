@@ -21,7 +21,6 @@ from pytest_benchmark.stats import Stats
 from redis_rate_limiter import AbstractDistributedRateLimiter
 from redis_rate_limiter.core.async_limiters import AbstractAsyncDistributedRateLimiter
 
-
 # ---------------------------------------------------------------------------
 # Redis configuration
 # ---------------------------------------------------------------------------
@@ -129,9 +128,7 @@ def _print_instrumented_decomposition(terminalreporter, benchmarks):
             lua_vm_by_name[bench.name] = bench.stats.median
 
     terminalreporter.section("instrumented cost decomposition (per-iteration median)")
-    header = (
-        f"{'Variant':<8} {'Name':<30} {'Lua VM':>12} {'RTT':>12} {'Py':>12} {'Total':>12}"
-    )
+    header = f"{'Variant':<8} {'Name':<30} {'Lua VM':>12} {'RTT':>12} {'Py':>12} {'Total':>12}"
     terminalreporter.line(header)
     terminalreporter.line("-" * len(header))
 
@@ -362,9 +359,7 @@ def limiter(redis_client, limiter_id):
 class _AsyncBenchmarkLimiter(AbstractAsyncDistributedRateLimiter):
     """Async mirror of ``_BenchmarkLimiter`` for the async hot-path tests."""
 
-    async def _dispatch_task(
-        self, func_path: str, payload: dict, task_id: str
-    ) -> None:
+    async def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
         pass
 
     def _schedule_drain(self, delay: float = 0.0) -> None:
@@ -512,8 +507,6 @@ def wall_benchmark(benchmark):
         # Warm the script cache so the first call does not include a
         # SCRIPT LOAD round trip in the measured set.
         callable_to_run()
-        benchmark.pedantic(
-            callable_to_run, setup=setup, rounds=rounds, iterations=1
-        )
+        benchmark.pedantic(callable_to_run, setup=setup, rounds=rounds, iterations=1)
 
     return _run

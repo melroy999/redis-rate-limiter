@@ -78,9 +78,7 @@ class TestRelease:
         assert redis_client.zscore(concurrency_key, "task-1") is None, (
             "task should be removed from the concurrency set"
         )
-        assert redis_client.exists(inflight_key) == 0, (
-            "inflight key should be deleted"
-        )
+        assert redis_client.exists(inflight_key) == 0, "inflight key should be deleted"
 
     @staticmethod
     def test_returns_one_zero_when_only_concurrency_present(
@@ -103,8 +101,7 @@ class TestRelease:
 
         # Assert
         assert result == [1, 0], (
-            "release should return [1, 0] when only the concurrency"
-            " entry exists"
+            "release should return [1, 0] when only the concurrency entry exists"
         )
 
     @staticmethod
@@ -171,9 +168,7 @@ class TestRelease:
         )
 
         # Assert
-        assert result == [0, 0], (
-            "release with empty task_id should return [0, 0]"
-        )
+        assert result == [0, 0], "release with empty task_id should return [0, 0]"
         assert redis_client.zscore(concurrency_key, "task-1") == 1000, (
             "concurrency entry should be untouched when task_id is empty"
         )

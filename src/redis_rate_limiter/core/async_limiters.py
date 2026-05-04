@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import heapq
 import json
 import logging
 import math
@@ -28,8 +29,6 @@ from typing import (
 )
 
 import redis.asyncio
-
-import heapq
 
 from redis_rate_limiter.core.base import AbstractAsyncRateLimiter
 from redis_rate_limiter.core.limiters import (
@@ -306,9 +305,7 @@ class AsyncHeartbeatScheduler:
     async def _renew_one(self, task_id: str, on_failure_action: str) -> None:
         """Perform one lease renewal and update the entry's health state."""
         try:
-            await self._limiter.extend_lease(
-                task_id, self._limiter.lease_duration
-            )
+            await self._limiter.extend_lease(task_id, self._limiter.lease_duration)
         except redis.RedisError as e:
             async with self._lock:
                 entry = self._entries.get(task_id)
@@ -376,7 +373,8 @@ class AsyncTaskLifecycle:
         """
         if self._entry is None:
             return True
-        return self._entry.is_healthy
+        healthy: bool = self._entry.is_healthy
+        return healthy
 
     @is_healthy.setter
     def is_healthy(self, value: bool) -> None:

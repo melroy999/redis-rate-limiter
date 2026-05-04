@@ -46,9 +46,13 @@ class _AsyncBenchmarkLimiter(AbstractAsyncDistributedRateLimiter):
 
 def _print_profile(profiler: cProfile.Profile, label: str) -> None:
     stats = pstats.Stats(profiler).strip_dirs()
-    print(f"\n=== [{label}] Top 30 by cumulative time ({ROUNDS} consume+lifecycle calls) ===")
+    print(
+        f"\n=== [{label}] Top 30 by cumulative time ({ROUNDS} consume+lifecycle calls) ==="
+    )
     stats.sort_stats("cumulative").print_stats(30)
-    print(f"\n=== [{label}] Top 30 by total (self) time ({ROUNDS} consume+lifecycle calls) ===")
+    print(
+        f"\n=== [{label}] Top 30 by total (self) time ({ROUNDS} consume+lifecycle calls) ==="
+    )
     stats.sort_stats("tottime").print_stats(30)
 
 
