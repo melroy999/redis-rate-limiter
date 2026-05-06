@@ -775,11 +775,34 @@ def _apply_patches() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Test-timeline configuration
+# ---------------------------------------------------------------------------
+
+# Shared file written by ``tests/plugins/mutmut_test_timeline.py`` from every
+# mutmut child fork (and the parent's baseline pytest runs). One JSON line
+# per event; ``O_APPEND`` keeps concurrent writes safe under PIPE_BUF.
+_TEST_TIMELINE_FILE = "/tmp/mutmut_test_timeline.jsonl"
+
+
+def _reset_test_timeline_file() -> None:
+    """Truncate the timeline file at run start so artifacts only contain the
+    current run's events. Children inherit the env var via ``fork()``.
+    """
+    os.environ["MUTMUT_TEST_TIMELINE_FILE"] = _TEST_TIMELINE_FILE
+    try:
+        with open(_TEST_TIMELINE_FILE, "w") as f:
+            f.truncate(0)
+    except OSError:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 
 def main() -> None:
+    _reset_test_timeline_file()
     _apply_patches()
     from mutmut.__main__ import cli
 

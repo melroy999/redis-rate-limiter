@@ -221,3 +221,5 @@ mutants/
 mutmut-results/report-detail.json
 mutmut-results/all-mutations.json
 mutmut-results/superfluity/
+mutmut-results/test-timeline.jsonl
+mutmut-results/test-timeline.txt

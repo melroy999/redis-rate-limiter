@@ -502,6 +502,7 @@ Contains shared utility functions used across multiple tests:
 - `shutdown_completes_within(subject, timeout)` / `async_shutdown_completes_within(...)`: wall-clock-bounded hang detection for `shutdown()` paths in `timeout_safety_net` tests.
 - `shutdown_timer(obj, timeout, attr)`: context manager that flips a `_shutdown` flag after a timeout, used to bound `_run()` loops in `timeout_safety_net` tests.
 - `cap_iterations(target, attr, ...)`: counting-stub context manager that detects spin-class mutations on persistent loops; mocks the loop's I/O primitive and yields a count callable for post-hoc assertion. See `TESTING_GUIDELINES.md` Section 5.4 for the hang-vs-spin distinction.
+- `trip_after_deadline(target, attr, deadline_seconds, ...)`: wall-clock mirror of `cap_iterations`; raises `RuntimeError` from inside the loop's own call path when invoked past the deadline. Use when a spin can starve the event loop so a count assertion run after `asyncio.sleep` would never fire.
 
 **Usage:**
 

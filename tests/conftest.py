@@ -29,7 +29,10 @@ import pytest
 import redis
 import redis.asyncio
 
-pytest_plugins = ["tests.plugins.mutmut_defaults_patch"]
+pytest_plugins = [
+    "tests.plugins.mutmut_defaults_patch",
+    "tests.plugins.mutmut_test_timeline",
+]
 
 
 def pytest_collection_modifyitems(items: list) -> None:

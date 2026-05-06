@@ -368,10 +368,22 @@ assert not any(
 | Sync thread synchronization | `Event.wait(timeout=N)` | `fired = drain_called.wait(timeout=2.0)` |
 | Shutdown timer for `_run()` loop tests | `shutdown_timer()` context manager | `with shutdown_timer(subscriber): subscriber._run()` |
 | Iteration-throttle bypass detection | `cap_iterations()` context manager | `with cap_iterations(limiter, "consume", return_value=stub): ...` |
+| Event-loop-starving spin detection | `trip_after_deadline()` context manager | `with trip_after_deadline(scheduler._lock, "acquire", 0.3, side_effect=original): ...` |
 
 **`shutdown_timer` usage**: use `shutdown_timer()` from `tests.helpers.utils` instead of inline `Timer` construction. Apply only to tests that call `_run()` directly (or `start()`+`shutdown()` where the Timer is the existing guard). Do NOT add to `shutdown()` / lifecycle / health-monitor tests; these already have bounded timeouts and adding a timer would mask mutations.
 
-**Priority marker**: tests with bounded shutdown mechanisms must be decorated with `@pytest.mark.timeout_safety_net`. This includes tests using `shutdown_timer()`, tests with bounded `Thread.join(timeout=)`, tests using `TaskLifecycle` / `AsyncTaskLifecycle` context managers (whose `__exit__` / `__aexit__` has a bounded join), and tests using `cap_iterations()` to detect iteration-throttle bypass. A `pytest_collection_modifyitems` hook in `tests/conftest.py` moves these tests to the front of the collection so they fail fast under mutmut's `-x` mode, preventing SIGXCPU.
+**Priority marker**: tests with **body-level** bounded primitives must be decorated with `@pytest.mark.timeout_safety_net`. A `pytest_collection_modifyitems` hook in `tests/conftest.py` moves these tests to the front of the collection so they fail fast under mutmut's `-x` mode, preventing SIGXCPU.
+
+**Body-level bound requirement**: the marker carries one meaning only, namely that *the test body itself has a primitive that will fire regardless of event-loop state*. Acceptable bounds, all installed inside the test body:
+
+- `shutdown_completes_within(...)` / `async_shutdown_completes_within(...)`
+- `shutdown_timer(...)` (sets a `_shutdown` flag from a `threading.Timer`; pass `on_fire=...` for non-attribute targets such as `asyncio.Event`)
+- `cap_iterations(...)` (counting stub on the loop's I/O primitive)
+- `trip_after_deadline(...)` (wall-clock guard from inside the loop's own call path)
+- `Thread.join(timeout=N)` in the body
+- `asyncio.wait_for(..., timeout=N)` in the body (only when the awaited coroutine cannot starve the event loop)
+
+**Bounded fixture teardown does NOT qualify.** A fixture that calls `scheduler.shutdown(timeout=5)` on teardown can only fire *after* the test body returns; if the body's `await asyncio.sleep(...)` is starved by a mutation, teardown never runs. Same for `TaskLifecycle.__exit__` / `AsyncTaskLifecycle.__aexit__`: the body must reach the exit before the bounded primitive can fire. A test that relies solely on these for hang protection is **behavioral**, not safety-net; do not mark it.
 
 **Hang vs. spin: choose the right detection mechanism.** A `timeout_safety_net` test catches one of two distinct mutation failure modes, and using the wrong tool turns the test itself into a cross-process resource hog under mutmut's parallel execution.
 
@@ -385,6 +397,8 @@ A wall-clock-based test cannot reliably detect a spin: by the time a 1-second ca
 **Critical rule: never combine real I/O + wall-clock detection in a `timeout_safety_net` test.** A wall-clock-based test that runs real I/O will, under any spin-class mutation in the surrounding code, hold the real I/O path open for the full timeout duration. Under mutmut's parallel execution this floods Redis and cascades timeouts onto unrelated mutants in other parallel children. Examples of safe wall-clock tests: `shutdown_completes_within(loop)` where `loop` is built with mocked dependencies; `shutdown_timer(subscriber)` where `subscriber._pubsub` is a `MagicMock`. The unsafe pattern is wrapping any real Redis-touching call in a wall-clock cap to detect spin; use `cap_iterations()` with the I/O primitive mocked instead.
 
 **`cap_iterations` usage**: install on the loop's I/O primitive so mutations on the surrounding throttle (smart-jitter floor, watchdog interval, sleep literal) trip the cap. The mock prevents real I/O from being touched, so the test cannot itself flood shared resources under any mutation. For background loops (drain, heartbeat, subscriber) where the `AssertionError` raised by the cap is swallowed by the loop's own exception handler, inspect the yielded count via `count()` after a bounded `time.sleep` / `asyncio.sleep`. For foreground loops where the cap's `AssertionError` propagates to the test thread, the cap is the failure mechanism directly.
+
+**`trip_after_deadline` usage**: a tight async loop whose body never truly yields (e.g., `async with` on an uncontended `asyncio.Lock`, no real `await`) starves the event loop, so the test's `await asyncio.sleep(...)` never wakes to evaluate a `cap_iterations` count assertion; the test hangs and mutmut sees a per-mutant timeout. `trip_after_deadline` raises `RuntimeError` from inside the loop's own call path, killing the spinning task so the loop becomes responsive again and the count assertion can run. Use it on the same primitive that `cap_iterations` would target (e.g., `_lock.acquire`); the helper yields a count callable so a single context manager covers both the deadline and the assertion.
 
 **File placement for intent-driven safety-net tests**: tests whose primary purpose is hang or spin detection live in `tests/implementations/test_loop_safety_net.py` (sync) and `tests/implementations/test_async_loop_safety_net.py` (async), per the Section 1.1 exception. Behavioral tests that incidentally use a bounded primitive keep the `timeout_safety_net` marker but remain in their natural home file. The discriminator: if removing the bounded primitive would make the test meaningless, it belongs in the safety-net file; if removing it would change the test's *implementation* but not its *intent*, it belongs in the behavioral file.
 

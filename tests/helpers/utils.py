@@ -117,18 +117,88 @@ def cap_iterations(
 
 
 @contextmanager
+def trip_after_deadline(
+    target: Any,
+    attr: str,
+    deadline_seconds: float,
+    *,
+    return_value: Any = None,
+    side_effect: Optional[Callable[..., Any]] = None,
+) -> Generator[Callable[[], int], None, None]:
+    """Patch ``target.attr`` to raise ``RuntimeError`` if invoked past a wall-clock deadline.
+
+    Wall-clock mirror of ``cap_iterations``: spin-class mutations on async loops
+    can starve the event loop so that ``asyncio.sleep`` never wakes to evaluate
+    a count assertion. Raising from inside the loop's own call path kills the
+    spinning task and frees the loop, allowing the test to progress.
+
+    Yields a zero-argument callable that returns the current invocation count,
+    so tests can still assert on iteration rate alongside the deadline guard.
+    """
+    state = {"count": 0}
+    deadline = time.monotonic() + deadline_seconds
+    original = getattr(target, attr)
+    is_async = asyncio.iscoroutinefunction(original)
+    label = f"{type(target).__name__}.{attr}"
+
+    def _resolve(args: tuple, kwargs: dict) -> Any:
+        if side_effect is not None:
+            return side_effect(*args, **kwargs)
+        return return_value
+
+    if is_async:
+
+        async def _stub(*args: Any, **kwargs: Any) -> Any:
+            state["count"] += 1
+            if time.monotonic() > deadline:
+                raise RuntimeError(
+                    f"call to {label} exceeded wall-clock deadline of"
+                    f" {deadline_seconds}s"
+                )
+            result = _resolve(args, kwargs)
+            if asyncio.iscoroutine(result):
+                result = await result
+            return result
+    else:
+
+        def _stub(*args: Any, **kwargs: Any) -> Any:
+            state["count"] += 1
+            if time.monotonic() > deadline:
+                raise RuntimeError(
+                    f"call to {label} exceeded wall-clock deadline of"
+                    f" {deadline_seconds}s"
+                )
+            return _resolve(args, kwargs)
+
+    setattr(target, attr, _stub)
+    try:
+        yield lambda: state["count"]
+    finally:
+        setattr(target, attr, original)
+
+
+@contextmanager
 def shutdown_timer(
-    obj: object,
+    obj: Optional[object] = None,
     timeout: float = 0.5,
     attr: str = "_shutdown",
+    *,
+    on_fire: Optional[Callable[[], None]] = None,
 ) -> Generator[Timer, None, None]:
     """Set a shutdown flag after *timeout* seconds so that a ``_run()``
     loop under test exits cleanly.
 
-    This is the primary shutdown mechanism for tests that invoke ``_run()``
-    directly rather than going through ``start()`` / ``shutdown()``.
+    Default behaviour: ``setattr(obj, attr, True)`` after *timeout* seconds.
+    Pass ``on_fire`` to invoke a custom callback instead, e.g. when the loop
+    waits on an :class:`asyncio.Event` that must be signalled via
+    ``loop.call_soon_threadsafe(...)`` from the timer's worker thread.
     """
-    timer = Timer(timeout, lambda: setattr(obj, attr, True))
+    if on_fire is None:
+        if obj is None:
+            raise ValueError("shutdown_timer requires either obj or on_fire")
+        captured_obj, captured_attr = obj, attr
+        on_fire = lambda: setattr(captured_obj, captured_attr, True)  # noqa: E731
+    timer = Timer(timeout, on_fire)
     timer.start()
     try:
         yield timer

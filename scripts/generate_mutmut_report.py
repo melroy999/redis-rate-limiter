@@ -17,6 +17,8 @@ Output files (written to ``--output-dir``):
 - ``all-mutations.json``: every mutant with diffs (gitignored; for offline analysis)
 - ``report.txt``: human-readable summary (also printed to stdout)
 - ``mutation-score.txt``: score percentage for CI badge consumption
+- ``test-timeline.jsonl``: raw per-test timing events (when a timeline file is supplied)
+- ``test-timeline.txt``: human-readable timeline + cross-PID overlap analysis
 
 Usage::
 
@@ -981,6 +983,181 @@ def _serialize_report(
 # ---------------------------------------------------------------------------
 
 
+def _load_timeline_events(timeline_path: Path) -> list[dict]:
+    """Load raw events from the timeline JSONL produced by the pytest plugin."""
+    if not timeline_path.exists():
+        return []
+    events: list[dict] = []
+    with open(timeline_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return events
+
+
+def _build_test_intervals(events: list[dict]) -> list[dict]:
+    """Pair start events with their effective end (completed, last heartbeat, or process kill).
+
+    Returns one record per ``(pid, mutant_id, nodeid)`` start event with:
+    ``start_mono``, ``end_mono``, ``end_kind``, plus ``start_ts``/``end_ts`` for
+    wall-clock display. Records are sorted by ``start_mono``.
+    """
+    by_pid: dict[int, list[dict]] = {}
+    for ev in events:
+        by_pid.setdefault(ev["pid"], []).append(ev)
+    records: list[dict] = []
+    for pid, pid_events in by_pid.items():
+        pid_events.sort(key=lambda e: e["mono"])
+        # Find the kill event for this PID, if any (last process_killed).
+        kill_event = next(
+            (e for e in reversed(pid_events) if e["event"] == "process_killed"),
+            None,
+        )
+        # Walk through tests: for each ``start``, find the matching ``end`` or
+        # fall back to the last heartbeat for that nodeid before the next start.
+        i = 0
+        while i < len(pid_events):
+            ev = pid_events[i]
+            if ev["event"] != "start":
+                i += 1
+                continue
+            nodeid = ev.get("nodeid")
+            mutant_id = ev["mutant_id"]
+            end_event = None
+            last_heartbeat = None
+            j = i + 1
+            while j < len(pid_events):
+                later = pid_events[j]
+                if later.get("nodeid") == nodeid and later["event"] == "end":
+                    end_event = later
+                    break
+                if later.get("nodeid") == nodeid and later["event"] == "heartbeat":
+                    last_heartbeat = later
+                if later["event"] == "start" and later.get("nodeid") != nodeid:
+                    break
+                j += 1
+            if end_event is not None:
+                end_mono = end_event["mono"]
+                end_ts = end_event["ts"]
+                end_kind = "completed"
+            elif kill_event is not None:
+                end_mono = kill_event["mono"]
+                end_ts = kill_event["ts"]
+                end_kind = "parent_killed"
+            elif last_heartbeat is not None:
+                end_mono = last_heartbeat["mono"]
+                end_ts = last_heartbeat["ts"]
+                end_kind = "last_heartbeat"
+            else:
+                end_mono = ev["mono"]
+                end_ts = ev["ts"]
+                end_kind = "no_end"
+            records.append(
+                {
+                    "pid": pid,
+                    "mutant_id": mutant_id,
+                    "nodeid": nodeid,
+                    "start_mono": ev["mono"],
+                    "start_ts": ev["ts"],
+                    "end_mono": end_mono,
+                    "end_ts": end_ts,
+                    "end_kind": end_kind,
+                    "duration_ms": (end_mono - ev["mono"]) * 1000.0,
+                    "last_heartbeat_mono": (
+                        last_heartbeat["mono"] if last_heartbeat else None
+                    ),
+                }
+            )
+            i = j
+    records.sort(key=lambda r: r["start_mono"])
+    return records
+
+
+def _detect_cross_pid_overlaps(records: list[dict]) -> list[dict]:
+    """Return pairs of intervals from different PIDs whose [start, end] overlap."""
+    overlaps: list[dict] = []
+    sorted_records = sorted(records, key=lambda r: r["start_mono"])
+    for i, a in enumerate(sorted_records):
+        for b in sorted_records[i + 1 :]:
+            if b["start_mono"] >= a["end_mono"]:
+                break
+            if a["pid"] == b["pid"]:
+                continue
+            overlap_start = max(a["start_mono"], b["start_mono"])
+            overlap_end = min(a["end_mono"], b["end_mono"])
+            overlaps.append(
+                {
+                    "a_pid": a["pid"],
+                    "a_mutant": a["mutant_id"],
+                    "a_nodeid": a["nodeid"],
+                    "b_pid": b["pid"],
+                    "b_mutant": b["mutant_id"],
+                    "b_nodeid": b["nodeid"],
+                    "overlap_ms": (overlap_end - overlap_start) * 1000.0,
+                }
+            )
+    return overlaps
+
+
+def _format_timeline_report(
+    records: list[dict], overlaps: list[dict], events: list[dict]
+) -> str:
+    """Build a human-readable timeline report.
+
+    Per-mutant section lists tests in chronological order. The overlap
+    section lists cross-PID overlaps sorted by overlap duration (longest first)
+    so the most likely cross-influence pairs are immediately visible.
+    """
+    lines: list[str] = []
+    lines.append("Test Timeline Report")
+    lines.append("=" * 60)
+    lines.append(f"Total events captured: {len(events)}")
+    lines.append(f"Test intervals: {len(records)}")
+    lines.append(f"Cross-PID overlaps: {len(overlaps)}")
+    lines.append("")
+
+    # Group by mutant for the per-mutant view.
+    by_mutant: dict[str, list[dict]] = {}
+    for r in records:
+        by_mutant.setdefault(r["mutant_id"], []).append(r)
+    lines.append("--- PER-MUTANT TIMELINES ---")
+    lines.append("")
+    for mutant_id in sorted(by_mutant):
+        mutant_records = by_mutant[mutant_id]
+        mutant_records.sort(key=lambda r: r["start_mono"])
+        lines.append(f"  {mutant_id} (pid={mutant_records[0]['pid']})")
+        first_start = mutant_records[0]["start_mono"]
+        for r in mutant_records:
+            offset_s = r["start_mono"] - first_start
+            kind_tag = "" if r["end_kind"] == "completed" else f" [{r['end_kind']}]"
+            lines.append(
+                f"    {offset_s:>7.3f}s +{r['duration_ms']:>8.1f}ms{kind_tag}"
+                f"  {r['nodeid']}"
+            )
+        lines.append("")
+
+    if overlaps:
+        lines.append("")
+        lines.append("--- CROSS-PID OVERLAPS (longest first) ---")
+        lines.append("")
+        for o in sorted(overlaps, key=lambda x: -x["overlap_ms"])[:200]:
+            lines.append(
+                f"  {o['overlap_ms']:>8.1f}ms"
+                f"  pid {o['a_pid']} ({o['a_mutant']}): {o['a_nodeid']}"
+            )
+            lines.append(
+                f"              pid {o['b_pid']} ({o['b_mutant']}): {o['b_nodeid']}"
+            )
+        if len(overlaps) > 200:
+            lines.append(f"  ... ({len(overlaps) - 200} additional overlaps truncated)")
+    return "\n".join(lines) + "\n"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate a unified mutation testing report from mutmut artifacts."
@@ -1013,6 +1190,15 @@ def main() -> None:
         "--include-killed",
         action="store_true",
         help="include killed mutants in the JSON output (increases file size)",
+    )
+    parser.add_argument(
+        "--timeline",
+        default="/tmp/mutmut_test_timeline.jsonl",
+        help=(
+            "path to the per-test timeline JSONL written by"
+            " tests/plugins/mutmut_test_timeline.py;"
+            " missing file skips the timeline report"
+        ),
     )
     args = parser.parse_args()
 
@@ -1143,6 +1329,26 @@ def main() -> None:
     text = _format_text_report(report)
     text_path = output_dir / "report.txt"
     text_path.write_text(text, encoding="utf-8")
+
+    timeline_path = Path(args.timeline)
+    timeline_events = _load_timeline_events(timeline_path)
+    if timeline_events:
+        timeline_records = _build_test_intervals(timeline_events)
+        timeline_overlaps = _detect_cross_pid_overlaps(timeline_records)
+        timeline_text = _format_timeline_report(
+            timeline_records, timeline_overlaps, timeline_events
+        )
+        (output_dir / "test-timeline.txt").write_text(timeline_text, encoding="utf-8")
+        # Copy the raw JSONL so the artifact lives alongside the analysis.
+        (output_dir / "test-timeline.jsonl").write_text(
+            timeline_path.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        print(
+            f"  Timeline: {len(timeline_events)} events,"
+            f" {len(timeline_records)} test intervals,"
+            f" {len(timeline_overlaps)} cross-PID overlaps.",
+            flush=True,
+        )
 
     print("")
     print(text)
