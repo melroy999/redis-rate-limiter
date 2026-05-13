@@ -1,32 +1,53 @@
 """Safety-net tests for the async limiter's persistent loops.
 
-Async mirror of ``test_loop_safety_net.py``. See that file's docstring
-and ``TESTING_GUIDELINES.md`` Section 5.4 for the hang-vs-spin distinction
-and the conventions that determine which tests live here versus in their
-behavioral home file.
+Async mirror of ``test_loop_safety_net.py``. Each test body runs inside
+``completes_within``, which executes the async body via
+``asyncio.run()`` in a daemon thread. This catches event-loop starvation
+that in-process mechanisms (``asyncio.wait_for``) cannot detect: if a
+spinning task monopolises the loop, ``asyncio.run()`` never returns, the
+thread stays alive past the join deadline, and the test fails with an
+assertion rather than a mutmut timeout.
+
+Within the body, ``cap_iterations`` provides spin detection and
+``asyncio.wait_for`` on shutdown verifies prompt termination. I/O is
+mocked throughout. See ``TESTING_GUIDELINES.md`` Section 5.4.
 
 Fixture dependencies:
-    - ``async_redis_client``, ``limiter_id``: from ``tests/conftest.py``.
+    - ``limiter_id``: from ``tests/conftest.py``.
 """
 
 from __future__ import annotations
 
 import asyncio
-import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from redis_rate_limiter.core import async_limiters as _async_limiters_module
 from redis_rate_limiter.core.async_limiters import (
     AsyncBackendHealthMonitor,
     AsyncDrainLoop,
+    AsyncDrainSignalSubscriber,
     AsyncHeartbeatScheduler,
 )
 from tests.helpers.utils import (
-    async_shutdown_completes_within,
-    shutdown_timer,
-    trip_after_deadline,
+    cap_iterations,
+    completes_within,
 )
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _consume_task_exception(task: asyncio.Task | None) -> None:
+    """Mark a done task's exception as retrieved to suppress the asyncio GC warning."""
+    if task is not None and task.done():
+        try:
+            task.exception()
+        except (asyncio.CancelledError, BaseException):
+            pass
+
 
 # ---------------------------------------------------------------------------
 # AsyncDrainLoop
@@ -34,30 +55,148 @@ from tests.helpers.utils import (
 
 
 class TestAsyncDrainLoopSafetyNet:
-    """Hang and spin coverage for ``AsyncDrainLoop._run``."""
+    """Hang and spin coverage for ``AsyncDrainLoop._run`` paths."""
 
     @staticmethod
     @pytest.mark.timeout_safety_net
-    async def test_shutdown_completes_promptly():
-        """Verify that ``shutdown()`` completes well within its internal 5.0s timeout."""
-        # Arrange
-        limiter = MagicMock()
-        drain_called = asyncio.Event()
-        limiter.drain = AsyncMock(side_effect=lambda: drain_called.set())
-        loop = AsyncDrainLoop(limiter, watchdog_interval=60.0)
+    def test_drain_loop_paths_stay_bounded():
+        """Verify ``AsyncDrainLoop._run`` paths stay bounded and shutdown completes."""
 
-        # Start the task and let it complete one drain cycle so it is
-        # blocked on _condition.wait() when shutdown is called.
-        loop.wake(0)
-        await asyncio.wait_for(drain_called.wait(), timeout=2.0)
+        async def body():
+            # Arrange
+            limiter = MagicMock()
+            drain_called = asyncio.Event()
+            limiter.drain = AsyncMock(side_effect=lambda: drain_called.set())
+            loop = AsyncDrainLoop(limiter, watchdog_interval=60.0)
+            original_wait = loop._condition.wait
 
-        # Act
-        completed = await async_shutdown_completes_within(loop, timeout=1.0)
+            # Act
+            with cap_iterations(
+                limiter,
+                "drain",
+                side_effect=lambda: drain_called.set(),
+                cap=10,
+            ) as drain_count:
+                with cap_iterations(
+                    loop._condition,
+                    "wait",
+                    side_effect=original_wait,
+                    cap=10,
+                ) as wait_count:
+                    loop.wake(0)
+                    await asyncio.wait_for(drain_called.wait(), timeout=0.2)
+                    loop.wake(0.05)
+                    await asyncio.sleep(0.05)
+                    drain_observed = drain_count()
+                    wait_observed = wait_count()
 
-        # Assert
-        assert completed, (
-            "shutdown() should complete within 1.0s; "
-            "a timeout indicates notify() or _shutdown assignment was mutated"
+            _consume_task_exception(loop._task)
+            try:
+                await asyncio.wait_for(loop.shutdown(), timeout=0.3)
+                shutdown_completed = True
+            except asyncio.TimeoutError:
+                shutdown_completed = False
+
+            # Assert
+            assert drain_observed < 10, (
+                f"AsyncDrainLoop drain called {drain_observed} times, spin in loop body"
+            )
+            assert wait_observed < 10, (
+                f"AsyncDrainLoop _condition.wait called {wait_observed} times, spin on wait paths"
+            )
+            assert shutdown_completed, (
+                "AsyncDrainLoop.shutdown should complete within 0.3s"
+            )
+            assert loop._task is None or loop._task.done(), (
+                "AsyncDrainLoop worker task must be done after shutdown"
+            )
+
+        assert completes_within(body, timeout=2.0), (
+            "AsyncDrainLoop safety-net test did not complete within 2.0s"
+        )
+
+
+# ---------------------------------------------------------------------------
+# AsyncDrainSignalSubscriber
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncDrainSignalSubscriberSafetyNet:
+    """Hang and spin coverage for ``AsyncDrainSignalSubscriber._run``."""
+
+    @staticmethod
+    @pytest.mark.timeout_safety_net
+    def test_subscriber_paths_stay_bounded(limiter_id):
+        """Verify ``AsyncDrainSignalSubscriber._run`` stays bounded across all message and exception branches and shutdown completes."""
+
+        async def body():
+            # Arrange
+            limiter = MagicMock()
+            limiter.id = limiter_id
+            limiter._worker_id = f"{limiter_id}_self"
+            mock_pubsub = MagicMock()
+            mock_pubsub.subscribe = AsyncMock()
+            mock_pubsub.unsubscribe = AsyncMock()
+            mock_pubsub.aclose = AsyncMock()
+            mock_pubsub.get_message = AsyncMock()
+            limiter.redis.pubsub.return_value = mock_pubsub
+
+            scripted_messages: list[object] = [
+                None,
+                {"type": "subscribe", "data": "ack"},
+                {"type": "message", "data": f"{limiter_id}_self"},
+                {"type": "message", "data": "remote-worker"},
+                RuntimeError("simulated pubsub failure"),
+            ]
+            msg_iter = iter(scripted_messages + [None] * 200)
+            original_sleep = asyncio.sleep
+
+            async def fake_get_message(*_args, **_kwargs):
+                value = next(msg_iter)
+                if isinstance(value, BaseException):
+                    raise value
+                await original_sleep(0.005)
+                return value
+
+            async def selective_sleep(seconds):
+                if seconds >= 1.0:
+                    return None
+                await original_sleep(seconds)
+
+            subscriber = AsyncDrainSignalSubscriber(limiter)
+
+            # Act
+            with patch.object(_async_limiters_module.asyncio, "sleep", selective_sleep):
+                with cap_iterations(
+                    subscriber._pubsub,
+                    "get_message",
+                    side_effect=fake_get_message,
+                    cap=30,
+                ) as msg_count:
+                    await subscriber.start()
+                    await asyncio.sleep(0.05)
+                    observed = msg_count()
+
+                _consume_task_exception(subscriber._task)
+                try:
+                    await asyncio.wait_for(subscriber.shutdown(), timeout=0.3)
+                    shutdown_completed = True
+                except asyncio.TimeoutError:
+                    shutdown_completed = False
+
+            # Assert
+            assert observed < 30, (
+                f"subscriber.get_message called {observed} times in 50ms, spin in loop body"
+            )
+            assert shutdown_completed, (
+                "AsyncDrainSignalSubscriber.shutdown should complete within 0.3s"
+            )
+            assert limiter._schedule_drain.called, (
+                "remote-worker message path must call _schedule_drain"
+            )
+
+        assert completes_within(body, timeout=2.0), (
+            "AsyncDrainSignalSubscriber safety-net test did not complete within 2.0s"
         )
 
 
@@ -71,84 +210,64 @@ class TestAsyncHeartbeatSchedulerSafetyNet:
 
     @staticmethod
     @pytest.mark.timeout_safety_net
-    async def test_shutdown_completes_promptly(limiter_id):
-        """Verify that ``shutdown()`` completes well within its internal timeout."""
-        # Arrange
-        limiter = MagicMock()
-        limiter.id = limiter_id
-        limiter.lease_duration = 60.0
-        limiter.extend_lease = AsyncMock(return_value=None)
-        scheduler = AsyncHeartbeatScheduler(limiter)
-        await scheduler.register("task-1", "warn")
+    def test_scheduler_paths_stay_bounded(limiter_id):
+        """Verify ``AsyncHeartbeatScheduler._run`` stays bounded across registration, renewal, and stale-entry handling."""
 
-        # Act
-        completed = await async_shutdown_completes_within(scheduler, timeout=1.0)
+        async def body():
+            # Arrange
+            limiter = MagicMock()
+            limiter.id = limiter_id
+            limiter.lease_duration = 0.05
+            limiter.extend_lease = AsyncMock(return_value=None)
+            scheduler = AsyncHeartbeatScheduler(limiter)
+            original_clear = scheduler._wakeup.clear
+            original_renew_one = scheduler._renew_one
 
-        # Assert
-        assert completed, (
-            "shutdown() should complete within 1.0s; "
-            "a timeout indicates _shutdown assignment was mutated"
-        )
-
-    @staticmethod
-    @pytest.mark.timeout_safety_net
-    async def test_run_does_not_starve_event_loop(limiter_id):
-        """Verify that ``_run`` does not starve the event loop with a busy loop."""
-        # Arrange
-        limiter = MagicMock()
-        limiter.id = limiter_id
-        limiter.lease_duration = 10.0
-        limiter.extend_lease = AsyncMock(return_value=None)
-        scheduler = AsyncHeartbeatScheduler(limiter)
-        await scheduler.register("task-1", "warn")
-
-        # Act
-        with shutdown_timer(scheduler, timeout=0.3):
-            start = time.monotonic()
-            await asyncio.sleep(0.05)
-            elapsed = time.monotonic() - start
-        await async_shutdown_completes_within(scheduler, timeout=1.0)
-
-        # Assert
-        assert elapsed < 0.2, (
-            f"asyncio.sleep(0.05) took {elapsed:.2f}s; "
-            "_run is starving the event loop with a busy loop"
-        )
-
-    @staticmethod
-    @pytest.mark.timeout_safety_net
-    async def test_run_iteration_rate_is_bounded(limiter_id):
-        """Verify that ``_run`` does not tight-loop in either the empty-heap or due-entry branch."""
-        # Arrange
-        limiter = MagicMock()
-        limiter.id = limiter_id
-        limiter.lease_duration = 0.05
-        limiter.extend_lease = AsyncMock(return_value=None)
-        scheduler = AsyncHeartbeatScheduler(limiter)
-        original_acquire = scheduler._lock.acquire
-
-        with trip_after_deadline(
-            scheduler._lock, "acquire", 0.3, side_effect=original_acquire
-        ) as count:
             # Act
-            await scheduler.register("task-1", "warn")
-            await asyncio.sleep(0.08)
+            with cap_iterations(
+                scheduler._wakeup,
+                "clear",
+                side_effect=original_clear,
+                cap=30,
+            ) as clear_count:
+                with cap_iterations(
+                    scheduler,
+                    "_renew_one",
+                    side_effect=original_renew_one,
+                    cap=30,
+                ) as renew_count:
+                    await scheduler.register("task-1", "warn")
+                    await scheduler.register("task-2", "warn")
+                    await asyncio.sleep(0.08)
+                    await scheduler.deregister("task-1")
+                    await scheduler.deregister("task-2")
+                    await asyncio.sleep(0.04)
+                    clear_observed = clear_count()
+                    renew_observed = renew_count()
+
+            _consume_task_exception(scheduler._task)
             try:
-                await scheduler.deregister("task-1")
-            except RuntimeError:
-                pass
-            await asyncio.sleep(0.08)
-            observed = count()
+                await asyncio.wait_for(scheduler.shutdown(), timeout=0.5)
+                shutdown_completed = True
+            except asyncio.TimeoutError:
+                shutdown_completed = False
 
-        try:
-            await async_shutdown_completes_within(scheduler, timeout=1.0)
-        except RuntimeError:
-            pass
+            # Assert
+            assert clear_observed < 30, (
+                f"AsyncHeartbeatScheduler cleared {clear_observed} times in ~120ms, spin on wait paths"
+            )
+            assert renew_observed < 30, (
+                f"AsyncHeartbeatScheduler renewed {renew_observed} times in ~120ms, spin in renewal cycle"
+            )
+            assert shutdown_completed, (
+                "AsyncHeartbeatScheduler.shutdown should complete within 0.5s"
+            )
+            assert scheduler._shutdown is True, (
+                "AsyncHeartbeatScheduler._shutdown must be True after shutdown"
+            )
 
-        # Assert
-        assert observed < 60, (
-            f"async scheduler acquired _lock {observed} times in ~0.16s; "
-            "_run is iterating without honouring its renewal-interval throttle"
+        assert completes_within(body, timeout=2.0), (
+            "AsyncHeartbeatScheduler safety-net test did not complete within 2.0s"
         )
 
 
@@ -162,29 +281,44 @@ class TestAsyncBackendHealthMonitorSafetyNet:
 
     @staticmethod
     @pytest.mark.timeout_safety_net
-    async def test_shutdown_cancels_task():
-        """Verify that ``shutdown()`` cancels the background asyncio task cleanly."""
-        # Arrange
-        limiter = MagicMock()
-        limiter.id = "test-limiter"
-        limiter._check_backend_health = AsyncMock(return_value=True)
-        monitor = AsyncBackendHealthMonitor(limiter, interval=1.0)
-        monitor.start()
-        loop = asyncio.get_running_loop()
+    def test_monitor_paths_stay_bounded(limiter_id):
+        """Verify ``AsyncBackendHealthMonitor._run`` stays bounded across the poll-and-check cycle and shutdown completes."""
 
-        # Act
-        shutdown_task = asyncio.create_task(monitor.shutdown())
-        with shutdown_timer(
-            timeout=0.3,
-            on_fire=lambda: loop.call_soon_threadsafe(monitor._shutdown_event.set),
-        ):
-            await asyncio.sleep(0.05)
+        async def body():
+            # Arrange
+            limiter = MagicMock()
+            limiter.id = limiter_id
+            limiter._check_backend_health = AsyncMock(return_value=True)
+            monitor = AsyncBackendHealthMonitor(limiter, interval=0.02)
+            original_wait = monitor._shutdown_event.wait
 
-        # Assert
-        assert shutdown_task.done(), (
-            "shutdown() should complete promptly; "
-            "still running indicates the _run loop did not exit"
-        )
-        assert monitor._task is None or monitor._task.done(), (
-            "background task should be done after shutdown"
+            # Act
+            with cap_iterations(
+                monitor._shutdown_event,
+                "wait",
+                side_effect=original_wait,
+                cap=30,
+            ) as count:
+                monitor.start()
+                await asyncio.sleep(0.08)
+                observed = count()
+
+            _consume_task_exception(monitor._task)
+            monitor._shutdown_event.set()
+            try:
+                await asyncio.wait_for(monitor.shutdown(), timeout=0.5)
+                shutdown_completed = True
+            except asyncio.TimeoutError:
+                shutdown_completed = False
+
+            # Assert
+            assert observed < 30, (
+                f"AsyncBackendHealthMonitor _shutdown_event.wait called {observed} times in 80ms, spin in loop body"
+            )
+            assert shutdown_completed, (
+                "AsyncBackendHealthMonitor.shutdown should complete within 0.5s"
+            )
+
+        assert completes_within(body, timeout=2.0), (
+            "AsyncBackendHealthMonitor safety-net test did not complete within 2.0s"
         )

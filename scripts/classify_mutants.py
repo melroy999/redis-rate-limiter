@@ -1236,6 +1236,14 @@ _KNOWN_BENIGN: list[tuple[str, str, str]] = [
         "async mirror of DistributedLock.__exit__ token log argument; same"
         " reasoning applies",
     ),
+    (
+        "HeartbeatScheduler._renew_one",
+        "==  ->  !=",
+        "inverts the kill/warn branch; reliably caught by"
+        " test_heartbeat_failure_kill_mode_terminates_worker but the mutated"
+        " process occasionally receives SIGTERM before pytest can report the"
+        " failure, causing a suspicious classification instead of killed",
+    ),
 ]
 
 

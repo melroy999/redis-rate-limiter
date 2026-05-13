@@ -161,6 +161,7 @@ class UnifiedReport:
     test_effectiveness: list[TestEfficiency] | None
     uncovered_functions: list[str]
     mutants: list[MutantRecord]
+    wall_clock_seconds: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -681,6 +682,9 @@ def _format_text_report(report: UnifiedReport) -> str:
     lines.append(
         f"Score: {report.mutation_score:.2f}% ({report.killed}/{report.total} killed)"
     )
+    if report.wall_clock_seconds is not None:
+        minutes, seconds = divmod(int(report.wall_clock_seconds), 60)
+        lines.append(f"Duration: {minutes}m {seconds}s")
     lines.append("")
     lines.append(f"  Killed:     {report.killed:>5}")
     lines.append(f"  Survived:   {report.survived:>5}")
@@ -707,11 +711,15 @@ def _format_text_report(report: UnifiedReport) -> str:
     classified: list[ClassifiedMutation] = []
     benign: list[tuple[ClassifiedMutation, str]] = []
     timeout_names: list[str] = []
+    suspicious_names: list[str] = []
     no_test_names: list[str] = []
 
     for r in non_killed:
         if r.status == "timeout":
             timeout_names.append(r.name)
+            continue
+        if r.status == "suspicious":
+            suspicious_names.append(r.name)
             continue
         if r.status == "no tests":
             no_test_names.append(r.name)
@@ -767,6 +775,12 @@ def _format_text_report(report: UnifiedReport) -> str:
     if timeout_names:
         lines.append(f"--- TIMEOUTS ({len(timeout_names)}) ---")
         for name in timeout_names:
+            lines.append(f"  {_shorten_name(name)}")
+        lines.append("")
+
+    if suspicious_names:
+        lines.append(f"--- SUSPICIOUS ({len(suspicious_names)}) ---")
+        for name in suspicious_names:
             lines.append(f"  {_shorten_name(name)}")
         lines.append("")
 
@@ -1326,12 +1340,17 @@ def main() -> None:
         json.dump(all_mutations_summary, f, indent=2)
     print(f"  All mutations written to {all_mutations_path}", flush=True)
 
+    timeline_path = Path(args.timeline)
+    timeline_events = _load_timeline_events(timeline_path)
+    if timeline_events:
+        timestamps = [e.get("ts", 0.0) for e in timeline_events if "ts" in e]
+        if timestamps:
+            report.wall_clock_seconds = max(timestamps) - min(timestamps)
+
     text = _format_text_report(report)
     text_path = output_dir / "report.txt"
     text_path.write_text(text, encoding="utf-8")
 
-    timeline_path = Path(args.timeline)
-    timeline_events = _load_timeline_events(timeline_path)
     if timeline_events:
         timeline_records = _build_test_intervals(timeline_events)
         timeline_overlaps = _detect_cross_pid_overlaps(timeline_records)

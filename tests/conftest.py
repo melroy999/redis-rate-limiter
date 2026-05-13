@@ -23,15 +23,22 @@ same Redis instance.
 """
 
 import os
+import threading
 from uuid import uuid4
 
 import pytest
 import redis
 import redis.asyncio
 
+# The platform default of 8 MB per thread causes memory exhaustion during
+# parallel mutmut runs; 256 KB is sufficient for all test workloads.
+threading.stack_size(262144)
+
 pytest_plugins = [
     "tests.plugins.mutmut_defaults_patch",
     "tests.plugins.mutmut_test_timeline",
+    "tests.plugins.mutmut_resource_snapshot",
+    "tests.plugins.memory_per_test",
 ]
 
 

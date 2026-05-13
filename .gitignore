@@ -223,3 +223,7 @@ mutmut-results/all-mutations.json
 mutmut-results/superfluity/
 mutmut-results/test-timeline.jsonl
 mutmut-results/test-timeline.txt
+mutmut-results/mutmut_resource_snapshot.jsonl
+
+# Memory profiling
+memory-results/

@@ -15,34 +15,50 @@ from typing import Any, Callable, Generator, Optional
 import pytest
 
 
-def shutdown_completes_within(subject: Any, timeout: float = 1.0) -> bool:
-    """Return ``True`` if ``subject.shutdown()`` completes within ``timeout`` seconds.
+def completes_within(fn: Callable[..., Any], timeout: float = 5.0) -> bool:
+    """Run ``fn`` in a daemon thread and return whether it completes within ``timeout`` seconds.
 
-    Runs ``shutdown`` on a daemon thread so the caller is never blocked
-    longer than the timeout. Designed for ``timeout_safety_net`` tests
-    that catch mutations which prevent the subject's internal stop
-    mechanism from firing.
+    Works for both sync and async callables: coroutine functions are
+    executed via ``asyncio.run()`` inside the thread, creating an
+    isolated event loop. This catches event-loop starvation that
+    ``asyncio.wait_for`` cannot: if a spinning task monopolises the
+    loop, ``asyncio.run()`` never returns, the thread stays alive past
+    the join deadline, and this function returns ``False``.
+
+    Any exception raised by ``fn`` (including assertion failures) is
+    re-raised in the caller after the thread completes.
     """
-    thread = Thread(target=subject.shutdown, daemon=True)
+    exc_holder: list[BaseException | None] = [None]
+
+    def _target() -> None:
+        try:
+            if asyncio.iscoroutinefunction(fn):
+                asyncio.run(fn())
+            else:
+                fn()
+        except BaseException as e:
+            exc_holder[0] = e
+
+    thread = Thread(target=_target, daemon=True)
     thread.start()
     thread.join(timeout=timeout)
+
+    if exc_holder[0] is not None:
+        raise exc_holder[0]
+
     return not thread.is_alive()
 
 
-async def async_shutdown_completes_within(subject: Any, timeout: float = 1.0) -> bool:
-    """Return ``True`` if ``await subject.shutdown()`` completes within ``timeout`` seconds.
+class IterationCapExceeded(BaseException):
+    """Raised by ``cap_iterations`` once its invocation cap is exceeded.
 
-    Measures elapsed wall-clock time rather than relying on
-    ``asyncio.wait_for`` to raise ``TimeoutError``: a ``shutdown``
-    that catches ``CancelledError`` (common pattern) returns normally
-    even when cancelled, defeating ``wait_for``'s exception path.
+    Subclasses ``BaseException`` (not ``Exception``) so a loop's broad
+    ``except Exception:`` cannot absorb it.  Without this guarantee, a
+    spin-class mutation in a loop with such a handler would burn CPU
+    until the test's wall-clock budget expires; under mutmut's parallel
+    execution this contributes to the SIGXCPU pressure that safety-net
+    tests are supposed to relieve.
     """
-    start = time.monotonic()
-    try:
-        await asyncio.wait_for(subject.shutdown(), timeout=timeout)
-    except asyncio.TimeoutError:
-        return False
-    return (time.monotonic() - start) < timeout
 
 
 @contextmanager
@@ -59,7 +75,9 @@ def cap_iterations(
     Replaces the named attribute with a stub that records each invocation
     and returns either ``side_effect(*args, **kwargs)`` (when supplied) or
     ``return_value``. After ``cap`` calls the stub raises
-    ``AssertionError`` to terminate runaway loops cheaply.
+    ``IterationCapExceeded`` (a ``BaseException``) so the surrounding loop
+    is interrupted regardless of whether it wraps its iteration body in
+    ``except Exception:``.
 
     The stub flavor is selected by introspecting the original attribute:
     coroutine functions get an ``async def`` stub, others get a plain
@@ -76,10 +94,10 @@ def cap_iterations(
             time.sleep(0.5)
         assert count() < 50, f"drain spun: {count()} iterations in 0.5s"
 
-    Foreground tests where the AssertionError propagates can rely on the
+    Foreground tests where the cap exception propagates can rely on the
     cap as the failure mechanism directly: install the wrapped callable on
-    a synchronous code path and expect ``AssertionError`` (or whichever
-    exception the surrounding code raises first).
+    a synchronous code path and expect ``IterationCapExceeded`` (or
+    whichever exception the surrounding code raises first).
     """
     state = {"count": 0}
     original = getattr(target, attr)
@@ -96,7 +114,9 @@ def cap_iterations(
         async def _stub(*args: Any, **kwargs: Any) -> Any:
             state["count"] += 1
             if state["count"] > cap:
-                raise AssertionError(f"call count exceeded cap of {cap} on {label}")
+                raise IterationCapExceeded(
+                    f"call count exceeded cap of {cap} on {label}"
+                )
             result = _resolve(args, kwargs)
             if asyncio.iscoroutine(result):
                 result = await result
@@ -106,7 +126,9 @@ def cap_iterations(
         def _stub(*args: Any, **kwargs: Any) -> Any:
             state["count"] += 1
             if state["count"] > cap:
-                raise AssertionError(f"call count exceeded cap of {cap} on {label}")
+                raise IterationCapExceeded(
+                    f"call count exceeded cap of {cap} on {label}"
+                )
             return _resolve(args, kwargs)
 
     setattr(target, attr, _stub)

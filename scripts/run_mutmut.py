@@ -715,13 +715,43 @@ def _record_mutation_metadata(
     _mutation_type_records[full_mutant_id] = record
 
 
+_MUTATION_TYPES_MAIN_PID: int = os.getpid()
+
+
 def _flush_mutation_types() -> None:
-    """atexit-registered writer for the per-mutant metadata JSON."""
-    if not _mutation_type_records:
+    """atexit-registered writer for the per-mutant metadata JSON.
+
+    Mutation generation runs in ``multiprocessing.Pool`` workers forked
+    from the main process. Each worker populates ``_mutation_type_records``
+    in its own address space. On exit, workers write a per-PID shard file;
+    the main process (identified by ``_MUTATION_TYPES_MAIN_PID``) merges
+    all shards into the final output file. This mirrors the temp-file IPC
+    pattern used by ``KilledByAccumulator`` for killed-by tracking.
+    """
+    output_dir = os.path.dirname(_MUTATION_TYPES_FILE)
+    os.makedirs(output_dir, exist_ok=True)
+
+    if _mutation_type_records:
+        shard = os.path.join(output_dir, f"mutation-types.{os.getpid()}.json")
+        with open(shard, "w") as f:
+            json.dump(_mutation_type_records, f)
+
+    if os.getpid() != _MUTATION_TYPES_MAIN_PID:
         return
-    os.makedirs(os.path.dirname(_MUTATION_TYPES_FILE), exist_ok=True)
-    with open(_MUTATION_TYPES_FILE, "w") as f:
-        json.dump(_mutation_type_records, f, indent=2)
+
+    import glob
+
+    merged: dict[str, dict[str, object]] = {}
+    for shard_path in glob.glob(os.path.join(output_dir, "mutation-types.*.json")):
+        try:
+            with open(shard_path) as f:
+                merged.update(json.load(f))
+            os.unlink(shard_path)
+        except Exception:
+            pass
+    if merged:
+        with open(_MUTATION_TYPES_FILE, "w") as f:
+            json.dump(merged, f, indent=2)
 
 
 # ---------------------------------------------------------------------------

@@ -25,7 +25,7 @@ from redis_rate_limiter import TaskLifecycle
 from redis_rate_limiter.core.limiters import HeartbeatScheduler
 from redis_rate_limiter.core.scripts import load_lua_script
 from tests.contracts.test_task_lifecycle import TaskLifecycleContractTest
-from tests.helpers.utils import assert_log_emitted, shutdown_timer
+from tests.helpers.utils import assert_log_emitted
 from tests.implementations.conftest import (
     HEARTBEAT_OVERRIDE_CASES,
     HeartbeatFailureMode,
@@ -467,7 +467,6 @@ class TestHeartbeatScheduler:
         )
 
     @staticmethod
-    @pytest.mark.timeout_safety_net
     def test_multiple_tasks_renewed_independently(scheduler_limiter):
         """Verify that several tasks registered concurrently all see renewals."""
         # Arrange
@@ -478,8 +477,7 @@ class TestHeartbeatScheduler:
 
         try:
             # Act
-            with shutdown_timer(scheduler, timeout=0.3):
-                time.sleep(0.75 * scheduler_limiter.lease_duration)
+            time.sleep(0.75 * scheduler_limiter.lease_duration)
 
             # Assert
             renewed_ids = {
@@ -498,22 +496,18 @@ class TestHeartbeatScheduler:
                 scheduler.deregister(tid)
 
     @staticmethod
-    @pytest.mark.timeout_safety_net
     def test_heartbeat_recovery_restores_entry_health(scheduler_limiter, task_id):
         """Verify that an unhealthy entry recovers when ``extend_lease`` succeeds."""
         # Arrange
-        scheduler = scheduler_limiter._heartbeat_scheduler
         with TaskLifecycle(scheduler_limiter, task_id) as lifecycle:
             # Act
             lifecycle.is_healthy = False
-            with shutdown_timer(scheduler, timeout=0.3):
-                time.sleep(0.75 * scheduler_limiter.lease_duration)
+            time.sleep(0.75 * scheduler_limiter.lease_duration)
 
             # Assert
             assert lifecycle.is_healthy, "entry must restore health after recovery"
 
     @staticmethod
-    @pytest.mark.timeout_safety_net
     def test_heartbeat_failure_warn_mode_marks_entry_unhealthy(
         scheduler_limiter, task_id
     ):
@@ -522,15 +516,13 @@ class TestHeartbeatScheduler:
         scheduler_limiter.extend_lease.side_effect = redis.RedisError(
             "Simulated Redis failure"
         )
-        scheduler = scheduler_limiter._heartbeat_scheduler
 
         # Act
         with patch("os.kill") as mock_kill:
             with TaskLifecycle(
                 scheduler_limiter, task_id, on_heartbeat_failure="warn"
             ) as lifecycle:
-                with shutdown_timer(scheduler, timeout=0.3):
-                    time.sleep(0.75 * scheduler_limiter.lease_duration)
+                time.sleep(0.75 * scheduler_limiter.lease_duration)
 
                 # Assert
                 assert not lifecycle.is_healthy, (
@@ -541,20 +533,17 @@ class TestHeartbeatScheduler:
                 )
 
     @staticmethod
-    @pytest.mark.timeout_safety_net
     def test_heartbeat_failure_kill_mode_terminates_worker(scheduler_limiter, task_id):
         """Verify that kill mode terminates the worker on failure."""
         # Arrange
         scheduler_limiter.extend_lease.side_effect = redis.RedisError(
             "Simulated Redis failure"
         )
-        scheduler = scheduler_limiter._heartbeat_scheduler
 
         # Act & Assert
         with patch("os.kill") as mock_kill:
             with TaskLifecycle(scheduler_limiter, task_id, on_heartbeat_failure="kill"):
-                with shutdown_timer(scheduler, timeout=0.3):
-                    time.sleep(0.75 * scheduler_limiter.lease_duration)
+                time.sleep(0.75 * scheduler_limiter.lease_duration)
 
                 assert mock_kill.call_count > 0, (
                     "os.kill must be called in kill mode on heartbeat failure"
@@ -562,14 +551,11 @@ class TestHeartbeatScheduler:
                 mock_kill.assert_called_with(os.getpid(), signal.SIGTERM)
 
     @staticmethod
-    @pytest.mark.timeout_safety_net
     def test_extend_lease_called_with_correct_parameters(scheduler_limiter, task_id):
         """Verify that ``extend_lease`` is called with the right task id and duration."""
         # Act
-        scheduler = scheduler_limiter._heartbeat_scheduler
         with TaskLifecycle(scheduler_limiter, task_id):
-            with shutdown_timer(scheduler, timeout=0.3):
-                time.sleep(0.75 * scheduler_limiter.lease_duration)
+            time.sleep(0.75 * scheduler_limiter.lease_duration)
 
         # Assert
         assert scheduler_limiter.extend_lease.call_count >= 1, (
@@ -666,7 +652,6 @@ class TestHeartbeatSchedulerBoundary:
             scheduler.shutdown()
 
     @staticmethod
-    @pytest.mark.timeout_safety_net
     def test_stale_heap_entry_is_skipped(scheduler_limiter, task_id):
         """Verify that a deregistered task's leftover heap entry does
         not trigger a renewal.
@@ -678,8 +663,7 @@ class TestHeartbeatSchedulerBoundary:
         scheduler.register("task_other", "warn")
 
         # Act
-        with shutdown_timer(scheduler, timeout=0.3):
-            time.sleep(0.75 * scheduler_limiter.lease_duration)
+        time.sleep(0.75 * scheduler_limiter.lease_duration)
 
         # Assert
         renewed_ids = {

@@ -17,10 +17,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from redis_rate_limiter.core.limiters import DrainLoop, DrainSignalSubscriber
-from tests.helpers.utils import (
-    assert_log_emitted,
-    shutdown_timer,
-)
+from tests.helpers.utils import assert_log_emitted
 from tests.implementations.conftest import StubRateLimiter
 
 
@@ -314,7 +311,6 @@ class TestDrainSignalSubscriber:
             "a remote drain signal"
         )
 
-    @pytest.mark.timeout_safety_net
     @staticmethod
     def test_run_processes_message_in_main_thread():
         """Verify that ``_run`` processes a remote message and
@@ -347,8 +343,7 @@ class TestDrainSignalSubscriber:
         mock_pubsub.get_message.side_effect = get_message_effect
 
         # Act
-        with shutdown_timer(subscriber):
-            subscriber._run()
+        subscriber._run()
 
         # Assert
         mock_pubsub.get_message.assert_called()
@@ -413,7 +408,6 @@ class TestDrainSignalSubscriber:
         )
         subscriber.shutdown()
 
-    @pytest.mark.timeout_safety_net
     @staticmethod
     def test_run_survives_exception_and_retries():
         """Verify that ``_run`` logs the exception and
@@ -440,8 +434,7 @@ class TestDrainSignalSubscriber:
         mock_pubsub.get_message.side_effect = get_message_effect
 
         # Act
-        with shutdown_timer(subscriber, timeout=2.0):
-            subscriber._run()
+        subscriber._run()
 
         # Assert
         assert call_count >= 2, "get_message should be called again after exception"
@@ -470,7 +463,6 @@ class TestDrainSignalSubscriber:
         # Assert
         assert subscriber._shutdown is True, "_run should return without re-raising"
 
-    @pytest.mark.timeout_safety_net
     @staticmethod
     def test_run_processes_message_then_idles_before_exit():
         """Verify that ``_run`` continues polling after
@@ -506,8 +498,7 @@ class TestDrainSignalSubscriber:
         mock_pubsub.get_message.side_effect = get_message_effect
 
         # Act
-        with shutdown_timer(subscriber):
-            subscriber._run()
+        subscriber._run()
 
         # Assert
         assert call_count >= 3, (
@@ -621,7 +612,6 @@ class TestDrainLoopObservability:
 class TestDrainSignalSubscriberObservability:
     """Observability tests for ``DrainSignalSubscriber`` log emissions."""
 
-    @pytest.mark.timeout_safety_net
     @staticmethod
     def test_run_normal_processing_does_not_emit_error_log(caplog):
         """Verify that ``_run`` does not emit error or critical
@@ -651,19 +641,17 @@ class TestDrainSignalSubscriberObservability:
         mock_pubsub.get_message.side_effect = get_message_effect
 
         # Act
-        with shutdown_timer(subscriber):
-            with caplog.at_level(
-                logging.ERROR,
-                logger="redis_rate_limiter.core.limiters",
-            ):
-                subscriber._run()
+        with caplog.at_level(
+            logging.ERROR,
+            logger="redis_rate_limiter.core.limiters",
+        ):
+            subscriber._run()
 
         # Assert
         assert not any(
             record.levelname in ("ERROR", "CRITICAL") for record in caplog.records
         ), "no error logs should be emitted during normal processing"
 
-    @pytest.mark.timeout_safety_net
     @staticmethod
     def test_run_exception_emits_error_log(caplog):
         """Verify that ``_run`` emits an ERROR log containing
@@ -690,11 +678,8 @@ class TestDrainSignalSubscriberObservability:
         mock_pubsub.get_message.side_effect = get_message_effect
 
         # Act
-        with shutdown_timer(subscriber, timeout=2.0):
-            with caplog.at_level(
-                logging.ERROR, logger="redis_rate_limiter.core.limiters"
-            ):
-                subscriber._run()
+        with caplog.at_level(logging.ERROR, logger="redis_rate_limiter.core.limiters"):
+            subscriber._run()
 
         # Assert
         assert_log_emitted(
