@@ -27,9 +27,15 @@ from typing import (
 import redis
 from redis import Redis
 
-from redis_rate_limiter.core.base import AbstractRateLimiter, AbstractSyncRateLimiter
+from redis_rate_limiter.core.base import (
+    AbstractRateLimiter,
+    AbstractSyncRateLimiter,
+    AcquireTimeout,
+)
 
 logger = logging.getLogger(__name__)
+
+_ACQUIRE_MARKER_PATH = "__redis_rate_limiter_acquire_marker__"
 
 
 class TaskData(TypedDict):
@@ -45,7 +51,8 @@ class ConsumeResult(TypedDict):
     """Structured representation of the result returned by the consume Lua script."""
 
     success: bool  # Indicates whether a task was successfully consumed.
-    expired: bool  # Indicates whether the task has expired.
+    expired: bool  # Indicates whether the task has expired (moved to the DLQ).
+    marker_skipped: bool  # Indicates whether an acquire marker was silently dropped because its deadline had elapsed.
     task: Optional[
         TaskData
     ]  # The deserialized task data from Redis, or None if no task was consumed.
@@ -1340,6 +1347,58 @@ class AbstractDistributedRateLimiter(
         return True, task_id
 
     # ---------------------------------------------------------------------------
+    # Inline slot reservation
+    # ---------------------------------------------------------------------------
+
+    def acquire(self, timeout: float, priority: int = 100) -> TaskLifecycle:
+        """Block up to ``timeout`` seconds for a rate and concurrency slot, then return a context manager that releases it.
+
+        Schedules a marker into the priority buffer so that inline callers
+        compete for the rate and concurrency budget on the same footing as
+        buffered tasks. The wait is implemented as ``BLPOP`` against a per-call
+        signal list that ``consume.lua`` populates atomically with the lease
+        registration. An embedded deadline in the marker payload lets
+        ``consume.lua`` refuse admission for callers whose timeout has already
+        elapsed, preventing concurrency slot leaks.
+
+        Args:
+            timeout: Maximum time in seconds to wait for admission. Must be positive.
+            priority: Priority for the marker; lower scores are dequeued first.
+
+        Returns:
+            A ``TaskLifecycle`` whose ``__enter__`` confirms the slot and whose
+            ``__exit__`` releases it via ``release.lua``.
+
+        Raises:
+            AcquireTimeout: The timeout expired before ``consume.lua`` admitted the marker.
+            ValueError: ``timeout`` is not positive.
+            RuntimeError: ``drain_enabled=False`` (no drain loop is running to admit the marker).
+        """
+        if timeout <= 0:
+            raise ValueError(f"timeout must be positive, got {timeout}")
+        if self._drain_loop is None:
+            raise RuntimeError("acquire() requires drain_enabled=True")
+
+        timeout_ms = int(timeout * 1000)
+        scheduled, task_id = self.schedule_task(
+            func_path=_ACQUIRE_MARKER_PATH,
+            payload={"_uuid": uuid.uuid4().hex, "_acquire_timeout_ms": timeout_ms},
+            priority=priority,
+            max_age=max(1, math.ceil(timeout)),
+        )
+        if not scheduled:
+            raise RuntimeError(
+                f"acquire marker rejected by buffer: limiter={self.id}, task_id={task_id}"
+            )
+
+        signal_key = f"{self.id}:acquire:{task_id}"
+        if self.redis.blpop(signal_key, timeout=timeout) is None:
+            raise AcquireTimeout(
+                f"Acquire on limiter '{self.id}' timed out after {timeout}s"
+            )
+        return self.task_lifecycle(task_id)
+
+    # ---------------------------------------------------------------------------
     # Task consumption and lease management
     # ---------------------------------------------------------------------------
 
@@ -1380,6 +1439,7 @@ class AbstractDistributedRateLimiter(
         consume_result: ConsumeResult = {
             "success": int(result[0]) == 1,
             "expired": int(result[0]) == -1,
+            "marker_skipped": int(result[0]) == -2,
             # fmt: off
             "task": cast(  # pragma: no mutate
                 TaskData, json.loads(result[1])
@@ -1589,21 +1649,20 @@ class AbstractDistributedRateLimiter(
                 assert task is not None, "task must be present when success is True"
                 task_id = task.get("id")
 
-                self._dispatch_task(
-                    func_path=task["func_path"],
-                    payload=task["payload"],
-                    task_id=task_id,
-                )
-                logger.info(
-                    "[%s] Task dispatched: limiter=%s, task_id=%s, func_path=%s.",
-                    type(self).__name__,
-                    self.id,
-                    task_id,
-                    task["func_path"],
-                )
+                if task["func_path"] != _ACQUIRE_MARKER_PATH:
+                    self._dispatch_task(
+                        func_path=task["func_path"],
+                        payload=task["payload"],
+                        task_id=task_id,
+                    )
+                    logger.info(
+                        "[%s] Task dispatched: limiter=%s, task_id=%s, func_path=%s.",
+                        type(self).__name__,
+                        self.id,
+                        task_id,
+                        task["func_path"],
+                    )
 
-                # Schedule a follow-up drain only if there are items still waiting in the buffer.
-                # This prevents the dispatcher from running indefinitely.
                 if result["remaining_tasks"] > 0:
                     logger.debug(
                         "[%s] More tasks remain, scheduling immediate follow-up drain: limiter=%s, remaining_tasks=%d.",
@@ -1630,6 +1689,10 @@ class AbstractDistributedRateLimiter(
                     result["active_concurrency"],
                     self.max_concurrency,
                 )
+
+            elif result["marker_skipped"]:
+                if result["remaining_tasks"] > 0:
+                    self._schedule_drain()
 
             elif result["remaining_tokens"] <= 0:
                 # Calculate when the next token becomes available via sliding

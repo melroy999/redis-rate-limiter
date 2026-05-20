@@ -31,7 +31,7 @@ graph LR
         ExecBlock["Worker / Thread,<br>TaskLifecycle"]
     end
 
-    User -->|"schedule_task()"| LimiterBlock
+    User -->|"schedule_task() / acquire()"| LimiterBlock
     LimiterBlock -->|"Lua scripts"| RedisBlock
     LimiterBlock -->|"_dispatch_task()"| BackendBlock
     BackendBlock -->|"send_task() / actor.send() / submit()"| ExecBlock
@@ -94,7 +94,7 @@ graph TD
 
 ## Drain, Consume, and Dispatch
 
-The drain, consume and dispatch phase covers the path from the drain loop through consumption to backend dispatch. The drain loop acquires the distributed lock, the consumer invokes `consume.lua` to atomically check the rate window, verify concurrency capacity, pop a task from the buffer and register the concurrency lease, and then the consumer dispatches the task to the configured backend.
+The drain, consume and dispatch phase covers the path from the drain loop through consumption to backend dispatch. The drain loop acquires the distributed lock, the consumer invokes `consume.lua` to atomically check the rate window, verify concurrency capacity, pop a task from the buffer and register the concurrency lease, and then the consumer dispatches the task to the configured backend. When the consumed task is an acquire marker (i.e., its `func_path` equals `__redis_rate_limiter_acquire_marker__`), `_drain_inner()` skips `_dispatch_task()` because the caller is already waiting on `BLPOP` and the signal was delivered atomically by `consume.lua`. If `consume.lua` returns status -2 (marker deadline elapsed), `_drain_inner()` schedules an immediate follow-up drain to process the next buffered item.
 
 ```mermaid
 %%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%

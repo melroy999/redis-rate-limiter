@@ -81,7 +81,6 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       PYTHONPATH: /app
-      MALLOC_ARENA_MAX: "4"
     volumes:
       # Rebuild with --build to pick up source changes.
       - ./mutmut-results:/app/mutation-output
@@ -89,7 +88,7 @@ services:
     command: >-
       bash -c "
         find /app/mutants -mindepth 1 -delete;
-        python scripts/run_mutmut.py run 2>&1 | tee /tmp/mutmut-run.log;
+        python scripts/run_mutmut.py run --max-children $$(( $$(nproc) - 2 )) 2>&1 | tee /tmp/mutmut-run.log;
         MUTMUT_EXIT=$${PIPESTATUS[0]};
         if [ $$MUTMUT_EXIT -ne 0 ]; then
           echo '*** BASELINE FAILURE: mutmut run exited with code '$$MUTMUT_EXIT' ***';
@@ -108,12 +107,11 @@ services:
       service: mutate
     container_name: redis-rate-limiter-mutate-profile
     environment:
-      MALLOC_ARENA_MAX: "4"
       MUTMUT_RESOURCE_SNAPSHOT_FILE: /tmp/mutmut_resource_snapshot.jsonl
     command: >-
       bash -c "
         find /app/mutants -mindepth 1 -delete;
-        python scripts/run_mutmut.py run 2>&1 | tee /tmp/mutmut-run.log;
+        python scripts/run_mutmut.py run --max-children $$(( $$(nproc) - 2 )) 2>&1 | tee /tmp/mutmut-run.log;
         MUTMUT_EXIT=$${PIPESTATUS[0]};
         if [ $$MUTMUT_EXIT -ne 0 ]; then
           echo '*** BASELINE FAILURE: mutmut run exited with code '$$MUTMUT_EXIT' ***';

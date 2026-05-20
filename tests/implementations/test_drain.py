@@ -111,6 +111,7 @@ class DrainBehaviorTests:
         consume_result = {
             "success": True,
             "expired": False,
+            "marker_skipped": False,
             "task": {
                 "id": "task-1",
                 "func_path": "myapp.tasks.work",
@@ -157,6 +158,7 @@ class DrainBehaviorTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": 0,
@@ -192,6 +194,7 @@ class DrainBehaviorTests:
         consume_result = {
             "success": False,
             "expired": True,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": 0,
@@ -226,6 +229,7 @@ class DrainBehaviorTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": limiter.max_concurrency,
@@ -261,6 +265,7 @@ class DrainBehaviorTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 0,
             "active_concurrency": 1,
@@ -306,6 +311,7 @@ class DrainBehaviorTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": 0,
@@ -335,6 +341,7 @@ class DrainBehaviorTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": 0,
@@ -401,6 +408,7 @@ class DrainBehaviorTests:
         consume_result = {
             "success": True,
             "expired": False,
+            "marker_skipped": False,
             "task": {
                 "id": "last-task",
                 "func_path": "myapp.tasks.work",
@@ -443,6 +451,7 @@ class DrainBehaviorTests:
         consume_result = {
             "success": False,
             "expired": True,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": 0,
@@ -509,6 +518,7 @@ class DrainBehaviorTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 0,
             "active_concurrency": 1,
@@ -629,6 +639,7 @@ class DrainObservabilityTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": 0,
@@ -686,6 +697,7 @@ class DrainObservabilityTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": 0,
@@ -767,6 +779,7 @@ class DrainObservabilityTests:
         consume_result = {
             "success": True,
             "expired": False,
+            "marker_skipped": False,
             "task": {
                 "id": "task-1",
                 "func_path": "myapp.tasks.work",
@@ -899,6 +912,7 @@ class DrainObservabilityTests:
         consume_result = {
             "success": False,
             "expired": True,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": 0,
@@ -938,6 +952,7 @@ class DrainObservabilityTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": limiter.max_concurrency,
@@ -982,6 +997,7 @@ class DrainObservabilityTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": 0,
@@ -1022,6 +1038,7 @@ class DrainObservabilityTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 0,
             "active_concurrency": 1,
@@ -1080,6 +1097,7 @@ class DrainObservabilityTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 0,
             "active_concurrency": 1,
@@ -1261,6 +1279,7 @@ class DrainBoundaryTests:
         consume_result = {
             "success": True,
             "expired": False,
+            "marker_skipped": False,
             "task": {
                 "id": "task-boundary",
                 "func_path": "myapp.tasks.work",
@@ -1302,6 +1321,7 @@ class DrainBoundaryTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 0,
             "active_concurrency": 1,
@@ -1347,6 +1367,7 @@ class DrainBoundaryTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 0,
             "active_concurrency": 1,
@@ -1386,6 +1407,7 @@ class DrainBoundaryTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 3,
             "active_concurrency": mock_target.max_concurrency,
@@ -1418,6 +1440,7 @@ class DrainBoundaryTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 0,
             "active_concurrency": 1,
@@ -1458,6 +1481,7 @@ class DrainBoundaryTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
             "task": None,
             "remaining_tokens": 0,
             "active_concurrency": 1,

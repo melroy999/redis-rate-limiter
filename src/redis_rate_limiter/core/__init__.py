@@ -11,6 +11,7 @@ from redis_rate_limiter.core.base import (
     AbstractAsyncRateLimiter,
     AbstractRateLimiter,
     AbstractSyncRateLimiter,
+    AcquireTimeout,
 )
 from redis_rate_limiter.core.decorators import rate_limited
 from redis_rate_limiter.core.importing import import_string, resolve_import_path
@@ -30,6 +31,7 @@ from redis_rate_limiter.core.scripts import load_lua_script
 __all__ = [
     "AbstractAsyncDistributedRateLimiter",
     "AbstractAsyncRateLimiter",
+    "AcquireTimeout",
     "AbstractDistributedRateLimiter",
     "AbstractRateLimiter",
     "AbstractSyncRateLimiter",

@@ -70,6 +70,7 @@ classDiagram
     class AbstractDistributedRateLimiter {
         <<abstract>>
         +schedule_task(func_path, payload, priority, max_age) tuple
+        +acquire(timeout, priority) TaskLifecycle
         +consume() ConsumeResult
         +drain()
         +trigger_consume()
@@ -87,6 +88,7 @@ classDiagram
         <<abstract>>
         +async start() void
         +async schedule_task() tuple
+        +async acquire(timeout, priority) AsyncTaskLifecycle
         +async consume() ConsumeResult
         +async drain()
         +async trigger_consume()

@@ -234,6 +234,7 @@ class RateLimiterContractTest:
         expected_keys = {
             "success",
             "expired",
+            "marker_skipped",
             "task",
             "remaining_tokens",
             "active_concurrency",
@@ -250,6 +251,9 @@ class RateLimiterContractTest:
         # Assert that the value types match the ConsumeResult TypedDict contract.
         assert isinstance(result["success"], bool), "success must be a bool"
         assert isinstance(result["expired"], bool), "expired must be a bool"
+        assert isinstance(result["marker_skipped"], bool), (
+            "marker_skipped must be a bool"
+        )
         assert result["task"] is None or isinstance(result["task"], dict), (
             "task must be None or a dict"
         )

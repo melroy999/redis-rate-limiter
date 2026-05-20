@@ -30,8 +30,9 @@ from typing import (
 
 import redis.asyncio
 
-from redis_rate_limiter.core.base import AbstractAsyncRateLimiter
+from redis_rate_limiter.core.base import AbstractAsyncRateLimiter, AcquireTimeout
 from redis_rate_limiter.core.limiters import (
+    _ACQUIRE_MARKER_PATH,
     LOCK_ACQUIRE_SCRIPT,
     LOCK_RELEASE_SCRIPT,
     LOCK_SIMPLE_RELEASE_SCRIPT,
@@ -914,6 +915,63 @@ class AbstractAsyncDistributedRateLimiter(
         return True, task_id
 
     # ---------------------------------------------------------------------------
+    # Inline slot acquisition
+    # ---------------------------------------------------------------------------
+
+    async def acquire(self, timeout: float, priority: int = 100) -> AsyncTaskLifecycle:
+        """Block up to ``timeout`` seconds for a rate and concurrency slot, then return a context manager that releases it.
+
+        Schedules a marker into the priority buffer so that inline callers
+        compete for the rate and concurrency budget on the same footing as
+        buffered tasks. The wait is implemented as ``BLPOP`` against a per-call
+        signal list that ``consume.lua`` populates atomically with the lease
+        registration. An embedded deadline in the marker payload lets
+        ``consume.lua`` refuse admission for callers whose timeout has already
+        elapsed, preventing concurrency slot leaks.
+
+        Args:
+            timeout: Maximum time in seconds to wait for admission. Must be positive.
+            priority: Priority for the marker; lower scores are dequeued first.
+
+        Returns:
+            An ``AsyncTaskLifecycle`` whose ``__aenter__`` confirms the slot and
+            whose ``__aexit__`` releases it via ``release.lua``.
+
+        Raises:
+            AcquireTimeout: The timeout expired before ``consume.lua`` admitted the marker.
+            ValueError: ``timeout`` is not positive.
+            RuntimeError: ``drain_enabled=False`` (no drain loop is running to admit the marker).
+        """
+        if timeout <= 0:
+            raise ValueError(f"timeout must be positive, got {timeout}")
+        if self._drain_loop is None:
+            raise RuntimeError("acquire() requires drain_enabled=True")
+
+        timeout_ms = int(timeout * 1000)
+        scheduled, task_id = await self.schedule_task(
+            func_path=_ACQUIRE_MARKER_PATH,
+            payload={"_uuid": uuid.uuid4().hex, "_acquire_timeout_ms": timeout_ms},
+            priority=priority,
+            max_age=max(1, math.ceil(timeout)),
+        )
+        if not scheduled:
+            raise RuntimeError(
+                f"acquire marker rejected by buffer: limiter={self.id}, task_id={task_id}"
+            )
+
+        signal_key = f"{self.id}:acquire:{task_id}"
+        # fmt: off
+        blpop_result = await cast(  # pragma: no mutate
+            Awaitable, self.redis.blpop(signal_key, timeout=timeout)
+        )
+        # fmt: on
+        if blpop_result is None:
+            raise AcquireTimeout(
+                f"Acquire on limiter '{self.id}' timed out after {timeout}s"
+            )
+        return self.task_lifecycle(task_id)
+
+    # ---------------------------------------------------------------------------
     # Task consumption and lease management
     # ---------------------------------------------------------------------------
 
@@ -949,6 +1007,7 @@ class AbstractAsyncDistributedRateLimiter(
         consume_result: ConsumeResult = {
             "success": int(result[0]) == 1,
             "expired": int(result[0]) == -1,
+            "marker_skipped": int(result[0]) == -2,
             # fmt: off
             "task": cast(  # pragma: no mutate
                 TaskData, json.loads(result[1])
@@ -1127,18 +1186,19 @@ class AbstractAsyncDistributedRateLimiter(
                 assert task is not None, "task must be present when success is True"
                 task_id = task.get("id")
 
-                await self._dispatch_task(
-                    func_path=task["func_path"],
-                    payload=task["payload"],
-                    task_id=task_id,
-                )
-                logger.info(
-                    "[%s] Task dispatched: limiter=%s, task_id=%s, func_path=%s.",
-                    type(self).__name__,
-                    self.id,
-                    task_id,
-                    task["func_path"],
-                )
+                if task["func_path"] != _ACQUIRE_MARKER_PATH:
+                    await self._dispatch_task(
+                        func_path=task["func_path"],
+                        payload=task["payload"],
+                        task_id=task_id,
+                    )
+                    logger.info(
+                        "[%s] Task dispatched: limiter=%s, task_id=%s, func_path=%s.",
+                        type(self).__name__,
+                        self.id,
+                        task_id,
+                        task["func_path"],
+                    )
 
                 if result["remaining_tasks"] > 0:
                     logger.debug(
@@ -1164,6 +1224,10 @@ class AbstractAsyncDistributedRateLimiter(
                     result["active_concurrency"],
                     self.max_concurrency,
                 )
+
+            elif result["marker_skipped"]:
+                if result["remaining_tasks"] > 0:
+                    self._schedule_drain()
 
             elif result["remaining_tokens"] <= 0:
                 val_previous = result["val_previous"]

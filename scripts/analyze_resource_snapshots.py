@@ -69,7 +69,7 @@ def _per_pid_peak(samples: list[_Sample]) -> None:
         if existing is None or s.rss_kb > existing.rss_kb:
             by_pid[s.pid] = s
 
-    print(f"\n{'='*60}\nPer-PID peak RSS\n{'='*60}")
+    print(f"\n{'=' * 60}\nPer-PID peak RSS\n{'=' * 60}")
     print(f"{'pid':>8s} {'rss_mb':>8s} {'threads':>8s} {'fds':>6s}  test_at_peak")
     for pid in sorted(by_pid, key=lambda p: -by_pid[p].rss_kb):
         s = by_pid[pid]
@@ -107,7 +107,7 @@ def _concurrent_peak(samples: list[_Sample]) -> None:
             peak_ts = s.ts
             peak_state = {p: (last_rss[p], last_node[p]) for p in alive}
 
-    print(f"\n{'='*60}\nConcurrent RSS peak across all PIDs\n{'='*60}")
+    print(f"\n{'=' * 60}\nConcurrent RSS peak across all PIDs\n{'=' * 60}")
     print(f"peak_total_mb : {peak_sum_kb / 1024:.1f}")
     print(f"peak_ts       : {peak_ts:.3f}")
     print(f"alive_pids    : {len(peak_state)}")
@@ -127,13 +127,11 @@ def _per_test_peak(samples: list[_Sample], top: int) -> None:
         if existing is None or s.rss_kb > existing.rss_kb:
             by_node[s.nodeid] = s
 
-    print(f"\n{'='*60}\nTop {top} tests by peak RSS while active\n{'='*60}")
+    print(f"\n{'=' * 60}\nTop {top} tests by peak RSS while active\n{'=' * 60}")
     print(f"{'rss_mb':>8s} {'threads':>8s} {'fds':>6s}  nodeid")
     ranked = sorted(by_node.values(), key=lambda s: -s.rss_kb)[:top]
     for s in ranked:
-        print(
-            f"{s.rss_kb / 1024:>8.1f} {s.threads:>8d} {s.fds:>6d}  {s.nodeid}"
-        )
+        print(f"{s.rss_kb / 1024:>8.1f} {s.threads:>8d} {s.fds:>6d}  {s.nodeid}")
 
 
 def _summary(samples: list[_Sample]) -> None:
@@ -143,7 +141,7 @@ def _summary(samples: list[_Sample]) -> None:
     pids = {s.pid for s in samples}
     test_starts = sum(1 for s in samples if s.event == "start")
     duration = samples[-1].ts - samples[0].ts
-    print(f"\n{'='*60}\nSummary\n{'='*60}")
+    print(f"\n{'=' * 60}\nSummary\n{'=' * 60}")
     print(f"distinct_pids   : {len(pids)}")
     print(f"sample_events   : {sum(1 for s in samples if s.event == 'sample')}")
     print(f"test_starts     : {test_starts}")

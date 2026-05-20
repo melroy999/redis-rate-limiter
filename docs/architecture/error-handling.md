@@ -340,6 +340,11 @@ The following table enumerates every identified failure mode, its handling strat
 | 34 | ASGI `acquire()` script failure | `ASGIRateLimiter.acquire()` | Any `Exception` | Logged, re-raised to middleware | `implementations/asgi/test_middleware::test_acquire_error_emits_exception_log` | No |
 | 35 | ASGI middleware error, fail_open | `RateLimitMiddleware.__call__()` | Any `Exception` | Request proceeds without rate limit headers | `implementations/asgi/test_middleware::test_fail_open_allows_on_error` | No |
 | 36 | ASGI middleware error, fail_closed | `RateLimitMiddleware.__call__()` | Any `Exception` | Returns 503 Service Unavailable | `implementations/asgi/test_middleware::test_fail_closed_returns_503_on_error` | No |
+| 37 | Acquire marker deadline elapsed before consume | `consume.lua` | N/A (status -2) | Marker silently dropped; inflight key deleted; `_drain_inner()` schedules follow-up drain if remaining tasks > 0 | None (acquire-specific tests pending) | **Yes** |
+| 38 | BLPOP timeout during `acquire()` | `acquire()` | `AcquireTimeout` | Propagates to caller; stale concurrency lease (if any) reclaimed by self-healing `ZREMRANGEBYSCORE` on next consume | None (acquire-specific tests pending) | **Yes** |
+| 39 | Redis restart mid-acquire (signal key lost) | `acquire()` | `AcquireTimeout` | Signal key lost; `BLPOP` returns nil on timeout; `AcquireTimeout` raised; stale lease reclaimed by self-healing | None (acquire-specific tests pending) | **Yes** |
+| 40 | Acquire marker rejected by buffer (inflight collision) | `acquire()` | `RuntimeError` | Propagates to caller; no concurrency slot reserved | None (acquire-specific tests pending) | **Yes** |
+| 41 | `acquire()` called with `drain_enabled=False` | `acquire()` | `RuntimeError` | Propagates to caller | None (acquire-specific tests pending) | **Yes** |
 
 ## References
 

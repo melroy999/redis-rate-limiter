@@ -71,6 +71,41 @@ sequenceDiagram
     note over D: DrainLoop wakes, cycle repeats
 ```
 
+## Inline Acquire Flow
+
+The `acquire()` method provides an alternative entry point for callers that wish to block inline until a rate and concurrency slot becomes available, rather than scheduling a task for deferred execution. The mechanism reuses the existing buffer and drain loop infrastructure: the caller schedules a sentinel marker (with `func_path` set to `__redis_rate_limiter_acquire_marker__`) into the priority buffer and then blocks on `BLPOP` against a per-call signal key. When `consume.lua` dequeues the marker, it registers the concurrency lease via `ZADD` and atomically signals the caller via `RPUSH` on the signal key. The caller's `BLPOP` wakes, and `acquire()` returns a `TaskLifecycle` (sync) or `AsyncTaskLifecycle` (async) context manager that releases the slot on exit.
+
+The marker carries an embedded deadline (`__meta_arrived_at + _acquire_timeout_ms`). If the drain loop does not reach the marker before the deadline elapses, `consume.lua` silently drops the marker (status -2) instead of admitting it, which prevents reserving a concurrency slot for a caller whose `BLPOP` has already timed out. Expired markers are not moved to the dead letter queue, because they represent abandoned admission attempts rather than failed task work.
+
+```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
+sequenceDiagram
+    participant U as User Code
+    participant L as Limiter
+    participant R as Redis
+    participant D as DrainLoop
+
+    U->>+L: acquire(timeout, priority)
+    L->>R: SET NX inflight:{marker_id} (dedup)
+    L->>R: EVALSHA schedule.lua (marker)
+    L->>D: wake(delay=0)
+    L->>R: BLPOP {id}:acquire:{marker_id} (blocks)
+
+    note over D: DrainLoop fires
+
+    D->>R: EVALSHA consume.lua
+    note right of R: Recognizes marker:<br>ZADD concurrency lease,<br>RPUSH signal key,<br>PEXPIRE signal key
+
+    R-->>L: BLPOP returns marker_id
+    L-->>-U: return TaskLifecycle
+
+    note over U: Use slot within context manager
+
+    U->>R: ZREM concurrency (release slot)
+    U->>R: DEL inflight:{marker_id}
+    U->>D: trigger_consume()
+```
+
 **Test coverage:**
 
 | Phase | Message | Description | Tested by |

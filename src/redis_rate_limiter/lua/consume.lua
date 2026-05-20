@@ -38,6 +38,9 @@
 --      0: blocked by rate or concurrency limit, or buffer was empty.
 --     -1: head-of-buffer task expired and was moved to the DLQ; the
 --         caller should retry to inspect the next task.
+--     -2: head-of-buffer was an acquire marker whose deadline had elapsed;
+--         it was silently dropped (no DLQ, no signal). The caller should
+--         retry to inspect the next task.
 -- The remaining elements expose telemetry, in order:
 --     {status, task_json_or_false, remaining, active_now, reset_in_ms,
 --      buffer_count, previous_count, current_count}
@@ -95,13 +98,34 @@ if estimated_count < rate_limit and active_now < max_concurrency then
         local effective_max_age = task_data['__meta_max_age'] or max_age
         local task_age = timestamp - math.floor(task_data['__meta_arrived_at'] / 1000)
         if task_age > effective_max_age then
-            redis.call('RPUSH', dlq_key, raw_task_json)
+            -- Acquire markers represent abandoned admission attempts, not
+            -- failed task work; silently drop instead of polluting the DLQ.
+            if task_data.func_path ~= '__redis_rate_limiter_acquire_marker__' then
+                redis.call('RPUSH', dlq_key, raw_task_json)
+            end
             -- Expired tasks will never run, so clear the in-flight
             -- deduplication marker immediately to allow re-submission.
             local inflight_key = task_data['inflight_key']
             redis.call('DEL', inflight_key)
 
             return {-1, false, remaining, active_now, reset_in_ms, buffer_count - 1, previous_count, current_count}
+        end
+
+        -- Acquire markers carry an absolute deadline (arrived_at + timeout).
+        -- Skip admission if the deadline has already passed: the caller's
+        -- BLPOP has already timed out, so reserving a slot would leak
+        -- capacity until the lease expires. Returns status -2 so the drain
+        -- loop can retry the next task without conflating this with the
+        -- expired-to-DLQ path (status -1).
+        if task_data.func_path == '__redis_rate_limiter_acquire_marker__' then
+            local timeout_ms = task_data.payload and task_data.payload._acquire_timeout_ms
+            if timeout_ms then
+                local deadline_ms = task_data['__meta_arrived_at'] + timeout_ms
+                if now_ms >= deadline_ms then
+                    redis.call('DEL', task_data['inflight_key'])
+                    return {-2, false, remaining, active_now, reset_in_ms, buffer_count - 1, previous_count, current_count}
+                end
+            end
         end
 
         redis.call('INCR', current_key)
@@ -116,6 +140,17 @@ if estimated_count < rate_limit and active_now < max_concurrency then
 
         local lease_expiry = timestamp + lease_duration
         redis.call('ZADD', concurrency_key, lease_expiry, task_id)
+
+        -- Acquire markers signal their waiting caller via BLPOP on a
+        -- per-call list. The RPUSH is atomic with the lease ZADD: when
+        -- the caller's BLPOP wakes, the slot is already reserved. The
+        -- TTL is derived from the acquire timeout so the key does not
+        -- expire while the caller's BLPOP is still waiting.
+        if task_data.func_path == '__redis_rate_limiter_acquire_marker__' then
+            local signal_key = base_key .. ':acquire:' .. task_id
+            redis.call('RPUSH', signal_key, task_id)
+            redis.call('PEXPIRE', signal_key, task_data.payload._acquire_timeout_ms)
+        end
 
         return {1, tasks[1], remaining - 1, active_now + 1, reset_in_ms, buffer_count - 1, previous_count, current_count + 1}
     end
