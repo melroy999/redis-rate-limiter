@@ -13,7 +13,7 @@ Test files belong in the directory that matches their scope and subject.
 | Scope | Directory | Example |
 |---|---|---|
 | Abstract contracts (any backend must pass) | `tests/contracts/` | `test_rate_limiter.py`, `test_distributed_lock.py` |
-| Backend-agnostic implementation | `tests/implementations/` | `test_rate_limiter.py`, `test_drain.py` |
+| Backend-agnostic implementation | `tests/implementations/` | `test_rate_limiter.py`, `test_drain.py`, `test_acquire.py` |
 | Backend-specific implementation | `tests/implementations/<backend>/` | `celery/test_celery_limiter.py` |
 | Pure algorithm verification | `tests/algorithms/` | `test_sliding_window_counter.py` |
 | Property-based (Hypothesis) | `tests/properties/` | `test_sliding_window_counter.py` |
@@ -376,7 +376,6 @@ assert not any(
 
 **Body-level bound requirement**: the marker carries one meaning only, namely that *the test body itself has a primitive that will fire regardless of event-loop state*. Acceptable bounds, all installed inside the test body:
 
-- `shutdown_completes_within(...)` / `async_shutdown_completes_within(...)`
 - `shutdown_timer(...)` (sets a `_shutdown` flag from a `threading.Timer`; pass `on_fire=...` for non-attribute targets such as `asyncio.Event`)
 - `cap_iterations(...)` (counting stub on the loop's I/O primitive)
 - `trip_after_deadline(...)` (wall-clock guard from inside the loop's own call path)
@@ -389,12 +388,12 @@ assert not any(
 
 | Failure mode | What it looks like | Detection tool |
 |---|---|---|
-| **Hang** | Code blocks forever or fails to terminate (e.g., `Event.wait(timeout=None)` blocks because the timeout literal was nulled). | Wall-clock-based: `shutdown_completes_within`, `shutdown_timer`, bounded `Thread.join`. |
+| **Hang** | Code blocks forever or fails to terminate (e.g., `Event.wait(timeout=None)` blocks because the timeout literal was nulled). | Wall-clock-based: `shutdown_timer`, bounded `Thread.join`. |
 | **Spin** | Code iterates without throttling (e.g., a poll loop's floor literal mutated to `0`, producing thousands of iterations per second). | `cap_iterations()` with mocked I/O. |
 
 A wall-clock-based test cannot reliably detect a spin: by the time a 1-second cap fires, the spinning loop has already executed 100k+ iterations and (if I/O is real) flooded shared resources (Redis) the whole time. An iteration-cap test cannot detect a hang: the count stays at 1 if the first iteration blocks forever, and the test passes erroneously.
 
-**Critical rule: never combine real I/O + wall-clock detection in a `timeout_safety_net` test.** A wall-clock-based test that runs real I/O will, under any spin-class mutation in the surrounding code, hold the real I/O path open for the full timeout duration. Under mutmut's parallel execution this floods Redis and cascades timeouts onto unrelated mutants in other parallel children. Examples of safe wall-clock tests: `shutdown_completes_within(loop)` where `loop` is built with mocked dependencies; `shutdown_timer(subscriber)` where `subscriber._pubsub` is a `MagicMock`. The unsafe pattern is wrapping any real Redis-touching call in a wall-clock cap to detect spin; use `cap_iterations()` with the I/O primitive mocked instead.
+**Critical rule: never combine real I/O + wall-clock detection in a `timeout_safety_net` test.** A wall-clock-based test that runs real I/O will, under any spin-class mutation in the surrounding code, hold the real I/O path open for the full timeout duration. Under mutmut's parallel execution this floods Redis and cascades timeouts onto unrelated mutants in other parallel children. Examples of safe wall-clock tests: `shutdown_timer(subscriber)` where `subscriber._pubsub` is a `MagicMock`. The unsafe pattern is wrapping any real Redis-touching call in a wall-clock cap to detect spin; use `cap_iterations()` with the I/O primitive mocked instead.
 
 **`cap_iterations` usage**: install on the loop's I/O primitive so mutations on the surrounding throttle (smart-jitter floor, watchdog interval, sleep literal) trip the cap. The mock prevents real I/O from being touched, so the test cannot itself flood shared resources under any mutation. For background loops (drain, heartbeat, subscriber) where the `AssertionError` raised by the cap is swallowed by the loop's own exception handler, inspect the yielded count via `count()` after a bounded `time.sleep` / `asyncio.sleep`. For foreground loops where the cap's `AssertionError` propagates to the test thread, the cap is the failure mechanism directly.
 
@@ -646,7 +645,7 @@ Without such documentation, a future contributor may "optimize" the value back t
 
 ### 10.1 Rationale
 
-The core rate limiting algorithm is implemented in Lua scripts: `consume.lua`, `acquire.lua`, `schedule.lua`, `health.lua`, and `renew.lua`. While the algorithm is verified via a Python reference implementation in `tests/algorithms/` and tested through the Python integration layer, the Lua scripts themselves have no isolated unit tests. A Lua-specific bug (e.g., off-by-one in return value indexing, incorrect `ARGV` parsing, a rounding difference vs the Python reference) would only be caught indirectly.
+The core rate limiting algorithm is implemented in Lua scripts: `consume.lua`, `acquire.lua`, `schedule.lua`, `health.lua`, `renew.lua`, and `release.lua`. The algorithm is verified via a Python reference implementation in `tests/algorithms/` and tested through the Python integration layer. Lua-level unit tests in `tests/lua/` exercise each script directly via `redis.eval()`, catching Lua-specific bugs (e.g., off-by-one in return value indexing, incorrect `ARGV` parsing, boundary decisions) that would only be caught indirectly by the Python-level tests.
 
 ### 10.2 Test Location and Structure
 

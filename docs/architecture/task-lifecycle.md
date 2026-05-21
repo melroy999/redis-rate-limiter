@@ -106,7 +106,24 @@ sequenceDiagram
     U->>D: trigger_consume()
 ```
 
-**Test coverage:**
+**Inline acquire test coverage:**
+
+| Phase | Description | Tested by |
+|-------|-------------|-----------|
+| Precondition | `acquire()` rejects non-positive timeout | `implementations/test_acquire::test_acquire_raises_value_error_for_non_positive_timeout`, `test_acquire_raises_value_error_for_zero_timeout` |
+| Precondition | `acquire()` rejects call without drain loop | `implementations/test_acquire::test_acquire_raises_runtime_error_without_drain_loop` |
+| Schedule | Marker scheduled with correct func_path | `implementations/test_acquire::test_acquire_schedules_marker_with_correct_func_path` |
+| Schedule | Marker payload contains timeout in ms | `implementations/test_acquire::test_acquire_schedules_marker_with_timeout_in_payload` |
+| Schedule | Marker payload contains UUID | `implementations/test_acquire::test_acquire_schedules_marker_with_uuid_in_payload` |
+| Schedule | Marker scheduled with custom priority | `implementations/test_acquire::test_acquire_schedules_marker_with_custom_priority` |
+| Schedule | max_age is ceiling of timeout | `implementations/test_acquire::test_acquire_max_age_is_ceiling_of_timeout` |
+| Schedule | Buffer rejection raises RuntimeError | `implementations/test_acquire::test_acquire_raises_runtime_error_when_scheduling_fails` |
+| BLPOP | BLPOP uses correct signal key | `implementations/test_acquire::test_acquire_blocks_on_correct_signal_key` |
+| BLPOP | BLPOP None raises AcquireTimeout | `implementations/test_acquire::test_acquire_raises_acquire_timeout_on_blpop_none` |
+| BLPOP | Timeout message contains limiter ID | `implementations/test_acquire::test_acquire_timeout_message_contains_limiter_id` |
+| Return | Returns lifecycle with correct task ID | `implementations/test_acquire::test_acquire_returns_lifecycle_with_correct_task_id` |
+
+**Standard lifecycle test coverage:**
 
 | Phase | Message | Description | Tested by |
 |-------|---------|-------------|-----------|

@@ -518,6 +518,296 @@ class TestConsumeBoundaryDecisions:
 
 
 @pytest.mark.behavior
+class TestConsumeAcquireMarkerHandling:
+    """Tests for ``consume.lua`` acquire marker recognition, signaling,
+    expiry suppression, and deadline enforcement."""
+
+    _MARKER_FUNC_PATH = "__redis_rate_limiter_acquire_marker__"
+
+    @staticmethod
+    def test_marker_admitted_signals_via_rpush(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that an admitted marker signals the caller via RPUSH to the signal key."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        task_json = build_task_json(
+            "marker-1",
+            func_path="__redis_rate_limiter_acquire_marker__",
+            payload={"_uuid": "test", "_acquire_timeout_ms": 5000},
+            arrived_at_ms=now * 1000,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        result = _eval_consume(
+            redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        )
+
+        # Assert
+        assert result[0] == 1, "marker should be admitted"
+        signal_key = f"{base_key}:acquire:marker-1"
+        signal_values = redis_client.lrange(signal_key, 0, -1)
+        assert "marker-1" in signal_values, (
+            "signal key should contain the task id after marker admission"
+        )
+
+    @staticmethod
+    def test_marker_admitted_signal_key_has_pexpire(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that the signal key has a TTL derived from the acquire timeout."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        timeout_ms = 5000
+        task_json = build_task_json(
+            "marker-ttl",
+            func_path="__redis_rate_limiter_acquire_marker__",
+            payload={"_uuid": "test", "_acquire_timeout_ms": timeout_ms},
+            arrived_at_ms=now * 1000,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        _eval_consume(
+            redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        )
+
+        # Assert
+        signal_key = f"{base_key}:acquire:marker-ttl"
+        pttl = redis_client.pttl(signal_key)
+        assert 0 < pttl <= timeout_ms, (
+            f"signal key PTTL should be positive and at most {timeout_ms}, got {pttl}"
+        )
+
+    @staticmethod
+    def test_marker_expired_not_pushed_to_dlq(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that an expired marker is silently dropped, not routed to the DLQ."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        expired_arrived_at = (now - MAX_AGE - 10) * 1000
+        task_json = build_task_json(
+            "marker-expired",
+            func_path="__redis_rate_limiter_acquire_marker__",
+            payload={"_uuid": "test", "_acquire_timeout_ms": 5000},
+            arrived_at_ms=expired_arrived_at,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        result = _eval_consume(
+            redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        )
+
+        # Assert
+        assert result[0] == -1, "status should be -1 for expired marker"
+        dlq_contents = redis_client.lrange(dlq_key, 0, -1)
+        assert len(dlq_contents) == 0, (
+            "expired markers should not be pushed to the DLQ"
+        )
+
+    @staticmethod
+    def test_marker_expired_inflight_key_deleted(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that the inflight key is deleted when a marker expires."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        expired_arrived_at = (now - MAX_AGE - 10) * 1000
+        inflight_key = f"{base_key}:inflight:marker-expired-ifl"
+        task_json = build_task_json(
+            "marker-expired-ifl",
+            func_path="__redis_rate_limiter_acquire_marker__",
+            payload={"_uuid": "test", "_acquire_timeout_ms": 5000},
+            arrived_at_ms=expired_arrived_at,
+            inflight_key=inflight_key,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+        redis_client.set(inflight_key, "1")
+
+        # Act
+        _eval_consume(
+            redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        )
+
+        # Assert
+        assert redis_client.exists(inflight_key) == 0, (
+            "inflight key should be deleted for expired markers"
+        )
+
+    @staticmethod
+    def test_non_marker_expired_pushed_to_dlq(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that a non-marker expired task is routed to the DLQ (control test)."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        expired_arrived_at = (now - MAX_AGE - 10) * 1000
+        task_json = build_task_json(
+            "normal-expired",
+            func_path="test.task",
+            arrived_at_ms=expired_arrived_at,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        result = _eval_consume(
+            redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        )
+
+        # Assert
+        assert result[0] == -1, "status should be -1 for expired task"
+        dlq_contents = redis_client.lrange(dlq_key, 0, -1)
+        assert len(dlq_contents) == 1, (
+            "non-marker expired tasks should be pushed to the DLQ"
+        )
+
+    @staticmethod
+    def test_marker_deadline_elapsed_returns_status_minus_two(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that a marker whose BLPOP deadline has elapsed returns status -2."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        # 10 seconds in the past with a 1-second timeout: deadline is 9 seconds ago.
+        arrived_at_ms = (now - 10) * 1000
+        task_json = build_task_json(
+            "marker-deadline",
+            func_path="__redis_rate_limiter_acquire_marker__",
+            payload={"_uuid": "test", "_acquire_timeout_ms": 1000},
+            arrived_at_ms=arrived_at_ms,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        result = _eval_consume(
+            redis_client, base_key, buffer_key, concurrency_key, dlq_key,
+            max_age=3600,
+        )
+
+        # Assert
+        assert result[0] == -2, (
+            "status should be -2 when marker deadline has elapsed"
+        )
+
+    @staticmethod
+    def test_marker_deadline_elapsed_deletes_inflight_key(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that the inflight key is deleted when a marker deadline has elapsed."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        arrived_at_ms = (now - 10) * 1000
+        inflight_key = f"{base_key}:inflight:marker-dl-ifl"
+        task_json = build_task_json(
+            "marker-dl-ifl",
+            func_path="__redis_rate_limiter_acquire_marker__",
+            payload={"_uuid": "test", "_acquire_timeout_ms": 1000},
+            arrived_at_ms=arrived_at_ms,
+            inflight_key=inflight_key,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+        redis_client.set(inflight_key, "1")
+
+        # Act
+        _eval_consume(
+            redis_client, base_key, buffer_key, concurrency_key, dlq_key,
+            max_age=3600,
+        )
+
+        # Assert
+        assert redis_client.exists(inflight_key) == 0, (
+            "inflight key should be deleted when marker deadline has elapsed"
+        )
+
+    @staticmethod
+    def test_marker_deadline_elapsed_does_not_consume_token(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that a deadline-elapsed marker does not increment the window counter."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        arrived_at_ms = (now - 10) * 1000
+        task_json = build_task_json(
+            "marker-dl-token",
+            func_path="__redis_rate_limiter_acquire_marker__",
+            payload={"_uuid": "test", "_acquire_timeout_ms": 1000},
+            arrived_at_ms=arrived_at_ms,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+        current_key, _ = get_window_keys(redis_client, base_key)
+
+        # Act
+        _eval_consume(
+            redis_client, base_key, buffer_key, concurrency_key, dlq_key,
+            max_age=3600,
+        )
+
+        # Assert
+        counter = redis_client.get(current_key)
+        assert counter is None, (
+            "window counter should not be incremented for deadline-elapsed markers"
+        )
+
+    @staticmethod
+    def test_marker_deadline_elapsed_does_not_register_lease(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that a deadline-elapsed marker does not register a concurrency lease."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        arrived_at_ms = (now - 10) * 1000
+        task_json = build_task_json(
+            "marker-dl-lease",
+            func_path="__redis_rate_limiter_acquire_marker__",
+            payload={"_uuid": "test", "_acquire_timeout_ms": 1000},
+            arrived_at_ms=arrived_at_ms,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        _eval_consume(
+            redis_client, base_key, buffer_key, concurrency_key, dlq_key,
+            max_age=3600,
+        )
+
+        # Assert
+        assert redis_client.zcard(concurrency_key) == 0, (
+            "concurrency set should remain empty for deadline-elapsed markers"
+        )
+
+    @staticmethod
+    def test_marker_within_deadline_is_admitted(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that a marker within its deadline is admitted and signals the caller."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        task_json = build_task_json(
+            "marker-ok",
+            func_path="__redis_rate_limiter_acquire_marker__",
+            payload={"_uuid": "test", "_acquire_timeout_ms": 10000},
+            arrived_at_ms=now * 1000,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        result = _eval_consume(
+            redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        )
+
+        # Assert
+        assert result[0] == 1, "marker within deadline should be admitted"
+        signal_key = f"{base_key}:acquire:marker-ok"
+        signal_values = redis_client.lrange(signal_key, 0, -1)
+        assert len(signal_values) == 1, (
+            "signal key should be populated for admitted marker"
+        )
+
+
+@pytest.mark.behavior
 class TestConsumeTelemetry:
     """Tests for ``consume.lua`` telemetry accuracy in the returned array."""
 

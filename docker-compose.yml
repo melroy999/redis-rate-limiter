@@ -88,7 +88,7 @@ services:
     command: >-
       bash -c "
         find /app/mutants -mindepth 1 -delete;
-        python scripts/run_mutmut.py run --max-children $$(( $$(nproc) - 2 )) 2>&1 | tee /tmp/mutmut-run.log;
+        python scripts/run_mutmut.py run --max-children $$(( $$(nproc) - 4 )) 2>&1 | tee /tmp/mutmut-run.log;
         MUTMUT_EXIT=$${PIPESTATUS[0]};
         if [ $$MUTMUT_EXIT -ne 0 ]; then
           echo '*** BASELINE FAILURE: mutmut run exited with code '$$MUTMUT_EXIT' ***';
@@ -111,7 +111,7 @@ services:
     command: >-
       bash -c "
         find /app/mutants -mindepth 1 -delete;
-        python scripts/run_mutmut.py run --max-children $$(( $$(nproc) - 2 )) 2>&1 | tee /tmp/mutmut-run.log;
+        python scripts/run_mutmut.py run --max-children $$(( $$(nproc) - 4 )) 2>&1 | tee /tmp/mutmut-run.log;
         MUTMUT_EXIT=$${PIPESTATUS[0]};
         if [ $$MUTMUT_EXIT -ne 0 ]; then
           echo '*** BASELINE FAILURE: mutmut run exited with code '$$MUTMUT_EXIT' ***';

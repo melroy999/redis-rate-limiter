@@ -64,7 +64,7 @@ stateDiagram-v2
 | Scheduled → DuplicateRejected | SET NX fails (inflight key exists) | `contracts/test_rate_limiter::test_schedule_duplicate_task_returns_false`, `implementations/test_rate_limiter::test_schedule_duplicate_task_skips_second` |
 | DuplicateRejected → [*] | Returns (False, task_id) | `contracts/test_rate_limiter::test_schedule_duplicate_task_returns_false` |
 | Buffered → Active | `consume.lua` succeeds (pop + lease + increment) | `contracts/test_rate_limiter::test_consume_returns_expected_structure`, `integration/test_rate_limiting::test_basic_rate_limit_enforcement` |
-| Buffered → MarkerSignalled | `consume.lua` admits acquire marker (ZADD lease + RPUSH signal) | None (acquire-specific tests pending) |
+| Buffered → MarkerSignalled | `consume.lua` admits acquire marker (ZADD lease + RPUSH signal) | `implementations/test_acquire::TestSyncAcquireBehavior::test_acquire_blocks_on_correct_signal_key`, `implementations/test_acquire::TestAsyncAcquireBehavior::test_acquire_blocks_on_correct_signal_key` |
 | Buffered → MarkerDropped | Acquire marker deadline elapsed; silently dropped (status -2) | None (acquire-specific tests pending) |
 | Buffered → ExpiredDLQ | `consume.lua` finds age > max_age | `integration/test_rate_limiting::test_expired_task_moved_to_dlq` |
 | Buffered → Buffered | Rate or concurrency limit exceeded; retry scheduled | `integration/test_rate_limiting::test_basic_rate_limit_enforcement`, `integration/test_rate_limiting::test_concurrency_limit_enforcement` |

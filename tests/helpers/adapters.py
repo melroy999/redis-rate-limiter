@@ -44,6 +44,9 @@ class SyncToAsyncLimiterAdapter:
     def execution_lock(self, **kwargs):
         return SyncToAsyncLockAdapter(self._inner.execution_lock(**kwargs))
 
+    async def acquire(self, timeout, priority=100):
+        return SyncToAsyncLifecycleAdapter(self._inner.acquire(timeout, priority))
+
     def task_lifecycle(self, task_id, **kwargs):
         return SyncToAsyncLifecycleAdapter(
             self._inner.task_lifecycle(task_id, **kwargs)

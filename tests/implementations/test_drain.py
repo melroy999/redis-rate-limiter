@@ -602,6 +602,119 @@ class DrainBehaviorTests:
             f"got {actual}"
         )
 
+    async def test_drain_marker_consumed_skips_dispatch_but_schedules_follow_up(
+        self, limiter, mock_target
+    ):
+        """Verify that a consumed acquire marker is not dispatched but triggers a follow-up drain."""
+        # Arrange
+        consume_result = {
+            "success": True,
+            "expired": False,
+            "marker_skipped": False,
+            "task": {
+                "id": "marker-1",
+                "func_path": "__redis_rate_limiter_acquire_marker__",
+                "payload": {"_uuid": "abc", "_acquire_timeout_ms": 5000},
+            },
+            "remaining_tokens": 4,
+            "active_concurrency": 1,
+            "reset_in_ms": 100,
+            "remaining_tasks": 2,
+        }
+
+        # Act
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+        ):
+            await limiter.drain()
+
+        # Assert
+        assert limiter.dispatched_tasks == [], (
+            "drain should not dispatch acquire markers"
+        )
+        assert limiter.scheduled_drains == [0.0], (
+            "drain should schedule an immediate follow-up when tasks remain"
+        )
+
+    async def test_drain_marker_consumed_as_last_task_skips_dispatch_without_follow_up(
+        self, limiter, mock_target
+    ):
+        """Verify that a consumed acquire marker as the last task produces no dispatch and no follow-up."""
+        # Arrange
+        consume_result = {
+            "success": True,
+            "expired": False,
+            "marker_skipped": False,
+            "task": {
+                "id": "marker-2",
+                "func_path": "__redis_rate_limiter_acquire_marker__",
+                "payload": {"_uuid": "def", "_acquire_timeout_ms": 5000},
+            },
+            "remaining_tokens": 4,
+            "active_concurrency": 1,
+            "reset_in_ms": 100,
+            "remaining_tasks": 0,
+        }
+
+        # Act
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+        ):
+            await limiter.drain()
+
+        # Assert
+        assert limiter.dispatched_tasks == [], (
+            "drain should not dispatch acquire markers"
+        )
+        assert limiter.scheduled_drains == [], (
+            "drain should not schedule follow-up when no tasks remain"
+        )
+
+    async def test_drain_marker_skipped_with_remaining_tasks_schedules_follow_up(
+        self, limiter, mock_target
+    ):
+        """Verify that a skipped marker with remaining tasks schedules a follow-up drain."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "marker_skipped": True,
+            "task": None,
+            "remaining_tokens": 5,
+            "active_concurrency": 0,
+            "reset_in_ms": 100,
+            "remaining_tasks": 3,
+        }
+
+        # Act
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+        ):
+            await limiter.drain()
+
+        # Assert
+        assert limiter.dispatched_tasks == [], (
+            "drain should not dispatch when marker is skipped"
+        )
+        assert limiter.scheduled_drains == [0.0], (
+            "drain should schedule an immediate follow-up when tasks remain after marker skip"
+        )
+
     @staticmethod
     async def test_trigger_consume_schedules_drain(limiter):
         """Verify that ``trigger_consume()`` schedules a drain."""
