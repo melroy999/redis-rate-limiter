@@ -60,8 +60,6 @@ def pytest_collection_modifyitems(items: list) -> None:
     items[:] = early + rest
 
 
-# Redis configuration is derived from environment variables.
-# The default values target localhost:6379, but may be overridden for Docker Compose.
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 

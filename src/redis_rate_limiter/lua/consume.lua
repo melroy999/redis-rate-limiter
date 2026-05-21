@@ -103,8 +103,7 @@ if estimated_count < rate_limit and active_now < max_concurrency then
             if task_data.func_path ~= '__redis_rate_limiter_acquire_marker__' then
                 redis.call('RPUSH', dlq_key, raw_task_json)
             end
-            -- Expired tasks will never run, so clear the in-flight
-            -- deduplication marker immediately to allow re-submission.
+            -- Clear the deduplication marker to allow re-submission.
             local inflight_key = task_data['inflight_key']
             redis.call('DEL', inflight_key)
 

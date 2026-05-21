@@ -777,7 +777,6 @@ class AbstractAsyncDistributedRateLimiter(
         """
         await super().start()
 
-        # Register Lua scripts with the Redis server.
         await self._register_script("consume.lua")
         await self._register_script("schedule.lua")
         await self._register_script("health.lua")

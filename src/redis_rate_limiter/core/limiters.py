@@ -960,7 +960,6 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
         if not self.jitter_enabled:
             return 0.0
 
-        # The base jitter range scales proportionally with the window size.
         min_jitter = self.window * self.jitter_min_pct
         max_jitter = self.window * self.jitter_max_pct
 
@@ -989,13 +988,9 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
         combined_pressure = (load_pressure * 0.7) + (concurrency_pressure * 0.3)  # pragma: no mutate
         # fmt: on
 
-        # Scale the jitter range based on combined pressure.
-        # High pressure results in a larger jitter range (greater worker spread).
-        # Low pressure results in a smaller jitter range (faster processing, less spread).
-        # The resulting scale factor ranges from 0.3 to 1.0.
+        # Scale factor ranges from 0.3 (low contention) to 1.0 (high contention).
         jitter_scale = 0.3 + (combined_pressure * 0.7)  # pragma: no mutate
 
-        # Compute the final jitter value with randomization.
         jitter_range_size = (max_jitter - min_jitter) * jitter_scale
         jitter = min_jitter + (jitter_range_size * random.random())
 
@@ -1176,7 +1171,6 @@ class AbstractDistributedRateLimiter(
             drain_enabled=drain_enabled,
         )
 
-        # Register Lua scripts with the Redis server.
         self._register_script("consume.lua")
         self._register_script("schedule.lua")
         self._register_script("health.lua")
@@ -1212,7 +1206,6 @@ class AbstractDistributedRateLimiter(
             "enabled" if has_health_monitor else "disabled",
         )
 
-        # Start the drain loop and signal subscriber.
         if drain_enabled:
             self._drain_loop: DrainLoop | None = DrainLoop(
                 self,
@@ -1226,7 +1219,6 @@ class AbstractDistributedRateLimiter(
             self._drain_loop = None
             self._drain_signal_subscriber = None
 
-        # Start the backend health monitor.
         if has_health_monitor:
             self._backend_health_monitor: BackendHealthMonitor | None = (
                 BackendHealthMonitor(self, interval=float(self.lease_duration))

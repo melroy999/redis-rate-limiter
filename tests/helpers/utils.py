@@ -271,23 +271,19 @@ def dict_equals_approx(left, right, relative_tolerance=1e-9, absolute_tolerance=
     Returns:
         True if the values are approximately equal, False otherwise.
     """
-    # Handle the case where both values are None.
     if left is None and right is None:
         return True
     if left is None or right is None:
         return False
 
-    # Handle the case where the types differ.
     if type(left) is not type(right):
         return False
 
-    # Handle float values with approximate equality.
     if isinstance(left, float):
         return math.isclose(
             left, right, rel_tol=relative_tolerance, abs_tol=absolute_tolerance
         )
 
-    # Handle dictionaries recursively.
     if isinstance(left, dict):
         if set(left.keys()) != set(right.keys()):
             return False
@@ -298,7 +294,6 @@ def dict_equals_approx(left, right, relative_tolerance=1e-9, absolute_tolerance=
             for key in left.keys()
         )
 
-    # Handle lists recursively.
     if isinstance(left, list):
         if len(left) != len(right):
             return False
@@ -309,7 +304,6 @@ def dict_equals_approx(left, right, relative_tolerance=1e-9, absolute_tolerance=
             for i in range(len(left))
         )
 
-    # For all remaining types (i.e., int, str, bool), exact equality is used.
     return left == right
 
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable, MutableMapping, Optional, TypedDict
 
-# ASGI protocol types.
 Scope = MutableMapping[str, Any]
 Receive = Callable[[], Awaitable[dict[str, Any]]]
 Send = Callable[[dict[str, Any]], Awaitable[None]]
