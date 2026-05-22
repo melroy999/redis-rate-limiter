@@ -162,6 +162,19 @@ class TestAsyncScheduleTask:
 
         benchmark(_schedule)
 
+    @pytest.mark.parametrize("priority", [1, 50, 100])
+    def test_schedule_task_with_priority(self, benchmark, async_limiter, priority):
+        loop, limiter = async_limiter
+        counter = itertools.count()
+
+        def _schedule():
+            i = next(counter)
+            loop.run_until_complete(
+                limiter.schedule_task("bench.module.func", {"seq": i}, priority=priority)
+            )
+
+        benchmark(_schedule)
+
 
 @pytest.mark.benchmark(group="async-end-to-end")
 class TestAsyncConsume:
@@ -199,3 +212,25 @@ class TestAsyncConsume:
             rounds=2000,
             warmup_rounds=10,
         )
+
+
+@pytest.mark.benchmark(group="async-end-to-end")
+class TestAsyncRoundTrip:
+    """Async mirror of ``TestRoundTrip``."""
+
+    def test_schedule_and_consume(self, benchmark, async_limiter, redis_client):
+        loop, limiter = async_limiter
+        counter = itertools.count()
+
+        async def _round_trip_async():
+            i = next(counter)
+            await limiter.schedule_task("bench.module.func", {"seq": i})
+            result = await limiter.consume()
+            if result["success"]:
+                async with limiter.task_lifecycle(result["task"]["id"]):
+                    pass
+
+        def _round_trip():
+            loop.run_until_complete(_round_trip_async())
+
+        benchmark(_round_trip)

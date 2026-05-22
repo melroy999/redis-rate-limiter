@@ -59,6 +59,7 @@ def _record_decomposition(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.benchmark(group="decomposition-sync")
 class TestSyncDecomposition:
     """Per-iteration cost decomposition through the sync Redis client."""
 
@@ -141,6 +142,7 @@ class TestSyncDecomposition:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.benchmark(group="decomposition-async")
 class TestAsyncDecomposition:
     """Per-iteration cost decomposition through the async Redis client."""
 

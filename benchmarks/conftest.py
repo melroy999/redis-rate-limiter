@@ -7,8 +7,11 @@ benchmark. Percentiles are also embedded into the JSON output via the
 """
 
 import asyncio
+import json
 import os
 import time as _time
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Optional
 from uuid import uuid4
 
@@ -45,6 +48,14 @@ def _percentiles_for(stats) -> dict[str, float]:
 
 
 # ---------------------------------------------------------------------------
+# Tail latency ratio thresholds (p99 / median)
+# ---------------------------------------------------------------------------
+
+_TAIL_LATENCY_RATIO_THRESHOLDS: dict[str, float] = {}
+_DEFAULT_TAIL_LATENCY_RATIO = 10.0
+
+
+# ---------------------------------------------------------------------------
 # pytest-benchmark hooks: embed percentiles in JSON output
 # ---------------------------------------------------------------------------
 
@@ -78,6 +89,8 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 
     _print_percentiles(terminalreporter, benchmarks)
     _print_instrumented_decomposition(terminalreporter, benchmarks)
+    _print_tail_latency_ratios(terminalreporter, benchmarks)
+    _write_report_data(terminalreporter, benchmarks)
 
 
 def _print_contention_results(terminalreporter):
@@ -159,6 +172,117 @@ def _print_percentiles(terminalreporter, benchmarks):
         terminalreporter.line(
             f"{bench.name:<60} {p95_us:>10.2f}us {p99_us:>10.2f}us {p999_us:>10.2f}us"
         )
+
+
+def _print_tail_latency_ratios(terminalreporter, benchmarks):
+    """Check p99/median ratios per benchmark and flag violations."""
+    violations: list[tuple[str, str, float, float]] = []
+    rows: list[tuple[str, str, float, float, float, float, bool]] = []
+
+    for bench in benchmarks:
+        median = bench.stats.median
+        if median <= 0:
+            continue
+        pcts = _percentiles_for(bench.stats)
+        p99 = pcts["p99"]
+        ratio = p99 / median
+        group = bench.group or "default"
+        threshold = _TAIL_LATENCY_RATIO_THRESHOLDS.get(
+            group, _DEFAULT_TAIL_LATENCY_RATIO
+        )
+        ok = ratio <= threshold
+        rows.append((bench.name, group, median, p99, ratio, threshold, ok))
+        if not ok:
+            violations.append((bench.name, group, ratio, threshold))
+
+    if not rows:
+        return
+
+    terminalreporter.section("tail latency ratios (p99 / median)")
+    header = (
+        f"{'Name':<60} {'Group':<24} "
+        f"{'Median':>10} {'p99':>10} {'Ratio':>8} {'Limit':>8}"
+    )
+    terminalreporter.line(header)
+    terminalreporter.line("-" * len(header))
+
+    for name, group, median, p99, ratio, threshold, ok in rows:
+        median_us = median * 1e6
+        p99_us = p99 * 1e6
+        status = "" if ok else " << FAIL"
+        terminalreporter.line(
+            f"{name:<60} {group:<24} "
+            f"{median_us:>8.2f}us {p99_us:>8.2f}us "
+            f"{ratio:>7.1f}x {threshold:>7.1f}x{status}"
+        )
+
+    if violations:
+        terminalreporter.line("")
+        terminalreporter.line(
+            f"WARNING: {len(violations)} benchmark(s) exceeded "
+            f"the p99/median ratio threshold:"
+        )
+        for name, group, ratio, threshold in violations:
+            terminalreporter.line(
+                f"  {name} ({group}): {ratio:.1f}x > {threshold:.1f}x"
+            )
+
+
+def _write_report_data(terminalreporter, benchmarks) -> None:
+    """Persist all benchmark results as JSON for the HTML report generator."""
+    try:
+        benchmark_entries = []
+        for bench in benchmarks:
+            pcts = _percentiles_for(bench.stats)
+            benchmark_entries.append(
+                {
+                    "name": bench.name,
+                    "fullname": bench.fullname,
+                    "group": bench.group or "default",
+                    "params": bench.params or {},
+                    "stats": {
+                        "median": bench.stats.median,
+                        "mean": bench.stats.mean,
+                        "stddev": bench.stats.stddev,
+                        "min": bench.stats.min,
+                        "max": bench.stats.max,
+                        "rounds": bench.stats.rounds,
+                        **pcts,
+                    },
+                }
+            )
+
+        contention: list[dict] = []
+        decomposition: list[dict] = []
+        for report in terminalreporter.stats.get("passed", []):
+            for key, value in getattr(report, "user_properties", []):
+                if key == "contention_result":
+                    contention.append(value)
+                elif key == "decomposition_result":
+                    decomposition.append(value)
+
+        lua_vm_medians: dict[str, float] = {}
+        for bench in benchmarks:
+            if bench.group == "lua-vm":
+                lua_vm_medians[bench.name] = bench.stats.median
+
+        report_data = {
+            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+            "benchmarks": benchmark_entries,
+            "contention": contention,
+            "decomposition": decomposition,
+            "lua_vm_medians": lua_vm_medians,
+            "tail_latency_thresholds": _TAIL_LATENCY_RATIO_THRESHOLDS,
+            "tail_latency_default_threshold": _DEFAULT_TAIL_LATENCY_RATIO,
+        }
+
+        output_dir = Path(".benchmarks")
+        output_dir.mkdir(exist_ok=True)
+        ts = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        with open(output_dir / f"run-{ts}.json", "w") as f:
+            json.dump(report_data, f, indent=2)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------

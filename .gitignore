@@ -227,3 +227,6 @@ mutmut-results/mutmut_resource_snapshot.jsonl
 
 # Memory profiling
 memory-results/
+
+# Benchmark snapshots (pytest-benchmark --benchmark-autosave)
+benchmark-results/
