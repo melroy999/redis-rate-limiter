@@ -64,8 +64,8 @@ class DrainBehaviorTests:
         assert len(limiter.scheduled_drains) == 1, (
             "drain should schedule one follow-up while paused"
         )
-        assert limiter.scheduled_drains[0] > 0.0, (
-            "paused follow-up delay should be positive"
+        assert limiter.scheduled_drains[0] == pytest.approx(0.2, abs=1.0), (
+            "paused follow-up delay should approximate the remaining pause duration"
         )
 
     async def test_drain_schedules_backup_when_lock_contended(
@@ -1625,6 +1625,118 @@ class DrainBoundaryTests:
             "drain should schedule a recovery when remaining_tokens is exactly zero"
         )
         assert limiter.scheduled_drains[0] > 0, "recovery delay should be positive"
+
+    async def test_drain_falls_through_when_remaining_tokens_positive(
+        self, limiter, mock_target
+    ):
+        """Verify that drain does not enter the rate-limited recovery path
+        when remaining_tokens is positive but no other condition matches."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "marker_skipped": False,
+            "task": None,
+            "remaining_tokens": 1,
+            "active_concurrency": 1,
+            "reset_in_ms": 200,
+            "remaining_tasks": 3,
+        }
+
+        # Act
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+        ):
+            await limiter.drain()
+
+        # Assert
+        assert limiter.scheduled_drains == [], (
+            "drain should not schedule a recovery when remaining_tokens is positive"
+        )
+
+    async def test_drain_uses_fallback_jitter_when_val_previous_zero_and_current_below_limit(
+        self, limiter, mock_target
+    ):
+        """Verify that fallback jitter is applied when val_previous is zero
+        even if val_current is below the configured limit."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "marker_skipped": False,
+            "task": None,
+            "remaining_tokens": 0,
+            "active_concurrency": 1,
+            "reset_in_ms": 250,
+            "remaining_tasks": 4,
+            "val_previous": 0,
+            "val_current": 3,
+        }
+
+        # Act
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+            patch.object(
+                mock_target,
+                "_calculate_smart_jitter",
+                return_value=0.0,
+            ) as mock_jitter,
+        ):
+            await limiter.drain()
+
+        # Assert
+        assert mock_jitter.call_count == 1, (
+            "smart jitter should be called when val_previous is zero "
+            "regardless of val_current being below limit"
+        )
+
+    async def test_drain_does_not_use_fallback_jitter_when_val_previous_is_one(
+        self, limiter, mock_target
+    ):
+        """Verify that fallback jitter is not applied when val_previous is
+        one and val_current is below the configured limit."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "marker_skipped": False,
+            "task": None,
+            "remaining_tokens": 0,
+            "active_concurrency": 1,
+            "reset_in_ms": 500,
+            "remaining_tasks": 3,
+            "val_previous": 1,
+            "val_current": 3,
+        }
+
+        # Act
+        with (
+            patch.object(
+                mock_target,
+                "execution_lock",
+                return_value=self.lock_result(True),
+            ),
+            patch.object(mock_target, "consume", return_value=consume_result),
+            patch.object(
+                mock_target,
+                "_calculate_smart_jitter",
+                return_value=0.1,
+            ) as mock_jitter,
+        ):
+            await limiter.drain()
+
+        # Assert
+        mock_jitter.assert_not_called()
 
 
 @pytest.mark.behavior

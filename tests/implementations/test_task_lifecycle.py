@@ -185,6 +185,20 @@ class TestTaskLifecycleImplementation:
         mock_limiter._schedule_drain.assert_called_once()
 
     @staticmethod
+    def test_exit_deregisters_with_correct_task_id(mock_limiter, task_id):
+        """Verify that ``__exit__`` calls deregister with the exact task_id."""
+        # Arrange
+        with patch.object(
+            mock_limiter._heartbeat_scheduler, "deregister"
+        ) as mock_deregister:
+            # Act
+            with TaskLifecycle(mock_limiter, task_id):
+                pass
+
+        # Assert
+        mock_deregister.assert_called_once_with(task_id)
+
+    @staticmethod
     def test_empty_task_id_skips_inflight_cleanup(redis_client, limiter_id):
         """Verify that an empty ``task_id`` skips inflight key deletion."""
         # Arrange
@@ -208,6 +222,10 @@ class TestTaskLifecycleImplementation:
 
         # Assert
         limiter._schedule_drain.assert_called_once()
+        call_args = limiter._eval_script.call_args
+        assert call_args[0][3] == "", (
+            "inflight key should be empty string when task_id is empty"
+        )
 
     @staticmethod
     @pytest.mark.parametrize(
@@ -603,6 +621,9 @@ class TestHeartbeatSchedulerBoundary:
             assert scheduler._thread is None, (
                 "worker thread must not exist before any task is registered"
             )
+            assert scheduler._shutdown is False, (
+                "scheduler must initialize with _shutdown set to False"
+            )
         finally:
             scheduler.shutdown()
 
@@ -708,6 +729,63 @@ class TestHeartbeatSchedulerBoundary:
         assert scheduler._thread.is_alive(), (
             "scheduler thread must remain alive after heap drains"
         )
+
+    @staticmethod
+    def test_scheduler_renews_task_across_multiple_cycles(
+        scheduler_limiter, task_id
+    ):
+        """Verify that the scheduler reschedules a registered task for
+        renewal in subsequent cycles, not just the first one."""
+        # Arrange
+        scheduler = scheduler_limiter._heartbeat_scheduler
+        scheduler.register(task_id, "warn")
+
+        try:
+            # Act
+            time.sleep(1.5 * scheduler_limiter.lease_duration)
+
+            # Assert
+            assert scheduler_limiter.extend_lease.call_count >= 2, (
+                "extend_lease must be called at least twice across multiple cycles"
+            )
+        finally:
+            scheduler.deregister(task_id)
+
+    @staticmethod
+    def test_scheduler_interval_is_half_lease_duration(redis_client, limiter_id):
+        """Verify that the scheduler renewal interval equals half the lease duration."""
+        # Arrange
+        limiter = MagicMock()
+        limiter.id = limiter_id
+        limiter.lease_duration = 0.2
+        scheduler = HeartbeatScheduler(limiter)
+
+        try:
+            # Assert
+            expected = limiter.lease_duration / 2
+            assert scheduler._interval == pytest.approx(expected), (
+                f"scheduler interval must be lease_duration / 2 = {expected}"
+            )
+        finally:
+            scheduler.shutdown()
+
+    @staticmethod
+    def test_scheduler_thread_name_contains_limiter_id(scheduler_limiter, task_id):
+        """Verify that the scheduler thread is named after the limiter."""
+        # Act
+        scheduler_limiter._heartbeat_scheduler.register(task_id, "warn")
+
+        try:
+            # Assert
+            thread = scheduler_limiter._heartbeat_scheduler._thread
+            assert thread is not None, (
+                "scheduler thread should exist after registration"
+            )
+            assert scheduler_limiter.id in thread.name, (
+                "scheduler thread name should contain the limiter id"
+            )
+        finally:
+            scheduler_limiter._heartbeat_scheduler.deregister(task_id)
 
 
 @pytest.mark.observability

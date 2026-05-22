@@ -562,27 +562,39 @@ class RateLimiterImplementationTests:
         assert result["val_current"] == 600, "val_current must map to result[7]"
 
     @staticmethod
-    async def test_consume_expired_result_sets_correct_flags(limiter):
-        """Verify that ``consume()`` correctly parses the expired
-        indicator (``result[0]="-1"``)."""
+    @pytest.mark.parametrize(
+        (
+            "result_code",
+            "expected_success",
+            "expected_expired",
+            "expected_marker_skipped",
+        ),
+        [
+            ("-1", False, True, False),
+            ("0", False, False, False),
+            ("-2", False, False, True),
+        ],
+        ids=["expired", "denied", "marker_skipped"],
+    )
+    async def test_consume_non_success_result_sets_correct_flags(
+        limiter,
+        result_code,
+        expected_success,
+        expected_expired,
+        expected_marker_skipped,
+    ):
+        """Verify that ``consume()`` correctly parses the boolean flags
+        for each non-success result code."""
         # Arrange
-        task_json = json.dumps(
-            {
-                "id": "expired-task",
-                "func_path": "tests.helpers.tasks.noop_task",
-                "payload": {"expired": True},
-                "inflight_key": "test:inflight:expired-task",
-            }
-        )
         sentinel_result = [
-            "-1",  # [0] expired flag
-            task_json,  # [1] task data (Lua returns task data even for expired tasks)
-            "10",  # [2] remaining_tokens
-            "0",  # [3] active_concurrency
-            "500",  # [4] reset_in_ms
-            "3",  # [5] remaining_tasks
-            "5",  # [6] val_previous
-            "2",  # [7] val_current
+            result_code,
+            "",
+            "10",
+            "0",
+            "500",
+            "3",
+            "5",
+            "2",
         ]
 
         # Act
@@ -590,39 +602,14 @@ class RateLimiterImplementationTests:
             result = await limiter.consume()
 
         # Assert
-        assert result["expired"] is True, (
-            "expired should be True when result[0] is '-1'"
+        assert result["success"] is expected_success, (
+            f"success should be {expected_success} for result code '{result_code}'"
         )
-        assert result["success"] is False, (
-            "success should be False when result[0] is '-1'"
+        assert result["expired"] is expected_expired, (
+            f"expired should be {expected_expired} for result code '{result_code}'"
         )
-
-    @staticmethod
-    async def test_consume_denied_result_sets_correct_flags(limiter):
-        """Verify that ``consume()`` correctly parses the denied
-        indicator (``result[0]="0"``)."""
-        # Arrange
-        sentinel_result = [
-            "0",  # [0] denied flag
-            "",  # [1] no task data
-            "0",  # [2] remaining_tokens
-            "2",  # [3] active_concurrency
-            "100",  # [4] reset_in_ms
-            "5",  # [5] remaining_tasks
-            "10",  # [6] val_previous
-            "5",  # [7] val_current
-        ]
-
-        # Act
-        with RateLimiterImplementationTests._mock_eval_script(limiter, sentinel_result):
-            result = await limiter.consume()
-
-        # Assert
-        assert result["success"] is False, (
-            "success should be False when result[0] is '0'"
-        )
-        assert result["expired"] is False, (
-            "expired should be False when result[0] is '0'"
+        assert result["marker_skipped"] is expected_marker_skipped, (
+            f"marker_skipped should be {expected_marker_skipped} for result code '{result_code}'"
         )
         assert result["task"] is None, (
             "task should be None when result[1] is an empty string"

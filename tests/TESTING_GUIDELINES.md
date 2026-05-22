@@ -547,6 +547,7 @@ The following categories of equivalent mutants have been identified in the codeb
 | `"latin-1"` encoding | Encoding mutations on ASCII data produce identical bytes | `backends/asgi/keys.py` | ASCII subset is identical across common encodings |
 | `"utf-8"` encoding case | `"utf-8"` and `"UTF-8"` resolve to the same codec via `codecs.lookup()` | `core/managed.py:_parse_raw_config` | Python normalizes encoding names case-insensitively |
 | `__init_subclass__` body | Previously required `# pragma: no mutate` due to a mutmut trampoline bug; resolved by adding an explicit `@classmethod` decorator ([mutmut#366](https://github.com/boxed/mutmut/issues/366)). Mutmut may still skip mutating this method entirely. | `managed.py` | No longer pragmaed; kept for reference |
+| `entry.generation += 1` | The generation counter in `HeartbeatScheduler._run()` is only ever compared against itself (the heap entry stores the generation at push time, and the loop compares it against the current entry generation at pop time). Any consistent increment operator (`= 1`, `-= 1`, `+= 2`) produces the same match/mismatch result because both sides are updated by the same operation. | `limiters.py:HeartbeatScheduler._run`, `async_limiters.py:AsyncHeartbeatScheduler._run` | The generation value is self-referential; no external observer distinguishes the operators |
 
 ## 7. Pitfalls and Checklist
 

@@ -181,6 +181,20 @@ class TestAsyncTaskLifecycleImplementation:
         mock_limiter._schedule_drain.assert_called_once()
 
     @staticmethod
+    async def test_exit_deregisters_with_correct_task_id(mock_limiter, task_id):
+        """Verify that ``__aexit__`` calls deregister with the exact task_id."""
+        # Arrange
+        with patch.object(
+            mock_limiter._heartbeat_scheduler, "deregister"
+        ) as mock_deregister:
+            # Act
+            async with AsyncTaskLifecycle(mock_limiter, task_id):
+                pass
+
+        # Assert
+        mock_deregister.assert_called_once_with(task_id)
+
+    @staticmethod
     async def test_empty_task_id_skips_inflight_cleanup(async_redis_client, limiter_id):
         """Verify that an empty ``task_id`` skips inflight key deletion."""
         # Arrange
@@ -206,6 +220,10 @@ class TestAsyncTaskLifecycleImplementation:
 
         # Assert
         limiter._schedule_drain.assert_called_once()
+        call_args = limiter._eval_script.call_args
+        assert call_args[0][3] == "", (
+            "inflight key should be empty string when task_id is empty"
+        )
 
     @staticmethod
     @pytest.mark.parametrize(
@@ -612,6 +630,9 @@ class TestAsyncHeartbeatSchedulerBoundary:
             assert scheduler._task is None, (
                 "worker task must not exist before any task is registered"
             )
+            assert scheduler._shutdown is False, (
+                "scheduler must initialize with _shutdown set to False"
+            )
         finally:
             await scheduler.shutdown()
 
@@ -758,6 +779,93 @@ class TestAsyncHeartbeatSchedulerBoundary:
         assert scheduler._task.done(), (
             "stuck task must be cancelled after shutdown timeout"
         )
+
+    @staticmethod
+    async def test_scheduler_renews_task_across_multiple_cycles(
+        scheduler_limiter, task_id
+    ):
+        """Verify that the scheduler reschedules a registered task for
+        renewal in subsequent cycles, not just the first one."""
+        # Arrange
+        scheduler = scheduler_limiter._heartbeat_scheduler
+        await scheduler.register(task_id, "warn")
+
+        try:
+            # Act
+            await asyncio.sleep(1.5 * scheduler_limiter.lease_duration)
+
+            # Assert
+            assert scheduler_limiter.extend_lease.call_count >= 2, (
+                "extend_lease must be called at least twice across multiple cycles"
+            )
+        finally:
+            await scheduler.deregister(task_id)
+
+    @staticmethod
+    async def test_scheduler_interval_is_half_lease_duration(
+        async_redis_client, limiter_id
+    ):
+        """Verify that the scheduler renewal interval equals half the lease duration."""
+        # Arrange
+        limiter = MagicMock()
+        limiter.id = limiter_id
+        limiter.lease_duration = 0.2
+        scheduler = AsyncHeartbeatScheduler(limiter)
+
+        try:
+            # Assert
+            expected = limiter.lease_duration / 2
+            assert scheduler._interval == pytest.approx(expected), (
+                f"scheduler interval must be lease_duration / 2 = {expected}"
+            )
+        finally:
+            await scheduler.shutdown()
+
+    @staticmethod
+    async def test_limiter_shutdown_stops_heartbeat_scheduler(
+        async_redis_client, limiter_id
+    ):
+        """Verify that the limiter shutdown method shuts down the heartbeat scheduler."""
+        # Arrange
+        limiter = AsyncStubRateLimiter(
+            redis_client=async_redis_client,
+            limiter_id=f"{limiter_id}_shutdown_scheduler",
+            limit=5,
+            window=60,
+            max_concurrency=2,
+            max_age=3600,
+            lease_duration=30,
+        )
+        await limiter.start()
+
+        # Act
+        await limiter.shutdown()
+
+        # Assert
+        scheduler = limiter._heartbeat_scheduler
+        assert scheduler._shutdown is True, (
+            "limiter shutdown should trigger heartbeat scheduler shutdown"
+        )
+
+    @staticmethod
+    async def test_limiter_shutdown_without_start_does_not_raise(
+        async_redis_client, limiter_id
+    ):
+        """Verify that calling ``shutdown()`` before ``start()`` is safe
+        when ``_heartbeat_scheduler`` has not been created yet."""
+        # Arrange
+        limiter = AsyncStubRateLimiter(
+            redis_client=async_redis_client,
+            limiter_id=f"{limiter_id}_shutdown_no_start",
+            limit=5,
+            window=60,
+            max_concurrency=2,
+            max_age=3600,
+            lease_duration=30,
+        )
+
+        # Act & Assert
+        await limiter.shutdown()
 
 
 # ---------------------------------------------------------------------------

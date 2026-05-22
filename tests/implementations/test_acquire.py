@@ -47,7 +47,9 @@ class AcquireBehaviorTests:
     ):
         """Verify that ``acquire()`` raises ``ValueError`` for negative timeout."""
         # Arrange
-        sentinel = self._mock_cls(side_effect=AssertionError("blpop should not be reached"))
+        sentinel = self._mock_cls(
+            side_effect=AssertionError("blpop should not be reached")
+        )
         with patch.object(mock_target.redis, "blpop", new=sentinel):
             # Act & Assert
             with pytest.raises(ValueError, match="timeout must be positive"):
@@ -58,7 +60,9 @@ class AcquireBehaviorTests:
     ):
         """Verify that ``acquire()`` raises ``ValueError`` for zero timeout."""
         # Arrange
-        sentinel = self._mock_cls(side_effect=AssertionError("blpop should not be reached"))
+        sentinel = self._mock_cls(
+            side_effect=AssertionError("blpop should not be reached")
+        )
         with patch.object(mock_target.redis, "blpop", new=sentinel):
             # Act & Assert
             with pytest.raises(ValueError, match="timeout must be positive"):
@@ -124,9 +128,9 @@ class AcquireBehaviorTests:
 
         # Assert
         _, kwargs = mock_schedule.call_args
-        assert kwargs["payload"]["_acquire_timeout_ms"] == int(ACQUIRE_TIMEOUT * 1000), (
-            "payload should contain timeout converted to milliseconds"
-        )
+        assert kwargs["payload"]["_acquire_timeout_ms"] == int(
+            ACQUIRE_TIMEOUT * 1000
+        ), "payload should contain timeout converted to milliseconds"
 
     async def test_acquire_schedules_marker_with_uuid_in_payload(
         self, limiter, mock_target
@@ -249,10 +253,13 @@ class AcquireBehaviorTests:
             await limiter.acquire(ACQUIRE_TIMEOUT)
 
         # Assert
-        args, _ = mock_blpop.call_args
+        args, kwargs = mock_blpop.call_args
         expected_key = f"{mock_target.id}:acquire:task-1"
         assert args[0] == expected_key, (
             f"blpop should receive signal key '{expected_key}'"
+        )
+        assert kwargs.get("timeout") == ACQUIRE_TIMEOUT, (
+            f"blpop timeout should be {ACQUIRE_TIMEOUT}"
         )
 
     async def test_acquire_raises_acquire_timeout_on_blpop_none(

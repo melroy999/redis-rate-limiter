@@ -569,9 +569,7 @@ class TestConsumeAcquireMarkerHandling:
         _add_task_to_buffer(redis_client, buffer_key, task_json)
 
         # Act
-        _eval_consume(
-            redis_client, base_key, buffer_key, concurrency_key, dlq_key
-        )
+        _eval_consume(redis_client, base_key, buffer_key, concurrency_key, dlq_key)
 
         # Assert
         signal_key = f"{base_key}:acquire:marker-ttl"
@@ -604,9 +602,7 @@ class TestConsumeAcquireMarkerHandling:
         # Assert
         assert result[0] == -1, "status should be -1 for expired marker"
         dlq_contents = redis_client.lrange(dlq_key, 0, -1)
-        assert len(dlq_contents) == 0, (
-            "expired markers should not be pushed to the DLQ"
-        )
+        assert len(dlq_contents) == 0, "expired markers should not be pushed to the DLQ"
 
     @staticmethod
     def test_marker_expired_inflight_key_deleted(
@@ -628,9 +624,7 @@ class TestConsumeAcquireMarkerHandling:
         redis_client.set(inflight_key, "1")
 
         # Act
-        _eval_consume(
-            redis_client, base_key, buffer_key, concurrency_key, dlq_key
-        )
+        _eval_consume(redis_client, base_key, buffer_key, concurrency_key, dlq_key)
 
         # Assert
         assert redis_client.exists(inflight_key) == 0, (
@@ -683,14 +677,16 @@ class TestConsumeAcquireMarkerHandling:
 
         # Act
         result = _eval_consume(
-            redis_client, base_key, buffer_key, concurrency_key, dlq_key,
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
             max_age=3600,
         )
 
         # Assert
-        assert result[0] == -2, (
-            "status should be -2 when marker deadline has elapsed"
-        )
+        assert result[0] == -2, "status should be -2 when marker deadline has elapsed"
 
     @staticmethod
     def test_marker_deadline_elapsed_deletes_inflight_key(
@@ -713,7 +709,11 @@ class TestConsumeAcquireMarkerHandling:
 
         # Act
         _eval_consume(
-            redis_client, base_key, buffer_key, concurrency_key, dlq_key,
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
             max_age=3600,
         )
 
@@ -741,7 +741,11 @@ class TestConsumeAcquireMarkerHandling:
 
         # Act
         _eval_consume(
-            redis_client, base_key, buffer_key, concurrency_key, dlq_key,
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
             max_age=3600,
         )
 
@@ -769,7 +773,11 @@ class TestConsumeAcquireMarkerHandling:
 
         # Act
         _eval_consume(
-            redis_client, base_key, buffer_key, concurrency_key, dlq_key,
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
             max_age=3600,
         )
 

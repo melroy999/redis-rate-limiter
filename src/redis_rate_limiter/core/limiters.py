@@ -415,14 +415,14 @@ class HeartbeatScheduler:
 
             if on_failure_action == "kill":
                 logger.critical(
-                    "[TaskLifecycle] Heartbeat failed for task %s: %s - terminating worker.",
+                    "[TaskLifecycle] Heartbeat failed for task %s: %s, terminating worker.",
                     task_id,
                     e,
                 )
                 os.kill(os.getpid(), signal.SIGTERM)
                 return
             logger.critical(
-                "[TaskLifecycle] Heartbeat failed for task %s: %s - flagged as unhealthy.",
+                "[TaskLifecycle] Heartbeat failed for task %s: %s, flagged as unhealthy.",
                 task_id,
                 e,
             )
