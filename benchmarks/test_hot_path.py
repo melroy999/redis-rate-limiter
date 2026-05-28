@@ -170,7 +170,9 @@ class TestAsyncScheduleTask:
         def _schedule():
             i = next(counter)
             loop.run_until_complete(
-                limiter.schedule_task("bench.module.func", {"seq": i}, priority=priority)
+                limiter.schedule_task(
+                    "bench.module.func", {"seq": i}, priority=priority
+                )
             )
 
         benchmark(_schedule)

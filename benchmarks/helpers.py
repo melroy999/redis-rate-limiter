@@ -22,7 +22,12 @@ def bulk_fill_buffer(
     now_ms = int(time.time() * 1000)
 
     def _task(i: int) -> dict:
-        task: dict = {"id": f"fill_{start_id + i}", "__meta_arrived_at": now_ms}
+        task_id = f"fill_{start_id + i}"
+        task: dict = {
+            "id": task_id,
+            "inflight_key": limiter.get_inflight_key(task_id),
+            "__meta_arrived_at": now_ms,
+        }
         if func_path is not None:
             task["func_path"] = func_path
             task["payload"] = payload if payload is not None else {}

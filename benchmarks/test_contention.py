@@ -323,6 +323,13 @@ def test_contention_threads(
         )
         drainer_clients.append(drainer_client)
         drainer_executor = ThreadPoolExecutor(max_workers=executor_workers)
+        warmup_barrier = threading.Barrier(executor_workers)
+        warmup_futures = [
+            drainer_executor.submit(warmup_barrier.wait)
+            for _ in range(executor_workers)
+        ]
+        for f in warmup_futures:
+            f.result(timeout=5.0)
         drainer_executors.append(drainer_executor)
         limiter, counter = _make_limiter(
             drainer_client,

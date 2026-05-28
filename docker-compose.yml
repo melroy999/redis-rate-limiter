@@ -169,6 +169,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       PYTHONPATH: /app
+      SOAK_DURATION: "${SOAK_DURATION:-60}"
     depends_on:
       redis:
         condition: service_healthy

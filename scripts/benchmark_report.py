@@ -35,8 +35,12 @@ def _load_runs(data_dir: Path) -> list[dict]:
     run_files = sorted(data_dir.glob("run-*.json"))
     runs = []
     for path in run_files:
-        with open(path) as f:
-            data = json.load(f)
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, ValueError):
+            print(f"Skipping invalid JSON: {path.name}", file=sys.stderr)
+            continue
         data["_filename"] = path.name
         runs.append(data)
     return runs
@@ -94,6 +98,15 @@ h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 4px; }
 .desc { color: var(--muted); font-size: 0.85rem; margin-bottom: 16px; }
 .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .hidden { display: none; }
+.soak-legend {
+  width: 100%; border-collapse: collapse; font-size: 0.8rem;
+  margin-bottom: 16px; color: var(--text);
+}
+.soak-legend th, .soak-legend td {
+  padding: 4px 10px; border: 1px solid var(--border); text-align: left;
+}
+.soak-legend th { background: var(--bg); font-weight: 600; }
+.soak-legend td:first-child { white-space: nowrap; font-weight: 500; }
 #run-selector { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 #run-selector label {
   display: inline-flex; align-items: center; gap: 6px;
@@ -175,6 +188,35 @@ h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 4px; }
   <h2>Tail Latency Ratios</h2>
   <p class="desc">p99 / median ratio per benchmark, split by measurement group. Dashed lines mark the threshold (latest selected run only).</p>
   <div id="tail-container" class="g2"></div>
+</div>
+
+<div class="section" id="s-soak">
+  <h2>Soak Test</h2>
+  <p class="desc">Time-series metrics from sustained load tests. Each variant (sync/async) is plotted separately. Healthy metrics should be flat; any statistically significant linear trend that exceeds its safety threshold is flagged as a failure in the test output.</p>
+  <table class="soak-legend"><tr>
+    <th>Chart</th><th>What it measures</th><th>Expected trend</th>
+  </tr><tr>
+    <td>Process Memory</td><td>VmRSS and VmSize from /proc/self/status</td><td>Flat after warmup; growth indicates a Python object or arena leak</td>
+  </tr><tr>
+    <td>Threads / FDs</td><td>Active thread count and open file descriptors</td><td>Flat; growth indicates threads not joined or sockets not closed</td>
+  </tr><tr>
+    <td>Connection Pool</td><td>Redis pool connections (created, available, in use)</td><td>Flat; growth in created connections indicates a pool leak</td>
+  </tr><tr>
+    <td>Redis Memory</td><td>Server-wide used_memory and used_memory_rss</td><td>Flat once the buffer reaches steady state</td>
+  </tr><tr>
+    <td>Buffer Depth</td><td>ZCARD of the buffer ZSET</td><td>Oscillates near the watermark (sawtooth from feeder refills)</td>
+  </tr><tr>
+    <td>Concurrency / DLQ</td><td>ZCARD of the concurrency ZSET and LLEN of the DLQ</td><td>Both near zero with instant no-op tasks</td>
+  </tr><tr>
+    <td>Key Memory</td><td>Per-key MEMORY USAGE of buffer and concurrency ZSETs</td><td>Proportional to cardinality; growth at stable cardinality indicates a memory leak in Redis key management</td>
+  </tr><tr>
+    <td>Throughput</td><td>Cumulative successful dispatches</td><td>Linear (constant rate); concavity signals degradation</td>
+  </tr><tr>
+    <td>HeartbeatScheduler</td><td>Entries (active registrations) and heap (lazy-delete queue)</td><td>Bounded; heap growing faster than entries indicates stale accumulation</td>
+  </tr><tr>
+    <td>GC Collections</td><td>Cumulative collections per generation (gen0, gen1, gen2)</td><td>Flat or steady; accelerating gen2 indicates memory pressure</td>
+  </tr></table>
+  <div id="soak-container" class="g2"></div>
 </div>
 
 <script>
@@ -573,6 +615,58 @@ function renderTailLatency() {
   });
 }
 
+/* ---- Soak ---- */
+function renderSoak() {
+  var container = document.getElementById('soak-container');
+  container.innerHTML = '';
+  var run = latestSelected();
+  if (!run || !run.soak || run.soak.length === 0) { hide('s-soak'); return; }
+  show('s-soak');
+
+  var SOAK_COLORS = {sync:'#1565C0', async:'#2E7D32'};
+  var GROUPS = [
+    {title:'Process Memory', series:['vm_rss_kb','vm_size_kb'], yaxis:'KB'},
+    {title:'Threads and File Descriptors', series:['thread_count','fd_count'], yaxis:'count'},
+    {title:'Connection Pool', series:['pool_created','pool_available','pool_in_use'], yaxis:'connections'},
+    {title:'Redis Memory', series:['redis_used_memory','redis_used_memory_rss'], yaxis:'bytes'},
+    {title:'Buffer Depth', series:['buffer_zcard'], yaxis:'count'},
+    {title:'Concurrency and DLQ', series:['concurrency_zcard','dlq_llen'], yaxis:'count'},
+    {title:'Key Memory', series:['buffer_memory_bytes','concurrency_memory_bytes'], yaxis:'bytes'},
+    {title:'Throughput', series:['cumulative_dispatches'], yaxis:'tasks'},
+    {title:'HeartbeatScheduler', series:['heartbeat_entries','heartbeat_heap'], yaxis:'entries'},
+    {title:'GC Collections', series:['gc_gen0_collections','gc_gen1_collections','gc_gen2_collections'], yaxis:'collections'}
+  ];
+
+  GROUPS.forEach(function(grp) {
+    var div = document.createElement('div');
+    container.appendChild(div);
+    var traces = [];
+    run.soak.forEach(function(sv) {
+      var variant = sv.variant || 'unknown';
+      var ts = sv.time_series;
+      if (!ts || !ts.elapsed_s) return;
+      var x = ts.elapsed_s;
+      var color = SOAK_COLORS[variant] || '#455A64';
+      grp.series.forEach(function(key, si) {
+        if (!ts[key]) return;
+        var dash = ['solid','dash','dot','dashdot'][si % 4];
+        traces.push({
+          x:x, y:ts[key], mode:'lines', name:variant+' '+key,
+          line:{color:color, dash:dash, width:1.5}
+        });
+      });
+    });
+    if (traces.length === 0) { container.removeChild(div); return; }
+    Plotly.newPlot(div, traces, M(LB, {
+      title:{text:grp.title, font:{size:13}},
+      xaxis:{title:'Elapsed (s)', titlefont:{size:11}},
+      yaxis:{title:grp.yaxis, titlefont:{size:11}},
+      showlegend:true, legend:{orientation:'h', y:-0.25, font:{size:10}},
+      height:280, margin:{t:36,r:16,b:64,l:56}
+    }), CFG);
+  });
+}
+
 /* ---- Orchestration ---- */
 function renderAll() {
   renderContention();
@@ -580,6 +674,7 @@ function renderAll() {
   renderBufferDepth();
   renderDecomposition();
   renderTailLatency();
+  renderSoak();
 }
 
 buildSelector();

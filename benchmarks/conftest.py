@@ -76,20 +76,18 @@ def pytest_benchmark_update_json(config, benchmarks, output_json):
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """Print percentile, cost-decomposition, and contention summary tables."""
+    """Print percentile, cost-decomposition, contention, and soak summary tables."""
     _print_contention_results(terminalreporter)
+    _print_soak_results(terminalreporter)
 
     session = getattr(config, "_benchmarksession", None)
-    if session is None:
-        return
+    benchmarks = session.benchmarks if session else []
 
-    benchmarks = session.benchmarks
-    if not benchmarks:
-        return
+    if benchmarks:
+        _print_percentiles(terminalreporter, benchmarks)
+        _print_instrumented_decomposition(terminalreporter, benchmarks)
+        _print_tail_latency_ratios(terminalreporter, benchmarks)
 
-    _print_percentiles(terminalreporter, benchmarks)
-    _print_instrumented_decomposition(terminalreporter, benchmarks)
-    _print_tail_latency_ratios(terminalreporter, benchmarks)
     _write_report_data(terminalreporter, benchmarks)
 
 
@@ -122,6 +120,26 @@ def _print_contention_results(terminalreporter):
             f"{r['variant']:<10} {r['scenario']:<10} {r['num_drainers']:>4} "
             f"{r['total']:>10} {rate:>10.1f} [{shares}]"
         )
+
+
+def _print_soak_results(terminalreporter):
+    """Print soak test trend analysis results collected via record_property."""
+    results = []
+    for status in ("passed", "failed"):
+        for report in terminalreporter.stats.get(status, []):
+            for key, value in getattr(report, "user_properties", []):
+                if key == "soak_result":
+                    results.append(value)
+
+    if not results:
+        return
+
+    for r in results:
+        variant = r.get("variant", "unknown")
+        lines = r.get("terminal_lines", [])
+        terminalreporter.section(f"soak test ({variant})")
+        for line in lines:
+            terminalreporter.line(line)
 
 
 def _print_instrumented_decomposition(terminalreporter, benchmarks):
@@ -254,12 +272,16 @@ def _write_report_data(terminalreporter, benchmarks) -> None:
 
         contention: list[dict] = []
         decomposition: list[dict] = []
-        for report in terminalreporter.stats.get("passed", []):
-            for key, value in getattr(report, "user_properties", []):
-                if key == "contention_result":
-                    contention.append(value)
-                elif key == "decomposition_result":
-                    decomposition.append(value)
+        soak: list[dict] = []
+        for status in ("passed", "failed"):
+            for report in terminalreporter.stats.get(status, []):
+                for key, value in getattr(report, "user_properties", []):
+                    if key == "contention_result":
+                        contention.append(value)
+                    elif key == "decomposition_result":
+                        decomposition.append(value)
+                    elif key == "soak_result":
+                        soak.append(value)
 
         lua_vm_medians: dict[str, float] = {}
         for bench in benchmarks:
@@ -271,6 +293,7 @@ def _write_report_data(terminalreporter, benchmarks) -> None:
             "benchmarks": benchmark_entries,
             "contention": contention,
             "decomposition": decomposition,
+            "soak": soak,
             "lua_vm_medians": lua_vm_medians,
             "tail_latency_thresholds": _TAIL_LATENCY_RATIO_THRESHOLDS,
             "tail_latency_default_threshold": _DEFAULT_TAIL_LATENCY_RATIO,
