@@ -12,7 +12,6 @@ import os
 import time as _time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Optional
 from uuid import uuid4
 
 import numpy as np
@@ -37,7 +36,7 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", "6380"))
 # ---------------------------------------------------------------------------
 
 
-def _percentiles_for(stats) -> dict[str, float]:
+def _percentiles_for(stats):
     """Return p95, p99, and p99.9 for a benchmark's stats object."""
     data = np.array(stats.data)
     return {
@@ -51,7 +50,7 @@ def _percentiles_for(stats) -> dict[str, float]:
 # Tail latency ratio thresholds (p99 / median)
 # ---------------------------------------------------------------------------
 
-_TAIL_LATENCY_RATIO_THRESHOLDS: dict[str, float] = {}
+_TAIL_LATENCY_RATIO_THRESHOLDS = {}
 _DEFAULT_TAIL_LATENCY_RATIO = 10.0
 
 
@@ -79,6 +78,8 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     """Print percentile, cost-decomposition, contention, and soak summary tables."""
     _print_contention_results(terminalreporter)
     _print_soak_results(terminalreporter)
+    _print_buffer_growth_results(terminalreporter)
+    _print_acquire_contention_results(terminalreporter)
 
     session = getattr(config, "_benchmarksession", None)
     benchmarks = session.benchmarks if session else []
@@ -91,13 +92,22 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     _write_report_data(terminalreporter, benchmarks)
 
 
+def _collect_user_properties(terminalreporter, key, statuses=("passed", "failed")):
+    """Collect record_property values matching ``key`` from test reports."""
+    results = []
+    for status in statuses:
+        for report in terminalreporter.stats.get(status, []):
+            for k, value in getattr(report, "user_properties", []):
+                if k == key:
+                    results.append(value)
+    return results
+
+
 def _print_contention_results(terminalreporter):
     """Print a summary of contention benchmark results collected via record_property."""
-    results = []
-    for report in terminalreporter.stats.get("passed", []):
-        for key, value in getattr(report, "user_properties", []):
-            if key == "contention_result":
-                results.append(value)
+    results = _collect_user_properties(
+        terminalreporter, "contention_result", ("passed",)
+    )
 
     if not results:
         return
@@ -124,12 +134,7 @@ def _print_contention_results(terminalreporter):
 
 def _print_soak_results(terminalreporter):
     """Print soak test trend analysis results collected via record_property."""
-    results = []
-    for status in ("passed", "failed"):
-        for report in terminalreporter.stats.get(status, []):
-            for key, value in getattr(report, "user_properties", []):
-                if key == "soak_result":
-                    results.append(value)
+    results = _collect_user_properties(terminalreporter, "soak_result")
 
     if not results:
         return
@@ -142,18 +147,66 @@ def _print_soak_results(terminalreporter):
             terminalreporter.line(line)
 
 
-def _print_instrumented_decomposition(terminalreporter, benchmarks):
-    """Print per-iteration cost decomposition from instrumented limiter tests."""
-    results = []
-    for report in terminalreporter.stats.get("passed", []):
-        for key, value in getattr(report, "user_properties", []):
-            if key == "decomposition_result":
-                results.append(value)
+def _print_buffer_growth_results(terminalreporter):
+    """Print buffer growth under write pressure results collected via record_property."""
+    results = _collect_user_properties(terminalreporter, "buffer_growth_result")
 
     if not results:
         return
 
-    lua_vm_by_name: dict[str, float] = {}
+    terminalreporter.section("buffer growth under write pressure")
+    for r in results:
+        bins = r["bins"]
+        header = f"{'Elapsed':>8} {'Throughput':>14} {'Buffer Depth':>14}"
+        terminalreporter.line(header)
+        terminalreporter.line("-" * len(header))
+        for b in bins:
+            terminalreporter.line(
+                f"{b['elapsed_s']:>7.1f}s {b['throughput']:>12.1f}/s {b['buffer_depth']:>14.0f}"
+            )
+
+
+def _print_acquire_contention_results(terminalreporter):
+    """Print acquire/release contention latency results collected via record_property."""
+    results = _collect_user_properties(terminalreporter, "acquire_contention_result")
+
+    if not results:
+        return
+
+    terminalreporter.section("latency scaling under contention")
+    header = (
+        f"{'Test':<16} {'Scenario':<20} {'N':>4} "
+        f"{'Calls':>8} {'Rate/s':>10} "
+        f"{'Median':>10} {'Mean':>10} {'p99':>10}"
+    )
+    terminalreporter.line(header)
+    terminalreporter.line("-" * len(header))
+    for r in sorted(
+        results, key=lambda x: (x["test"], x.get("scenario", ""), x["num_callers"])
+    ):
+        scenario = r.get("scenario", "")
+        throughput = r.get("throughput", "")
+        total = r.get("total_calls", r.get("total", ""))
+        throughput_str = (
+            f"{throughput:>8.1f}/s" if isinstance(throughput, (int, float)) else ""
+        )
+        terminalreporter.line(
+            f"{r['test']:<16} {scenario:<20} {r['num_callers']:>4} "
+            f"{total:>8} {throughput_str:>10} "
+            f"{r['median_us']:>8.1f}us {r['mean_us']:>8.1f}us {r['p99_us']:>8.1f}us"
+        )
+
+
+def _print_instrumented_decomposition(terminalreporter, benchmarks):
+    """Print per-iteration cost decomposition from instrumented limiter tests."""
+    results = _collect_user_properties(
+        terminalreporter, "decomposition_result", ("passed",)
+    )
+
+    if not results:
+        return
+
+    lua_vm_by_name = {}
     for bench in benchmarks:
         if bench.group == "lua-vm":
             lua_vm_by_name[bench.name] = bench.stats.median
@@ -194,8 +247,8 @@ def _print_percentiles(terminalreporter, benchmarks):
 
 def _print_tail_latency_ratios(terminalreporter, benchmarks):
     """Check p99/median ratios per benchmark and flag violations."""
-    violations: list[tuple[str, str, float, float]] = []
-    rows: list[tuple[str, str, float, float, float, float, bool]] = []
+    violations = []
+    rows = []
 
     for bench in benchmarks:
         median = bench.stats.median
@@ -246,7 +299,7 @@ def _print_tail_latency_ratios(terminalreporter, benchmarks):
             )
 
 
-def _write_report_data(terminalreporter, benchmarks) -> None:
+def _write_report_data(terminalreporter, benchmarks):
     """Persist all benchmark results as JSON for the HTML report generator."""
     try:
         benchmark_entries = []
@@ -270,20 +323,19 @@ def _write_report_data(terminalreporter, benchmarks) -> None:
                 }
             )
 
-        contention: list[dict] = []
-        decomposition: list[dict] = []
-        soak: list[dict] = []
-        for status in ("passed", "failed"):
-            for report in terminalreporter.stats.get(status, []):
-                for key, value in getattr(report, "user_properties", []):
-                    if key == "contention_result":
-                        contention.append(value)
-                    elif key == "decomposition_result":
-                        decomposition.append(value)
-                    elif key == "soak_result":
-                        soak.append(value)
+        contention = _collect_user_properties(terminalreporter, "contention_result")
+        decomposition = _collect_user_properties(
+            terminalreporter, "decomposition_result"
+        )
+        soak = _collect_user_properties(terminalreporter, "soak_result")
+        buffer_growth = _collect_user_properties(
+            terminalreporter, "buffer_growth_result"
+        )
+        acquire_contention = _collect_user_properties(
+            terminalreporter, "acquire_contention_result"
+        )
 
-        lua_vm_medians: dict[str, float] = {}
+        lua_vm_medians = {}
         for bench in benchmarks:
             if bench.group == "lua-vm":
                 lua_vm_medians[bench.name] = bench.stats.median
@@ -294,6 +346,8 @@ def _write_report_data(terminalreporter, benchmarks) -> None:
             "contention": contention,
             "decomposition": decomposition,
             "soak": soak,
+            "buffer_growth": buffer_growth,
+            "acquire_contention": acquire_contention,
             "lua_vm_medians": lua_vm_medians,
             "tail_latency_thresholds": _TAIL_LATENCY_RATIO_THRESHOLDS,
             "tail_latency_default_threshold": _DEFAULT_TAIL_LATENCY_RATIO,
@@ -323,7 +377,7 @@ def redis_client():
 
 
 @pytest.fixture
-def limiter_id() -> str:
+def limiter_id():
     """Provide a unique limiter identifier for each benchmark."""
     return f"bench_{uuid4().hex[:12]}"
 
@@ -335,45 +389,41 @@ class _BenchmarkLimiter(AbstractDistributedRateLimiter):
     the schedule/consume overhead from any backend-specific work.
     """
 
-    def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
+    def _dispatch_task(self, func_path, payload, task_id):
         pass
 
-    def _schedule_drain(self, delay: float = 0.0) -> None:
+    def _schedule_drain(self, delay=0.0):
         pass
 
 
 class _InstrumentedLimiter(AbstractDistributedRateLimiter):
     """Limiter that times every Redis call for per-iteration cost decomposition."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._call_timings: list[float] = []
+        self._call_timings = []
 
-    def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
+    def _dispatch_task(self, func_path, payload, task_id):
         pass
 
-    def _schedule_drain(self, delay: float = 0.0) -> None:
+    def _schedule_drain(self, delay=0.0):
         pass
 
-    def _eval_script(self, script_name: str, num_keys: int, *args: Any) -> Any:
+    def _eval_script(self, script_name, num_keys, *args):
         t0 = _time.perf_counter()
         result = super()._eval_script(script_name, num_keys, *args)
         self._call_timings.append(_time.perf_counter() - t0)
         return result
 
-    def _publish_drain_signal(self) -> None:
+    def _publish_drain_signal(self):
         t0 = _time.perf_counter()
         super()._publish_drain_signal()
         self._call_timings.append(_time.perf_counter() - t0)
 
     def schedule_task(self, func_path, payload, priority=100, max_age=None):
-        # Wrap the SET NX call inside schedule_task by timing the whole
-        # method and letting _eval_script and _publish_drain_signal record
-        # their own sub-timings. The SET NX timing is captured by
-        # overriding the redis.set call path.
         original_set = self.redis.set
 
-        def _timed_set(*a: Any, **kw: Any) -> Any:
+        def _timed_set(*a, **kw):
             t0 = _time.perf_counter()
             result = original_set(*a, **kw)
             self._call_timings.append(_time.perf_counter() - t0)
@@ -385,7 +435,7 @@ class _InstrumentedLimiter(AbstractDistributedRateLimiter):
         finally:
             self.redis.set = original_set  # type: ignore[assignment]
 
-    def pop_timings(self) -> list[float]:
+    def pop_timings(self):
         timings = self._call_timings
         self._call_timings = []
         return timings
@@ -394,23 +444,23 @@ class _InstrumentedLimiter(AbstractDistributedRateLimiter):
 class _AsyncInstrumentedLimiter(AbstractAsyncDistributedRateLimiter):
     """Async limiter that times every Redis call for per-iteration cost decomposition."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._call_timings: list[float] = []
+        self._call_timings = []
 
-    async def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
+    async def _dispatch_task(self, func_path, payload, task_id):
         pass
 
-    def _schedule_drain(self, delay: float = 0.0) -> None:
+    def _schedule_drain(self, delay=0.0):
         pass
 
-    async def _eval_script(self, script_name: str, num_keys: int, *args: Any) -> Any:
+    async def _eval_script(self, script_name, num_keys, *args):
         t0 = _time.perf_counter()
         result = await super()._eval_script(script_name, num_keys, *args)
         self._call_timings.append(_time.perf_counter() - t0)
         return result
 
-    async def _publish_drain_signal(self) -> None:
+    async def _publish_drain_signal(self):
         t0 = _time.perf_counter()
         await super()._publish_drain_signal()
         self._call_timings.append(_time.perf_counter() - t0)
@@ -418,7 +468,7 @@ class _AsyncInstrumentedLimiter(AbstractAsyncDistributedRateLimiter):
     async def schedule_task(self, func_path, payload, priority=100, max_age=None):
         original_set = self.redis.set
 
-        async def _timed_set(*a: Any, **kw: Any) -> Any:
+        async def _timed_set(*a, **kw):
             t0 = _time.perf_counter()
             result = await original_set(*a, **kw)
             self._call_timings.append(_time.perf_counter() - t0)
@@ -430,7 +480,7 @@ class _AsyncInstrumentedLimiter(AbstractAsyncDistributedRateLimiter):
         finally:
             self.redis.set = original_set  # type: ignore[assignment]
 
-    def pop_timings(self) -> list[float]:
+    def pop_timings(self):
         timings = self._call_timings
         self._call_timings = []
         return timings
@@ -506,10 +556,10 @@ def limiter(redis_client, limiter_id):
 class _AsyncBenchmarkLimiter(AbstractAsyncDistributedRateLimiter):
     """Async mirror of ``_BenchmarkLimiter`` for the async hot-path tests."""
 
-    async def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
+    async def _dispatch_task(self, func_path, payload, task_id):
         pass
 
-    def _schedule_drain(self, delay: float = 0.0) -> None:
+    def _schedule_drain(self, delay=0.0):
         pass
 
 
@@ -588,17 +638,17 @@ def lua_benchmark(benchmark, redis_client, slowlog_enabled):
     """
 
     def _run(
-        callable_to_run: Callable[[], None],
-        rounds: int = 2000,
-        setup: Optional[Callable[[], None]] = None,
-        sha_filter: Optional[str] = None,
-    ) -> None:
+        callable_to_run,
+        rounds=2000,
+        setup=None,
+        sha_filter=None,
+    ):
         # Warm the script cache so the first call does not include a
         # SCRIPT LOAD round trip in the measured set.
         callable_to_run()
         redis_client.slowlog_reset()
 
-        def _drive() -> None:
+        def _drive():
             for _ in range(rounds):
                 if setup is not None:
                     setup()
@@ -647,10 +697,10 @@ def wall_benchmark(benchmark):
     """
 
     def _run(
-        callable_to_run: Callable[[], None],
-        rounds: int = 2000,
-        setup: Optional[Callable[[], None]] = None,
-    ) -> None:
+        callable_to_run,
+        rounds=2000,
+        setup=None,
+    ):
         # Warm the script cache so the first call does not include a
         # SCRIPT LOAD round trip in the measured set.
         callable_to_run()

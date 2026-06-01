@@ -12,15 +12,6 @@ import os
 import threading
 import time
 from dataclasses import asdict, dataclass
-from typing import TYPE_CHECKING, Any
-
-import redis as sync_redis
-
-if TYPE_CHECKING:
-    from redis_rate_limiter.core.async_limiters import (
-        AbstractAsyncDistributedRateLimiter,
-    )
-    from redis_rate_limiter.core.limiters import AbstractDistributedRateLimiter
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,22 +47,22 @@ class SoakSnapshot:
 
     cumulative_dispatches: int
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self):
         return asdict(self)
 
 
 class _DispatchCounter:
     """Metrics callback that counts consume-success events."""
 
-    def __init__(self) -> None:
+    def __init__(self):
         self.count = 0
 
-    def __call__(self, event: str, data: dict) -> None:
+    def __call__(self, event, data):
         if event == "consume" and data.get("success"):
             self.count += 1
 
 
-def _read_proc_status() -> tuple[int, int]:
+def _read_proc_status():
     """Return ``(VmRSS, VmSize)`` in KB from ``/proc/self/status``."""
     rss = 0
     vmsz = 0
@@ -87,7 +78,7 @@ def _read_proc_status() -> tuple[int, int]:
     return rss, vmsz
 
 
-def _count_fds() -> int:
+def _count_fds():
     try:
         return len(os.listdir("/proc/self/fd"))
     except OSError:
@@ -105,11 +96,11 @@ class SoakCollector:
 
     def __init__(
         self,
-        limiter: AbstractDistributedRateLimiter | AbstractAsyncDistributedRateLimiter,
-        monitor_redis: sync_redis.Redis,
-        dispatch_counter: _DispatchCounter,
-        interval: float = 1.0,
-    ) -> None:
+        limiter,
+        monitor_redis,
+        dispatch_counter,
+        interval=1.0,
+    ):
         self._limiter = limiter
         self._monitor_redis = monitor_redis
         self._counter = dispatch_counter
@@ -118,29 +109,29 @@ class SoakCollector:
         self._pool = limiter.redis.connection_pool
         self._has_created_connections = hasattr(self._pool, "_created_connections")
 
-        self._snapshots: list[SoakSnapshot] = []
+        self._snapshots = []
         self._stop_event = threading.Event()
-        self._start_mono: float = 0.0
-        self._thread: threading.Thread | None = None
+        self._start_mono = 0.0
+        self._thread = None
 
-    def start(self) -> None:
+    def start(self):
         self._start_mono = time.monotonic()
         self._thread = threading.Thread(
             target=self._run, name="SoakCollector", daemon=True
         )
         self._thread.start()
 
-    def stop(self) -> list[SoakSnapshot]:
+    def stop(self):
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join(timeout=5.0)
         return list(self._snapshots)
 
-    def _run(self) -> None:
+    def _run(self):
         while not self._stop_event.wait(self._interval):
             self._snapshots.append(self._sample())
 
-    def _sample(self) -> SoakSnapshot:
+    def _sample(self):
         elapsed = time.monotonic() - self._start_mono
 
         rss, vmsz = _read_proc_status()

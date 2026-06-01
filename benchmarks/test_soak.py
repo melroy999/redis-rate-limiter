@@ -22,10 +22,8 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
 from uuid import uuid4
 
-import pytest
 import redis
 import redis.asyncio as aioredis
 
@@ -45,7 +43,7 @@ FEEDER_BATCH = 200
 FUNC_PATH = "benchmarks.test_soak._noop"
 ASYNC_FUNC_PATH = "benchmarks.test_soak._async_noop"
 
-LIMITER_CONFIG: dict[str, Any] = {
+LIMITER_CONFIG = {
     "limit": 500,
     "window": 1.0,
     "max_concurrency": 10_000_000,
@@ -55,20 +53,20 @@ LIMITER_CONFIG: dict[str, Any] = {
 }
 
 
-def _noop(**kwargs: Any) -> None:
+def _noop(**kwargs):
     pass
 
 
-async def _async_noop(**kwargs: Any) -> None:
+async def _async_noop(**kwargs):
     pass
 
 
 def _feeder_loop(
-    feeder_redis: redis.Redis,
-    limiter: ThreadPoolRateLimiter,
-    stop_event: threading.Event,
-    func_path: str,
-) -> None:
+    feeder_redis,
+    limiter,
+    stop_event,
+    func_path,
+):
     seq = 0
     while not stop_event.wait(FEEDER_INTERVAL):
         current = feeder_redis.zcard(limiter.buffer_key)
@@ -85,9 +83,9 @@ def _feeder_loop(
 
 
 async def _async_feeder_loop(
-    feeder_redis: redis.Redis,
-    limiter: AsyncIOTaskLimiter,
-) -> None:
+    feeder_redis,
+    limiter,
+):
     seq = 0
     while True:
         await asyncio.sleep(FEEDER_INTERVAL)
@@ -105,9 +103,9 @@ async def _async_feeder_loop(
 
 
 def test_soak_sync(
-    redis_client: redis.Redis,
-    request: pytest.FixtureRequest,
-) -> None:
+    redis_client,
+    request,
+):
     """Run sustained sync load and assert no resource leaks or degradation."""
     # Arrange
     redis_client.flushdb()
@@ -181,9 +179,9 @@ def test_soak_sync(
 
 
 async def test_soak_async(
-    redis_client: redis.Redis,
-    request: pytest.FixtureRequest,
-) -> None:
+    redis_client,
+    request,
+):
     """Run sustained async load and assert no resource leaks or degradation."""
     # Arrange
     redis_client.flushdb()

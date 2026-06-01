@@ -44,7 +44,7 @@ class _AsyncBenchmarkLimiter(AbstractAsyncDistributedRateLimiter):
         pass
 
 
-def _print_profile(profiler: cProfile.Profile, label: str) -> None:
+def _print_profile(profiler, label):
     stats = pstats.Stats(profiler).strip_dirs()
     print(
         f"\n=== [{label}] Top 30 by cumulative time ({ROUNDS} consume+lifecycle calls) ==="
@@ -56,7 +56,7 @@ def _print_profile(profiler: cProfile.Profile, label: str) -> None:
     stats.sort_stats("tottime").print_stats(30)
 
 
-def _profile_sync(host: str, port: int) -> None:
+def _profile_sync(host, port):
     client = redis.Redis(host=host, port=port, decode_responses=True)
     client.flushdb()
 
@@ -92,7 +92,7 @@ def _profile_sync(host: str, port: int) -> None:
     client.close()
 
 
-def _profile_async(host: str, port: int) -> None:
+def _profile_async(host, port):
     loop = asyncio.new_event_loop()
     sync_client = redis.Redis(host=host, port=port, decode_responses=True)
     async_client = aioredis.Redis(host=host, port=port, decode_responses=True)
@@ -134,7 +134,7 @@ def _profile_async(host: str, port: int) -> None:
     loop.close()
 
 
-def main() -> None:
+def main():
     host = os.getenv("REDIS_HOST", "localhost")
     port = int(os.getenv("REDIS_PORT", "6380"))
 

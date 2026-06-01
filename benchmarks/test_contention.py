@@ -70,7 +70,6 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -86,7 +85,7 @@ DRAINER_COUNTS = [1, 2, 4, 8]
 FUNC_PATH = "benchmarks.test_contention._noop"
 ASYNC_FUNC_PATH = "benchmarks.test_contention._async_noop"
 
-SCENARIOS: dict[str, dict[str, Any]] = {
+SCENARIOS = {
     "burst": {
         "limit": 1000,
         "window": 10.0,
@@ -122,14 +121,14 @@ SCENARIOS: dict[str, dict[str, Any]] = {
 }
 
 
-def _noop(**kwargs: Any) -> None:
+def _noop(**kwargs):
     """Trivial dispatch target; optionally sleeps to hold a concurrency slot."""
     sleep_for = kwargs.get("sleep", 0.0)
     if sleep_for:
         time.sleep(sleep_for)
 
 
-async def _async_noop(**kwargs: Any) -> None:
+async def _async_noop(**kwargs):
     """Async dispatch target; optionally awaits to hold a concurrency slot."""
     sleep_for = kwargs.get("sleep", 0.0)
     if sleep_for:
@@ -139,22 +138,22 @@ async def _async_noop(**kwargs: Any) -> None:
 class _DispatchCounter:
     """metrics_callback that counts consume-success events on one limiter instance."""
 
-    def __init__(self) -> None:
+    def __init__(self):
         self.count = 0
 
-    def __call__(self, event: str, data: dict) -> None:
+    def __call__(self, event, data):
         if event == "consume" and data.get("success"):
             self.count += 1
 
 
 def _make_limiter(
-    redis_client: redis.Redis,
-    limiter_id: str,
-    executor: ThreadPoolExecutor,
-    limit: int,
-    window: float,
-    max_concurrency: int,
-) -> tuple[ThreadPoolRateLimiter, _DispatchCounter]:
+    redis_client,
+    limiter_id,
+    executor,
+    limit,
+    window,
+    max_concurrency,
+):
     counter = _DispatchCounter()
     limiter = ThreadPoolRateLimiter(
         redis_client=redis_client,
@@ -173,13 +172,13 @@ def _make_limiter(
 
 
 async def _make_async_limiter(
-    async_client: aioredis.Redis,
-    limiter_id: str,
-    max_tasks: int,
-    limit: int,
-    window: float,
-    max_concurrency: int,
-) -> tuple[AsyncIOTaskLimiter, _DispatchCounter]:
+    async_client,
+    limiter_id,
+    max_tasks,
+    limit,
+    window,
+    max_concurrency,
+):
     counter = _DispatchCounter()
     limiter = AsyncIOTaskLimiter(
         redis_client=async_client,
@@ -198,7 +197,7 @@ async def _make_async_limiter(
     return limiter, counter
 
 
-def _expected_total(scenario: str, num_drainers: int) -> int:
+def _expected_total(scenario, num_drainers):
     """Theoretical dispatch ceiling for a given scenario and fleet size."""
     cfg = SCENARIOS[scenario]
     duration = cfg["duration"]
@@ -217,7 +216,7 @@ def _expected_total(scenario: str, num_drainers: int) -> int:
 # burst windows are wall-clock aligned, so a RUN-second run can straddle a
 # boundary and admit up to (1 + RUN/WINDOW) × LIMIT. With RUN=2s, WINDOW=10s
 # the worst case is 1.20 × LIMIT; 1.25 leaves headroom for jitter.
-_TOLERANCES: dict[str, tuple[float, float]] = {
+_TOLERANCES = {
     "burst": (0.90, 1.25),
     "steady": (0.90, 1.15),
     "saturated": (0.90, 1.10),
@@ -225,16 +224,14 @@ _TOLERANCES: dict[str, tuple[float, float]] = {
 }
 
 
-def _required_prefill(scenario: str) -> int:
+def _required_prefill(scenario):
     """Buffer size that comfortably exceeds any allowed dispatch total."""
     max_n = max(DRAINER_COUNTS)
     upper = _expected_total(scenario, max_n) * _TOLERANCES[scenario][1]
     return max(1500, int(upper * 1.5))
 
 
-def _assert_throughput(
-    variant: str, scenario: str, num_drainers: int, total: int
-) -> None:
+def _assert_throughput(variant, scenario, num_drainers, total):
     if variant == "threads":
         return
     expected = _expected_total(scenario, num_drainers)
@@ -247,14 +244,14 @@ def _assert_throughput(
 
 
 def _record(
-    request: pytest.FixtureRequest,
-    variant: str,
-    scenario: str,
-    num_drainers: int,
-    total: int,
-    duration: float,
-    per_drainer: list[int],
-) -> None:
+    request,
+    variant,
+    scenario,
+    num_drainers,
+    total,
+    duration,
+    per_drainer,
+):
     request.node.user_properties.append(
         (
             "contention_result",
@@ -275,15 +272,13 @@ def _record(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("scenario", list(SCENARIOS.keys()))
-@pytest.mark.parametrize("num_drainers", DRAINER_COUNTS)
-def test_contention_threads(
-    redis_client: redis.Redis,
-    request: pytest.FixtureRequest,
-    scenario: str,
-    num_drainers: int,
-) -> None:
-    """Spawn N threaded drainers competing for one limiter; record throughput."""
+def _run_threads_trial(
+    redis_client,
+    scenario,
+    num_drainers,
+    label,
+):
+    """Run one trial of the threaded contention benchmark, returning (total, per_drainer)."""
     cfg = SCENARIOS[scenario]
     limit = cfg["limit"]
     window = cfg["window"]
@@ -296,9 +291,6 @@ def test_contention_threads(
 
     redis_client.flushdb()
     limiter_id = f"contention_thr_{scenario}_{uuid4().hex[:8]}"
-    test_label = f"threads/{scenario}/N={num_drainers}"
-    sys.stderr.write(f"\n[{test_label}] prefill start\n")
-    sys.stderr.flush()
 
     seeder_executor = ThreadPoolExecutor(max_workers=2)
     seeder, _ = _make_limiter(
@@ -309,15 +301,12 @@ def test_contention_threads(
     finally:
         seeder.shutdown()
         seeder_executor.shutdown(wait=False)
-    sys.stderr.write(f"[{test_label}] prefill done\n")
-    sys.stderr.flush()
 
     barrier = threading.Barrier(num_drainers)
-    counters: list[_DispatchCounter | None] = [None] * num_drainers
-    drainer_clients: list[redis.Redis] = []
-    drainer_executors: list[ThreadPoolExecutor] = []
+    counters = [None] * num_drainers
+    drainer_clients = []
 
-    def _drain(index: int) -> None:
+    def _drain(index):
         drainer_client = redis.Redis(
             host=REDIS_HOST, port=REDIS_PORT, decode_responses=True
         )
@@ -330,7 +319,6 @@ def test_contention_threads(
         ]
         for f in warmup_futures:
             f.result(timeout=5.0)
-        drainer_executors.append(drainer_executor)
         limiter, counter = _make_limiter(
             drainer_client,
             limiter_id,
@@ -340,51 +328,50 @@ def test_contention_threads(
             max_concurrency,
         )
         counters[index] = counter
-        sys.stderr.write(
-            f"[{test_label}] drainer {index} created, waiting on barrier\n"
-        )
-        sys.stderr.flush()
         try:
             barrier.wait(timeout=10)
             deadline = time.monotonic() + duration
             limiter.trigger_consume()
             while time.monotonic() < deadline:
                 time.sleep(0.05)
-            sys.stderr.write(
-                f"[{test_label}] drainer {index} run complete, dispatched={counter.count}\n"
-            )
-            sys.stderr.flush()
         finally:
             limiter.shutdown()
-            sys.stderr.write(f"[{test_label}] drainer {index} limiter shutdown done\n")
-            sys.stderr.flush()
             drainer_executor.shutdown(wait=True)
-            sys.stderr.write(f"[{test_label}] drainer {index} executor shutdown done\n")
-            sys.stderr.flush()
 
     threads = [threading.Thread(target=_drain, args=(i,)) for i in range(num_drainers)]
-    sys.stderr.write(f"[{test_label}] spawning {num_drainers} drainers\n")
-    sys.stderr.flush()
     for t in threads:
         t.start()
-
     for i, t in enumerate(threads):
         t.join(timeout=duration + 30)
         if t.is_alive():
-            sys.stderr.write(
-                f"[{test_label}] WARNING: drainer {i} did not exit after join timeout\n"
-            )
+            sys.stderr.write(f"[{label}] WARNING: drainer {i} did not exit\n")
             sys.stderr.flush()
-
-    sys.stderr.write(f"[{test_label}] all drainers joined\n")
-    sys.stderr.flush()
 
     for c in drainer_clients:
         c.close()
 
-    results = [c.count if c is not None else 0 for c in counters]
-    _record(request, "threads", scenario, num_drainers, sum(results), duration, results)
-    _assert_throughput("threads", scenario, num_drainers, sum(results))
+    per_drainer = [c.count if c is not None else 0 for c in counters]
+    return sum(per_drainer), per_drainer
+
+
+@pytest.mark.parametrize("scenario", list(SCENARIOS.keys()))
+@pytest.mark.parametrize("num_drainers", DRAINER_COUNTS)
+def test_contention_threads(
+    redis_client,
+    request,
+    scenario,
+    num_drainers,
+):
+    """Spawn N threaded drainers competing for one limiter; record throughput."""
+    cfg = SCENARIOS[scenario]
+    label = f"threads/{scenario}/N={num_drainers}"
+    sys.stderr.write(f"\n[{label}] starting\n")
+    sys.stderr.flush()
+    total, per_drainer = _run_threads_trial(redis_client, scenario, num_drainers, label)
+    _record(
+        request, "threads", scenario, num_drainers, total, cfg["duration"], per_drainer
+    )
+    _assert_throughput("threads", scenario, num_drainers, total)
 
 
 # ---------------------------------------------------------------------------
@@ -393,18 +380,18 @@ def test_contention_threads(
 
 
 def _process_drainer(
-    redis_host: str,
-    redis_port: int,
-    limiter_id: str,
-    limit: int,
-    window: float,
-    max_concurrency: int,
-    executor_workers: int,
-    duration: float,
-    queue: "mp.Queue[tuple[int, int]]",
-    index: int,
-    start_at: float,
-) -> None:
+    redis_host,
+    redis_port,
+    limiter_id,
+    limit,
+    window,
+    max_concurrency,
+    executor_workers,
+    duration,
+    queue,
+    index,
+    start_at,
+):
     client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
     executor = ThreadPoolExecutor(max_workers=executor_workers)
     limiter, counter = _make_limiter(
@@ -425,15 +412,12 @@ def _process_drainer(
         client.close()
 
 
-@pytest.mark.parametrize("scenario", list(SCENARIOS.keys()))
-@pytest.mark.parametrize("num_drainers", DRAINER_COUNTS)
-def test_contention_processes(
-    redis_client: redis.Redis,
-    request: pytest.FixtureRequest,
-    scenario: str,
-    num_drainers: int,
-) -> None:
-    """Spawn N OS-process drainers competing for one limiter; record throughput."""
+def _run_processes_trial(
+    redis_client,
+    scenario,
+    num_drainers,
+):
+    """Run one trial of the multiprocess contention benchmark."""
     cfg = SCENARIOS[scenario]
     limit = cfg["limit"]
     window = cfg["window"]
@@ -458,9 +442,8 @@ def test_contention_processes(
         seeder_executor.shutdown(wait=False)
 
     ctx = mp.get_context("spawn")
-    queue: "mp.Queue[tuple[int, int]]" = ctx.Queue()
+    queue = ctx.Queue()
 
-    # grace period for spawn + import + connect.
     start_at = time.time() + 1.5
     procs = [
         ctx.Process(
@@ -486,15 +469,38 @@ def test_contention_processes(
     for p in procs:
         p.join()
 
-    results: list[int] = [0] * num_drainers
+    per_drainer = [0] * num_drainers
     while not queue.empty():
         idx, count = queue.get_nowait()
-        results[idx] = count
+        per_drainer[idx] = count
 
+    return sum(per_drainer), per_drainer
+
+
+@pytest.mark.parametrize("scenario", list(SCENARIOS.keys()))
+@pytest.mark.parametrize("num_drainers", DRAINER_COUNTS)
+def test_contention_processes(
+    redis_client,
+    request,
+    scenario,
+    num_drainers,
+):
+    """Spawn N OS-process drainers competing for one limiter; record throughput."""
+    cfg = SCENARIOS[scenario]
+    label = f"processes/{scenario}/N={num_drainers}"
+    sys.stderr.write(f"\n[{label}] starting\n")
+    sys.stderr.flush()
+    total, per_drainer = _run_processes_trial(redis_client, scenario, num_drainers)
     _record(
-        request, "processes", scenario, num_drainers, sum(results), duration, results
+        request,
+        "processes",
+        scenario,
+        num_drainers,
+        total,
+        cfg["duration"],
+        per_drainer,
     )
-    _assert_throughput("processes", scenario, num_drainers, sum(results))
+    _assert_throughput("processes", scenario, num_drainers, total)
 
 
 # ---------------------------------------------------------------------------
@@ -502,15 +508,12 @@ def test_contention_processes(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("scenario", list(SCENARIOS.keys()))
-@pytest.mark.parametrize("num_drainers", DRAINER_COUNTS)
-async def test_contention_coroutines(
-    redis_client: redis.Redis,
-    request: pytest.FixtureRequest,
-    scenario: str,
-    num_drainers: int,
-) -> None:
-    """Spawn N coroutine drainers (single event loop) competing for one limiter."""
+async def _run_coroutines_trial(
+    redis_client,
+    scenario,
+    num_drainers,
+):
+    """Run one trial of the coroutines contention benchmark."""
     cfg = SCENARIOS[scenario]
     limit = cfg["limit"]
     window = cfg["window"]
@@ -524,8 +527,6 @@ async def test_contention_coroutines(
     redis_client.flushdb()
     limiter_id = f"contention_coro_{scenario}_{uuid4().hex[:8]}"
 
-    # Prefill via the existing sync helper, but using the async _noop func_path
-    # so the dispatch path resolves a coroutine.
     seeder_executor = ThreadPoolExecutor(max_workers=2)
     seeder, _ = _make_limiter(
         redis_client, limiter_id, seeder_executor, limit, window, max_concurrency
@@ -538,9 +539,9 @@ async def test_contention_coroutines(
         seeder.shutdown()
         seeder_executor.shutdown(wait=False)
 
-    async_clients: list[aioredis.Redis] = []
-    limiters: list[AsyncIOTaskLimiter] = []
-    counters: list[_DispatchCounter] = []
+    async_clients = []
+    limiters = []
+    counters = []
     for _ in range(num_drainers):
         client = aioredis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
         async_clients.append(client)
@@ -565,8 +566,33 @@ async def test_contention_coroutines(
         for client in async_clients:
             await client.aclose()
 
-    results = [c.count for c in counters]
-    _record(
-        request, "coroutines", scenario, num_drainers, sum(results), duration, results
+    per_drainer = [c.count for c in counters]
+    return sum(per_drainer), per_drainer
+
+
+@pytest.mark.parametrize("scenario", list(SCENARIOS.keys()))
+@pytest.mark.parametrize("num_drainers", DRAINER_COUNTS)
+async def test_contention_coroutines(
+    redis_client,
+    request,
+    scenario,
+    num_drainers,
+):
+    """Spawn N coroutine drainers (single event loop) competing for one limiter."""
+    cfg = SCENARIOS[scenario]
+    label = f"coroutines/{scenario}/N={num_drainers}"
+    sys.stderr.write(f"\n[{label}] starting\n")
+    sys.stderr.flush()
+    total, per_drainer = await _run_coroutines_trial(
+        redis_client, scenario, num_drainers
     )
-    _assert_throughput("coroutines", scenario, num_drainers, sum(results))
+    _record(
+        request,
+        "coroutines",
+        scenario,
+        num_drainers,
+        total,
+        cfg["duration"],
+        per_drainer,
+    )
+    _assert_throughput("coroutines", scenario, num_drainers, total)

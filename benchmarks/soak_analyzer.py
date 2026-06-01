@@ -7,11 +7,8 @@ significant trends that exceed configured safety thresholds.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
-
-from benchmarks.soak_collector import SoakSnapshot
 
 THRESHOLD_RSS_KB_PER_S = 50.0
 THRESHOLD_THREAD_PER_S = 0.05
@@ -37,7 +34,7 @@ _T_CRITICAL = {
 }
 
 
-def _t_critical(n: int) -> float:
+def _t_critical(n):
     """Look up approximate t_critical for n-2 degrees of freedom at alpha=0.05."""
     df = n - 2
     if df <= 0:
@@ -59,7 +56,7 @@ class TrendResult:
     passed: bool
     failure_reason: str
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self):
         return {
             "metric": self.metric,
             "slope": float(self.slope),
@@ -75,17 +72,17 @@ class TrendResult:
 
 
 class SoakAnalyzer:
-    def __init__(self, snapshots: list[SoakSnapshot]) -> None:
+    def __init__(self, snapshots):
         self._snapshots = snapshots
         self._times = np.array([s.elapsed_s for s in snapshots])
-        self._results: list[TrendResult] | None = None
+        self._results = None
 
-    def analyze(self) -> list[TrendResult]:
+    def analyze(self):
         if self._results is not None:
             return self._results
 
         s = self._snapshots
-        results: list[TrendResult] = []
+        results = []
 
         results.append(
             self._linear_trend(
@@ -173,7 +170,7 @@ class SoakAnalyzer:
         self._results = results
         return results
 
-    def summary_dict(self) -> dict[str, Any]:
+    def summary_dict(self):
         results = self.analyze()
         return {
             "results": [r.to_dict() for r in results],
@@ -213,7 +210,7 @@ class SoakAnalyzer:
             },
         }
 
-    def terminal_lines(self) -> list[str]:
+    def terminal_lines(self):
         results = self.analyze()
         header = (
             f"{'Metric':<30} {'Slope':>14} {'R^2':>8} "
@@ -231,12 +228,12 @@ class SoakAnalyzer:
 
     def _linear_trend(
         self,
-        metric: str,
-        values: list[float] | list[int],
-        threshold: float,
-        unit: str,
-        times: np.ndarray | None = None,
-    ) -> TrendResult:
+        metric,
+        values,
+        threshold,
+        unit,
+        times=None,
+    ):
         t = times if times is not None else self._times
         v = np.array(values, dtype=float)
         n = len(t)
@@ -300,7 +297,7 @@ class SoakAnalyzer:
             failure_reason=reason,
         )
 
-    def _throughput_trend(self, cumulative: list[int]) -> TrendResult:
+    def _throughput_trend(self, cumulative):
         t = self._times
         c = np.array(cumulative, dtype=float)
         n = len(t)

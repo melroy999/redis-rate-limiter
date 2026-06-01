@@ -6,12 +6,12 @@ import time
 
 def bulk_fill_buffer(
     limiter,
-    count: int,
-    start_id: int = 0,
-    func_path: str | None = None,
-    payload: dict | None = None,
+    count,
+    start_id=0,
+    func_path=None,
+    payload=None,
     redis_client=None,
-) -> None:
+):
     """Insert ``count`` minimal tasks into the buffer in a single ZADD call.
 
     ``redis_client`` overrides ``limiter.redis`` and is required when the
@@ -21,9 +21,9 @@ def bulk_fill_buffer(
         return
     now_ms = int(time.time() * 1000)
 
-    def _task(i: int) -> dict:
+    def _task(i):
         task_id = f"fill_{start_id + i}"
-        task: dict = {
+        task = {
             "id": task_id,
             "inflight_key": limiter.get_inflight_key(task_id),
             "__meta_arrived_at": now_ms,

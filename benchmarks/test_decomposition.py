@@ -28,12 +28,12 @@ ROUNDS = 2000
 
 
 def _record_decomposition(
-    request: pytest.FixtureRequest,
-    variant: str,
-    test_name: str,
+    request,
+    variant,
+    test_name,
     benchmark,
-    rtt_samples: list[float],
-) -> None:
+    rtt_samples,
+):
     if not rtt_samples:
         return
     e2e_median = float(np.median(benchmark.stats.stats.data))
@@ -65,7 +65,7 @@ class TestSyncDecomposition:
 
     def test_consume_empty_buffer(self, benchmark, request, instrumented_limiter):
         limiter = instrumented_limiter
-        rtt_samples: list[float] = []
+        rtt_samples = []
 
         def _run():
             limiter.pop_timings()
@@ -81,7 +81,7 @@ class TestSyncDecomposition:
         limiter = instrumented_limiter
         bulk_fill_buffer(limiter, 1)
         refill_counter = itertools.count(start=1)
-        rtt_samples: list[float] = []
+        rtt_samples = []
 
         def _refill():
             i = next(refill_counter)
@@ -103,7 +103,7 @@ class TestSyncDecomposition:
     def test_schedule_task(self, benchmark, request, instrumented_limiter):
         limiter = instrumented_limiter
         counter = itertools.count()
-        rtt_samples: list[float] = []
+        rtt_samples = []
 
         def _run():
             limiter.pop_timings()
@@ -119,7 +119,7 @@ class TestSyncDecomposition:
     def test_schedule_and_consume(self, benchmark, request, instrumented_limiter):
         limiter = instrumented_limiter
         counter = itertools.count()
-        rtt_samples: list[float] = []
+        rtt_samples = []
 
         def _run():
             limiter.pop_timings()
@@ -148,7 +148,7 @@ class TestAsyncDecomposition:
 
     def test_consume_empty_buffer(self, benchmark, request, async_instrumented_limiter):
         loop, limiter = async_instrumented_limiter
-        rtt_samples: list[float] = []
+        rtt_samples = []
 
         def _run():
             limiter.pop_timings()
@@ -166,7 +166,7 @@ class TestAsyncDecomposition:
         loop, limiter = async_instrumented_limiter
         bulk_fill_buffer(limiter, 1, redis_client=redis_client)
         refill_counter = itertools.count(start=1)
-        rtt_samples: list[float] = []
+        rtt_samples = []
 
         def _refill():
             i = next(refill_counter)
@@ -191,7 +191,7 @@ class TestAsyncDecomposition:
     def test_schedule_task(self, benchmark, request, async_instrumented_limiter):
         loop, limiter = async_instrumented_limiter
         counter = itertools.count()
-        rtt_samples: list[float] = []
+        rtt_samples = []
 
         def _run():
             limiter.pop_timings()
@@ -209,9 +209,9 @@ class TestAsyncDecomposition:
     def test_schedule_and_consume(self, benchmark, request, async_instrumented_limiter):
         loop, limiter = async_instrumented_limiter
         counter = itertools.count()
-        rtt_samples: list[float] = []
+        rtt_samples = []
 
-        async def _op(i: int) -> None:
+        async def _op(i):
             await limiter.schedule_task("bench.module.func", {"seq": i})
             result = await limiter.consume()
             if result["success"]:

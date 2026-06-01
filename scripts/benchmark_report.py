@@ -174,7 +174,7 @@ h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 4px; }
 
 <div class="section" id="s-buf">
   <h2>Buffer Depth Scaling</h2>
-  <p class="desc">How consume latency varies with the number of pending tasks in the sorted set.</p>
+  <p class="desc">How consume latency varies with the number of pending tasks pre-filled in the sorted set. No tasks are added during the measurement; the buffer is static.</p>
   <div id="buf-chart"></div>
 </div>
 
@@ -214,9 +214,21 @@ h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 4px; }
   </tr><tr>
     <td>HeartbeatScheduler</td><td>Entries (active registrations) and heap (lazy-delete queue)</td><td>Bounded; heap growing faster than entries indicates stale accumulation</td>
   </tr><tr>
-    <td>GC Collections</td><td>Cumulative collections per generation (gen0, gen1, gen2)</td><td>Flat or steady; accelerating gen2 indicates memory pressure</td>
+    <td>GC Collections</td><td>Cumulative cyclic GC collections per generation (gen0, gen1, gen2)</td><td>Flat when no reference cycles exist (reference counting handles cleanup); accelerating gen2 indicates memory pressure from cyclic references</td>
   </tr></table>
   <div id="soak-container" class="g2"></div>
+</div>
+
+<div class="section" id="s-growth">
+  <h2>Buffer Growth Under Write Pressure</h2>
+  <p class="desc">Drain throughput (tasks/s) vs buffer depth while a feeder continuously writes faster than drains consume. A flat trend line means drain performance is independent of buffer size under dynamic growth.</p>
+  <div id="growth-depth"></div>
+</div>
+
+<div class="section" id="s-acq-cont">
+  <h2>Latency Scaling Under Contention</h2>
+  <p class="desc">Per-call latency vs concurrent caller count. acquire_lua and release_lua measure the raw Lua script (EVALSHA); limiter_acquire measures the full Python acquire() cycle (schedule, drain loop, consume.lua, BLPOP signal, release). Each bar shows median latency; whiskers extend to p99.</p>
+  <div class="g2" id="acq-cont-container"></div>
 </div>
 
 <script>
@@ -230,7 +242,7 @@ var GC = {
   'lua-vm':'#6A1B9A', 'evalsha-wallclock':'#1565C0',
   'async-evalsha-wallclock':'#2E7D32', 'end-to-end':'#C62828',
   'async-end-to-end':'#00695C', 'decomposition-sync':'#E65100',
-  'decomposition-async':'#00838F', 'default':'#455A64'
+  'decomposition-async':'#00838F', 'pubsub':'#F9A825', 'default':'#455A64'
 };
 var DRAINER_PALETTE = ['#1565C0','#2E7D32','#E65100','#6A1B9A','#00838F','#AD1457','#F9A825','#4E342E'];
 var CFG = {responsive:true, displayModeBar:true, modeBarButtonsToRemove:['lasso2d','select2d']};
@@ -566,15 +578,62 @@ function renderTailLatency() {
   if (items.length === 0) { hide('s-tail'); return; }
   show('s-tail');
 
+  var soloGroups = {};
+  items.forEach(function(i){ soloGroups[i.group] = (soloGroups[i.group] || 0) + 1; });
+  var mergedGroupNames = Object.keys(soloGroups).filter(function(g){ return soloGroups[g] >= 2 && soloGroups[g] <= 4; });
+  var mergedItems = items.filter(function(i){ return mergedGroupNames.indexOf(i.group) !== -1; });
+  var normalItems = items.filter(function(i){ return mergedGroupNames.indexOf(i.group) === -1; });
+
   var opNames = [];
-  items.forEach(function(i){ if(opNames.indexOf(i.name)===-1) opNames.push(i.name); });
+  normalItems.forEach(function(i){ if(opNames.indexOf(i.name)===-1) opNames.push(i.name); });
   opNames.sort();
 
   var container = document.getElementById('tail-container');
   container.innerHTML = '';
 
+  mergedGroupNames.sort();
+  mergedGroupNames.forEach(function(grp) {
+    var grpItems = mergedItems.filter(function(i){ return i.group === grp; }).sort(function(a,b){ return a.ratio - b.ratio; });
+    var divId = 'tail-grp-' + grp.replace(/[^a-z0-9]/g, '-');
+    var div = document.createElement('div');
+    div.id = divId;
+    container.appendChild(div);
+
+    var trace = {
+      y: grpItems.map(function(i){ return i.name; }),
+      x: grpItems.map(function(i){ return i.ratio; }),
+      type: 'bar', orientation: 'h',
+      marker: {
+        color: GC[grp] || '#455A64',
+        line: {
+          color: grpItems.map(function(i){ return i.ok ? 'rgba(0,0,0,0)' : '#C62828'; }),
+          width: grpItems.map(function(i){ return i.ok ? 0 : 2.5; })
+        }
+      },
+      hovertemplate: '%{y}: %{x:.2f}x<extra></extra>'
+    };
+
+    var thresholds = {};
+    grpItems.forEach(function(i){ thresholds[i.threshold] = true; });
+    var shapes = Object.keys(thresholds).map(function(t){
+      return { type: 'line', x0: +t, x1: +t, y0: -0.5, y1: grpItems.length - 0.5, line: { color: '#C62828', width: 2, dash: 'dash' } };
+    });
+    var annotations = Object.keys(thresholds).map(function(t){
+      return { x: +t, y: 1.02, xref: 'x', yref: 'paper', text: t + 'x limit', showarrow: false, font: { color: '#C62828', size: 11 } };
+    });
+
+    Plotly.newPlot(divId, [trace], M(LB, {
+      title: { text: grp, font: { size: 14 } },
+      xaxis: { title: 'p99 / median ratio' },
+      yaxis: { automargin: true },
+      shapes: shapes, annotations: annotations,
+      height: Math.max(200, grpItems.length * 32 + 100),
+      margin: { t: 48, r: 24, b: 60, l: 200 }
+    }), CFG);
+  });
+
   opNames.forEach(function(op) {
-    var opItems = items.filter(function(i){ return i.name === op; }).sort(function(a,b){ return a.ratio - b.ratio; });
+    var opItems = normalItems.filter(function(i){ return i.name === op; }).sort(function(a,b){ return a.ratio - b.ratio; });
 
     var divId = 'tail-' + op.replace(/[^a-z0-9]/g, '-');
     var div = document.createElement('div');
@@ -667,6 +726,124 @@ function renderSoak() {
   });
 }
 
+/* ---- Buffer Growth ---- */
+function renderBufferGrowth() {
+  var run = latestSelected();
+  if (!run || !run.buffer_growth || run.buffer_growth.length === 0) { hide('s-growth'); return; }
+  show('s-growth');
+
+  var bg = run.buffer_growth[0];
+  var bins = bg.bins;
+
+  var dx = bins.map(function(b){ return b.buffer_depth; });
+  var dy = bins.map(function(b){ return b.throughput; });
+  var n = dx.length;
+  var sx=0,sy=0,sxx=0,sxy=0,syy=0;
+  for(var i=0;i<n;i++){sx+=dx[i];sy+=dy[i];sxx+=dx[i]*dx[i];sxy+=dx[i]*dy[i];syy+=dy[i]*dy[i];}
+  var slope=(n*sxy-sx*sy)/(n*sxx-sx*sx);
+  var intercept=(sy-slope*sx)/n;
+  var ssTot=syy-sy*sy/n;
+  var ssRes=0; for(var i=0;i<n;i++){var d=dy[i]-(slope*dx[i]+intercept);ssRes+=d*d;}
+  var r2=ssTot>0?1-ssRes/ssTot:0;
+
+  var trendY = dx.map(function(x){ return slope * x + intercept; });
+  var slopeLabel = (slope >= 0 ? '+' + slope.toFixed(4) : slope.toFixed(4)) + ', R\\u00b2=' + r2.toFixed(3);
+
+  Plotly.newPlot('growth-depth', [{
+    x: dx, y: dy,
+    type: 'scatter', mode: 'markers', name: 'measured',
+    marker: { color: '#2E7D32', size: 7 },
+    hovertemplate: 'depth: %{x}<br>throughput: %{y:.1f}/s<extra>measured</extra>'
+  }, {
+    x: dx, y: trendY,
+    type: 'scatter', mode: 'lines', name: 'trend (' + slopeLabel + ')',
+    line: { color: '#C62828', width: 2, dash: 'dash' },
+    hovertemplate: 'depth: %{x}<br>fitted: %{y:.1f}/s<extra>trend</extra>'
+  }], M(LB, {
+    title: { text: 'Throughput vs Buffer Depth', font: { size: 14 } },
+    xaxis: { title: 'Buffer Depth' },
+    yaxis: { title: 'Throughput (tasks/s)', rangemode: 'tozero' },
+    showlegend: true, legend: { orientation: 'h', y: -0.2 }
+  }), CFG);
+}
+
+/* ---- Acquire Contention ---- */
+function renderAcquireContention() {
+  var run = latestSelected();
+  if (!run || !run.acquire_contention || run.acquire_contention.length === 0) { hide('s-acq-cont'); return; }
+  show('s-acq-cont');
+
+  var container = document.getElementById('acq-cont-container');
+  container.innerHTML = '';
+
+  var AC = {'acquire_lua':'#1565C0','limiter_acquire':'#2E7D32','release_lua':'#E65100'};
+
+  var groups = {};
+  run.acquire_contention.forEach(function(r) {
+    if (r.p50_us !== undefined && r.median_us === undefined) { r.median_us = r.p50_us; }
+    if (r.mean_us === undefined) { r.mean_us = r.median_us || 0; }
+    if (r.test === 'acquire_slot') r.test = 'limiter_acquire';
+    if (r.test === 'release') r.test = 'release_lua';
+    var key = r.test + (r.scenario ? '_' + r.scenario : '');
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(r);
+  });
+
+  Object.keys(groups).sort().forEach(function(key) {
+    var items = groups[key].sort(function(a,b){ return a.num_callers - b.num_callers; });
+    var test = items[0].test;
+    var scenario = items[0].scenario || '';
+    var title = test.replace(/_/g, ' ') + (scenario ? ' (' + scenario.replace(/_/g, ' ') + ')' : '');
+    var color = AC[test] || '#455A64';
+    var ns = items.map(function(r){ return 'N=' + r.num_callers; });
+
+    var latDiv = document.createElement('div');
+    container.appendChild(latDiv);
+    Plotly.newPlot(latDiv, [{
+      x: ns, y: items.map(function(r){ return r.median_us; }),
+      type: 'bar', name: 'median',
+      marker: { color: color },
+      error_y: {
+        type: 'data', symmetric: false, visible: true,
+        array: items.map(function(r){ return r.p99_us - r.median_us; }),
+        arrayminus: items.map(function(){ return 0; }),
+        thickness: 1.5, width: 6
+      },
+      customdata: items.map(function(r){ return [r.p99_us, r.mean_us]; }),
+      hovertemplate: 'median: %{y:.2f}µs<br>mean: %{customdata[1]:.2f}µs<br>p99: %{customdata[0]:.2f}µs<extra></extra>'
+    }, {
+      x: ns, y: items.map(function(r){ return r.mean_us; }),
+      type: 'scatter', mode: 'markers',
+      marker: { symbol: 'diamond', size: 7, color: '#222', line: { color: '#fff', width: 1 } },
+      name: 'mean', showlegend: false,
+      hovertemplate: 'mean: %{y:.2f}µs<extra></extra>'
+    }], M(LB, {
+      title: { text: title + ' latency', font: { size: 13 } },
+      xaxis: { title: 'Callers' },
+      yaxis: { title: 'Latency (µs)', type: 'log' },
+      height: 320, margin: { t: 36, r: 16, b: 64, l: 64 },
+      showlegend: false
+    }), CFG);
+
+    if (items[0].throughput !== undefined) {
+      var tDiv = document.createElement('div');
+      container.appendChild(tDiv);
+      Plotly.newPlot(tDiv, [{
+        x: items.map(function(r){ return r.num_callers; }),
+        y: items.map(function(r){ return r.throughput; }),
+        type: 'scatter', mode: 'lines+markers',
+        line: { color: color, width: 2 }, marker: { size: 7 },
+        hovertemplate: '%{y:.1f} ops/s<extra></extra>'
+      }], M(LB, {
+        title: { text: title + ' throughput', font: { size: 13 } },
+        xaxis: { title: 'Callers (N)', dtick: 1 },
+        yaxis: { title: 'Throughput (ops/s)', rangemode: 'tozero' },
+        height: 320, margin: { t: 36, r: 16, b: 64, l: 64 }
+      }), CFG);
+    }
+  });
+}
+
 /* ---- Orchestration ---- */
 function renderAll() {
   renderContention();
@@ -675,6 +852,8 @@ function renderAll() {
   renderDecomposition();
   renderTailLatency();
   renderSoak();
+  renderBufferGrowth();
+  renderAcquireContention();
 }
 
 buildSelector();

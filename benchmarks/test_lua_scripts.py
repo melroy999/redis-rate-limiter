@@ -47,7 +47,7 @@ def call_consume_lua(limiter):
     )
 
 
-def call_schedule_lua(limiter, task_json: str):
+def call_schedule_lua(limiter, task_json):
     """Invoke schedule.lua via _eval_script with no Python-side bookkeeping."""
     return limiter._eval_script(
         "schedule.lua",
@@ -59,7 +59,7 @@ def call_schedule_lua(limiter, task_json: str):
     )
 
 
-def call_acquire_lua(limiter, key: str):
+def call_acquire_lua(limiter, key):
     """Invoke acquire.lua via _eval_script with no Python-side bookkeeping."""
     return limiter._eval_script("acquire.lua", 1, key, 60, 1000000)
 
@@ -80,7 +80,7 @@ async def async_call_consume_lua(limiter):
     )
 
 
-async def async_call_schedule_lua(limiter, task_json: str):
+async def async_call_schedule_lua(limiter, task_json):
     return await limiter._eval_script(
         "schedule.lua",
         1,
@@ -91,11 +91,11 @@ async def async_call_schedule_lua(limiter, task_json: str):
     )
 
 
-async def async_call_acquire_lua(limiter, key: str):
+async def async_call_acquire_lua(limiter, key):
     return await limiter._eval_script("acquire.lua", 1, key, 60, 1000000)
 
 
-def call_release_lua(limiter, task_id: str):
+def call_release_lua(limiter, task_id):
     return limiter._eval_script(
         "release.lua",
         3,
@@ -107,7 +107,7 @@ def call_release_lua(limiter, task_id: str):
     )
 
 
-def call_set_nx(limiter, key: str):
+def call_set_nx(limiter, key):
     limiter.redis.set(key, "1", nx=True, ex=3600)
 
 
@@ -115,7 +115,7 @@ def call_publish(limiter):
     limiter.redis.publish(limiter._drain_signal_channel, limiter._worker_id)
 
 
-async def async_call_release_lua(limiter, task_id: str):
+async def async_call_release_lua(limiter, task_id):
     return await limiter._eval_script(
         "release.lua",
         3,
@@ -127,7 +127,7 @@ async def async_call_release_lua(limiter, task_id: str):
     )
 
 
-async def async_call_set_nx(limiter, key: str):
+async def async_call_set_nx(limiter, key):
     await limiter.redis.set(key, "1", nx=True, ex=3600)
 
 
@@ -163,7 +163,7 @@ def _run_schedule(bench_fn, limiter):
     bench_fn(_call, rounds=ROUNDS)
 
 
-def _run_acquire(bench_fn, limiter):
+def _run_acquire_lua(bench_fn, limiter):
     key = f"{limiter.id}:acquire"
     bench_fn(lambda: call_acquire_lua(limiter, key), rounds=ROUNDS)
 
@@ -172,7 +172,7 @@ BUFFER_DEPTHS = [10, 100, 1000, 10000, 100000, 1000000]
 DEPTH_ROUNDS = 1000
 
 
-def _run_consume_at_depth(bench_fn, limiter, buffer_depth: int, **kwargs):
+def _run_consume_at_depth(bench_fn, limiter, buffer_depth, **kwargs):
     """Measure consume.lua against a buffer held at constant ``buffer_depth``.
 
     Pre-fills the buffer once via a single bulk ZADD, then uses a setup
@@ -220,7 +220,7 @@ def _run_async_schedule(bench_fn, loop, limiter):
     bench_fn(_call, rounds=ROUNDS)
 
 
-def _run_async_acquire(bench_fn, loop, limiter):
+def _run_async_acquire_lua(bench_fn, loop, limiter):
     key = f"{limiter.id}:acquire"
     bench_fn(
         lambda: loop.run_until_complete(async_call_acquire_lua(limiter, key)),
@@ -289,9 +289,7 @@ def _run_async_publish(bench_fn, loop, limiter):
     )
 
 
-def _run_async_consume_at_depth(
-    bench_fn, loop, limiter, buffer_depth: int, redis_client
-):
+def _run_async_consume_at_depth(bench_fn, loop, limiter, buffer_depth, redis_client):
     bulk_fill_buffer(limiter, buffer_depth, redis_client=redis_client)
 
     refill_counter = itertools.count(start=buffer_depth)
@@ -325,8 +323,8 @@ class TestLuaVM:
     def test_schedule_task(self, lua_benchmark, limiter):
         _run_schedule(lua_benchmark, limiter)
 
-    def test_acquire(self, lua_benchmark, limiter):
-        _run_acquire(lua_benchmark, limiter)
+    def test_acquire_lua(self, lua_benchmark, limiter):
+        _run_acquire_lua(lua_benchmark, limiter)
 
     def test_release(self, lua_benchmark, limiter):
         limiter._register_script("release.lua")
@@ -362,8 +360,8 @@ class TestEvalshaWallClock:
     def test_schedule_task(self, wall_benchmark, limiter):
         _run_schedule(wall_benchmark, limiter)
 
-    def test_acquire(self, wall_benchmark, limiter):
-        _run_acquire(wall_benchmark, limiter)
+    def test_acquire_lua(self, wall_benchmark, limiter):
+        _run_acquire_lua(wall_benchmark, limiter)
 
     def test_release(self, wall_benchmark, limiter):
         _run_release(wall_benchmark, limiter)
@@ -400,9 +398,9 @@ class TestAsyncEvalshaWallClock:
         loop, limiter = async_limiter
         _run_async_schedule(wall_benchmark, loop, limiter)
 
-    def test_acquire(self, wall_benchmark, async_limiter):
+    def test_acquire_lua(self, wall_benchmark, async_limiter):
         loop, limiter = async_limiter
-        _run_async_acquire(wall_benchmark, loop, limiter)
+        _run_async_acquire_lua(wall_benchmark, loop, limiter)
 
     def test_release(self, wall_benchmark, async_limiter, redis_client):
         loop, limiter = async_limiter
