@@ -83,6 +83,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     _print_eventloop_lag_results(terminalreporter)
     _print_gc_summary(terminalreporter)
     _print_redis_degradation_results(terminalreporter)
+    _print_degradation_scaling_results(terminalreporter)
 
     session = getattr(config, "_benchmarksession", None)
     benchmarks = session.benchmarks if session else []
@@ -273,6 +274,24 @@ def _print_redis_degradation_results(terminalreporter):
         terminalreporter.line(f"\ntotal dispatches: {r['total_dispatches']}")
 
 
+def _print_degradation_scaling_results(terminalreporter):
+    """Print worker-scaling degradation results collected via record_property."""
+    results = _collect_user_properties(terminalreporter, "degradation_scaling_result")
+
+    if not results:
+        return
+
+    terminalreporter.section("degradation worker scaling")
+    header = f"{'Scenario':<12} {'Latency':>10} {'Workers':>8} {'Avg Rate/s':>12}"
+    terminalreporter.line(header)
+    terminalreporter.line("-" * len(header))
+    for r in sorted(results, key=lambda x: (x["scenario"], x["num_workers"])):
+        terminalreporter.line(
+            f"{r['scenario']:<12} {r['latency_ms']:>8}ms {r['num_workers']:>8} "
+            f"{r['avg_throughput']:>10.1f}/s"
+        )
+
+
 def _print_instrumented_decomposition(terminalreporter, benchmarks):
     """Print per-iteration cost decomposition from instrumented limiter tests."""
     results = _collect_user_properties(
@@ -417,6 +436,9 @@ def _write_report_data(terminalreporter, benchmarks):
         redis_degradation = _collect_user_properties(
             terminalreporter, "redis_degradation_result"
         )
+        degradation_scaling = _collect_user_properties(
+            terminalreporter, "degradation_scaling_result"
+        )
 
         lua_vm_medians = {}
         for bench in benchmarks:
@@ -434,6 +456,7 @@ def _write_report_data(terminalreporter, benchmarks):
             "eventloop_lag": eventloop_lag,
             "gc_summary": gc_summary,
             "redis_degradation": redis_degradation,
+            "degradation_scaling": degradation_scaling,
             "lua_vm_medians": lua_vm_medians,
             "tail_latency_thresholds": _TAIL_LATENCY_RATIO_THRESHOLDS,
             "tail_latency_default_threshold": _DEFAULT_TAIL_LATENCY_RATIO,

@@ -631,6 +631,7 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
 
         self._worker_id: str = str(uuid.uuid4())
         self._consecutive_drain_failures: int = 0
+        self._last_refresh_at: float = 0.0
 
         # self.id is set by AbstractRateLimiter in the MRO.
         self.buffer_key = f"{self.id}:buffer"
@@ -907,6 +908,8 @@ class AbstractDistributedRateLimiter(
 
     Provides synchronous Redis operations, threading-based drain loop and signal subscriber, thread-based task lifecycle heartbeat, and a synchronous distributed lock. See ``DistributedRateLimiterMixin`` for distributed semantics, Redis requirements, and shared algorithm logic.
     """
+
+    _last_refresh_at: float
 
     def __init__(
         self,
@@ -1344,9 +1347,10 @@ class AbstractDistributedRateLimiter(
         (100ms, 200ms, 400ms, ... capped at ``window``).
         """
         try:
-            # Check for dynamic configuration updates before draining.
-            if hasattr(self, "refresh_config"):
+            now = time.monotonic()
+            if hasattr(self, "refresh_config") and now - self._last_refresh_at >= 1.0:
                 self.refresh_config()
+                self._last_refresh_at = now
 
             # Respect the window-change pause: skip draining until the pause expires,
             # but schedule a follow-up so that the drain loop resumes automatically.

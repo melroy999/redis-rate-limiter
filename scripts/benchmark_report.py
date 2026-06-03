@@ -240,6 +240,12 @@ h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 4px; }
   <div id="degradation-chart"></div>
 </div>
 
+<div class="section" id="s-scaling">
+  <h2>Worker Scaling Under Latency</h2>
+  <p class="desc">Throughput over time with 1, 2, and 4 concurrent workers under injected network latency. Demonstrates that horizontal scaling (more limiter instances) counteracts per-worker RTT bottlenecks. One chart per latency scenario.</p>
+  <div class="g2" id="scaling-container"></div>
+</div>
+
 <div class="section" id="s-gc">
   <h2>GC Pauses</h2>
   <p class="desc">Cyclic garbage collector pause count and maximum pause duration per benchmark test. Tests with zero pauses are omitted.</p>
@@ -867,20 +873,13 @@ function renderAcquireContention() {
 
 /* ---- Redis Degradation ---- */
 function renderRedisDegradation() {
-  var run = latestSelected();
-  if (!run || !run.redis_degradation || run.redis_degradation.length === 0) { hide('s-degradation'); return; }
+  var runs = getSelected().filter(function(r){ return r.redis_degradation && r.redis_degradation.length > 0; });
+  if (runs.length === 0) { hide('s-degradation'); return; }
   show('s-degradation');
 
-  var r = run.redis_degradation[0];
-  var bins = r.bins;
-  var phases = r.phases || [];
+  var PC = {'baseline':'#2E7D32','cross_az':'#1565C0','degraded':'#E65100','partition':'#C62828','recovery':'#00695C'};
 
-  var PC = {'baseline':'#2E7D32','degraded':'#E65100','partition':'#C62828','recovery':'#1565C0'};
-
-  var xs = bins.map(function(b){ return b.elapsed_s; });
-  var ys = bins.map(function(b){ return b.throughput; });
-  var colors = bins.map(function(b){ return PC[b.phase] || '#455A64'; });
-
+  var phases = runs[runs.length - 1].redis_degradation[0].phases || [];
   var shapes = [];
   var annotations = [];
   phases.forEach(function(p) {
@@ -898,20 +897,76 @@ function renderRedisDegradation() {
     });
   });
 
-  Plotly.newPlot('degradation-chart', [{
-    x: xs, y: ys,
-    type: 'scatter', mode: 'lines+markers',
-    line: { width: 1.5, color: '#455A64' },
-    marker: { size: 4, color: colors },
-    hovertemplate: '%{x:.1f}s: %{y:.1f}/s<extra></extra>'
-  }], M(LB, {
+  var traces = [];
+  runs.forEach(function(run, ri) {
+    var r = run.redis_degradation[0];
+    var bins = r.bins;
+    var color = RUN_COLORS[ri % RUN_COLORS.length];
+    traces.push({
+      x: bins.map(function(b){ return b.elapsed_s; }),
+      y: bins.map(function(b){ return b.throughput; }),
+      type: 'scatter', mode: 'lines+markers',
+      line: { width: 1.5, color: color },
+      marker: { size: 3, color: color },
+      name: runLabel(run, selected[ri]),
+      hovertemplate: '%{x:.1f}s: %{y:.1f}/s<extra>' + runLabel(run, selected[ri]) + '</extra>'
+    });
+  });
+
+  Plotly.newPlot('degradation-chart', traces, M(LB, {
     title: { text: 'Throughput Under Network Degradation', font: { size: 14 } },
     xaxis: { title: 'Elapsed (s)' },
     yaxis: { title: 'Throughput (tasks/s)', rangemode: 'tozero' },
     height: 400, margin: { t: 48, r: 16, b: 64, l: 72 },
     shapes: shapes, annotations: annotations,
-    showlegend: false
+    showlegend: runs.length > 1,
+    legend: { orientation: 'h', y: -0.2 }
   }), CFG);
+}
+
+/* ---- Worker Scaling ---- */
+function renderDegradationScaling() {
+  var run = latestSelected();
+  if (!run || !run.degradation_scaling || run.degradation_scaling.length === 0) { hide('s-scaling'); return; }
+  show('s-scaling');
+
+  var container = document.getElementById('scaling-container');
+  container.innerHTML = '';
+  var WC = ['#1565C0','#2E7D32','#E65100','#C62828','#6A1B9A'];
+
+  var scenarios = {};
+  run.degradation_scaling.forEach(function(r) {
+    if (!scenarios[r.scenario]) scenarios[r.scenario] = [];
+    scenarios[r.scenario].push(r);
+  });
+
+  Object.keys(scenarios).sort().forEach(function(scenario) {
+    var items = scenarios[scenario].sort(function(a,b){ return a.num_workers - b.num_workers; });
+    var divId = 'scaling-' + scenario;
+    var div = document.createElement('div');
+    div.id = divId;
+    container.appendChild(div);
+
+    var traces = items.map(function(r, i) {
+      return {
+        x: r.bins.map(function(b){ return b.elapsed_s; }),
+        y: r.bins.map(function(b){ return b.throughput; }),
+        type: 'scatter', mode: 'lines',
+        line: { width: 2, color: WC[i % WC.length] },
+        name: 'N=' + r.num_workers,
+        hovertemplate: '%{x:.1f}s: %{y:.1f}/s<extra>N=' + r.num_workers + '</extra>'
+      };
+    });
+
+    var latLabel = items[0].latency_ms + 'ms ± ' + items[0].jitter_ms + 'ms';
+    Plotly.newPlot(divId, traces, M(LB, {
+      title: { text: scenario + ' (' + latLabel + ')', font: { size: 14 } },
+      xaxis: { title: 'Elapsed (s)' },
+      yaxis: { title: 'Throughput (tasks/s)', rangemode: 'tozero' },
+      height: 360, margin: { t: 36, r: 16, b: 64, l: 72 },
+      showlegend: true, legend: { orientation: 'h', y: -0.2 }
+    }), CFG);
+  });
 }
 
 /* ---- GC Pauses ---- */
@@ -1059,6 +1114,7 @@ function renderAll() {
   renderEventloopLag();
   renderGCSummary();
   renderRedisDegradation();
+  renderDegradationScaling();
 }
 
 buildSelector();
