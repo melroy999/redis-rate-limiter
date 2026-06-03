@@ -33,9 +33,6 @@ import redis.asyncio
 from redis_rate_limiter.core.base import AbstractAsyncRateLimiter, AcquireTimeout
 from redis_rate_limiter.core.limiters import (
     _ACQUIRE_MARKER_PATH,
-    LOCK_ACQUIRE_SCRIPT,
-    LOCK_RELEASE_SCRIPT,
-    LOCK_SIMPLE_RELEASE_SCRIPT,
     ConsumeResult,
     DistributedRateLimiterMixin,
     HeartbeatEntry,
@@ -43,128 +40,6 @@ from redis_rate_limiter.core.limiters import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-# noinspection PyUnnecessaryCast
-class AsyncDistributedLock:
-    """Async context manager for the distributed dispatch lock.
-
-    Mirrors ``DistributedLock`` from ``limiters.py`` using ``redis.asyncio.Redis``.
-    The contention-aware fairness mechanism is identical: a per-worker cooldown
-    key prevents lock monopolization under contention, while single-worker
-    burst consumption is unaffected.
-    """
-
-    def __init__(
-        self,
-        redis_client: redis.asyncio.Redis,
-        lock_key: str,
-        timeout_ms: int,
-        worker_id: str = "",
-        cooldown_ms: int = 0,
-        contention_key: str = "",
-    ):
-        """Initialize the async distributed lock manager.
-
-        Args:
-            redis_client: The async Redis client instance.
-            lock_key: The Redis key under which the lock is stored.
-            timeout_ms: The lock timeout in milliseconds.
-            worker_id: A stable identifier for the drainer.
-            cooldown_ms: The cooldown duration in milliseconds.
-            contention_key: The Redis key for the shared contention counter.
-        """
-        self.redis = redis_client
-        self.lock_key = lock_key
-        self.timeout_ms = timeout_ms
-        self.token = str(uuid.uuid4())
-        self.acquired = False
-        self.worker_id = worker_id
-        self.cooldown_ms = cooldown_ms
-        self.contention_key = contention_key
-        self._cooldown_key = f"{lock_key}:cd:{worker_id}" if worker_id else ""
-        self._fairness_enabled = bool(worker_id and cooldown_ms > 0 and contention_key)
-
-    async def __aenter__(self) -> bool:
-        """Attempt to acquire the dispatch lock."""
-        if self._fairness_enabled:
-            # fmt: off
-            self.acquired = bool(
-                await cast(  # pragma: no mutate
-                    Awaitable,
-                    self.redis.eval(
-                        LOCK_ACQUIRE_SCRIPT,
-                        3,
-                        self.lock_key,
-                        self._cooldown_key,
-                        self.contention_key,
-                        self.token,
-                        self.timeout_ms,
-                    ),
-                )
-            )
-            # fmt: on
-        else:
-            self.acquired = bool(
-                await self.redis.set(
-                    self.lock_key, self.token, px=self.timeout_ms, nx=True
-                )
-            )
-
-        if self.acquired:
-            logger.debug(
-                "[AsyncDistributedLock] Dispatch lock acquired: key=%s, token=%s, timeout_ms=%d.",
-                self.lock_key,
-                self.token,
-                self.timeout_ms,
-            )
-        else:
-            logger.debug(
-                "[AsyncDistributedLock] Dispatch lock contended: key=%s.",
-                self.lock_key,
-            )
-        return bool(self.acquired)
-
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Release the dispatch lock, provided it is still owned by this instance."""
-        if self.acquired:
-            if self._fairness_enabled:
-                # fmt: off
-                result = await cast(  # pragma: no mutate
-                    Awaitable,
-                    self.redis.eval(
-                        LOCK_RELEASE_SCRIPT,
-                        3,
-                        self.lock_key,
-                        self._cooldown_key,
-                        self.contention_key,
-                        self.token,
-                        self.cooldown_ms,
-                    ),
-                )
-                # fmt: on
-            else:
-                # fmt: off
-                result = await cast(  # pragma: no mutate
-                    Awaitable,
-                    self.redis.eval(
-                        LOCK_SIMPLE_RELEASE_SCRIPT, 1, self.lock_key, self.token
-                    ),
-                )
-                # fmt: on
-
-            if result:
-                logger.debug(
-                    "[AsyncDistributedLock] Dispatch lock released: key=%s, token=%s.",
-                    self.lock_key,
-                    self.token,
-                )
-            else:
-                logger.debug(
-                    "[AsyncDistributedLock] Dispatch lock already expired before release: key=%s, token=%s.",
-                    self.lock_key,
-                    self.token,
-                )
 
 
 class AsyncHeartbeatScheduler:
@@ -999,6 +874,7 @@ class AbstractAsyncDistributedRateLimiter(
                 self.max_concurrency,
                 self.max_age,
                 self.lease_duration,
+                self._worker_id,
             ),
         )
         # fmt: on
@@ -1007,6 +883,7 @@ class AbstractAsyncDistributedRateLimiter(
             "success": int(result[0]) == 1,
             "expired": int(result[0]) == -1,
             "marker_skipped": int(result[0]) == -2,
+            "yielded": int(result[0]) == -3,
             # fmt: off
             "task": cast(  # pragma: no mutate
                 TaskData, json.loads(result[1])
@@ -1155,112 +1032,105 @@ class AbstractAsyncDistributedRateLimiter(
             self._schedule_drain(delay=self._token_interval)
             return
 
-        async with self.execution_lock() as acquired:
+        result = await self.consume()
+
+        if result["yielded"]:
             logger.debug(
-                "[%s] Drain lock acquisition result: limiter=%s, acquired=%s.",
+                "[%s] Drain yielded for round-robin fairness: limiter=%s.",
                 type(self).__name__,
                 self.id,
-                acquired,
             )
-            if not acquired:
-                logger.debug(
-                    "[%s] Drain skipped because lock is held by another drainer: limiter=%s.",
-                    type(self).__name__,
-                    self.id,
+            self._schedule_drain(delay=self._token_interval)
+            return
+
+        if result["expired"]:
+            logger.warning(
+                "[%s] Expired task moved to DLQ during consume: limiter=%s.",
+                type(self).__name__,
+                self.id,
+            )
+
+        if result["success"]:
+            task = result["task"]
+            assert task is not None, "task must be present when success is True"
+            task_id = task.get("id")
+
+            if task["func_path"] != _ACQUIRE_MARKER_PATH:
+                await self._dispatch_task(
+                    func_path=task["func_path"],
+                    payload=task["payload"],
+                    task_id=task_id,
                 )
-                self._schedule_backup_drain()
-                return
-
-            result = await self.consume()
-
-            if result["expired"]:
-                logger.warning(
-                    "[%s] Expired task moved to DLQ during consume: limiter=%s.",
-                    type(self).__name__,
-                    self.id,
-                )
-
-            if result["success"]:
-                task = result["task"]
-                assert task is not None, "task must be present when success is True"
-                task_id = task.get("id")
-
-                if task["func_path"] != _ACQUIRE_MARKER_PATH:
-                    await self._dispatch_task(
-                        func_path=task["func_path"],
-                        payload=task["payload"],
-                        task_id=task_id,
-                    )
-                    logger.info(
-                        "[%s] Task dispatched: limiter=%s, task_id=%s, func_path=%s.",
-                        type(self).__name__,
-                        self.id,
-                        task_id,
-                        task["func_path"],
-                    )
-
-                if result["remaining_tasks"] > 0:
-                    logger.debug(
-                        "[%s] More tasks remain, scheduling immediate follow-up drain: limiter=%s, remaining_tasks=%d.",
-                        type(self).__name__,
-                        self.id,
-                        result["remaining_tasks"],
-                    )
-                    self._schedule_drain()
-
-            elif result["remaining_tasks"] == 0:
-                logger.debug(
-                    "[%s] Drain stopped: buffer empty for limiter=%s.",
-                    type(self).__name__,
-                    self.id,
-                )
-
-            elif result["active_concurrency"] >= self.max_concurrency:
-                logger.debug(
-                    "[%s] Drain stopped: concurrency at capacity for limiter=%s (active=%d, max=%d).",
-                    type(self).__name__,
-                    self.id,
-                    result["active_concurrency"],
-                    self.max_concurrency,
-                )
-
-            elif result["marker_skipped"]:
-                if result["remaining_tasks"] > 0:
-                    self._schedule_drain()
-
-            elif result["remaining_tokens"] <= 0:
-                val_previous = result["val_previous"]
-                val_current = result["val_current"]
-                base_delay = self._calculate_token_recovery_delay(
-                    val_previous=val_previous,
-                    val_current=val_current,
-                    reset_in_ms=result["reset_in_ms"],
-                )
-
-                is_fallback = val_previous <= 0 or val_current >= self.limit
-                if is_fallback:
-                    jitter = self._calculate_smart_jitter(
-                        remaining_tasks=result["remaining_tasks"],
-                        remaining_tokens=result["remaining_tokens"],
-                        active_concurrency=result["active_concurrency"],
-                    )
-                else:
-                    jitter = 0.0
-
-                delay_seconds = round(max(0.001, base_delay + jitter), 3)
                 logger.info(
-                    "[%s] Rate limited, scheduling retry: limiter=%s, delay_s=%.3f, base_delay_s=%.3f, jitter_s=%.3f, remaining_tasks=%d, val_previous=%d, val_current=%d, fallback=%s.",
+                    "[%s] Task dispatched: limiter=%s, task_id=%s, func_path=%s.",
                     type(self).__name__,
                     self.id,
-                    delay_seconds,
-                    base_delay,
-                    jitter,
-                    result["remaining_tasks"],
-                    val_previous,
-                    val_current,
-                    is_fallback,
+                    task_id,
+                    task["func_path"],
                 )
-                self._schedule_drain(delay=delay_seconds)
+
+            if result["remaining_tasks"] > 0:
+                logger.debug(
+                    "[%s] More tasks remain, scheduling immediate follow-up drain: limiter=%s, remaining_tasks=%d.",
+                    type(self).__name__,
+                    self.id,
+                    result["remaining_tasks"],
+                )
+                self._schedule_drain()
+
+        elif result["remaining_tasks"] == 0:
+            logger.debug(
+                "[%s] Drain stopped: buffer empty for limiter=%s.",
+                type(self).__name__,
+                self.id,
+            )
+
+        elif result["active_concurrency"] >= self.max_concurrency:
+            logger.debug(
+                "[%s] Drain stopped: concurrency at capacity for limiter=%s (active=%d, max=%d).",
+                type(self).__name__,
+                self.id,
+                result["active_concurrency"],
+                self.max_concurrency,
+            )
+
+        elif result["marker_skipped"]:
+            if result["remaining_tasks"] > 0:
+                self._schedule_drain()
+
+        elif result["remaining_tokens"] <= 0:
+            val_previous = result["val_previous"]
+            val_current = result["val_current"]
+            base_delay = self._calculate_token_recovery_delay(
+                val_previous=val_previous,
+                val_current=val_current,
+                reset_in_ms=result["reset_in_ms"],
+            )
+
+            is_fallback = val_previous <= 0 or val_current >= self.limit
+            if is_fallback:
+                jitter = self._calculate_smart_jitter(
+                    remaining_tasks=result["remaining_tasks"],
+                    remaining_tokens=result["remaining_tokens"],
+                    active_concurrency=result["active_concurrency"],
+                )
+            else:
+                jitter = 0.0
+
+            delay_seconds = round(max(0.001, base_delay + jitter), 3)
+            logger.info(
+                "[%s] Rate limited, scheduling retry: limiter=%s, delay_s=%.3f, base_delay_s=%.3f, jitter_s=%.3f, remaining_tasks=%d, val_previous=%d, val_current=%d, fallback=%s.",
+                type(self).__name__,
+                self.id,
+                delay_seconds,
+                base_delay,
+                jitter,
+                result["remaining_tasks"],
+                val_previous,
+                val_current,
+                is_fallback,
+            )
+            self._schedule_drain(delay=delay_seconds)
 
     async def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
         """Dispatch the task to the concrete async execution backend.
@@ -1345,28 +1215,6 @@ class AbstractAsyncDistributedRateLimiter(
                 ResourceWarning,
             )
 
-    def execution_lock(self, timeout_ms: int = 5000) -> AsyncDistributedLock:
-        """Create an async distributed lock for drain serialization.
-
-        Args:
-            timeout_ms: The lock timeout in milliseconds.
-
-        Returns:
-            An ``AsyncDistributedLock`` async context manager.
-        """
-        cooldown_ms = min(
-            int((self.window / self.limit) * 1000) if self.limit > 0 else 0,
-            1000,
-        )
-        return AsyncDistributedLock(
-            redis_client=self.redis,
-            lock_key=self.lock_key,
-            timeout_ms=timeout_ms,
-            worker_id=self._worker_id,
-            cooldown_ms=cooldown_ms,
-            contention_key=self.contention_key,
-        )
-
     def task_lifecycle(
         self,
         task_id: str,
@@ -1428,8 +1276,5 @@ class AbstractAsyncDistributedRateLimiter(
                 "limit": self.limit,
                 "window": self.window,
                 "reset_in_ms": result[4],
-            },
-            "dispatcher": {
-                "is_locked": await self.redis.exists(f"{self.id}:dispatch_lock")
             },
         }

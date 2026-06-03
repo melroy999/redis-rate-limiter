@@ -17,7 +17,6 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
-    ContextManager,
     Literal,
     Optional,
     TypedDict,
@@ -53,6 +52,9 @@ class ConsumeResult(TypedDict):
     success: bool  # Indicates whether a task was successfully consumed.
     expired: bool  # Indicates whether the task has expired (moved to the DLQ).
     marker_skipped: bool  # Indicates whether an acquire marker was silently dropped because its deadline had elapsed.
+    yielded: (
+        bool  # Indicates that consume yielded to give competing workers a fair turn.
+    )
     task: Optional[
         TaskData
     ]  # The deserialized task data from Redis, or None if no task was consumed.
@@ -86,188 +88,6 @@ def build_enhanced_payload(payload: dict, use_executor: bool) -> dict:
         A dictionary of the form ``{"data": payload, "meta": {"use_executor": use_executor}}``.
     """
     return {"data": payload, "meta": {"use_executor": use_executor}}
-
-
-# ---------------------------------------------------------------------------
-# Distributed lock Lua scripts (shared by sync and async lock classes)
-# ---------------------------------------------------------------------------
-
-# Lua script for contention-aware acquisition.
-# Checks the per-worker cooldown key first; if active, returns 0 without
-# attempting SET NX. On SET NX failure (lock held by another worker), the
-# shared contention counter is incremented so that the holder can detect
-# competition upon release.
-LOCK_ACQUIRE_SCRIPT = """
-    if redis.call("EXISTS", KEYS[2]) == 1 then
-        return 0
-    end
-    if redis.call("SET", KEYS[1], ARGV[1], "PX", ARGV[2], "NX") then
-        return 1
-    end
-    redis.call("INCR", KEYS[3])
-    redis.call("PEXPIRE", KEYS[3], tonumber(ARGV[2]))
-    return 0
-"""
-
-# Lua script for contention-aware release.
-# Verifies token ownership before deleting. If contention was recorded
-# while the lock was held, a per-worker cooldown key is set and the
-# contention counter is reset.
-LOCK_RELEASE_SCRIPT = """
-    if redis.call("GET", KEYS[1]) ~= ARGV[1] then
-        return 0
-    end
-    redis.call("DEL", KEYS[1])
-    local contention = tonumber(redis.call("GET", KEYS[3]) or "0")
-    if contention > 0 and tonumber(ARGV[2]) > 0 then
-        redis.call("SET", KEYS[2], "1", "PX", ARGV[2])
-        redis.call("DEL", KEYS[3])
-    end
-    return 1
-"""
-
-# Lua script for simple release (no contention tracking).
-LOCK_SIMPLE_RELEASE_SCRIPT = """
-    if redis.call("GET", KEYS[1]) == ARGV[1] then
-        return redis.call("DEL", KEYS[1])
-    else
-        return 0
-    end
-"""
-
-
-class DistributedLock:
-    """Context manager for the distributed dispatch lock.
-
-    The lock is acquired via a Redis-backed mechanism prior to draining and
-    is released upon exit, thereby ensuring that only one drainer operates
-    at any given time.
-
-    When ``cooldown_ms`` is set (via the ``worker_id`` and ``contention_key``
-    parameters), the lock tracks contention: workers that fail to acquire
-    increment a shared counter, and the releasing worker checks this counter.
-    If contention was detected, a per-worker cooldown key is set that blocks
-    immediate re-acquisition, giving other workers a fair opportunity to
-    compete. When no contention is present (e.g., a single worker draining
-    during a burst), no cooldown is applied and the lock can be re-acquired
-    immediately. All contention and cooldown state is TTL-backed; hence, no
-    deadlock can occur even if a worker crashes.
-    """
-
-    def __init__(
-        self,
-        redis_client: Redis,
-        lock_key: str,
-        timeout_ms: int,
-        worker_id: str = "",
-        cooldown_ms: int = 0,
-        contention_key: str = "",
-    ):
-        """Initialize the distributed lock manager.
-
-        Args:
-            redis_client: The Redis client instance used for lock operations.
-            lock_key: The Redis key under which the lock is stored.
-            timeout_ms: The lock timeout in milliseconds, after which the lock expires automatically.
-            worker_id: A stable identifier for the drainer. When set together with ``cooldown_ms``,
-                enables contention-aware fairness. Defaults to empty (fairness disabled).
-            cooldown_ms: The cooldown duration in milliseconds. After releasing the lock under
-                contention, the worker is blocked from re-acquiring for this duration. Defaults
-                to 0 (disabled).
-            contention_key: The Redis key used for the shared contention counter. Defaults to
-                empty (contention tracking disabled).
-        """
-        self.redis = redis_client
-        self.lock_key = lock_key
-        self.timeout_ms = timeout_ms
-        self.token = str(uuid.uuid4())
-        self.acquired = False
-        self.worker_id = worker_id
-        self.cooldown_ms = cooldown_ms
-        self.contention_key = contention_key
-        self._cooldown_key = f"{lock_key}:cd:{worker_id}" if worker_id else ""
-        self._fairness_enabled = bool(worker_id and cooldown_ms > 0 and contention_key)
-
-    def __enter__(self) -> bool:
-        """Attempt to acquire the dispatch lock.
-
-        When fairness is enabled, the per-worker cooldown key is checked first.
-        If the worker is in cooldown (due to prior contention), acquisition is
-        skipped. On failure to acquire (lock held by another worker), the shared
-        contention counter is incremented.
-
-        When fairness is disabled (default), a simple ``SET NX`` is used.
-
-        Returns:
-            True if the lock was successfully acquired, or False if the lock
-            is held by another drainer or the worker is in cooldown.
-        """
-        if self._fairness_enabled:
-            self.acquired = bool(
-                self.redis.eval(
-                    LOCK_ACQUIRE_SCRIPT,
-                    3,
-                    self.lock_key,
-                    self._cooldown_key,
-                    self.contention_key,
-                    self.token,
-                    self.timeout_ms,
-                )
-            )
-        else:
-            self.acquired = bool(
-                self.redis.set(self.lock_key, self.token, px=self.timeout_ms, nx=True)
-            )
-
-        if self.acquired:
-            logger.debug(
-                "[DistributedLock] Dispatch lock acquired: key=%s, token=%s, timeout_ms=%d.",
-                self.lock_key,
-                self.token,
-                self.timeout_ms,
-            )
-        else:
-            logger.debug(
-                "[DistributedLock] Dispatch lock contended: key=%s (another drainer holds the lock or worker is in cooldown).",
-                self.lock_key,
-            )
-        return bool(self.acquired)
-
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Release the dispatch lock, provided it is still owned by this instance.
-
-        When fairness is enabled, the shared contention counter is checked. If
-        other workers competed for the lock while it was held, a per-worker
-        cooldown key is set to yield future acquisition opportunities.
-        """
-        if self.acquired:
-            if self._fairness_enabled:
-                result = self.redis.eval(
-                    LOCK_RELEASE_SCRIPT,
-                    3,
-                    self.lock_key,
-                    self._cooldown_key,
-                    self.contention_key,
-                    self.token,
-                    self.cooldown_ms,
-                )
-            else:
-                result = self.redis.eval(
-                    LOCK_SIMPLE_RELEASE_SCRIPT, 1, self.lock_key, self.token
-                )
-
-            if result:
-                logger.debug(
-                    "[DistributedLock] Dispatch lock released: key=%s, token=%s.",
-                    self.lock_key,
-                    self.token,
-                )
-            else:
-                logger.debug(
-                    "[DistributedLock] Dispatch lock already expired before release: key=%s, token=%s.",
-                    self.lock_key,
-                    self.token,
-                )
 
 
 # noinspection PyUnnecessaryCast
@@ -815,8 +635,6 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
         # self.id is set by AbstractRateLimiter in the MRO.
         self.buffer_key = f"{self.id}:buffer"
         self.concurrency_key = f"{self.id}:concurrency"
-        self.lock_key = f"{self.id}:dispatch_lock"
-        self.contention_key = f"{self.id}:dispatch_lock:contention"
         self.dlq_key = f"{self.id}:dlq"
         self._drain_signal_channel = f"{self.id}:drain_signal"
 
@@ -1055,21 +873,6 @@ class DistributedRateLimiterMixin(AbstractRateLimiter):
         queued locally.
         """
         return True
-
-    def _schedule_backup_drain(self) -> None:
-        """Schedule a safety-net drain after failing to acquire the dispatch lock.
-
-        The delay is set to one token interval (``window / limit``), which is
-        sufficiently long for the lock holder to finish yet short enough to maintain
-        throughput. The ``DrainLoop`` naturally coalesces multiple backup requests.
-        """
-        logger.debug(
-            "[%s] Backup drain scheduled: limiter=%s, delay_s=%.3f.",
-            type(self).__name__,
-            self.id,
-            self._token_interval,
-        )
-        self._schedule_drain(delay=self._token_interval)
 
     # ---------------------------------------------------------------------------
     # Config persistence hooks
@@ -1418,12 +1221,13 @@ class AbstractDistributedRateLimiter(
                 self.buffer_key,
                 self.concurrency_key,
                 self.dlq_key,
-                # ARGV: [window, limit, max_concurrency, max_age, lease_duration]
+                # ARGV: [window, limit, max_concurrency, max_age, lease_duration, worker_id]
                 self.window,
                 self.limit,
                 self.max_concurrency,
                 self.max_age,
                 self.lease_duration,
+                self._worker_id,
             ),
         )
         # fmt: on
@@ -1432,6 +1236,7 @@ class AbstractDistributedRateLimiter(
             "success": int(result[0]) == 1,
             "expired": int(result[0]) == -1,
             "marker_skipped": int(result[0]) == -2,
+            "yielded": int(result[0]) == -3,
             # fmt: off
             "task": cast(  # pragma: no mutate
                 TaskData, json.loads(result[1])
@@ -1588,15 +1393,10 @@ class AbstractDistributedRateLimiter(
                 # fmt: on
 
     def _drain_inner(self) -> None:
-        """Execute the core drain logic: consume, dispatch, and schedule a follow-up.
-
-        This method is separated from ``drain()`` so that the outer method can catch
-        and recover from exceptions without duplicating the pause and configuration-refresh
-        preamble.
-        """
+        """Execute the core drain logic: consume, dispatch, and schedule a follow-up."""
         logger.debug("[%s] Drain loop start: limiter=%s.", type(self).__name__, self.id)
 
-        # Check local execution capacity before acquiring the distributed lock.
+        # Check local execution capacity before calling consume.lua.
         # This prevents acquiring Redis concurrency slots for tasks that would
         # only be queued in the local execution environment (e.g., a thread pool).
         if not self._has_local_capacity():
@@ -1608,124 +1408,110 @@ class AbstractDistributedRateLimiter(
             self._schedule_drain(delay=self._token_interval)
             return
 
-        # Acquire the execution lock to avoid the thundering herd problem.
-        with self.execution_lock() as acquired:
+        result = self.consume()
+
+        if result["yielded"]:
             logger.debug(
-                "[%s] Drain lock acquisition result: limiter=%s, acquired=%s.",
+                "[%s] Drain yielded for round-robin fairness: limiter=%s.",
                 type(self).__name__,
                 self.id,
-                acquired,
             )
-            if not acquired:
-                # Another drainer is already executing an attempt. A backup drain
-                # is scheduled so that the loop is not lost if the holder fails.
-                logger.debug(
-                    "[%s] Drain skipped because lock is held by another drainer: limiter=%s.",
-                    type(self).__name__,
-                    self.id,
+            self._schedule_drain(delay=self._token_interval)
+            return
+
+        if result["expired"]:
+            logger.warning(
+                "[%s] Expired task moved to DLQ during consume: limiter=%s.",
+                type(self).__name__,
+                self.id,
+            )
+
+        if result["success"]:
+            task = result["task"]
+            assert task is not None, "task must be present when success is True"
+            task_id = task.get("id")
+
+            if task["func_path"] != _ACQUIRE_MARKER_PATH:
+                self._dispatch_task(
+                    func_path=task["func_path"],
+                    payload=task["payload"],
+                    task_id=task_id,
                 )
-                self._schedule_backup_drain()
-                return
-
-            result = self.consume()
-
-            if result["expired"]:
-                logger.warning(
-                    "[%s] Expired task moved to DLQ during consume: limiter=%s.",
-                    type(self).__name__,
-                    self.id,
-                )
-
-            if result["success"]:
-                task = result["task"]
-                assert task is not None, "task must be present when success is True"
-                task_id = task.get("id")
-
-                if task["func_path"] != _ACQUIRE_MARKER_PATH:
-                    self._dispatch_task(
-                        func_path=task["func_path"],
-                        payload=task["payload"],
-                        task_id=task_id,
-                    )
-                    logger.info(
-                        "[%s] Task dispatched: limiter=%s, task_id=%s, func_path=%s.",
-                        type(self).__name__,
-                        self.id,
-                        task_id,
-                        task["func_path"],
-                    )
-
-                if result["remaining_tasks"] > 0:
-                    logger.debug(
-                        "[%s] More tasks remain, scheduling immediate follow-up drain: limiter=%s, remaining_tasks=%d.",
-                        type(self).__name__,
-                        self.id,
-                        result["remaining_tasks"],
-                    )
-                    self._schedule_drain()
-
-            elif result["remaining_tasks"] == 0:
-                # Stop: no remaining tasks. The next drain will be triggered when a new task is added.
-                logger.debug(
-                    "[%s] Drain stopped: buffer empty for limiter=%s.",
-                    type(self).__name__,
-                    self.id,
-                )
-
-            elif result["active_concurrency"] >= self.max_concurrency:
-                # Stop: the next drain will be triggered upon worker completion.
-                logger.debug(
-                    "[%s] Drain stopped: concurrency at capacity for limiter=%s (active=%d, max=%d).",
-                    type(self).__name__,
-                    self.id,
-                    result["active_concurrency"],
-                    self.max_concurrency,
-                )
-
-            elif result["marker_skipped"]:
-                if result["remaining_tasks"] > 0:
-                    self._schedule_drain()
-
-            elif result["remaining_tokens"] <= 0:
-                # Calculate when the next token becomes available via sliding
-                # window decay, rather than waiting for the full window reset.
-                val_previous = result["val_previous"]
-                val_current = result["val_current"]
-                base_delay = self._calculate_token_recovery_delay(
-                    val_previous=val_previous,
-                    val_current=val_current,
-                    reset_in_ms=result["reset_in_ms"],
-                )
-
-                # Jitter is only added on the fallback path (full window reset),
-                # where multiple workers may wake simultaneously. On the
-                # token-recovery path, drains are already naturally staggered
-                # by the sliding window position; adding jitter would only
-                # reduce throughput.
-                is_fallback = val_previous <= 0 or val_current >= self.limit
-                if is_fallback:
-                    jitter = self._calculate_smart_jitter(
-                        remaining_tasks=result["remaining_tasks"],
-                        remaining_tokens=result["remaining_tokens"],
-                        active_concurrency=result["active_concurrency"],
-                    )
-                else:
-                    jitter = 0.0
-
-                delay_seconds = round(max(0.001, base_delay + jitter), 3)
                 logger.info(
-                    "[%s] Rate limited, scheduling retry: limiter=%s, delay_s=%.3f, base_delay_s=%.3f, jitter_s=%.3f, remaining_tasks=%d, val_previous=%d, val_current=%d, fallback=%s.",
+                    "[%s] Task dispatched: limiter=%s, task_id=%s, func_path=%s.",
                     type(self).__name__,
                     self.id,
-                    delay_seconds,
-                    base_delay,
-                    jitter,
-                    result["remaining_tasks"],
-                    val_previous,
-                    val_current,
-                    is_fallback,
+                    task_id,
+                    task["func_path"],
                 )
-                self._schedule_drain(delay=delay_seconds)
+
+            if result["remaining_tasks"] > 0:
+                logger.debug(
+                    "[%s] More tasks remain, scheduling immediate follow-up drain: limiter=%s, remaining_tasks=%d.",
+                    type(self).__name__,
+                    self.id,
+                    result["remaining_tasks"],
+                )
+                self._schedule_drain()
+
+        elif result["remaining_tasks"] == 0:
+            logger.debug(
+                "[%s] Drain stopped: buffer empty for limiter=%s.",
+                type(self).__name__,
+                self.id,
+            )
+
+        elif result["active_concurrency"] >= self.max_concurrency:
+            logger.debug(
+                "[%s] Drain stopped: concurrency at capacity for limiter=%s (active=%d, max=%d).",
+                type(self).__name__,
+                self.id,
+                result["active_concurrency"],
+                self.max_concurrency,
+            )
+
+        elif result["marker_skipped"]:
+            if result["remaining_tasks"] > 0:
+                self._schedule_drain()
+
+        elif result["remaining_tokens"] <= 0:
+            val_previous = result["val_previous"]
+            val_current = result["val_current"]
+            base_delay = self._calculate_token_recovery_delay(
+                val_previous=val_previous,
+                val_current=val_current,
+                reset_in_ms=result["reset_in_ms"],
+            )
+
+            # Jitter is only added on the fallback path (full window reset),
+            # where multiple workers may wake simultaneously. On the
+            # token-recovery path, drains are already naturally staggered
+            # by the sliding window position; adding jitter would only
+            # reduce throughput.
+            is_fallback = val_previous <= 0 or val_current >= self.limit
+            if is_fallback:
+                jitter = self._calculate_smart_jitter(
+                    remaining_tasks=result["remaining_tasks"],
+                    remaining_tokens=result["remaining_tokens"],
+                    active_concurrency=result["active_concurrency"],
+                )
+            else:
+                jitter = 0.0
+
+            delay_seconds = round(max(0.001, base_delay + jitter), 3)
+            logger.info(
+                "[%s] Rate limited, scheduling retry: limiter=%s, delay_s=%.3f, base_delay_s=%.3f, jitter_s=%.3f, remaining_tasks=%d, val_previous=%d, val_current=%d, fallback=%s.",
+                type(self).__name__,
+                self.id,
+                delay_seconds,
+                base_delay,
+                jitter,
+                result["remaining_tasks"],
+                val_previous,
+                val_current,
+                is_fallback,
+            )
+            self._schedule_drain(delay=delay_seconds)
 
     def _dispatch_task(self, func_path: str, payload: dict, task_id: str) -> None:
         """Dispatch the task to the concrete execution backend (e.g., Celery worker, thread).
@@ -1824,33 +1610,6 @@ class AbstractDistributedRateLimiter(
                 ResourceWarning,
             )
 
-    def execution_lock(self, timeout_ms: int = 5000) -> ContextManager[bool]:
-        """Acquire the dispatch lock and perform cleanup after task completion.
-
-        The lock uses contention-aware fairness: when multiple workers compete
-        for the same limiter, a per-worker cooldown prevents any single worker
-        from monopolizing the lock. The cooldown is only applied when contention
-        is actually detected; single-worker burst consumption is unaffected.
-
-        Args:
-            timeout_ms: The lock timeout in milliseconds.
-
-        Returns:
-            A context manager that yields the lock acquisition status, indicating whether the task should proceed.
-        """
-        cooldown_ms = min(
-            int((self.window / self.limit) * 1000) if self.limit > 0 else 0,
-            1000,
-        )
-        return DistributedLock(
-            redis_client=self.redis,
-            lock_key=self.lock_key,
-            timeout_ms=timeout_ms,
-            worker_id=self._worker_id,
-            cooldown_ms=cooldown_ms,
-            contention_key=self.contention_key,
-        )
-
     def task_lifecycle(
         self,
         task_id: str,
@@ -1922,5 +1681,4 @@ class AbstractDistributedRateLimiter(
                 "window": self.window,
                 "reset_in_ms": result[4],
             },
-            "dispatcher": {"is_locked": self.redis.exists(f"{self.id}:dispatch_lock")},
         }

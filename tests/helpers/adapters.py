@@ -1,7 +1,7 @@
 """Adapters for running unified async tests against sync implementations.
 
-These adapters wrap synchronous rate limiters, distributed locks, and task
-lifecycle managers so that async tests can ``await`` their methods.
+These adapters wrap synchronous rate limiters and task lifecycle managers
+so that async tests can ``await`` their methods.
 """
 
 
@@ -41,9 +41,6 @@ class SyncToAsyncLimiterAdapter:
     def get_inflight_key(self, task_id):
         return self._inner.get_inflight_key(task_id)
 
-    def execution_lock(self, **kwargs):
-        return SyncToAsyncLockAdapter(self._inner.execution_lock(**kwargs))
-
     async def acquire(self, timeout, priority=100):
         return SyncToAsyncLifecycleAdapter(self._inner.acquire(timeout, priority))
 
@@ -51,22 +48,6 @@ class SyncToAsyncLimiterAdapter:
         return SyncToAsyncLifecycleAdapter(
             self._inner.task_lifecycle(task_id, **kwargs)
         )
-
-    def __getattr__(self, name):
-        return getattr(self._inner, name)
-
-
-class SyncToAsyncLockAdapter:
-    """Wraps a sync ``DistributedLock`` so async tests can use ``async with``."""
-
-    def __init__(self, inner):
-        self._inner = inner
-
-    async def __aenter__(self):
-        return self._inner.__enter__()
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        return self._inner.__exit__(exc_type, exc_val, exc_tb)
 
     def __getattr__(self, name):
         return getattr(self._inner, name)

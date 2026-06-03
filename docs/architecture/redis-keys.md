@@ -11,9 +11,8 @@ All rate limiting state is persisted in Redis and mutated exclusively through at
 | `{id}:concurrency` | ZSET | Active task lease set. The score is the lease expiry timestamp (Unix seconds) and the member is the task identifier. Expired leases are pruned automatically at the start of every `consume()` call via `ZREMRANGEBYSCORE`. | `consume.lua` via `ZADD` | `consume.lua` via `ZCARD` and `ZREMRANGEBYSCORE`; `health.lua` via `ZCARD`; `renew.lua` via `ZSCORE` and `ZADD` | Self-healing; expired entries are removed by `ZREMRANGEBYSCORE` |
 | `{id}:inflight:{task_id}` | STRING | Deduplication marker that prevents the same task from being scheduled more than once while it is in flight. The value is the string `"1"`. | `limiters.py` (`schedule_task`) via `SET NX EX` | `consume.lua` via `DEL` (on task expiry); `TaskLifecycle.__exit__()` via `DEL` | `ceil(max(1, max_age) + max(1, lease_duration) + max(1, window))` seconds |
 | `{id}:dlq` | LIST | Dead letter queue for tasks that have exceeded their maximum age while waiting in the buffer. Expired tasks are appended to this list during consumption. | `consume.lua` via `RPUSH` | User code (manual inspection) | None |
-| `{id}:dispatch_lock` | STRING | Drain mutex that ensures only one drainer operates at any given time. The value is a UUID token that identifies the lock holder; the compare-and-delete release script prevents the inadvertent deletion of locks created after a timeout. When contention-aware fairness is enabled, acquisition and release are performed via dedicated Lua scripts that additionally manage the cooldown and contention keys. | `limiters.py` (`DistributedLock.__enter__`) via `SET NX PX` (simple mode) or `_ACQUIRE_SCRIPT` (fairness mode) | `DistributedLock.__exit__()` via `_SIMPLE_RELEASE_SCRIPT` (simple mode) or `_RELEASE_SCRIPT` (fairness mode); `get_status()` via `EXISTS` | 5000ms (configurable via `timeout_ms` parameter) |
-| `{id}:dispatch_lock:cd:{worker_id}` | STRING | Per-worker cooldown marker. When contention is detected (i.e., other workers attempted to acquire the lock while it was held), the releasing worker sets this key to block its own re-acquisition for one token interval, giving competing workers a fair opportunity. The value is the string `"1"`. | `DistributedLock.__exit__()` via `_RELEASE_SCRIPT` (`SET PX`) | `DistributedLock.__enter__()` via `_ACQUIRE_SCRIPT` (`EXISTS`) | `min(window_ms / limit, 1000)` ms |
-| `{id}:dispatch_lock:contention` | STRING | Shared contention counter. Incremented by workers that fail to acquire the dispatch lock (because another worker holds it), allowing the lock holder to detect competition upon release. When the holder releases and finds a contention value greater than zero, it sets its own cooldown key and resets the counter. | `DistributedLock.__enter__()` via `_ACQUIRE_SCRIPT` (`INCR`) | `DistributedLock.__exit__()` via `_RELEASE_SCRIPT` (`GET`, `DEL`) | `timeout_ms` (same as the dispatch lock; set via `PEXPIRE`) |
+| `{id}:last_consumer` | STRING | Round-robin fairness tracker: the worker identifier that most recently consumed a task. Used by `consume.lua` to determine whether the current caller should yield to other workers. Updated atomically within the Lua script upon successful dequeue. | `consume.lua` via `SET` | `consume.lua` via `GET` | TTL-backed to prevent stale state if a worker crashes |
+| `{id}:last_caller` | STRING | Round-robin fairness tracker: the worker identifier that most recently invoked `consume.lua`. Used in conjunction with `last_consumer` to detect whether a different worker has called since the last consumption, which triggers the yield (status -3) response. Updated atomically within the Lua script on every invocation. | `consume.lua` via `SET` | `consume.lua` via `GET` | TTL-backed to prevent stale state if a worker crashes |
 | `{id}:acquire:{task_id}` | LIST | Per-call signal key for the inline `acquire()` primitive. When `consume.lua` admits an acquire marker, it atomically pushes the task identifier into this list via `RPUSH`, waking the caller's `BLPOP`. The key is created only for acquire markers and is consumed (popped) by the caller immediately upon admission. | `consume.lua` via `RPUSH` | `acquire()` via `BLPOP` | `_acquire_timeout_ms` from the marker payload, set via `PEXPIRE` |
 | `{id}:{identity}:{window_start_ms}` | STRING | ASGI per-identity window counter. The `{identity}` segment is the dynamic key extracted by the middleware's `key_func` (e.g., a client IP or API key). The suffix is the window start timestamp, computed identically to the task-oriented window counters. Each counter tracks the number of requests from a given identity within a single fixed window period. | `acquire.lua` via `INCR` | `acquire.lua` via `GET` | `2 * window_ms + 10000ms`, set via `PEXPIRE` on first increment |
 | `rl:registry:configs` | HASH | Configuration persistence for managed limiter instances. Each field is a limiter identifier and the corresponding value is a JSON-serialized configuration object. For task-oriented limiters, the object contains `limit`, `window`, `max_concurrency`, `max_age`, and `lease_duration`; for request-oriented limiters (ASGI), it contains `limit` and `window`. | `SyncManagedRateLimiter._persist_config()` or `AsyncManagedRateLimiter._persist_config()` via `HSET` | `.get()` and `.refresh_config()` via `HGET` | None |
@@ -52,8 +51,7 @@ graph LR
     end
 
     subgraph Drain ["drain()"]
-        D1["Acquire dispatch_lock:<br>check cooldown key,<br>SET NX lock,<br>INCR contention on failure"]
-        D2["Release dispatch_lock:<br>verify token, DEL lock,<br>check contention counter,<br>SET cooldown + DEL contention<br>if contention > 0"]
+        D1["consume.lua:<br>GET last_consumer + last_caller,<br>yield check (status -3),<br>SET last_caller on every call,<br>SET last_consumer on dequeue"]
     end
 
     subgraph Registry ["create() / update()"]
@@ -83,9 +81,7 @@ All per-limiter keys are prefixed with the limiter's unique identifier (`{id}:`)
 ```python
 self.buffer_key = f"{self.id}:buffer"
 self.concurrency_key = f"{self.id}:concurrency"
-self.lock_key = f"{self.id}:dispatch_lock"
 self.dlq_key = f"{self.id}:dlq"
-self.contention_key = f"{self.id}:dispatch_lock:contention"
 ```
 
 The inflight key is constructed dynamically for each task via the `get_inflight_key()` method:
@@ -95,10 +91,11 @@ def get_inflight_key(self, task_id: str) -> str:
     return f"{self.id}:inflight:{task_id}"
 ```
 
-The per-worker cooldown key is constructed within `DistributedLock.__init__()` by appending the worker identifier:
+The `last_consumer` and `last_caller` fairness keys are constructed within `consume.lua` by appending the suffix to the base key:
 
-```python
-self._cooldown_key = f"{lock_key}:cd:{worker_id}"
+```lua
+local last_consumer_key = base_key .. ':last_consumer'
+local last_caller_key = base_key .. ':last_caller'
 ```
 
 Acquire signal keys are constructed within `consume.lua` by appending the marker's task identifier to the base key:
@@ -168,6 +165,6 @@ The `max(1, ...)` guard on each component ensures that the TTL is always at leas
 - [renew.lua](../../src/redis_rate_limiter/lua/renew.lua): lease renewal script (concurrency set update).
 - [health.lua](../../src/redis_rate_limiter/lua/health.lua): health check script (status reads).
 - [acquire.lua](../../src/redis_rate_limiter/lua/acquire.lua): lightweight sliding window counter check for request-oriented rate limiting (ASGI).
-- [limiters.py](../../src/redis_rate_limiter/core/limiters.py): sync distributed rate limiter (key construction, TTL calculations, dispatch lock).
+- [limiters.py](../../src/redis_rate_limiter/core/limiters.py): sync distributed rate limiter (key construction, TTL calculations).
 - [async_limiters.py](../../src/redis_rate_limiter/core/async_limiters.py): async distributed rate limiter (asyncio counterpart of limiters.py).
 - [Sliding Window Algorithm](sliding-window.md): visual explanation of the window counter algorithm and TTL rationale.

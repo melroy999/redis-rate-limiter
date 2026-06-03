@@ -2,7 +2,6 @@
 
 from redis_rate_limiter.core.async_limiters import (
     AbstractAsyncDistributedRateLimiter,
-    AsyncDistributedLock,
     AsyncDrainLoop,
     AsyncDrainSignalSubscriber,
     AsyncTaskLifecycle,
@@ -17,7 +16,6 @@ from redis_rate_limiter.core.decorators import rate_limited
 from redis_rate_limiter.core.importing import import_string, resolve_import_path
 from redis_rate_limiter.core.limiters import (
     AbstractDistributedRateLimiter,
-    DistributedLock,
     DistributedRateLimiterMixin,
     TaskLifecycle,
 )
@@ -35,12 +33,10 @@ __all__ = [
     "AbstractDistributedRateLimiter",
     "AbstractRateLimiter",
     "AbstractSyncRateLimiter",
-    "AsyncDistributedLock",
     "AsyncDrainLoop",
     "AsyncDrainSignalSubscriber",
     "AsyncManagedRateLimiter",
     "AsyncTaskLifecycle",
-    "DistributedLock",
     "DistributedRateLimiterMixin",
     "ManagedRateLimiterMixin",
     "SyncManagedRateLimiter",

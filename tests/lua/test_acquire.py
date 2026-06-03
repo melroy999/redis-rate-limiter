@@ -87,9 +87,7 @@ class TestAcquireReturnValues:
         result = _eval_acquire(redis_client, base_key)
 
         # Assert
-        assert result[3] == 7, (
-            "previous_count should reflect the previous window key"
-        )
+        assert result[3] == 7, "previous_count should reflect the previous window key"
 
     @staticmethod
     def test_denied_status_code_is_zero(redis_client, base_key):

@@ -3,7 +3,6 @@
 from redis_rate_limiter.core import (
     AbstractAsyncDistributedRateLimiter,
     AbstractDistributedRateLimiter,
-    DistributedLock,
     TaskLifecycle,
     import_string,
     rate_limited,
@@ -15,7 +14,6 @@ __all__ = [
     "AbstractDistributedRateLimiter",
     "ASGIRateLimiter",
     "AsyncIOTaskLimiter",
-    "DistributedLock",
     "ProcessPoolRateLimiter",
     "RateLimitMiddleware",
     "TaskLifecycle",

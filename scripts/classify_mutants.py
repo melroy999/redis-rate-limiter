@@ -1211,32 +1211,6 @@ _KNOWN_BENIGN: list[tuple[str, str, str]] = [
         " both return nil, so the max_age override branch is skipped identically",
     ),
     (
-        "DistributedLock.__enter__",
-        "self.token  ->  None (logger.debug argument)",
-        "changes the token field in the acquired-lock debug log from the lock"
-        " token UUID to None; no test asserts the token value in lock log"
-        " messages, and the lock acquisition/release logic is unaffected",
-    ),
-    (
-        "AsyncDistributedLock.__aenter__",
-        "self.token  ->  None (logger.debug argument)",
-        "async mirror of DistributedLock.__enter__ token log argument; same"
-        " reasoning applies",
-    ),
-    (
-        "DistributedLock.__exit__",
-        "self.token  ->  None (logger.debug argument)",
-        "changes the token field in the released/expired-lock debug logs from"
-        " the lock token UUID to None; no test asserts the token value in lock"
-        " log messages, and the release logic is unaffected",
-    ),
-    (
-        "AsyncDistributedLock.__aexit__",
-        "self.token  ->  None (logger.debug argument)",
-        "async mirror of DistributedLock.__exit__ token log argument; same"
-        " reasoning applies",
-    ),
-    (
         "HeartbeatScheduler._renew_one",
         "==  ->  !=",
         "inverts the kill/warn branch; reliably caught by"

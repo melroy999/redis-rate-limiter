@@ -558,7 +558,6 @@ def test_something(self, payload):
 Contains sync-to-async adapter classes that wrap synchronous rate limiters, distributed locks, and task lifecycle managers so that the unified async contract test suite can exercise sync backends via `await`. The underlying sync Redis calls block the event loop briefly, which is acceptable in a test context.
 
 - `SyncToAsyncLimiterAdapter`: wraps a sync `AbstractDistributedRateLimiter` as an async-compatible limiter.
-- `SyncToAsyncLockAdapter`: wraps a sync `DistributedLock` as an async context manager (`async with`).
 - `SyncToAsyncLifecycleAdapter`: wraps a sync `TaskLifecycle` as an async context manager.
 
 **Usage:**

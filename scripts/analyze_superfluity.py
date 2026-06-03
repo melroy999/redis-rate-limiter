@@ -410,7 +410,7 @@ def _merge_reports(per_file_dir: Path) -> dict:
     """Merge per-file superfluity JSON reports into a project-wide report.
 
     Each per-file report contains class names that may collide across
-    files (e.g., multiple files may have a ``TestDistributedLock`` class).
+    files (e.g., multiple files may have a ``TestDrainBehavior`` class).
     To avoid collisions, each class is namespaced by the source file stem
     in the merged report.
     """

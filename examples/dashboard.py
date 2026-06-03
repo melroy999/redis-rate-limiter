@@ -83,10 +83,6 @@ class Dashboard:
             f"             previous: {r['val_previous']}, estimated: {r['tokens_used']:.1f}"
         )
 
-        # Dispatcher lock status
-        lock = "BUSY" if status["dispatcher"]["is_locked"] else "IDLE"
-        print(f"DISPATCHER:  {lock}")
-
         # Per-window history
         print(f"\nPER WINDOW:  (limit={self._limit})")
         if self._window_history:

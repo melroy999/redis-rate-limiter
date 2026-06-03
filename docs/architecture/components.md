@@ -16,7 +16,7 @@ graph LR
     User["User Code"]
 
     subgraph Limiter ["Rate Limiter Core"]
-        LimiterBlock["Scheduler, DrainLoop,<br>DistributedLock, Consumer"]
+        LimiterBlock["Scheduler, DrainLoop,<br>Consumer"]
     end
 
     subgraph RedisLayer ["Redis"]
@@ -46,7 +46,7 @@ graph LR
 
 **Legend:**
 
-- *Blue subgraph* (Rate Limiter Core): the scheduler, drain loop, distributed lock and consumer components that orchestrate task flow.
+- *Blue subgraph* (Rate Limiter Core): the scheduler, drain loop and consumer components that orchestrate task flow.
 - *Orange subgraph* (Redis): all Lua scripts and data structures that constitute the single source of truth.
 - *Green subgraph* (Backend): the interchangeable dispatch backends (Celery, Dramatiq, Huey, RQ, ThreadPool, AsyncIO and ASGI).
 - *Purple subgraph* (Task Execution): the worker or thread that runs the user function and the `TaskLifecycle` context manager that manages the concurrency lease.
@@ -94,14 +94,13 @@ graph TD
 
 ## Drain, Consume, and Dispatch
 
-The drain, consume and dispatch phase covers the path from the drain loop through consumption to backend dispatch. The drain loop acquires the distributed lock, the consumer invokes `consume.lua` to atomically check the rate window, verify concurrency capacity, pop a task from the buffer and register the concurrency lease, and then the consumer dispatches the task to the configured backend. When the consumed task is an acquire marker (i.e., its `func_path` equals `__redis_rate_limiter_acquire_marker__`), `_drain_inner()` skips `_dispatch_task()` because the caller is already waiting on `BLPOP` and the signal was delivered atomically by `consume.lua`. If `consume.lua` returns status -2 (marker deadline elapsed), `_drain_inner()` schedules an immediate follow-up drain to process the next buffered item.
+The drain, consume and dispatch phase covers the path from the drain loop through consumption to backend dispatch. The drain loop calls `consume()` directly; `consume.lua` atomically checks the rate window, verifies concurrency capacity, enforces round-robin fairness (via the `last_consumer`/`last_caller` yield mechanism), pops a task from the buffer and registers the concurrency lease. The consumer then dispatches the task to the configured backend. When the consumed task is an acquire marker (i.e., its `func_path` equals `__redis_rate_limiter_acquire_marker__`), `_drain_inner()` skips `_dispatch_task()` because the caller is already waiting on `BLPOP` and the signal was delivered atomically by `consume.lua`. If `consume.lua` returns status -2 (marker deadline elapsed), `_drain_inner()` schedules an immediate follow-up drain to process the next buffered item.
 
 ```mermaid
 %%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 graph TD
     subgraph Limiter ["Rate Limiter Core"]
         DrainLoop["DrainLoop<br>Background thread<br>Coalesces wake signals"]
-        Lock["DistributedLock<br>Contention-aware fairness<br>Prevents concurrent drains"]
         Consumer["Consumer<br>Check window + concurrency<br>Pop task from buffer"]
     end
 
@@ -124,8 +123,7 @@ graph TD
 
     Worker["Worker / Thread / Coroutine<br>Runs user function"]
 
-    DrainLoop -->|"drain()"| Lock
-    Lock -->|"if acquired"| Consumer
+    DrainLoop -->|"drain()"| Consumer
     Consumer -->|"EVALSHA consume.lua"| LuaScripts
     LuaScripts -->|"GET/INCR"| WindowCounters
     LuaScripts -->|"ZPOPMIN"| Buffer
@@ -153,8 +151,7 @@ graph TD
 
 | Arrow | Interaction | Tested by |
 |-------|-------------|-----------|
-| DrainLoop → Lock | drain() acquires dispatch_lock | `implementations/test_drain_loop::test_wake_default_delay_is_zero`, `implementations/test_drain::test_drain_schedules_backup_when_lock_contended` |
-| Lock → Consumer | Lock acquired, proceed | `implementations/test_concurrent_access::test_distributed_lock_serializes_drains` |
+| DrainLoop → Consumer | drain() calls consume() directly | `implementations/test_drain_loop::test_wake_default_delay_is_zero` |
 | Consumer → LuaScripts | EVALSHA consume.lua | `contracts/test_rate_limiter::test_consume_returns_expected_structure`, `implementations/test_lua_script_infrastructure::test_eval_script_recovers_from_transient_noscript` |
 | LuaScripts → WindowCounters | GET/INCR rate check | `integration/test_rate_limiting::test_basic_rate_limit_enforcement` |
 | LuaScripts → ConcurrencySet | ZADD lease slot | `integration/test_rate_limiting::test_concurrency_limit_enforcement` |

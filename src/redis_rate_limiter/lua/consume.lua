@@ -13,6 +13,17 @@
 -- contains a Python reference implementation kept in lockstep with
 -- this script.
 --
+-- Fairness: when multiple drainers share one limiter, a round-robin
+-- yield mechanism prevents any single worker from monopolizing
+-- consumption. Two keys track the last successful consumer and the
+-- most recent caller. If the same worker that consumed last calls
+-- again, and a different worker has called in between, the script
+-- returns a yield status instead of attempting to dequeue. The
+-- natural ordering of Redis's Lua call queue produces round-robin
+-- behavior across N workers without a distributed lock. Single-
+-- drainer deployments are unaffected because the yield condition
+-- never triggers when only one worker is calling.
+--
 -- KEYS:
 --     [1] base_key         Base key for the per-window counters; the
 --                          actual subkeys take the form
@@ -32,6 +43,8 @@
 --                          to 3600 if absent.
 --     [5] lease_duration   Concurrency lease lifetime in seconds;
 --                          defaults to 30 if absent.
+--     [6] worker_id        Stable identifier for the calling drainer;
+--                          used for round-robin fairness yield tracking.
 --
 -- Returns a table whose first element is a status code:
 --      1: task admitted; second element is the JSON-encoded task.
@@ -41,6 +54,8 @@
 --     -2: head-of-buffer was an acquire marker whose deadline had elapsed;
 --         it was silently dropped (no DLQ, no signal). The caller should
 --         retry to inspect the next task.
+--     -3: yield; the caller should back off and retry to give competing
+--         workers a fair opportunity to consume.
 -- The remaining elements expose telemetry, in order:
 --     {status, task_json_or_false, remaining, active_now, reset_in_ms,
 --      buffer_count, previous_count, current_count}
@@ -53,6 +68,7 @@ local rate_limit = tonumber(ARGV[2])
 local max_concurrency = tonumber(ARGV[3])
 local max_age = tonumber(ARGV[4]) or 3600
 local lease_duration = tonumber(ARGV[5]) or 30
+local worker_id = ARGV[6]
 
 -- All time arithmetic uses the Redis server clock so that calculations
 -- remain consistent regardless of client clock skew.
@@ -64,6 +80,18 @@ local now_ms = (tonumber(redis_time[1]) * 1000) + math.floor(tonumber(redis_time
 -- recovering capacity held by tasks that crashed before releasing.
 redis.call('ZREMRANGEBYSCORE', concurrency_key, "-inf", timestamp - 1)
 local active_now = tonumber(redis.call('ZCARD', concurrency_key) or 0)
+
+-- Round-robin fairness: yield if this worker consumed last and another
+-- worker has called since, giving the competing worker a turn.
+local last_consumer_key = base_key .. ':last_consumer'
+local last_caller_key = base_key .. ':last_caller'
+local last_consumer = redis.call('GET', last_consumer_key)
+local last_caller = redis.call('GET', last_caller_key)
+local fairness_ttl = 2 * window_size_ms + 10000
+redis.call('SET', last_caller_key, worker_id, 'PX', fairness_ttl)
+if last_consumer == worker_id and last_caller ~= false and last_caller ~= worker_id then
+    return {-3, false, 0, active_now, 0, 0, 0, 0}
+end
 
 local current_window_start = math.floor(now_ms / window_size_ms) * window_size_ms
 local current_key = base_key .. ':' .. current_window_start
@@ -151,6 +179,7 @@ if estimated_count < rate_limit and active_now < max_concurrency then
             redis.call('PEXPIRE', signal_key, task_data.payload._acquire_timeout_ms)
         end
 
+        redis.call('SET', last_consumer_key, worker_id, 'PX', fairness_ttl)
         return {1, tasks[1], remaining - 1, active_now + 1, reset_in_ms, buffer_count - 1, previous_count, current_count + 1}
     end
 end

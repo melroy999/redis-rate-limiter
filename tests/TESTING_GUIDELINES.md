@@ -31,9 +31,9 @@ When adding a new backend, create the corresponding subdirectory under `tests/im
 
 | Pattern | Purpose | Example |
 |---|---|---|
-| `<Feature>ContractTest` | Abstract contract base; pytest does not collect it because the name lacks a `Test` prefix | `RateLimiterContractTest`, `DistributedLockContractTest` |
+| `<Feature>ContractTest` | Abstract contract base; pytest does not collect it because the name lacks a `Test` prefix | `RateLimiterContractTest` |
 | `<Feature>Tests` | Unified mixin base for sync/async deduplication; pytest does not collect it | `DrainBehaviorTests`, `GetStatusTests`, `MetricsCallbackTests` |
-| `<Feature>BoundaryTests` | Unified mixin base for boundary condition tests; pytest does not collect it | `DrainBoundaryTests`, `DistributedLockBoundaryTests` |
+| `<Feature>BoundaryTests` | Unified mixin base for boundary condition tests; pytest does not collect it | `DrainBoundaryTests` |
 | `Test<Subject>` | Concrete test class that pytest collects and executes | `TestSyncDrain`, `TestAsyncDrainLoop`, `TestCeleryRateLimiter` |
 | `Test<Subject>BoundaryDecisions` | Concrete test class for boundary and edge-case conditions | `TestBaseConfigBoundaryDecisions`, `TestConsumeBoundaryDecisions` |
 
@@ -264,8 +264,8 @@ mock_cls = (
 **Data-flow verification via mocks**: tests that mock internal method calls and assert on the arguments forwarded to those methods are a valid and important category. They verify that the correct data flows through the system: if the arguments passed to an internal method are swapped (e.g., `task_id` and `func_path`), these tests catch it. Data-flow verification tests are normal behavioral tests; they do not require a `Mutation target:` annotation because they guard against real bugs, not merely theoretical mutations.
 
 ```python
-def test_execution_lock_forwards_all_attributes(limiter, ...):
-    """Verify that ``execution_lock()`` forwards the correct lock key, worker ID, and contention key."""
+def test_schedule_task_forwards_inflight_key(limiter, ...):
+    """Verify that ``schedule_task()`` forwards the correct inflight key to the Lua script."""
 ```
 
 Do not confuse data-flow verification with call-count verification. Asserting that a method was called with specific arguments is valuable; asserting only that a method was called a specific number of times (without verifying the arguments) is weaker and should be avoided unless the call count itself is the behavioral contract.
@@ -573,7 +573,7 @@ When adding a new backend, create the following:
 
 1. `tests/fixtures/<backend>_backend.py`: fixture module with limiter construction and teardown.
 2. `tests/implementations/<backend>/conftest.py`: imports the fixtures from the fixture module.
-3. `tests/implementations/<backend>/test_contracts.py`: concrete subclass of `RateLimiterContractTest` (and `DistributedLockContractTest`, `TaskLifecycleContractTest` if applicable) with a `limiter` fixture providing the backend-specific limiter instance.
+3. `tests/implementations/<backend>/test_contracts.py`: concrete subclass of `RateLimiterContractTest` (and `TaskLifecycleContractTest` if applicable) with a `limiter` fixture providing the backend-specific limiter instance.
 4. `tests/implementations/<backend>/test_<backend>_limiter.py`: backend-specific tests for dispatch logic, payload handling, and other behavior unique to the backend.
 5. Add the backend class to the `TestConfigureHintCompliance` parametrize list in `tests/contracts/test_managed_mixin.py`.
 
@@ -614,7 +614,7 @@ The `async_redis_client` fixture in `tests/conftest.py` is function-scoped (not 
 
 Every concrete test class (i.e., classes whose name starts with `Test`) must carry exactly one category marker: `@pytest.mark.behavior`, `@pytest.mark.observability`, `@pytest.mark.signature`, `@pytest.mark.contract`, or `@pytest.mark.concurrency`. This ensures that all tests are reachable via marker-based selection (e.g., `pytest -m behavior`).
 
-Mixin base classes (names that do **not** start with `Test`, e.g., `DrainBehaviorTests`, `DistributedLockBoundaryTests`) must **not** carry category markers. The concrete subclass that inherits the mixin is responsible for applying the appropriate marker. Placing a marker on a mixin is redundant because pytest does not collect classes whose names do not start with `Test`.
+Mixin base classes (names that do **not** start with `Test`, e.g., `DrainBehaviorTests`, `DrainBoundaryTests`) must **not** carry category markers. The concrete subclass that inherits the mixin is responsible for applying the appropriate marker. Placing a marker on a mixin is redundant because pytest does not collect classes whose names do not start with `Test`.
 
 ### 8.4 Custom Marker Registration
 
@@ -695,7 +695,7 @@ This section identifies test categories that should exist but are currently abse
 
 Tests should verify the system behavior for boundary and degenerate configurations:
 
-- **`limit=0`**: should deny all consumption requests. The current test (`test_execution_lock_cooldown_is_zero_when_limit_is_zero`) only verifies the cooldown calculation, not `consume()` behavior.
+- **`limit=0`**: should deny all consumption requests.
 - **`window=0` or very small windows**: should be handled gracefully, either rejected at configuration time or treated as a valid edge case with defined behavior.
 - **Negative values** for `limit`, `window`, `max_concurrency`: should be rejected with clear error messages.
 - **Very large values** (`limit=10**9`, `window=86400`): should not cause integer overflow or excessive memory allocation in Lua.

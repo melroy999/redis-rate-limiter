@@ -301,7 +301,7 @@ CeleryRateLimiter.update("my_limiter", jitter_min_pct=0.05, jitter_max_pct=0.12)
 
 ## Related Features
 
-- **Execution Lock**: prevents multiple drain operations within the same process.
+- **Round-Robin Yield Fairness**: prevents any single worker from monopolizing the drain loop under multi-worker deployments; see [Drain Loop Flow](architecture/drain-flow.md#round-robin-yield-fairness).
 - **Concurrency Tracking**: limits the number of simultaneously executing tasks.
 - **Task Lifecycle**: manages the lease-based concurrency slots.
 

@@ -731,9 +731,7 @@ class TestHeartbeatSchedulerBoundary:
         )
 
     @staticmethod
-    def test_scheduler_renews_task_across_multiple_cycles(
-        scheduler_limiter, task_id
-    ):
+    def test_scheduler_renews_task_across_multiple_cycles(scheduler_limiter, task_id):
         """Verify that the scheduler reschedules a registered task for
         renewal in subsequent cycles, not just the first one."""
         # Arrange

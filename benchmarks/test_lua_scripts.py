@@ -44,6 +44,7 @@ def call_consume_lua(limiter):
         limiter.max_concurrency,
         limiter.max_age,
         limiter.lease_duration,
+        limiter._worker_id,
     )
 
 
@@ -77,6 +78,7 @@ async def async_call_consume_lua(limiter):
         limiter.max_concurrency,
         limiter.max_age,
         limiter.lease_duration,
+        limiter._worker_id,
     )
 
 

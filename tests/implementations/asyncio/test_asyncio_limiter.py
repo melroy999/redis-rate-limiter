@@ -137,7 +137,6 @@ class TestAsyncIOTaskLimiter:
         assert "concurrency" in status, "status should include concurrency section"
         assert "buffer" in status, "status should include buffer section"
         assert "rate_limit" in status, "status should include rate_limit section"
-        assert "dispatcher" in status, "status should include dispatcher section"
 
     @staticmethod
     async def test_has_local_capacity_respects_max_tasks(limiter):
