@@ -230,3 +230,5 @@ memory-results/
 
 # Benchmark snapshots (pytest-benchmark --benchmark-autosave)
 benchmark-results/
+benchmark-degraded-results/
+.benchmarks/

@@ -77,7 +77,7 @@ import redis
 import redis.asyncio as aioredis
 
 from benchmarks.conftest import REDIS_HOST, REDIS_PORT
-from benchmarks.helpers import bulk_fill_buffer
+from benchmarks.helpers import GCTracker, bulk_fill_buffer
 from redis_rate_limiter import ThreadPoolRateLimiter
 from redis_rate_limiter.backends.asyncio.limiter import AsyncIOTaskLimiter
 
@@ -367,9 +367,23 @@ def test_contention_threads(
     label = f"threads/{scenario}/N={num_drainers}"
     sys.stderr.write(f"\n[{label}] starting\n")
     sys.stderr.flush()
-    total, per_drainer = _run_threads_trial(redis_client, scenario, num_drainers, label)
+    with GCTracker(time.monotonic()) as gc_tracker:
+        total, per_drainer = _run_threads_trial(
+            redis_client, scenario, num_drainers, label
+        )
+    gc_result = gc_tracker.stats()
     _record(
         request, "threads", scenario, num_drainers, total, cfg["duration"], per_drainer
+    )
+    request.node.user_properties.append(
+        (
+            "gc_summary_result",
+            {
+                "test": "contention",
+                "scenario": f"threads/{scenario}/N={num_drainers}",
+                **gc_result,
+            },
+        )
     )
     _assert_throughput("threads", scenario, num_drainers, total)
 
@@ -583,9 +597,11 @@ async def test_contention_coroutines(
     label = f"coroutines/{scenario}/N={num_drainers}"
     sys.stderr.write(f"\n[{label}] starting\n")
     sys.stderr.flush()
-    total, per_drainer = await _run_coroutines_trial(
-        redis_client, scenario, num_drainers
-    )
+    with GCTracker(time.monotonic()) as gc_tracker:
+        total, per_drainer = await _run_coroutines_trial(
+            redis_client, scenario, num_drainers
+        )
+    gc_result = gc_tracker.stats()
     _record(
         request,
         "coroutines",
@@ -594,5 +610,15 @@ async def test_contention_coroutines(
         total,
         cfg["duration"],
         per_drainer,
+    )
+    request.node.user_properties.append(
+        (
+            "gc_summary_result",
+            {
+                "test": "contention",
+                "scenario": f"coroutines/{scenario}/N={num_drainers}",
+                **gc_result,
+            },
+        )
     )
     _assert_throughput("coroutines", scenario, num_drainers, total)

@@ -28,7 +28,7 @@ import redis
 import redis.asyncio as aioredis
 
 from benchmarks.conftest import REDIS_HOST, REDIS_PORT
-from benchmarks.helpers import bulk_fill_buffer
+from benchmarks.helpers import GCTracker, bulk_fill_buffer
 from benchmarks.soak_analyzer import SoakAnalyzer
 from benchmarks.soak_collector import SoakCollector, _DispatchCounter
 from redis_rate_limiter import ThreadPoolRateLimiter
@@ -152,12 +152,16 @@ def test_soak_sync(
     feeder_thread.start()
     limiter.trigger_consume()
     time.sleep(WARMUP_SECONDS)
-    collector.start()
-    time.sleep(SOAK_DURATION)
+
+    start_mono = time.monotonic()
+    with GCTracker(start_mono) as gc_tracker:
+        collector.start()
+        time.sleep(SOAK_DURATION)
 
     feeder_stop.set()
     feeder_thread.join(timeout=5.0)
     snapshots = collector.stop()
+    gc_result = gc_tracker.stats()
 
     limiter.shutdown()
     executor.shutdown(wait=True)
@@ -169,7 +173,10 @@ def test_soak_sync(
     results = analyzer.analyze()
 
     request.node.user_properties.append(
-        ("soak_result", {**analyzer.summary_dict(), "variant": "sync"})
+        ("soak_result", {**analyzer.summary_dict(), "variant": "sync", **gc_result})
+    )
+    request.node.user_properties.append(
+        ("gc_summary_result", {"test": "soak", "scenario": "sync", **gc_result})
     )
 
     failures = [r for r in results if not r.passed]
@@ -224,8 +231,10 @@ async def test_soak_async(
     await limiter.trigger_consume()
     await asyncio.sleep(WARMUP_SECONDS)
 
-    collector.start()
-    await asyncio.sleep(SOAK_DURATION)
+    start_mono = time.monotonic()
+    with GCTracker(start_mono) as gc_tracker:
+        collector.start()
+        await asyncio.sleep(SOAK_DURATION)
 
     feeder_task.cancel()
     try:
@@ -233,6 +242,7 @@ async def test_soak_async(
     except asyncio.CancelledError:
         pass
     snapshots = collector.stop()
+    gc_result = gc_tracker.stats()
 
     await limiter.shutdown()
     await async_client.aclose()
@@ -244,7 +254,10 @@ async def test_soak_async(
     results = analyzer.analyze()
 
     request.node.user_properties.append(
-        ("soak_result", {**analyzer.summary_dict(), "variant": "async"})
+        ("soak_result", {**analyzer.summary_dict(), "variant": "async", **gc_result})
+    )
+    request.node.user_properties.append(
+        ("gc_summary_result", {"test": "soak", "scenario": "async", **gc_result})
     )
 
     failures = [r for r in results if not r.passed]

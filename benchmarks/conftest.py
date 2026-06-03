@@ -80,6 +80,9 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     _print_soak_results(terminalreporter)
     _print_buffer_growth_results(terminalreporter)
     _print_acquire_contention_results(terminalreporter)
+    _print_eventloop_lag_results(terminalreporter)
+    _print_gc_summary(terminalreporter)
+    _print_redis_degradation_results(terminalreporter)
 
     session = getattr(config, "_benchmarksession", None)
     benchmarks = session.benchmarks if session else []
@@ -195,6 +198,79 @@ def _print_acquire_contention_results(terminalreporter):
             f"{total:>8} {throughput_str:>10} "
             f"{r['median_us']:>8.1f}us {r['mean_us']:>8.1f}us {r['p99_us']:>8.1f}us"
         )
+
+
+def _print_eventloop_lag_results(terminalreporter):
+    """Print event-loop lag benchmark results collected via record_property."""
+    results = _collect_user_properties(terminalreporter, "eventloop_lag_result")
+
+    if not results:
+        return
+
+    terminalreporter.section("event-loop lag")
+    header = (
+        f"{'Scenario':<12} {'N':>4} {'Samples':>8} "
+        f"{'Median':>10} {'Mean':>10} {'p95':>10} {'p99':>10} {'Max':>10} "
+        f"{'Dispatches':>12} {'GC#':>5} {'GC max':>10}"
+    )
+    terminalreporter.line(header)
+    terminalreporter.line("-" * len(header))
+
+    for r in sorted(results, key=lambda x: (x["num_drainers"], x["scenario"])):
+        gc_count = r.get("gc_pause_count", 0)
+        gc_max = r.get("gc_max_ms", 0.0)
+        gc_str = f"{gc_max:.3f}ms" if gc_count > 0 else ""
+        terminalreporter.line(
+            f"{r['scenario']:<12} {r['num_drainers']:>4} {r['sample_count']:>8} "
+            f"{r['median_ms']:>8.3f}ms {r['mean_ms']:>8.3f}ms "
+            f"{r['p95_ms']:>8.3f}ms {r['p99_ms']:>8.3f}ms {r['max_ms']:>8.3f}ms "
+            f"{r['total_dispatches']:>12} {gc_count:>5} {gc_str:>10}"
+        )
+
+
+def _print_gc_summary(terminalreporter):
+    """Print cross-test GC pause summary collected via record_property."""
+    results = _collect_user_properties(terminalreporter, "gc_summary_result")
+
+    if not results:
+        return
+
+    terminalreporter.section("GC pauses")
+    header = f"{'Test':<20} {'Scenario':<16} {'Pauses':>8} {'Total':>12} {'Max':>12}"
+    terminalreporter.line(header)
+    terminalreporter.line("-" * len(header))
+
+    for r in sorted(results, key=lambda x: -(x.get("gc_max_ms", 0.0))):
+        count = r.get("gc_pause_count", 0)
+        total = r.get("gc_total_ms", 0.0)
+        mx = r.get("gc_max_ms", 0.0)
+        terminalreporter.line(
+            f"{r['test']:<20} {r.get('scenario', ''):<16} "
+            f"{count:>8} {total:>10.3f}ms {mx:>10.3f}ms"
+        )
+
+
+def _print_redis_degradation_results(terminalreporter):
+    """Print Redis degradation benchmark results collected via record_property."""
+    results = _collect_user_properties(terminalreporter, "redis_degradation_result")
+
+    if not results:
+        return
+
+    for r in results:
+        terminalreporter.section("redis degradation")
+        header = f"{'Phase':<12} {'Elapsed':>8} {'Throughput':>14}"
+        terminalreporter.line(header)
+        terminalreporter.line("-" * len(header))
+        current_phase = None
+        for b in r["bins"]:
+            if b["phase"] != current_phase:
+                current_phase = b["phase"]
+                terminalreporter.line(f"--- {current_phase} ---")
+            terminalreporter.line(
+                f"{b['phase']:<12} {b['elapsed_s']:>7.1f}s {b['throughput']:>12.1f}/s"
+            )
+        terminalreporter.line(f"\ntotal dispatches: {r['total_dispatches']}")
 
 
 def _print_instrumented_decomposition(terminalreporter, benchmarks):
@@ -334,6 +410,13 @@ def _write_report_data(terminalreporter, benchmarks):
         acquire_contention = _collect_user_properties(
             terminalreporter, "acquire_contention_result"
         )
+        eventloop_lag = _collect_user_properties(
+            terminalreporter, "eventloop_lag_result"
+        )
+        gc_summary = _collect_user_properties(terminalreporter, "gc_summary_result")
+        redis_degradation = _collect_user_properties(
+            terminalreporter, "redis_degradation_result"
+        )
 
         lua_vm_medians = {}
         for bench in benchmarks:
@@ -348,6 +431,9 @@ def _write_report_data(terminalreporter, benchmarks):
             "soak": soak,
             "buffer_growth": buffer_growth,
             "acquire_contention": acquire_contention,
+            "eventloop_lag": eventloop_lag,
+            "gc_summary": gc_summary,
+            "redis_degradation": redis_degradation,
             "lua_vm_medians": lua_vm_medians,
             "tail_latency_thresholds": _TAIL_LATENCY_RATIO_THRESHOLDS,
             "tail_latency_default_threshold": _DEFAULT_TAIL_LATENCY_RATIO,

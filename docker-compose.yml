@@ -227,6 +227,48 @@ services:
       # Only start with: docker-compose --profile debug up.
       - debug
 
+  # Toxiproxy for Redis degradation benchmarks.
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    container_name: redis-rate-limiter-toxiproxy
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - rate-limiter-network
+    profiles:
+      - benchmark-degraded
+
+  # Benchmark runner with Toxiproxy between client and Redis.
+  benchmark-degraded:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: benchmark
+    container_name: redis-rate-limiter-benchmark-degraded
+    environment:
+      REDIS_HOST: toxiproxy
+      REDIS_PORT: 16379
+      TOXIPROXY_API: http://toxiproxy:8474
+      TOXIPROXY_UPSTREAM: redis:6379
+      PYTHONPATH: /app
+    depends_on:
+      toxiproxy:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./benchmark-degraded-results:/app/.benchmarks
+    command: >-
+      bash -c "
+        poetry run pytest benchmarks/test_redis_degradation.py -v -s --benchmark-disable &&
+        python scripts/benchmark_report.py .benchmarks
+      "
+    networks:
+      - rate-limiter-network
+    profiles:
+      - benchmark-degraded
+
 volumes:
   redis-data:
     driver: local

@@ -225,6 +225,27 @@ h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 4px; }
   <div id="growth-depth"></div>
 </div>
 
+<div class="section" id="s-elag">
+  <h2>Event-Loop Lag</h2>
+  <p class="desc">Scheduling delay measured by a background coroutine that sleeps 10ms and records the overshoot. Higher lag indicates event-loop starvation from async limiter workload. All scenarios share the same rate limit parameters; only drainer count and saturation vary. Triangle markers show GC pauses at their true timestamp and duration.</p>
+  <div class="g2">
+    <div id="elag-percentiles"></div>
+    <div id="elag-timeseries"></div>
+  </div>
+</div>
+
+<div class="section" id="s-degradation">
+  <h2>Redis Degradation</h2>
+  <p class="desc">Throughput over time while Toxiproxy injects network faults. Vertical bands mark phase transitions: baseline (healthy), degraded (100ms latency + 50ms jitter), partition (connections dropped), recovery (restored). Shows backoff behavior, failure handling, and recovery speed.</p>
+  <div id="degradation-chart"></div>
+</div>
+
+<div class="section" id="s-gc">
+  <h2>GC Pauses</h2>
+  <p class="desc">Cyclic garbage collector pause count and maximum pause duration per benchmark test. Tests with zero pauses are omitted.</p>
+  <div id="gc-chart"></div>
+</div>
+
 <div class="section" id="s-acq-cont">
   <h2>Latency Scaling Under Contention</h2>
   <p class="desc">Per-call latency vs concurrent caller count. acquire_lua and release_lua measure the raw Lua script (EVALSHA); limiter_acquire measures the full Python acquire() cycle (schedule, drain loop, consume.lua, BLPOP signal, release). Each bar shows median latency; whiskers extend to p99.</p>
@@ -844,6 +865,187 @@ function renderAcquireContention() {
   });
 }
 
+/* ---- Redis Degradation ---- */
+function renderRedisDegradation() {
+  var run = latestSelected();
+  if (!run || !run.redis_degradation || run.redis_degradation.length === 0) { hide('s-degradation'); return; }
+  show('s-degradation');
+
+  var r = run.redis_degradation[0];
+  var bins = r.bins;
+  var phases = r.phases || [];
+
+  var PC = {'baseline':'#2E7D32','degraded':'#E65100','partition':'#C62828','recovery':'#1565C0'};
+
+  var xs = bins.map(function(b){ return b.elapsed_s; });
+  var ys = bins.map(function(b){ return b.throughput; });
+  var colors = bins.map(function(b){ return PC[b.phase] || '#455A64'; });
+
+  var shapes = [];
+  var annotations = [];
+  phases.forEach(function(p) {
+    var x0 = p.start_s, x1 = x0 + p.duration;
+    var color = PC[p.phase] || '#455A64';
+    shapes.push({
+      type: 'rect', xref: 'x', yref: 'paper',
+      x0: x0, x1: x1, y0: 0, y1: 1,
+      fillcolor: color, opacity: 0.07, line: { width: 0 }
+    });
+    annotations.push({
+      x: (x0 + x1) / 2, y: 1.04, xref: 'x', yref: 'paper',
+      text: p.phase, showarrow: false,
+      font: { color: color, size: 11, weight: 'bold' }
+    });
+  });
+
+  Plotly.newPlot('degradation-chart', [{
+    x: xs, y: ys,
+    type: 'scatter', mode: 'lines+markers',
+    line: { width: 1.5, color: '#455A64' },
+    marker: { size: 4, color: colors },
+    hovertemplate: '%{x:.1f}s: %{y:.1f}/s<extra></extra>'
+  }], M(LB, {
+    title: { text: 'Throughput Under Network Degradation', font: { size: 14 } },
+    xaxis: { title: 'Elapsed (s)' },
+    yaxis: { title: 'Throughput (tasks/s)', rangemode: 'tozero' },
+    height: 400, margin: { t: 48, r: 16, b: 64, l: 72 },
+    shapes: shapes, annotations: annotations,
+    showlegend: false
+  }), CFG);
+}
+
+/* ---- GC Pauses ---- */
+function renderGCSummary() {
+  var run = latestSelected();
+  if (!run || !run.gc_summary || run.gc_summary.length === 0) { hide('s-gc'); return; }
+  var items = run.gc_summary.filter(function(r){ return r.gc_pause_count > 0; });
+  if (items.length === 0) { hide('s-gc'); return; }
+  show('s-gc');
+
+  items.sort(function(a,b){ return b.gc_max_ms - a.gc_max_ms; });
+  var labels = items.map(function(r){ return r.test + (r.scenario ? '/' + r.scenario : ''); });
+
+  Plotly.newPlot('gc-chart', [{
+    y: labels, x: items.map(function(r){ return r.gc_max_ms; }),
+    type: 'bar', orientation: 'h', name: 'max pause',
+    marker: { color: '#C62828' },
+    customdata: items.map(function(r){ return [r.gc_pause_count, r.gc_total_ms]; }),
+    hovertemplate: 'max: %{x:.3f}ms<br>count: %{customdata[0]}<br>total: %{customdata[1]:.3f}ms<extra></extra>'
+  }], M(LB, {
+    title: { text: 'Max GC Pause by Test', font: { size: 14 } },
+    xaxis: { title: 'Max Pause (ms)', rangemode: 'tozero' },
+    yaxis: { automargin: true },
+    height: Math.max(200, items.length * 32 + 100),
+    margin: { t: 36, r: 24, b: 60, l: 200 }
+  }), CFG);
+}
+
+/* ---- Event-Loop Lag ---- */
+function renderEventloopLag() {
+  var run = latestSelected();
+  if (!run || !run.eventloop_lag || run.eventloop_lag.length === 0) { hide('s-elag'); return; }
+  show('s-elag');
+
+  var ELC = {'idle':'#455A64','light':'#1565C0','moderate':'#2E7D32','heavy':'#E65100','saturated':'#C62828'};
+  var items = run.eventloop_lag.slice().sort(function(a,b){ return a.num_drainers - b.num_drainers || a.scenario.localeCompare(b.scenario); });
+
+  var names = items.map(function(r){ return r.scenario + ' (N=' + r.num_drainers + ')'; });
+  Plotly.newPlot('elag-percentiles', [{
+    x: names, y: items.map(function(r){ return r.median_ms; }),
+    type: 'bar', name: 'median',
+    marker: { color: items.map(function(r){ return ELC[r.scenario] || '#455A64'; }) },
+    error_y: {
+      type: 'data', symmetric: false, visible: true,
+      array: items.map(function(r){ return r.p99_ms - r.median_ms; }),
+      arrayminus: items.map(function(){ return 0; }),
+      thickness: 1.5, width: 6
+    },
+    customdata: items.map(function(r){ return [r.p99_ms, r.mean_ms, r.p95_ms, r.total_dispatches]; }),
+    hovertemplate: 'median: %{y:.3f}ms<br>mean: %{customdata[1]:.3f}ms<br>p95: %{customdata[2]:.3f}ms<br>p99: %{customdata[0]:.3f}ms<br>dispatches: %{customdata[3]}<extra></extra>'
+  }, {
+    x: names, y: items.map(function(r){ return r.mean_ms; }),
+    type: 'scatter', mode: 'markers',
+    marker: { symbol: 'diamond', size: 7, color: '#222', line: { color: '#fff', width: 1 } },
+    name: 'mean', showlegend: false,
+    hovertemplate: 'mean: %{y:.3f}ms<extra></extra>'
+  }], M(LB, {
+    title: { text: 'Event-Loop Lag by Scenario', font: { size: 14 } },
+    xaxis: { title: 'Scenario' },
+    yaxis: { title: 'Lag (ms)', rangemode: 'tozero' },
+    height: 480, margin: { t: 36, r: 16, b: 80, l: 64 },
+    showlegend: false
+  }), CFG);
+
+  var dotTraces = [];
+  var trendTraces = [];
+  var gcTraces = [];
+  items.filter(function(r){ return r.time_series && r.time_series.length > 0; }).forEach(function(r) {
+    var xs = r.time_series.map(function(s){ return s[0]; });
+    var ys = r.time_series.map(function(s){ return s[1]; });
+    var color = ELC[r.scenario] || '#455A64';
+    var label = r.scenario + ' (N=' + r.num_drainers + ')';
+    dotTraces.push({
+      x: xs, y: ys,
+      type: 'scatter', mode: 'markers',
+      marker: { size: 3, color: color, opacity: 0.4 },
+      name: label, legendgroup: r.scenario,
+      hovertemplate: '%{x:.1f}s: %{y:.3f}ms<extra>' + r.scenario + '</extra>'
+    });
+    var n=xs.length, sx=0,sy=0,sxx=0,sxy=0;
+    for(var i=0;i<n;i++){sx+=xs[i];sy+=ys[i];sxx+=xs[i]*xs[i];sxy+=xs[i]*ys[i];}
+    var denom=n*sxx-sx*sx;
+    if(denom!==0 && n>=2){
+      var slope=(n*sxy-sx*sy)/denom, intercept=(sy-slope*sx)/n;
+      var x0=xs[0], x1=xs[n-1];
+      trendTraces.push({
+        x: [x0,x1], y: [slope*x0+intercept, slope*x1+intercept],
+        type: 'scatter', mode: 'lines',
+        line: { color: color, width: 2, dash: 'dash' },
+        name: label + ' trend', legendgroup: r.scenario, showlegend: false,
+        hovertemplate: 'trend: %{y:.3f}ms<extra>' + r.scenario + '</extra>'
+      });
+    }
+    var pauses = r.gc_pauses || [];
+    if (pauses.length > 0) {
+      gcTraces.push({
+        x: pauses.map(function(p){ return p[0]; }),
+        y: pauses.map(function(p){ return p[2]; }),
+        text: pauses.map(function(p){ return 'gen' + p[1]; }),
+        type: 'scatter', mode: 'markers',
+        marker: { symbol: 'triangle-up', size: 9, color: color, line: { color: '#222', width: 1 } },
+        name: label + ' GC', legendgroup: r.scenario, showlegend: false,
+        hovertemplate: '%{x:.1f}s: %{y:.3f}ms (%{text})<extra>GC ' + r.scenario + '</extra>'
+      });
+    }
+  });
+  var nDots = dotTraces.length, nTrends = trendTraces.length, nGC = gcTraces.length;
+  var allVis = dotTraces.concat(trendTraces).concat(gcTraces);
+  var total = allVis.length;
+  function visMap(dots, trends, gc) {
+    return allVis.map(function(_, i) {
+      if (i < nDots) return dots;
+      if (i < nDots + nTrends) return trends;
+      return gc;
+    });
+  }
+  Plotly.newPlot('elag-timeseries', allVis, M(LB, {
+    title: { text: 'Lag Over Time', font: { size: 14 } },
+    xaxis: { title: 'Elapsed (s)' },
+    yaxis: { title: 'Lag (ms)', rangemode: 'tozero' },
+    height: 480, margin: { t: 48, r: 16, b: 64, l: 64 },
+    showlegend: true, legend: { orientation: 'h', y: -0.18 },
+    updatemenus: [{
+      type: 'buttons', direction: 'right', x: 1, xanchor: 'right', y: 1.12,
+      buttons: [
+        { label: 'All',     method: 'restyle', args: ['visible', visMap(true, true, true)] },
+        { label: 'Samples', method: 'restyle', args: ['visible', visMap(true, false, false)] },
+        { label: 'Trends',  method: 'restyle', args: ['visible', visMap(false, true, false)] },
+        { label: 'GC',      method: 'restyle', args: ['visible', visMap(false, false, true)] }
+      ]
+    }]
+  }), CFG);
+}
+
 /* ---- Orchestration ---- */
 function renderAll() {
   renderContention();
@@ -854,6 +1056,9 @@ function renderAll() {
   renderSoak();
   renderBufferGrowth();
   renderAcquireContention();
+  renderEventloopLag();
+  renderGCSummary();
+  renderRedisDegradation();
 }
 
 buildSelector();

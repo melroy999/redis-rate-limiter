@@ -15,7 +15,7 @@ from uuid import uuid4
 import redis
 
 from benchmarks.conftest import REDIS_HOST, REDIS_PORT
-from benchmarks.helpers import bulk_fill_buffer
+from benchmarks.helpers import GCTracker, bulk_fill_buffer
 from benchmarks.soak_collector import _DispatchCounter
 from redis_rate_limiter import ThreadPoolRateLimiter
 
@@ -97,25 +97,27 @@ def test_buffer_growth_under_write_pressure(
 
     bins = []
     num_bins = int(DURATION / BIN_INTERVAL)
-    for i in range(num_bins):
-        t_start = time.monotonic()
-        count_start = counter.count
-        depth_start = feeder_redis.zcard(limiter.buffer_key)
+    with GCTracker(time.monotonic()) as gc_tracker:
+        for i in range(num_bins):
+            t_start = time.monotonic()
+            count_start = counter.count
+            depth_start = feeder_redis.zcard(limiter.buffer_key)
 
-        time.sleep(BIN_INTERVAL)
+            time.sleep(BIN_INTERVAL)
 
-        t_end = time.monotonic()
-        count_end = counter.count
-        elapsed = t_end - t_start
+            t_end = time.monotonic()
+            count_end = counter.count
+            elapsed = t_end - t_start
 
-        throughput = (count_end - count_start) / elapsed if elapsed > 0 else 0.0
-        bins.append(
-            {
-                "elapsed_s": round((i + 1) * BIN_INTERVAL, 1),
-                "throughput": round(throughput, 1),
-                "buffer_depth": depth_start,
-            }
-        )
+            throughput = (count_end - count_start) / elapsed if elapsed > 0 else 0.0
+            bins.append(
+                {
+                    "elapsed_s": round((i + 1) * BIN_INTERVAL, 1),
+                    "throughput": round(throughput, 1),
+                    "buffer_depth": depth_start,
+                }
+            )
+    gc_result = gc_tracker.stats()
 
     feeder_stop.set()
     feeder_thread.join(timeout=5.0)
@@ -136,4 +138,9 @@ def test_buffer_growth_under_write_pressure(
     ratio = second_half / first_half if first_half > 0 else 0.0
     assert ratio >= 0.70, f"throughput degraded by more than 30%: ratio={ratio:.2f}"
 
-    request.node.user_properties.append(("buffer_growth_result", {"bins": bins}))
+    request.node.user_properties.append(
+        ("buffer_growth_result", {"bins": bins, **gc_result})
+    )
+    request.node.user_properties.append(
+        ("gc_summary_result", {"test": "buffer_growth", "scenario": "", **gc_result})
+    )
