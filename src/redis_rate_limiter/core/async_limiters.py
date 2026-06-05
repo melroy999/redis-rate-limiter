@@ -978,8 +978,8 @@ class AbstractAsyncDistributedRateLimiter(
         try:
             now = time.monotonic()
             if hasattr(self, "refresh_config") and now - self._last_refresh_at >= 1.0:
-                await self.refresh_config()
                 self._last_refresh_at = now
+                await self.refresh_config()
 
             if (
                 hasattr(self, "_drain_paused_until")

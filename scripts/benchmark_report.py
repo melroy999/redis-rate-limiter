@@ -873,13 +873,19 @@ function renderAcquireContention() {
 
 /* ---- Redis Degradation ---- */
 function renderRedisDegradation() {
-  var runs = getSelected().filter(function(r){ return r.redis_degradation && r.redis_degradation.length > 0; });
-  if (runs.length === 0) { hide('s-degradation'); return; }
+  var allRuns = getSelected();
+  var runEntries = [];
+  allRuns.forEach(function(run, ri) {
+    if (run.redis_degradation && run.redis_degradation.length > 0) {
+      runEntries.push({run: run, globalIdx: selected[ri], colorIdx: ri});
+    }
+  });
+  if (runEntries.length === 0) { hide('s-degradation'); return; }
   show('s-degradation');
 
   var PC = {'baseline':'#2E7D32','cross_az':'#1565C0','degraded':'#E65100','partition':'#C62828','recovery':'#00695C'};
 
-  var phases = runs[runs.length - 1].redis_degradation[0].phases || [];
+  var phases = runEntries[runEntries.length - 1].run.redis_degradation[0].phases || [];
   var shapes = [];
   var annotations = [];
   phases.forEach(function(p) {
@@ -898,18 +904,19 @@ function renderRedisDegradation() {
   });
 
   var traces = [];
-  runs.forEach(function(run, ri) {
-    var r = run.redis_degradation[0];
+  runEntries.forEach(function(entry) {
+    var r = entry.run.redis_degradation[0];
     var bins = r.bins;
-    var color = RUN_COLORS[ri % RUN_COLORS.length];
+    var color = RUN_COLORS[entry.colorIdx % RUN_COLORS.length];
+    var lbl = runLabel(entry.run, entry.globalIdx);
     traces.push({
       x: bins.map(function(b){ return b.elapsed_s; }),
       y: bins.map(function(b){ return b.throughput; }),
       type: 'scatter', mode: 'lines+markers',
       line: { width: 1.5, color: color },
       marker: { size: 3, color: color },
-      name: runLabel(run, selected[ri]),
-      hovertemplate: '%{x:.1f}s: %{y:.1f}/s<extra>' + runLabel(run, selected[ri]) + '</extra>'
+      name: lbl,
+      hovertemplate: '%{x:.1f}s: %{y:.1f}/s<extra>' + lbl + '</extra>'
     });
   });
 
@@ -919,7 +926,7 @@ function renderRedisDegradation() {
     yaxis: { title: 'Throughput (tasks/s)', rangemode: 'tozero' },
     height: 400, margin: { t: 48, r: 16, b: 64, l: 72 },
     shapes: shapes, annotations: annotations,
-    showlegend: runs.length > 1,
+    showlegend: runEntries.length > 1,
     legend: { orientation: 'h', y: -0.2 }
   }), CFG);
 }

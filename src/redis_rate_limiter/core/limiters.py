@@ -1349,8 +1349,8 @@ class AbstractDistributedRateLimiter(
         try:
             now = time.monotonic()
             if hasattr(self, "refresh_config") and now - self._last_refresh_at >= 1.0:
-                self.refresh_config()
                 self._last_refresh_at = now
+                self.refresh_config()
 
             # Respect the window-change pause: skip draining until the pause expires,
             # but schedule a follow-up so that the drain loop resumes automatically.

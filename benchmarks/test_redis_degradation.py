@@ -2,7 +2,7 @@
 
 Measures how the rate limiter degrades and recovers under adverse
 network conditions injected via Toxiproxy at the TCP layer. A single
-test runs four sequential phases:
+test runs five sequential phases:
 
 - **baseline**: clean connection, steady-state throughput reference.
 - **cross_az**: 2ms latency + 1ms jitter, simulating cross-AZ deployment.
@@ -40,6 +40,10 @@ TOXIPROXY_API = os.getenv("TOXIPROXY_API", "")
 TOXIPROXY_UPSTREAM = os.getenv("TOXIPROXY_UPSTREAM", "redis:6379")
 PROXY_NAME = "redis"
 PROXY_LISTEN = "0.0.0.0:16379"
+
+_upstream_parts = TOXIPROXY_UPSTREAM.rsplit(":", 1)
+DIRECT_REDIS_HOST = _upstream_parts[0]
+DIRECT_REDIS_PORT = int(_upstream_parts[1]) if len(_upstream_parts) > 1 else 6379
 
 BIN_INTERVAL = 0.5
 BUFFER_WATERMARK = 1500
@@ -157,7 +161,7 @@ def test_redis_degradation(request, toxiproxy):
         jitter_enabled=False,
     )
 
-    feeder_redis = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+    feeder_redis = redis.Redis(host=DIRECT_REDIS_HOST, port=DIRECT_REDIS_PORT, decode_responses=True)
     bulk_fill_buffer(
         limiter, BUFFER_WATERMARK, func_path=FUNC_PATH, redis_client=feeder_redis
     )
@@ -266,7 +270,7 @@ def test_degradation_worker_scaling(request, toxiproxy, scenario, num_workers):
         )
         limiters.append(limiter)
 
-    feeder_redis = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+    feeder_redis = redis.Redis(host=DIRECT_REDIS_HOST, port=DIRECT_REDIS_PORT, decode_responses=True)
     feeder_redis.flushdb()
     bulk_fill_buffer(
         limiters[0], BUFFER_WATERMARK, func_path=FUNC_PATH, redis_client=feeder_redis
