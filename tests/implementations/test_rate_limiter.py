@@ -171,6 +171,29 @@ class RateLimiterImplementationTests:
         )
 
     @staticmethod
+    async def test_schedule_different_func_paths_produce_different_task_ids(
+        limiter, async_redis_client
+    ):
+        """Verify that tasks with different func_paths but identical payloads
+        produce distinct task identifiers."""
+        # Arrange
+        payload = {"user_id": 123}
+
+        # Act
+        success_a, task_id_a = await limiter.schedule_task("myapp.tasks.work_a", payload)
+        success_b, task_id_b = await limiter.schedule_task("myapp.tasks.work_b", payload)
+
+        # Assert
+        assert success_a is True, "first task should be scheduled successfully"
+        assert success_b is True, "second task with different func_path should be scheduled"
+        assert task_id_a != task_id_b, (
+            "tasks with different func_paths must produce different task_ids"
+        )
+        assert await async_redis_client.zcard(limiter.buffer_key) == 2, (
+            "buffer should contain two distinct tasks"
+        )
+
+    @staticmethod
     async def test_schedule_task_default_priority_is_100(
         limiter, async_redis_client, func_path, payload
     ):
@@ -478,13 +501,15 @@ class RateLimiterImplementationTests:
             "expected_success",
             "expected_expired",
             "expected_marker_skipped",
+            "expected_yielded",
         ),
         [
-            ("-1", False, True, False),
-            ("0", False, False, False),
-            ("-2", False, False, True),
+            ("-1", False, True, False, False),
+            ("0", False, False, False, False),
+            ("-2", False, False, True, False),
+            ("-3", False, False, False, True),
         ],
-        ids=["expired", "denied", "marker_skipped"],
+        ids=["expired", "denied", "marker_skipped", "yielded"],
     )
     async def test_consume_non_success_result_sets_correct_flags(
         limiter,
@@ -492,6 +517,7 @@ class RateLimiterImplementationTests:
         expected_success,
         expected_expired,
         expected_marker_skipped,
+        expected_yielded,
     ):
         """Verify that ``consume()`` correctly parses the boolean flags
         for each non-success result code."""
@@ -520,6 +546,9 @@ class RateLimiterImplementationTests:
         )
         assert result["marker_skipped"] is expected_marker_skipped, (
             f"marker_skipped should be {expected_marker_skipped} for result code '{result_code}'"
+        )
+        assert result["yielded"] is expected_yielded, (
+            f"yielded should be {expected_yielded} for result code '{result_code}'"
         )
         assert result["task"] is None, (
             "task should be None when result[1] is an empty string"

@@ -313,6 +313,13 @@ class TestSyncHealthMonitorLifecycle:
         )
 
     @staticmethod
+    def test_shutdown_without_start_does_not_raise(monitor):
+        """Verify that calling ``shutdown()`` before ``start()``
+        completes without error."""
+        # Act & Assert
+        monitor.shutdown()
+
+    @staticmethod
     def test_monitor_not_started_for_default_implementation(stub_limiter):
         """Verify that in-process backends (default
         ``_check_backend_health``) do not start a monitor.

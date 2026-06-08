@@ -23,6 +23,14 @@ class TestHueyRateLimiter:
     """Tests that are specific to the Huey backend dispatch and payload logic."""
 
     @staticmethod
+    def test_constructor_stores_huey_instance(limiter, huey_instance):
+        """Verify that the constructor stores the provided Huey instance."""
+        # Assert
+        assert limiter.huey is huey_instance, (
+            "limiter must store the huey instance passed during construction"
+        )
+
+    @staticmethod
     def test_schedule_task_defaults_use_executor_to_true(
         limiter, redis_client, func_path, payload
     ):

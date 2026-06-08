@@ -365,6 +365,35 @@ class TestTaskLifecycleObservability:
         )
 
     @staticmethod
+    def test_lifecycle_cleanup_distinguishes_concurrency_from_inflight(
+        redis_client, mock_limiter, task_id, caplog
+    ):
+        """Verify that ``__exit__`` correctly maps result[0] to
+        removed_concurrency and result[1] to removed_inflight."""
+        # Arrange
+        redis_client.zadd(mock_limiter.concurrency_key, {task_id: 100})
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
+            with TaskLifecycle(mock_limiter, task_id):
+                pass
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label="[TaskLifecycle]",
+            required_fragments=[
+                "removed_concurrency=True",
+                "removed_inflight=False",
+            ],
+            message=(
+                "cleanup log must correctly attribute removal to concurrency"
+                " (result[0]) and inflight (result[1]) independently"
+            ),
+        )
+
+    @staticmethod
     def test_empty_task_id_emits_removed_inflight_false(
         redis_client, limiter_id, caplog
     ):

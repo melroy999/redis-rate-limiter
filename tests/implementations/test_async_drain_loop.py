@@ -648,6 +648,105 @@ class TestAsyncDrainSignalSubscriber:
         limiter._schedule_drain.assert_called_once()
 
 
+    @staticmethod
+    async def test_subscriber_ignores_own_signal_with_bytes_worker_id():
+        """Verify that the subscriber filters out its own drain
+        signals when the sender id is delivered as bytes."""
+        # Arrange
+        limiter = MagicMock()
+        limiter._worker_id = "local-worker"
+        subscriber = AsyncDrainSignalSubscriber(limiter)
+        mock_pubsub = AsyncMock()
+        subscriber._pubsub = mock_pubsub
+
+        call_count = 0
+
+        async def get_message_effect(ignore_subscribe_messages=True, timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {
+                    "type": "message",
+                    "data": b"local-worker",
+                    "channel": b"test:drain_signal",
+                }
+            subscriber._shutdown = True
+            return None
+
+        mock_pubsub.get_message = AsyncMock(side_effect=get_message_effect)
+
+        # Act
+        await subscriber._run()
+
+        # Assert
+        limiter._schedule_drain.assert_not_called()
+
+    @staticmethod
+    async def test_run_handles_none_message_without_error(caplog):
+        """Verify that ``_run`` handles ``None`` messages
+        (normal poll timeout) without raising or logging errors."""
+        # Arrange
+        limiter = MagicMock()
+        limiter._worker_id = "local-worker"
+        subscriber = AsyncDrainSignalSubscriber(limiter)
+        mock_pubsub = AsyncMock()
+        subscriber._pubsub = mock_pubsub
+
+        call_count = 0
+
+        async def get_message_effect(ignore_subscribe_messages=True, timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 3:
+                subscriber._shutdown = True
+            return None
+
+        mock_pubsub.get_message = AsyncMock(side_effect=get_message_effect)
+
+        # Act
+        with caplog.at_level(logging.ERROR):
+            await subscriber._run()
+
+        # Assert
+        error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert error_records == [], (
+            "none messages should be handled silently without error logs"
+        )
+
+    @staticmethod
+    async def test_shutdown_cancels_running_task():
+        """Verify that ``shutdown()`` cancels a still-running
+        subscriber task."""
+        # Arrange
+        limiter = MagicMock()
+        limiter._worker_id = "local-worker"
+        mock_pubsub = AsyncMock()
+
+        async def get_message_effect(ignore_subscribe_messages=True, timeout=None):
+            await asyncio.sleep(timeout or 0.5)
+            return None
+
+        mock_pubsub.get_message = AsyncMock(side_effect=get_message_effect)
+        mock_pubsub.subscribe = AsyncMock()
+        mock_pubsub.unsubscribe = AsyncMock()
+        mock_pubsub.aclose = AsyncMock()
+        limiter.redis.pubsub.return_value = mock_pubsub
+
+        subscriber = AsyncDrainSignalSubscriber(limiter)
+
+        # Act
+        await subscriber.start()
+        task = subscriber._task
+        assert task is not None, "subscriber task should be started"
+        assert not task.done(), "task should be running before shutdown"
+        await subscriber.shutdown()
+
+        # Assert
+        assert task.done(), (
+            "shutdown must cancel the running subscriber task"
+        )
+
+
 @pytest.mark.behavior
 class TestAsyncWatchdogInterval:
     """Tests for the watchdog interval computation in

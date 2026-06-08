@@ -293,6 +293,64 @@ class DrainBehaviorTests:
         # Assert
         mock_target.refresh_config.assert_called_once()
 
+    async def test_drain_throttles_refresh_config_to_once_per_second(
+        self, limiter, mock_target
+    ):
+        """Verify that ``drain()`` does not call ``refresh_config()``
+        more than once per second."""
+        # Arrange
+        mock_target.refresh_config = self._mock_cls()
+        mock_target._last_refresh_at = time.monotonic()
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
+            "task": None,
+            "remaining_tokens": 5,
+            "active_concurrency": 0,
+            "reset_in_ms": 100,
+            "remaining_tasks": 0,
+        }
+
+        # Act
+        with patch.object(mock_target, "consume", return_value=consume_result):
+            await limiter.drain()
+
+        # Assert
+        mock_target.refresh_config.assert_not_called()
+
+    async def test_drain_refresh_config_updates_last_refresh_timestamp(
+        self, limiter, mock_target
+    ):
+        """Verify that ``drain()`` updates ``_last_refresh_at``
+        after calling ``refresh_config()``."""
+        # Arrange
+        mock_target.refresh_config = self._mock_cls()
+        mock_target._last_refresh_at = time.monotonic() - 1.0
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
+            "task": None,
+            "remaining_tokens": 5,
+            "active_concurrency": 0,
+            "reset_in_ms": 100,
+            "remaining_tasks": 0,
+        }
+
+        # Act
+        before = time.monotonic()
+        with patch.object(mock_target, "consume", return_value=consume_result):
+            await limiter.drain()
+
+        # Assert
+        mock_target.refresh_config.assert_called_once()
+        assert mock_target._last_refresh_at >= before, (
+            "_last_refresh_at must be updated after calling refresh_config"
+        )
+
     @staticmethod
     async def test_drain_resets_failure_counter_on_success(limiter, mock_target):
         """Verify that the consecutive failure counter resets
@@ -626,6 +684,36 @@ class DrainBehaviorTests:
         )
         assert limiter.scheduled_drains == [0.0], (
             "drain should schedule an immediate follow-up when tasks remain after marker skip"
+        )
+
+    @staticmethod
+    async def test_drain_marker_skipped_with_one_remaining_task_schedules_follow_up(
+        limiter, mock_target
+    ):
+        """Verify that a skipped marker with exactly one remaining task schedules a follow-up."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "marker_skipped": True,
+            "yielded": False,
+            "task": None,
+            "remaining_tokens": 5,
+            "active_concurrency": 0,
+            "reset_in_ms": 100,
+            "remaining_tasks": 1,
+        }
+
+        # Act
+        with patch.object(mock_target, "consume", return_value=consume_result):
+            await limiter.drain()
+
+        # Assert
+        assert limiter.dispatched_tasks == [], (
+            "drain should not dispatch when marker is skipped"
+        )
+        assert limiter.scheduled_drains == [0.0], (
+            "drain should schedule an immediate follow-up when one task remains after marker skip"
         )
 
     @staticmethod

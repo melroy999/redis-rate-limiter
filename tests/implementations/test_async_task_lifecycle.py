@@ -378,6 +378,37 @@ class TestAsyncTaskLifecycleObservability:
         )
 
     @staticmethod
+    async def test_lifecycle_cleanup_distinguishes_concurrency_from_inflight(
+        async_redis_client, mock_limiter, task_id, caplog
+    ):
+        """Verify that ``__aexit__`` correctly maps result[0] to
+        removed_concurrency and result[1] to removed_inflight."""
+        # Arrange
+        await async_redis_client.zadd(mock_limiter.concurrency_key, {task_id: 100})
+
+        # Act
+        with caplog.at_level(
+            logging.DEBUG, logger="redis_rate_limiter.core.async_limiters"
+        ):
+            async with AsyncTaskLifecycle(mock_limiter, task_id):
+                pass
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label="[AsyncTaskLifecycle]",
+            required_fragments=[
+                "removed_concurrency=True",
+                "removed_inflight=False",
+            ],
+            message=(
+                "cleanup log must correctly attribute removal to concurrency"
+                " (result[0]) and inflight (result[1]) independently"
+            ),
+        )
+
+    @staticmethod
     async def test_empty_task_id_emits_removed_inflight_false(
         async_redis_client, limiter_id, caplog
     ):
