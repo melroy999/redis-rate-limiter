@@ -25,7 +25,7 @@ from redis_rate_limiter import TaskLifecycle
 from redis_rate_limiter.core.limiters import HeartbeatScheduler
 from redis_rate_limiter.core.scripts import load_lua_script
 from tests.contracts.test_task_lifecycle import TaskLifecycleContractTest
-from tests.helpers.utils import assert_log_emitted
+from tests.helpers.utils import assert_log_emitted, assert_shutdown_join_timeout_warning
 from tests.implementations.conftest import (
     HEARTBEAT_OVERRIDE_CASES,
     HeartbeatFailureMode,
@@ -917,6 +917,16 @@ class TestHeartbeatSchedulerObservability:
                 " failure with task id, error,"
                 " and termination action"
             ),
+        )
+
+    @staticmethod
+    def test_shutdown_join_timeout_emits_warning_log(caplog):
+        """Verify that ``shutdown()`` emits a WARNING log when
+        the scheduler thread does not exit within the join timeout.
+        """
+        assert_shutdown_join_timeout_warning(
+            HeartbeatScheduler, "[HeartbeatScheduler]",
+            "test-scheduler-join-timeout", caplog,
         )
 
 

@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from redis_rate_limiter.core.limiters import DrainLoop, DrainSignalSubscriber
-from tests.helpers.utils import assert_log_emitted
+from tests.helpers.utils import assert_log_emitted, assert_shutdown_join_timeout_warning
 from tests.implementations.conftest import StubRateLimiter
 
 
@@ -607,6 +607,16 @@ class TestDrainLoopObservability:
             ),
         )
 
+    @staticmethod
+    def test_shutdown_join_timeout_emits_warning_log(caplog):
+        """Verify that ``shutdown()`` emits a WARNING log when
+        the drain thread does not exit within the join timeout.
+        """
+        assert_shutdown_join_timeout_warning(
+            DrainLoop, "[DrainLoop]", "test-drain-join-timeout", caplog,
+            constructor_kwargs={"watchdog_interval": 60.0},
+        )
+
 
 @pytest.mark.observability
 class TestDrainSignalSubscriberObservability:
@@ -693,6 +703,16 @@ class TestDrainSignalSubscriberObservability:
                 "should emit an error log containing"
                 " the limiter id when get_message raises"
             ),
+        )
+
+    @staticmethod
+    def test_shutdown_join_timeout_emits_warning_log(caplog):
+        """Verify that ``shutdown()`` emits a WARNING log when
+        the subscriber thread does not exit within the join timeout.
+        """
+        assert_shutdown_join_timeout_warning(
+            DrainSignalSubscriber, "[DrainSignalSubscriber]",
+            "test-subscriber-join-timeout", caplog,
         )
 
 

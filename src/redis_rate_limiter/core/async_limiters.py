@@ -101,8 +101,6 @@ class AsyncHeartbeatScheduler:
         async with self._lock:
             return self._entries.get(task_id)
 
-    _shutdown_timeout: float = 5.0
-
     async def shutdown(self) -> None:
         """Signal the worker task to stop and wait for it to exit."""
         async with self._lock:
@@ -110,9 +108,13 @@ class AsyncHeartbeatScheduler:
             self._wakeup.set()
         if self._task is not None and not self._task.done():
             try:
-                await asyncio.wait_for(self._task, timeout=self._shutdown_timeout)
+                await asyncio.wait_for(self._task, timeout=5.0)
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 self._task.cancel()
+                logger.warning(
+                    "[AsyncHeartbeatScheduler] Shutdown timed out, cancelling task: limiter=%s.",
+                    self._limiter.id,
+                )
 
     def _ensure_started_locked(self) -> None:
         """Lazily spawn (or respawn) the worker task.
@@ -367,6 +369,10 @@ class AsyncDrainLoop:
                 await asyncio.wait_for(self._task, timeout=5.0)
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 self._task.cancel()
+                logger.warning(
+                    "[AsyncDrainLoop] Shutdown timed out, cancelling task: limiter=%s.",
+                    self._limiter.id,
+                )
 
     def _ensure_started(self) -> None:
         """Lazily initialize and start the drain task.

@@ -170,6 +170,11 @@ class HeartbeatScheduler:
             self._condition.notify_all()
         if self._thread is not None:
             self._thread.join(timeout=5.0)
+            if self._thread.is_alive():
+                logger.warning(
+                    "[HeartbeatScheduler] Shutdown join timed out, thread still alive: limiter=%s.",
+                    self._limiter.id,
+                )
 
     def _ensure_started_locked(self) -> None:
         """Lazily spawn (or respawn) the worker thread.
@@ -402,6 +407,11 @@ class DrainLoop:
             self._condition.notify()
         if self._thread is not None:
             self._thread.join(timeout=5.0)
+            if self._thread.is_alive():
+                logger.warning(
+                    "[DrainLoop] Shutdown join timed out, thread still alive: limiter=%s.",
+                    self._limiter.id,
+                )
 
     def _ensure_started(self) -> None:
         """Lazily initialize and start the drain thread upon the first wake request.
@@ -500,6 +510,11 @@ class DrainSignalSubscriber:
             pass
         if self._thread is not None:
             self._thread.join(timeout=5.0)
+            if self._thread.is_alive():
+                logger.warning(
+                    "[DrainSignalSubscriber] Shutdown join timed out, thread still alive: limiter=%s.",
+                    self._limiter.id,
+                )
 
 
 class BackendHealthMonitor:
@@ -568,6 +583,11 @@ class BackendHealthMonitor:
         self._shutdown_event.set()
         if self._thread is not None:
             self._thread.join(timeout=5.0)
+            if self._thread.is_alive():
+                logger.warning(
+                    "[BackendHealthMonitor] Shutdown join timed out, thread still alive: limiter=%s.",
+                    self._limiter.id,
+                )
 
 
 class DistributedRateLimiterMixin(AbstractRateLimiter):

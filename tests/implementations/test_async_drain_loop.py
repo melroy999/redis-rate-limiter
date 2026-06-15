@@ -15,7 +15,7 @@ import asyncio
 import inspect
 import logging
 import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -831,6 +831,43 @@ class TestAsyncDrainLoopObservability:
             required_fragments=["limiter=test-resilience"],
             message=(
                 "should emit an error log containing the limiter id when drain raises"
+            ),
+        )
+
+    @staticmethod
+    async def test_shutdown_timeout_emits_warning_log(caplog):
+        """Verify that ``shutdown()`` emits a WARNING log when
+        the drain task does not exit within the shutdown timeout.
+        """
+        # Arrange
+        limiter = MagicMock()
+        limiter.id = "test-async-drain-timeout"
+        loop = AsyncDrainLoop(limiter, watchdog_interval=60.0)
+        loop._task = asyncio.get_event_loop().create_future()
+
+        # Act
+        with caplog.at_level(
+            logging.WARNING, logger="redis_rate_limiter.core.async_limiters"
+        ):
+            with patch.object(
+                asyncio,
+                "wait_for",
+                new=AsyncMock(side_effect=asyncio.TimeoutError),
+            ):
+                await loop.shutdown()
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="WARNING",
+            label="[AsyncDrainLoop]",
+            required_fragments=[
+                "limiter=test-async-drain-timeout",
+                "cancelling task",
+            ],
+            message=(
+                "should emit a warning log when the drain task"
+                " does not exit within the shutdown timeout"
             ),
         )
 

@@ -32,7 +32,11 @@ from redis_rate_limiter.core.limiters import (
     BackendHealthMonitor,
     DistributedRateLimiterMixin,
 )
-from tests.helpers.utils import assert_log_emitted, assert_log_emitted_with_exc_info
+from tests.helpers.utils import (
+    assert_log_emitted,
+    assert_log_emitted_with_exc_info,
+    assert_shutdown_join_timeout_warning,
+)
 
 # ---------------------------------------------------------------------------
 # Unified behavioral tests
@@ -416,6 +420,22 @@ class TestSyncHealthMonitorLifecycle:
         mock_limiter._check_backend_health.assert_called()
 
 
+@pytest.mark.observability
+class TestSyncHealthMonitorShutdownObservability:
+    """Observability tests for sync ``BackendHealthMonitor`` shutdown log emissions."""
+
+    @staticmethod
+    def test_shutdown_join_timeout_emits_warning_log(caplog):
+        """Verify that ``shutdown()`` emits a WARNING log when
+        the monitor thread does not exit within the join timeout.
+        """
+        assert_shutdown_join_timeout_warning(
+            BackendHealthMonitor, "[BackendHealthMonitor]",
+            "test-monitor-join-timeout", caplog,
+            constructor_kwargs={"interval": 1.0},
+        )
+
+
 # ---------------------------------------------------------------------------
 # Async-specific tests
 # ---------------------------------------------------------------------------
@@ -623,9 +643,9 @@ class TestAsyncHealthMonitorLifecycle:
         # Act
         monitor.start()
         await asyncio.sleep(0.05)
+        await monitor.shutdown()
 
         # Assert
-        (
-            mock_limiter._check_backend_health.assert_called(),
-            ("health check should have been called at least once during the run loop"),
+        assert mock_limiter._check_backend_health.called, (
+            "health check should have been called at least once during the run loop"
         )

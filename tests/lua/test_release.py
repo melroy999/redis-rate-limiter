@@ -241,6 +241,7 @@ class TestRelease:
                 WORKER_ID,
             )
             listener.join(timeout=3.0)
+            assert not listener.is_alive(), "listener thread should have exited"
 
             # Assert
             assert len(received) == 1, (
@@ -284,6 +285,7 @@ class TestRelease:
                 WORKER_ID,
             )
             listener.join(timeout=3.0)
+            assert not listener.is_alive(), "listener thread should have exited"
 
             # Assert
             assert len(received) == 1, (

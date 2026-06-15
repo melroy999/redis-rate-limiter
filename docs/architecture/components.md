@@ -24,7 +24,7 @@ graph LR
     end
 
     subgraph Backends ["Backend"]
-        BackendBlock["CeleryRateLimiter,<br>DramatiqRateLimiter,<br>HueyRateLimiter,<br>RQRateLimiter,<br>ThreadPoolRateLimiter,<br>AsyncIOTaskLimiter,<br>ASGIRateLimiter"]
+        BackendBlock["CeleryRateLimiter,<br>DramatiqRateLimiter,<br>HueyRateLimiter,<br>RQRateLimiter,<br>ThreadPoolRateLimiter,<br>ProcessPoolRateLimiter,<br>AsyncIOTaskLimiter,<br>ASGIRateLimiter"]
     end
 
     subgraph Execution ["Task Execution"]
@@ -118,6 +118,7 @@ graph TD
         Huey["HueyRateLimiter<br>huey_task()"]
         RQ["RQRateLimiter<br>queue.enqueue()"]
         ThreadPool["ThreadPoolRateLimiter<br>executor.submit()"]
+        ProcessPool["ProcessPoolRateLimiter<br>executor.submit()"]
         AsyncIO["AsyncIOTaskLimiter<br>asyncio.create_task()"]
     end
 
@@ -134,12 +135,14 @@ graph TD
     Consumer -->|"_dispatch_task()"| Huey
     Consumer -->|"_dispatch_task()"| RQ
     Consumer -->|"_dispatch_task()"| ThreadPool
+    Consumer -->|"_dispatch_task()"| ProcessPool
     Consumer -->|"_dispatch_task()"| AsyncIO
     Celery -->|"send_task()"| Worker
     Dramatiq -->|"actor.send()"| Worker
     Huey -->|"huey_task()"| Worker
     RQ -->|"queue.enqueue()"| Worker
     ThreadPool -->|"submit()"| Worker
+    ProcessPool -->|"submit()"| Worker
     AsyncIO -->|"create_task()"| Worker
 
     style Limiter fill:#e8f4f8,stroke:#2196F3

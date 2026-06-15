@@ -6,7 +6,15 @@ mutation. Within the body, ``cap_iterations`` provides spin detection
 and ``completes_within`` on shutdown verifies prompt termination. I/O
 is mocked throughout. See ``TESTING_GUIDELINES.md`` Section 5.4.
 
+Real ``StubRateLimiter`` instances are used (with ``drain_enabled=False``)
+so that ``DistributedRateLimiterMixin.__init__`` mutations are exercised.
+Bounded fakes replace original-method forwarding in ``cap_iterations``
+side effects: they ignore mutated timeout arguments and always return
+within a fixed small interval (0.02s), preventing hang-class mutations
+from surviving via ``shutdown()`` signal wake-ups.
+
 Fixture dependencies:
+    - ``redis_client``: from ``tests/conftest.py``.
     - ``limiter_id``: from ``tests/conftest.py``.
 """
 
@@ -28,6 +36,15 @@ from tests.helpers.utils import (
     cap_iterations,
     completes_within,
 )
+from tests.implementations.conftest import DEFAULT_LIMITER_CONFIG, StubRateLimiter
+
+_LIMITER_DEFAULTS = {**DEFAULT_LIMITER_CONFIG, "lease_duration": 1, "drain_enabled": False}
+
+
+def _make_bounded_wait(original, timeout=0.02):
+    def bounded_wait(*_args, **_kwargs):
+        return original(timeout=timeout)
+    return bounded_wait
 
 # ---------------------------------------------------------------------------
 # DrainLoop
@@ -39,14 +56,17 @@ class TestDrainLoopSafetyNet:
 
     @staticmethod
     @pytest.mark.timeout_safety_net
-    def test_drain_loop_paths_stay_bounded():
+    def test_drain_loop_paths_stay_bounded(redis_client, limiter_id):
         """Verify ``DrainLoop._run`` paths stay bounded and shutdown completes."""
 
         def body():
             # Arrange
-            limiter = MagicMock()
+            limiter = StubRateLimiter(
+                redis_client=redis_client,
+                limiter_id=f"{limiter_id}_safety_net",
+                **_LIMITER_DEFAULTS,
+            )
             drain_called = Event()
-            limiter.drain.side_effect = lambda: drain_called.set()
             loop = DrainLoop(limiter, watchdog_interval=60.0)
             original_wait = loop._condition.wait
 
@@ -60,7 +80,7 @@ class TestDrainLoopSafetyNet:
                 with cap_iterations(
                     loop._condition,
                     "wait",
-                    side_effect=original_wait,
+                    side_effect=_make_bounded_wait(original_wait),
                     cap=10,
                 ) as wait_count:
                     loop.wake(0)
@@ -71,6 +91,7 @@ class TestDrainLoopSafetyNet:
                     wait_observed = wait_count()
 
             completed = completes_within(loop.shutdown, timeout=0.3)
+            limiter.shutdown()
 
             # Assert
             assert drain_observed < 10, (
@@ -99,18 +120,21 @@ class TestDrainSignalSubscriberSafetyNet:
 
     @staticmethod
     @pytest.mark.timeout_safety_net
-    def test_subscriber_paths_stay_bounded(limiter_id):
+    def test_subscriber_paths_stay_bounded(redis_client, limiter_id):
         """Verify ``DrainSignalSubscriber._run`` stays bounded across all message and exception branches and shutdown completes."""
 
         def body():
             # Arrange
-            limiter = MagicMock()
-            limiter.id = limiter_id
-            limiter._worker_id = f"{limiter_id}_self"
+            limiter = StubRateLimiter(
+                redis_client=redis_client,
+                limiter_id=f"{limiter_id}_safety_net",
+                **_LIMITER_DEFAULTS,
+            )
+            limiter._schedule_drain = MagicMock()
             scripted_messages: list[object] = [
                 None,
                 {"type": "subscribe", "data": "ack"},
-                {"type": "message", "data": f"{limiter_id}_self"},
+                {"type": "message", "data": limiter._worker_id},
                 {"type": "message", "data": "remote-worker"},
                 RuntimeError("simulated pubsub failure"),
             ]
@@ -137,7 +161,12 @@ class TestDrainSignalSubscriberSafetyNet:
                     Event().wait(timeout=0.05)
                     observed = msg_count()
 
-                completed = completes_within(subscriber.shutdown, timeout=0.3)
+                with patch.object(
+                    limiter.redis, "publish", wraps=limiter.redis.publish
+                ) as publish_spy:
+                    completed = completes_within(subscriber.shutdown, timeout=0.3)
+
+            limiter.shutdown()
 
             # Assert
             assert observed < 30, (
@@ -146,10 +175,13 @@ class TestDrainSignalSubscriberSafetyNet:
             assert completed, (
                 "DrainSignalSubscriber.shutdown should complete within 0.3s"
             )
+            assert subscriber._thread is None or not subscriber._thread.is_alive(), (
+                "DrainSignalSubscriber worker thread must be terminated after shutdown"
+            )
             assert limiter._schedule_drain.called, (
                 "remote-worker message path must call _schedule_drain"
             )
-            limiter.redis.publish.assert_called_with(subscriber._channel, "")
+            publish_spy.assert_called_with(subscriber._channel, "")
 
         assert completes_within(body, timeout=2.0), (
             "DrainSignalSubscriber safety-net test did not complete within 2.0s"
@@ -166,15 +198,17 @@ class TestHeartbeatSchedulerSafetyNet:
 
     @staticmethod
     @pytest.mark.timeout_safety_net
-    def test_scheduler_paths_stay_bounded(limiter_id):
+    def test_scheduler_paths_stay_bounded(redis_client, limiter_id):
         """Verify ``HeartbeatScheduler._run`` stays bounded across registration, renewal, and stale-entry handling."""
 
         def body():
             # Arrange
-            limiter = MagicMock()
-            limiter.id = limiter_id
-            limiter.lease_duration = 0.05
-            limiter.extend_lease.return_value = None
+            limiter = StubRateLimiter(
+                redis_client=redis_client,
+                limiter_id=f"{limiter_id}_safety_net",
+                **_LIMITER_DEFAULTS,
+            )
+            limiter.extend_lease = MagicMock(return_value=None)
             scheduler = HeartbeatScheduler(limiter)
             original_wait = scheduler._condition.wait
             original_renew_one = scheduler._renew_one
@@ -183,7 +217,7 @@ class TestHeartbeatSchedulerSafetyNet:
             with cap_iterations(
                 scheduler._condition,
                 "wait",
-                side_effect=original_wait,
+                side_effect=_make_bounded_wait(original_wait),
                 cap=30,
             ) as wait_count:
                 with cap_iterations(
@@ -200,6 +234,7 @@ class TestHeartbeatSchedulerSafetyNet:
                     renew_observed = renew_count()
 
             completed = completes_within(scheduler.shutdown, timeout=0.5)
+            limiter.shutdown()
 
             # Assert
             assert wait_observed < 30, (
@@ -209,6 +244,9 @@ class TestHeartbeatSchedulerSafetyNet:
                 f"HeartbeatScheduler renewed {renew_observed} times in ~120ms, spin in renewal cycle"
             )
             assert completed, "HeartbeatScheduler.shutdown should complete within 0.5s"
+            assert scheduler._thread is None or not scheduler._thread.is_alive(), (
+                "HeartbeatScheduler worker thread must be terminated after shutdown"
+            )
             assert scheduler._shutdown is True, (
                 "HeartbeatScheduler._shutdown must be True after shutdown"
             )
@@ -228,14 +266,16 @@ class TestBackendHealthMonitorSafetyNet:
 
     @staticmethod
     @pytest.mark.timeout_safety_net
-    def test_monitor_paths_stay_bounded(limiter_id):
+    def test_monitor_paths_stay_bounded(redis_client, limiter_id):
         """Verify ``BackendHealthMonitor._run`` stays bounded across the poll-and-check cycle and shutdown completes."""
 
         def body():
             # Arrange
-            limiter = MagicMock()
-            limiter.id = limiter_id
-            limiter._check_backend_health.return_value = True
+            limiter = StubRateLimiter(
+                redis_client=redis_client,
+                limiter_id=f"{limiter_id}_safety_net",
+                **_LIMITER_DEFAULTS,
+            )
             monitor = BackendHealthMonitor(limiter, interval=0.02)
             original_wait = monitor._shutdown_event.wait
 
@@ -243,7 +283,7 @@ class TestBackendHealthMonitorSafetyNet:
             with cap_iterations(
                 monitor._shutdown_event,
                 "wait",
-                side_effect=original_wait,
+                side_effect=_make_bounded_wait(original_wait),
                 cap=30,
             ) as count:
                 monitor.start()
@@ -251,6 +291,7 @@ class TestBackendHealthMonitorSafetyNet:
                 observed = count()
 
             completed = completes_within(monitor.shutdown, timeout=0.5)
+            limiter.shutdown()
 
             # Assert
             assert observed < 30, (
@@ -258,6 +299,9 @@ class TestBackendHealthMonitorSafetyNet:
             )
             assert completed, (
                 "BackendHealthMonitor.shutdown should complete within 0.5s"
+            )
+            assert monitor._thread is None or not monitor._thread.is_alive(), (
+                "BackendHealthMonitor worker thread must be terminated after shutdown"
             )
 
         assert completes_within(body, timeout=2.0), (

@@ -11,6 +11,7 @@ import time
 from contextlib import contextmanager
 from threading import Thread, Timer
 from typing import Any, Callable, Generator, Optional
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -488,3 +489,30 @@ def is_subset(target: dict, superset: dict):
         elif value != superset[key]:
             return False
     return True
+
+
+def assert_shutdown_join_timeout_warning(
+    component_class, label, limiter_id, caplog, *, constructor_kwargs=None
+):
+    limiter = MagicMock()
+    limiter.id = limiter_id
+    component = component_class(limiter, **(constructor_kwargs or {}))
+    mock_thread = MagicMock()
+    mock_thread.is_alive.return_value = True
+    component._thread = mock_thread
+
+    with caplog.at_level(
+        logging.WARNING, logger="redis_rate_limiter.core.limiters"
+    ):
+        component.shutdown()
+
+    assert_log_emitted(
+        caplog.records,
+        level="WARNING",
+        label=label,
+        required_fragments=[f"limiter={limiter_id}", "thread still alive"],
+        message=(
+            f"should emit a warning when {label} thread"
+            " does not exit within join timeout"
+        ),
+    )
