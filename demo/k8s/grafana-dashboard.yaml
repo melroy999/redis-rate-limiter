@@ -157,7 +157,7 @@ data:
         },
         {
           "title": "Consume Outcomes",
-          "description": "Breakdown of consume operations by outcome.",
+          "description": "Breakdown of consume operations by outcome: success (task dispatched), rejected (rate limit or concurrency cap hit with tasks pending), expired (task exceeded max_age), empty (idle drain tick on an empty buffer).",
           "type": "timeseries",
           "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
           "fieldConfig": {
@@ -169,7 +169,8 @@ data:
             "overrides": [
               { "matcher": { "id": "byName", "options": "success" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
               { "matcher": { "id": "byName", "options": "rejected" }, "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] },
-              { "matcher": { "id": "byName", "options": "expired" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
+              { "matcher": { "id": "byName", "options": "expired" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+              { "matcher": { "id": "byName", "options": "empty" }, "properties": [{ "id": "color", "value": { "fixedColor": "grey", "mode": "fixed" } }] }
             ]
           },
           "options": {

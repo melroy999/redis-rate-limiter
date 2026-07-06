@@ -1,6 +1,6 @@
 # Drain Loop Flow
 
-The drain loop is a three-layer control loop that orchestrates the consumption and dispatch of buffered tasks. Both sync and async implementations follow the same structure. For the sync path, the outermost layer (`DrainLoop._run()`) is a background thread that manages wake signals and watchdog timing; for the async path, `AsyncDrainLoop._run()` is an `asyncio.Task` that fulfils the same role using `asyncio.Condition` and `asyncio.sleep()`. The middle layer (`drain()`) handles configuration refresh, window-change pauses, error recovery, and exponential backoff. The innermost layer (`_drain_inner()`) performs the actual lock acquisition, task consumption, dispatch, and rescheduling. This document presents the control loop as four diagrams: an overview that shows how the layers connect, followed by one detailed flowchart per layer. Each detail diagram is accompanied by a test coverage table that maps every decision branch to the test(s) that exercise it.
+The drain loop is a three-layer control loop that orchestrates the consumption and dispatch of buffered tasks. Both sync and async implementations follow the same structure. For the sync path, the outermost layer (`DrainLoop._run()`) is a background thread that manages wake signals and watchdog timing; for the async path, `AsyncDrainLoop._run()` is an `asyncio.Task` that fulfils the same role using `asyncio.Condition` and `asyncio.sleep()`. The middle layer (`drain()`) handles configuration refresh, window-change pauses, error recovery, and exponential backoff. The innermost layer (`_drain_inner()`) performs the actual task consumption, dispatch, and rescheduling. This document presents the control loop as four diagrams: an overview that shows how the layers connect, followed by one detailed flowchart per layer. Each detail diagram is accompanied by a test coverage table that maps every decision branch to the test(s) that exercise it.
 
 ## Overview
 
@@ -25,7 +25,7 @@ flowchart TD
     end
 
     subgraph L3 ["Layer 3: _drain_inner()"]
-        L3_BLOCK["Local capacity check,<br>lock acquisition,<br>task consumption,<br>dispatch,<br>rescheduling"]
+        L3_BLOCK["Local capacity check,<br>task consumption,<br>dispatch,<br>rescheduling"]
     end
 
     T_SCHEDULE -- "wake(0)" --> L1_BLOCK
@@ -173,26 +173,20 @@ where `n` is the consecutive error count. The backoff starts at 100ms for the fi
 
 ## Layer 3: _drain_inner()
 
-The `_drain_inner()` method performs the local capacity check, lock acquisition, task consumption, dispatch, and rescheduling. It is the most complex layer, as it must handle all possible outcomes of the consumption attempt and determine the appropriate follow-up action.
+The `_drain_inner()` method performs the local capacity check, task consumption, dispatch, and rescheduling. It calls `consume()` directly, relying on `consume.lua` for atomic serialization via Redis's single-threaded Lua execution, and for fairness via the round-robin yield mechanism (see [Round-Robin Yield Fairness](#round-robin-yield-fairness)). It must handle all possible outcomes of the consumption attempt and determine the appropriate follow-up action.
 
 ```mermaid
 %%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
 flowchart TD
     L3_LOCAL_CAP{"Local execution<br>capacity available?"}
     L3_DEFER_LOCAL["Schedule retry<br>delay = window / limit"]
-    L3_COOLDOWN{"Worker in<br>cooldown?"}
-    L3_LOCK{"Acquire dispatch_lock<br>SET NX with UUID token"}
-    L3_CONTENTION["INCR contention counter<br>(record competition)"]
-    L3_NOT_ACQUIRED["Schedule backup drain<br>delay = window / limit"]
-    L3_RETURN_LOCK["Return"]
     L3_CONSUME["Call consume()<br>EVALSHA consume.lua"]
+    L3_YIELD{"Status -3<br>(yield)?"}
+    L3_SCHEDULE_YIELD["Schedule retry with jitter<br>(back off to let other<br>workers consume)"]
     L3_EXPIRED{"Task<br>expired?"}
     L3_LOG_EXPIRED["Log warning:<br>task moved to DLQ"]
     L3_SUCCESS{"Success and<br>task present?"}
     L3_DISPATCH["Dispatch via _dispatch_task()"]
-    L3_RELEASE_OK["Release lock,<br>verify token ownership"]
-    L3_CHECK_CONTENTION{"Contention<br>counter > 0?"}
-    L3_SET_COOLDOWN["SET per-worker cooldown key<br>(TTL = window / limit, capped 1s)<br>DEL contention counter"]
     L3_REMAINING{"remaining_tasks<br>> 0?"}
     L3_FOLLOWUP["Schedule immediate<br>follow-up drain (delay=0)"]
     L3_EMPTY{"remaining_tasks<br>== 0?"}
@@ -207,18 +201,14 @@ flowchart TD
     L3_SCHEDULE_RATE["Schedule retry with<br>max(0.001, base_delay + jitter)"]
 
     L3_LOCAL_CAP -- "No" --> L3_DEFER_LOCAL
-    L3_LOCAL_CAP -- "Yes" --> L3_COOLDOWN
-    L3_COOLDOWN -- "Yes" --> L3_NOT_ACQUIRED
-    L3_COOLDOWN -- "No" --> L3_LOCK
-    L3_LOCK -- "Not acquired" --> L3_CONTENTION --> L3_NOT_ACQUIRED --> L3_RETURN_LOCK
-    L3_LOCK -- "Acquired" --> L3_CONSUME
-    L3_CONSUME --> L3_EXPIRED
+    L3_LOCAL_CAP -- "Yes" --> L3_CONSUME
+    L3_CONSUME --> L3_YIELD
+    L3_YIELD -- "Yes" --> L3_SCHEDULE_YIELD
+    L3_YIELD -- "No" --> L3_EXPIRED
     L3_EXPIRED -- "Yes" --> L3_LOG_EXPIRED
     L3_EXPIRED -- "No" --> L3_SUCCESS
     L3_LOG_EXPIRED --> L3_SUCCESS
-    L3_SUCCESS -- "Yes" --> L3_DISPATCH --> L3_RELEASE_OK --> L3_CHECK_CONTENTION
-    L3_CHECK_CONTENTION -- "Yes" --> L3_SET_COOLDOWN --> L3_REMAINING
-    L3_CHECK_CONTENTION -- "No" --> L3_REMAINING
+    L3_SUCCESS -- "Yes" --> L3_DISPATCH --> L3_REMAINING
     L3_REMAINING -- "Yes" --> L3_FOLLOWUP
     L3_REMAINING -- "No" --> L3_EMPTY
     L3_SUCCESS -- "No" --> L3_EMPTY
@@ -232,9 +222,8 @@ flowchart TD
 
     style L3_LOCAL_CAP fill:#e8f4f8,stroke:#2196F3
     style L3_DEFER_LOCAL fill:#e8f4f8,stroke:#2196F3
-    style L3_COOLDOWN fill:#fce4ec,stroke:#E91E63
-    style L3_CONTENTION fill:#fce4ec,stroke:#E91E63
-    style L3_SET_COOLDOWN fill:#fce4ec,stroke:#E91E63
+    style L3_YIELD fill:#fce4ec,stroke:#E91E63
+    style L3_SCHEDULE_YIELD fill:#fce4ec,stroke:#E91E63
     style L3_STOP_EMPTY fill:#e8f5e9,stroke:#388E3C
     style L3_STOP_FULL fill:#e8f5e9,stroke:#388E3C
     style L3_FOLLOWUP fill:#e8f4f8,stroke:#2196F3
@@ -246,21 +235,15 @@ flowchart TD
 | Path | Description | Tested by |
 |------|-------------|-----------|
 | Local capacity full → defer | Schedule retry at token interval | `implementations/test_drain::test_drain_defers_when_local_capacity_full` |
-| Worker in cooldown → backup drain | Cooldown key blocks re-acquisition | `contracts/test_distributed_lock::test_lock_cooldown_prevents_reacquisition_under_contention` |
-| Lock not acquired → INCR contention → backup drain | Record contention and schedule backup drain | `implementations/test_drain::test_drain_schedules_backup_when_lock_contended` |
-| No contention → no cooldown on release | Cooldown key not created when no competition | `implementations/test_distributed_lock::test_cooldown_not_set_without_contention` |
-| Contention detected → cooldown on release | Cooldown key created, contention counter reset | `implementations/test_distributed_lock::test_cooldown_set_when_contention_detected`, `implementations/test_distributed_lock::test_contention_counter_reset_on_release` |
-| Cooldown expires → reacquisition allowed | Worker can re-acquire after cooldown TTL | `implementations/test_distributed_lock::test_cooldown_expires_allowing_reacquisition` |
-| Cooldown does not affect other workers | Other workers can acquire during cooldown | `implementations/test_distributed_lock::test_cooldown_does_not_affect_other_workers` |
+| Yield (status -3) → retry with jitter | Round-robin yield backs off to let other workers consume | `implementations/test_drain::test_drain_schedules_backup_when_yielded` |
 | Successful consume → dispatch → follow-up | Dispatch task, schedule immediate follow-up | `implementations/test_drain::test_drain_dispatches_task_and_schedules_follow_up` |
 | Expired task → DLQ | Expired consume result is not dispatched | `implementations/test_drain::test_drain_handles_expired_task_without_dispatch` |
 | Buffer empty → stop | No follow-up scheduled | `implementations/test_drain::test_drain_stops_when_buffer_empty` |
 | Concurrency full → stop | Wait for `TaskLifecycle.__exit__()` trigger | `implementations/test_drain::test_drain_stops_when_concurrency_at_capacity` |
 | Rate limited → fallback (jitter) | Window reset delay + smart jitter | `implementations/test_drain::test_drain_schedules_delayed_retry_when_rate_limited` |
 | Rate limited → token recovery (no jitter) | Sliding-window decay calculation, jitter skipped | `implementations/test_drain::test_drain_skips_jitter_on_token_recovery_path`, `implementations/test_token_recovery_delay::test_token_recovery_primary_path_exact_value`, `implementations/test_token_recovery_delay::test_token_recovery_fallback_when_val_previous_is_zero`, `properties/test_token_recovery` (mathematical invariants) |
-| Concurrent lock serialization | Distributed lock serializes drains across workers | `implementations/test_concurrent_access::test_distributed_lock_serializes_drains` |
 | All tasks eventually consumed | Buffer fully drained under contention | `implementations/test_concurrent_access::test_all_tasks_eventually_consumed_under_contention` |
-| Cooldown distributes drains | Multiple workers dispatch under contention | `implementations/test_concurrent_access::test_contention_aware_cooldown_distributes_drains` |
+| Yield distributes drains | Multiple workers dispatch under contention | `implementations/test_concurrent_access::test_yield_distributes_drains` |
 
 ### Feedback Entry Points
 
@@ -287,19 +270,19 @@ The drain loop does not run on a fixed schedule. Instead, it is driven by six di
 | Self-notification filter | Subscriber ignores signals from the local process | `implementations/test_drain::test_subscriber_ignores_self_notification` |
 | Publish when drain disabled | `trigger_consume()` publishes even with `drain_enabled=False` | `implementations/test_drain::test_drain_disabled_still_publishes` |
 
-### Contention-Aware Cooldown
+### Round-Robin Yield Fairness
 
-The dispatch lock uses a contention-aware fairness mechanism to prevent any single worker from monopolizing the drain loop under multi-worker deployments. Without this mechanism, the winning worker's immediate follow-up drain (delay=0) consistently beats competing workers' backup drains (delay = window / limit), creating a positive feedback loop that starves other workers.
+Fairness across workers is governed inside `consume.lua` via a round-robin yield mechanism that uses two Redis keys: `{base_key}:last_consumer` (the worker that most recently consumed a task) and `{base_key}:last_caller` (the most recent worker to invoke `consume.lua`). When the same worker that consumed last calls again and a different worker has called in between, the script returns status -3 (yield) instead of attempting to dequeue. The yielding worker backs off via normal jitter and retry scheduling, giving other workers the opportunity to consume.
 
 The mechanism operates as follows:
 
-1. **Contention detection (acquire path)**: when a worker fails to acquire the lock (because another worker holds it), the `_ACQUIRE_SCRIPT` Lua script atomically increments a shared contention counter (`{id}:dispatch_lock:contention`). The counter's TTL is set to `timeout_ms`, matching the lock expiry, to prevent stale state accumulation.
+1. **Caller tracking**: every invocation of `consume.lua` updates `{base_key}:last_caller` with the calling worker's identifier.
 
-2. **Conditional cooldown (release path)**: when the lock holder releases, the `_RELEASE_SCRIPT` Lua script checks the contention counter. If the value is greater than zero (i.e., other workers competed during the hold period), the script sets a per-worker cooldown key (`{id}:dispatch_lock:cd:{worker_id}`) with a TTL of `min(window_ms / limit, 1000)` ms and resets the contention counter. If no contention was detected, no cooldown is applied.
+2. **Yield check**: before dequeuing, the script compares the caller against `{base_key}:last_consumer`. If the caller is the same worker that consumed last, and `{base_key}:last_caller` shows that a different worker has called in between, the script returns status -3 without consuming. This signals the caller to back off.
 
-3. **Cooldown enforcement (acquire path)**: before attempting `SET NX`, the `_ACQUIRE_SCRIPT` checks whether the worker's cooldown key exists. If it does, the script returns 0 immediately without attempting acquisition. This gives competing workers a fair opportunity to acquire the lock.
+3. **Consumer tracking**: when a task is successfully dequeued, `{base_key}:last_consumer` is updated to the consuming worker's identifier.
 
-This design preserves burst consumption behaviour under single-worker operation: when no contention is detected (e.g., a single worker draining during a burst), the cooldown is never set, and the lock can be re-acquired immediately. All contention and cooldown state is TTL-backed; hence, no deadlock can occur even if a worker crashes mid-drain. For the full key reference, see [Redis Key Map](redis-keys.md).
+This design preserves burst consumption behaviour under single-worker operation: when only one worker is active, `last_caller` always matches `last_consumer`, so the yield condition is never triggered and the worker can consume at full speed. Under multi-worker deployments, the round-robin yield prevents any single worker from monopolizing the drain loop. All fairness state is managed atomically within the Lua script, so no external locking or coordination is required. Both keys are TTL-backed to prevent stale state accumulation if a worker crashes. For the full key reference, see [Redis Key Map](redis-keys.md).
 
 ### Delay Calculation
 

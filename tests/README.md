@@ -14,6 +14,8 @@ The suite is structured around both test type and backend scope:
 The following backends are currently supported:
 
 - `tests/implementations/celery/...` for Celery-specific assertions.
+- `tests/implementations/dramatiq/...` for Dramatiq-specific assertions.
+- `tests/implementations/huey/...` for Huey-specific assertions.
 - `tests/implementations/rq/...` for RQ-specific assertions.
 - `tests/implementations/processpool/...` for ProcessPool-specific assertions.
 - `tests/implementations/threadpool/...` for ThreadPool-specific assertions.
@@ -28,14 +30,13 @@ All backends inherit the shared contract suite via `RateLimiterContractTest` (un
 tests/
 ├── contracts/                          # Abstract interface contracts
 │   ├── test_rate_limiter.py            # Tests any limiter must satisfy (unified async)
-│   ├── test_distributed_lock.py        # Tests any lock must satisfy (unified async)
 │   └── test_task_lifecycle.py          # Tests any lifecycle manager must satisfy (unified async)
 │
 ├── implementations/                    # Core implementation tests (backend-agnostic)
 │   ├── conftest.py                     # Shared core test fixtures/limiters
+│   ├── test_acquire.py                 # Acquire primitive behavior (preconditions, scheduling, BLPOP signaling)
 │   ├── test_rate_limiter.py            # Generic limiter implementation behavior
 │   ├── test_rate_limiter_class_api.py  # Managed class API behavior (generic backend)
-│   ├── test_distributed_lock.py        # Redis-backed lock implementation tests
 │   ├── test_task_lifecycle.py          # Lifecycle manager implementation tests
 │   ├── test_drain.py                   # Drain and trigger_consume branch tests
 │   ├── test_drain_loop.py             # DrainLoop scheduling and coalescing tests
@@ -48,10 +49,14 @@ tests/
 │   ├── test_smart_jitter.py            # Adaptive jitter calculation tests
 │   ├── test_metrics_callback.py        # Metrics callback observability tests
 │   ├── test_concurrent_access.py       # Multi-worker contention and atomicity tests
-│   ├── test_async_distributed_lock.py   # Async lock implementation tests
 │   ├── test_async_task_lifecycle.py     # Async lifecycle implementation tests
 │   ├── test_decorator.py               # Decorator behavior (core)
 │   ├── test_importing.py               # Dynamic import helper behavior
+│   ├── test_destructor_warning.py      # Destructor warning behavior tests
+│   ├── test_optional_imports.py        # Optional import guard tests
+│   ├── test_backend_health_monitor.py  # Backend health monitor tests
+│   ├── test_loop_safety_net.py         # Hang/spin safety-net tests for sync persistent loops
+│   ├── test_async_loop_safety_net.py   # Hang/spin safety-net tests for async persistent loops
 │   ├── celery/                         # Celery-specific implementation tests
 │   │   ├── conftest.py                 # Imports Celery backend fixtures
 │   │   ├── test_contracts.py           # Contract suite against real CeleryRateLimiter
@@ -79,6 +84,16 @@ tests/
 │   │   ├── test_contracts.py           # Contract suite against real AsyncIOTaskLimiter
 │   │   ├── test_asyncio_limiter.py     # AsyncIO dispatch and lifecycle behavior
 │   │   └── test_rate_limiter_class_api.py  # AsyncIO-only class API tests
+│   ├── dramatiq/                       # Dramatiq-specific implementation tests
+│   │   ├── conftest.py                 # Imports Dramatiq backend fixtures
+│   │   ├── test_contracts.py           # Contract suite against real DramatiqRateLimiter
+│   │   ├── test_dramatiq_limiter.py    # Dramatiq payload/dispatch behavior
+│   │   ├── test_rate_limiter_class_api.py  # Dramatiq-only class API tests
+│   │   └── test_tasks.py              # Dramatiq task helper tests
+│   ├── huey/                           # Huey-specific implementation tests
+│   │   ├── conftest.py                 # Imports Huey backend fixtures
+│   │   ├── test_contracts.py           # Contract suite against real HueyRateLimiter
+│   │   └── test_huey_limiter.py        # Huey payload/dispatch behavior
 │   └── asgi/                           # ASGI-specific implementation tests
 │       ├── conftest.py                 # Imports ASGI backend fixtures
 │       ├── test_asgi_limiter.py        # ASGI limiter acquire behavior
@@ -113,12 +128,14 @@ tests/
 │   ├── test_acquire.py                 # ASGI acquire script tests
 │   ├── test_consume.py                 # Consume script boundary and decision tests
 │   ├── test_health.py                  # Health script return value tests
-│   ├── test_lock_scripts.py            # Inline lock script tests
+│   ├── test_release.py                 # Release script tests
 │   ├── test_renew.py                   # Lease renewal script tests
 │   └── test_schedule.py               # Schedule script tests
 │
 ├── fixtures/                           # Shared backend fixture modules
 │   ├── celery_backend.py               # Celery backend fixture definitions
+│   ├── dramatiq_backend.py             # Dramatiq backend fixture definitions
+│   ├── huey_backend.py                 # Huey backend fixture definitions
 │   ├── processpool_backend.py          # ProcessPool backend fixture definitions
 │   ├── rq_backend.py                   # RQ backend fixture definitions
 │   └── threadpool_backend.py           # ThreadPool backend fixture definitions
@@ -130,7 +147,10 @@ tests/
 │   └── tasks.py                        # Shared task functions for backend tests
 │
 ├── plugins/                            # pytest plugins
+│   ├── memory_per_test.py              # Per-test memory profiling
 │   ├── mutmut_defaults_patch.py        # Patches trampoline defaults during mutmut runs
+│   ├── mutmut_resource_snapshot.py     # Resource snapshot collection during mutmut runs
+│   ├── mutmut_test_timeline.py         # Test timeline instrumentation for mutmut runs
 │   └── verify_defaults_patch.py        # Verification helper for defaults patching
 │
 ├── conftest.py                         # Global pytest fixtures and configuration
@@ -149,7 +169,7 @@ tests/
 
 ## Within-File Organization
 
-Tests that cover the same feature, function, or component are grouped within a single class. Each class acts as a logical unit of related assertions, and when a file tests multiple distinct features, each feature gets its own class. Methods that do not use `self` are decorated with `@staticmethod`. The only exception is Hypothesis `@given`-decorated methods, which require `self` due to a framework limitation.
+Tests that cover the same feature, function, or component are grouped within a single class. Each class acts as a logical unit of related assertions, and when a file tests multiple distinct features, each feature gets its own class. Methods that do not use `self` are decorated with `@staticmethod`. This includes Hypothesis `@given`-decorated tests, which work correctly with `@staticmethod`; see `tests/TESTING_GUIDELINES.md` Section 1.4 for the decorator ordering convention.
 
 ## Testing Philosophy
 
@@ -418,7 +438,7 @@ Not all survivors are actionable. Logger format string mutations, type cast chan
 mutmut v3 rewrites each function with a trampoline dispatcher that uses `object.__getattribute__(self, ...)` to resolve the original and mutant variants. This approach has three known limitations:
 
 1. **`__init_subclass__`**: the trampoline generates `self` as the first parameter, but `__init_subclass__` receives `cls`. This causes a `NameError` that poisons test collection. The fix is to add an explicit `@classmethod` decorator, which is redundant at runtime (Python implicitly wraps `__init_subclass__`) but tells mutmut to use `cls` in the trampoline. See `ManagedRateLimiterMixin.__init_subclass__` in `core/managed.py` and [mutmut#366](https://github.com/boxed/mutmut/issues/366).
-2. **`async def` methods**: in released versions (up to 3.4.0), the trampoline dispatcher is a synchronous function wrapping `async def` methods, causing `TypeError: object dict can't be used in 'await' expression`. This was fixed on the mutmut main branch in commit `810d761` ("Preserve original signature, including async keyword"), which is why the dependency points at the git main branch rather than a PyPI release.
+2. **`async def` methods**: in released versions up to 3.4.0, the trampoline dispatcher was a synchronous function wrapping `async def` methods, causing `TypeError: object dict can't be used in 'await' expression`. This was fixed in mutmut 3.5.0 (commit `810d761`: "Preserve original signature, including async keyword"), which is the version currently used by this project.
 3. **Default parameter values**: Python stores default parameter values in the function object's `__defaults__` tuple when the `def` statement executes at import time. mutmut's AST mutations only modify the code object inside forked children, but the `__defaults__` tuple inherited from the parent process is unchanged. This means any mutation to a default value (e.g., `delay: float = 0.0` to `delay: float = 1.0`) is invisible to the test suite, regardless of what tests exist. Use `inspect.signature` tests to verify default values independently: these catch real regressions in normal development, even though they cannot catch mutmut mutations. The classifier reports these as "fork-immune" false survivors.
 
 ### Why Mutation Testing Runs Locally
@@ -496,6 +516,10 @@ Contains shared utility functions used across multiple tests:
 
 - `is_subset(target, superset)`: a recursive dictionary subset checker.
 - `dict_equals_approx(left, right)`: approximate equality for nested structures, with configurable tolerance for float comparisons.
+- `assert_log_emitted(...)` / `assert_log_emitted_with_exc_info(...)`: standard log-record assertions for observability tests.
+- `shutdown_timer(obj, timeout, attr)`: context manager that flips a `_shutdown` flag after a timeout, used to bound `_run()` loops in `timeout_safety_net` tests.
+- `cap_iterations(target, attr, ...)`: counting-stub context manager that detects spin-class mutations on persistent loops; mocks the loop's I/O primitive and yields a count callable for post-hoc assertion. See `TESTING_GUIDELINES.md` Section 5.4 for the hang-vs-spin distinction.
+- `trip_after_deadline(target, attr, deadline_seconds, ...)`: wall-clock mirror of `cap_iterations`; raises `RuntimeError` from inside the loop's own call path when invoked past the deadline. Use when a spin can starve the event loop so a count assertion run after `asyncio.sleep` would never fire.
 
 **Usage:**
 
@@ -530,7 +554,6 @@ def test_something(self, payload):
 Contains sync-to-async adapter classes that wrap synchronous rate limiters, distributed locks, and task lifecycle managers so that the unified async contract test suite can exercise sync backends via `await`. The underlying sync Redis calls block the event loop briefly, which is acceptable in a test context.
 
 - `SyncToAsyncLimiterAdapter`: wraps a sync `AbstractDistributedRateLimiter` as an async-compatible limiter.
-- `SyncToAsyncLockAdapter`: wraps a sync `DistributedLock` as an async context manager (`async with`).
 - `SyncToAsyncLifecycleAdapter`: wraps a sync `TaskLifecycle` as an async context manager.
 
 **Usage:**
@@ -700,6 +723,8 @@ Each backend conftest provides its limiter under the name `limiter`. Contract te
 Sync backend fixtures are centralized in `tests/fixtures/` and imported where needed:
 
 - `tests/fixtures/celery_backend.py` defines Celery fixtures (`celery_app`, `celery_config`, `limiter`, class-state reset fixture).
+- `tests/fixtures/dramatiq_backend.py` defines Dramatiq fixtures (`limiter`, class-state reset fixture).
+- `tests/fixtures/huey_backend.py` defines Huey fixtures (`limiter`, class-state reset fixture).
 - `tests/fixtures/processpool_backend.py` defines ProcessPool fixtures (`executor`, `limiter`, class-state reset fixture).
 - `tests/fixtures/rq_backend.py` defines RQ fixtures (`rq_queue`, `limiter`, class-state reset fixture).
 - `tests/fixtures/threadpool_backend.py` defines ThreadPool fixtures (`executor`, `limiter`, class-state reset fixture).

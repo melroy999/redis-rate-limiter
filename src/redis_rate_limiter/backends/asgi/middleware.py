@@ -69,18 +69,15 @@ class RateLimitMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Process an ASGI request through the rate limiting pipeline."""
-        # Non-HTTP scopes pass through unconditionally.
         if scope.get("type") != "http":
             await self.app(scope, receive, send)
             return
 
-        # Extract the rate limit identity from the scope.
         key = self.key_func(scope)
         if key is None:
             await self.app(scope, receive, send)
             return
 
-        # Attempt to acquire a rate limit token.
         try:
             result = await self.limiter.acquire(key)
         except Exception:
@@ -92,7 +89,6 @@ class RateLimitMiddleware:
             if self.on_error == "fail_closed":
                 await self._send_error(send)
                 return
-            # fail_open: proceed without rate limit headers.
             await self.app(scope, receive, send)
             return
 
@@ -103,7 +99,6 @@ class RateLimitMiddleware:
                 await self._send_blocked(send, result)
             return
 
-        # Request allowed: inject rate limit headers into the response.
         await self.app(scope, receive, self._wrap_send(send, result))
 
     def _wrap_send(self, send: Send, result: AcquireResult) -> Send:

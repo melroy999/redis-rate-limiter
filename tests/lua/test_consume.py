@@ -35,6 +35,7 @@ def _eval_consume(
     max_concurrency=MAX_CONCURRENCY,
     max_age=MAX_AGE,
     lease_duration=LEASE_DURATION,
+    worker_id="test_worker",
 ):
     """Invoke ``consume.lua`` via ``eval()`` with the given parameters."""
     return redis_client.eval(
@@ -49,6 +50,7 @@ def _eval_consume(
         max_concurrency,
         max_age,
         lease_duration,
+        worker_id,
     )
 
 
@@ -518,6 +520,304 @@ class TestConsumeBoundaryDecisions:
 
 
 @pytest.mark.behavior
+class TestConsumeAcquireMarkerHandling:
+    """Tests for ``consume.lua`` acquire marker recognition, signaling,
+    expiry suppression, and deadline enforcement."""
+
+    _MARKER_FUNC_PATH = "__redis_rate_limiter_acquire_marker__"
+
+    @staticmethod
+    def test_marker_admitted_signals_via_rpush(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that an admitted marker signals the caller via RPUSH to the signal key."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        task_json = build_task_json(
+            "marker-1",
+            func_path="__redis_rate_limiter_acquire_marker__",
+            payload={"_uuid": "test", "_acquire_timeout_ms": 5000},
+            arrived_at_ms=now * 1000,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        result = _eval_consume(
+            redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        )
+
+        # Assert
+        assert result[0] == 1, "marker should be admitted"
+        signal_key = f"{base_key}:acquire:marker-1"
+        signal_values = redis_client.lrange(signal_key, 0, -1)
+        assert "marker-1" in signal_values, (
+            "signal key should contain the task id after marker admission"
+        )
+
+    @staticmethod
+    def test_marker_admitted_signal_key_has_pexpire(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that the signal key has a TTL derived from the acquire timeout."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        timeout_ms = 5000
+        task_json = build_task_json(
+            "marker-ttl",
+            func_path="__redis_rate_limiter_acquire_marker__",
+            payload={"_uuid": "test", "_acquire_timeout_ms": timeout_ms},
+            arrived_at_ms=now * 1000,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        _eval_consume(redis_client, base_key, buffer_key, concurrency_key, dlq_key)
+
+        # Assert
+        signal_key = f"{base_key}:acquire:marker-ttl"
+        pttl = redis_client.pttl(signal_key)
+        assert 0 < pttl <= timeout_ms, (
+            f"signal key PTTL should be positive and at most {timeout_ms}, got {pttl}"
+        )
+
+    @staticmethod
+    def test_marker_expired_not_pushed_to_dlq(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that an expired marker is silently dropped, not routed to the DLQ."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        expired_arrived_at = (now - MAX_AGE - 10) * 1000
+        task_json = build_task_json(
+            "marker-expired",
+            func_path="__redis_rate_limiter_acquire_marker__",
+            payload={"_uuid": "test", "_acquire_timeout_ms": 5000},
+            arrived_at_ms=expired_arrived_at,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        result = _eval_consume(
+            redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        )
+
+        # Assert
+        assert result[0] == -1, "status should be -1 for expired marker"
+        dlq_contents = redis_client.lrange(dlq_key, 0, -1)
+        assert len(dlq_contents) == 0, "expired markers should not be pushed to the DLQ"
+
+    @staticmethod
+    def test_marker_expired_inflight_key_deleted(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that the inflight key is deleted when a marker expires."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        expired_arrived_at = (now - MAX_AGE - 10) * 1000
+        inflight_key = f"{base_key}:inflight:marker-expired-ifl"
+        task_json = build_task_json(
+            "marker-expired-ifl",
+            func_path="__redis_rate_limiter_acquire_marker__",
+            payload={"_uuid": "test", "_acquire_timeout_ms": 5000},
+            arrived_at_ms=expired_arrived_at,
+            inflight_key=inflight_key,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+        redis_client.set(inflight_key, "1")
+
+        # Act
+        _eval_consume(redis_client, base_key, buffer_key, concurrency_key, dlq_key)
+
+        # Assert
+        assert redis_client.exists(inflight_key) == 0, (
+            "inflight key should be deleted for expired markers"
+        )
+
+    @staticmethod
+    def test_non_marker_expired_pushed_to_dlq(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that a non-marker expired task is routed to the DLQ (control test)."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        expired_arrived_at = (now - MAX_AGE - 10) * 1000
+        task_json = build_task_json(
+            "normal-expired",
+            func_path="test.task",
+            arrived_at_ms=expired_arrived_at,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        result = _eval_consume(
+            redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        )
+
+        # Assert
+        assert result[0] == -1, "status should be -1 for expired task"
+        dlq_contents = redis_client.lrange(dlq_key, 0, -1)
+        assert len(dlq_contents) == 1, (
+            "non-marker expired tasks should be pushed to the DLQ"
+        )
+
+    @staticmethod
+    def test_marker_deadline_elapsed_returns_status_minus_two(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that a marker whose BLPOP deadline has elapsed returns status -2."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        # 10 seconds in the past with a 1-second timeout: deadline is 9 seconds ago.
+        arrived_at_ms = (now - 10) * 1000
+        task_json = build_task_json(
+            "marker-deadline",
+            func_path="__redis_rate_limiter_acquire_marker__",
+            payload={"_uuid": "test", "_acquire_timeout_ms": 1000},
+            arrived_at_ms=arrived_at_ms,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        result = _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            max_age=3600,
+        )
+
+        # Assert
+        assert result[0] == -2, "status should be -2 when marker deadline has elapsed"
+
+    @staticmethod
+    def test_marker_deadline_elapsed_deletes_inflight_key(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that the inflight key is deleted when a marker deadline has elapsed."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        arrived_at_ms = (now - 10) * 1000
+        inflight_key = f"{base_key}:inflight:marker-dl-ifl"
+        task_json = build_task_json(
+            "marker-dl-ifl",
+            func_path="__redis_rate_limiter_acquire_marker__",
+            payload={"_uuid": "test", "_acquire_timeout_ms": 1000},
+            arrived_at_ms=arrived_at_ms,
+            inflight_key=inflight_key,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+        redis_client.set(inflight_key, "1")
+
+        # Act
+        _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            max_age=3600,
+        )
+
+        # Assert
+        assert redis_client.exists(inflight_key) == 0, (
+            "inflight key should be deleted when marker deadline has elapsed"
+        )
+
+    @staticmethod
+    def test_marker_deadline_elapsed_does_not_consume_token(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that a deadline-elapsed marker does not increment the window counter."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        arrived_at_ms = (now - 10) * 1000
+        task_json = build_task_json(
+            "marker-dl-token",
+            func_path="__redis_rate_limiter_acquire_marker__",
+            payload={"_uuid": "test", "_acquire_timeout_ms": 1000},
+            arrived_at_ms=arrived_at_ms,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+        current_key, _ = get_window_keys(redis_client, base_key)
+
+        # Act
+        _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            max_age=3600,
+        )
+
+        # Assert
+        counter = redis_client.get(current_key)
+        assert counter is None, (
+            "window counter should not be incremented for deadline-elapsed markers"
+        )
+
+    @staticmethod
+    def test_marker_deadline_elapsed_does_not_register_lease(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that a deadline-elapsed marker does not register a concurrency lease."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        arrived_at_ms = (now - 10) * 1000
+        task_json = build_task_json(
+            "marker-dl-lease",
+            func_path="__redis_rate_limiter_acquire_marker__",
+            payload={"_uuid": "test", "_acquire_timeout_ms": 1000},
+            arrived_at_ms=arrived_at_ms,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            max_age=3600,
+        )
+
+        # Assert
+        assert redis_client.zcard(concurrency_key) == 0, (
+            "concurrency set should remain empty for deadline-elapsed markers"
+        )
+
+    @staticmethod
+    def test_marker_within_deadline_is_admitted(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that a marker within its deadline is admitted and signals the caller."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        task_json = build_task_json(
+            "marker-ok",
+            func_path="__redis_rate_limiter_acquire_marker__",
+            payload={"_uuid": "test", "_acquire_timeout_ms": 10000},
+            arrived_at_ms=now * 1000,
+        )
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        result = _eval_consume(
+            redis_client, base_key, buffer_key, concurrency_key, dlq_key
+        )
+
+        # Assert
+        assert result[0] == 1, "marker within deadline should be admitted"
+        signal_key = f"{base_key}:acquire:marker-ok"
+        signal_values = redis_client.lrange(signal_key, 0, -1)
+        assert len(signal_values) == 1, (
+            "signal key should be populated for admitted marker"
+        )
+
+
+@pytest.mark.behavior
 class TestConsumeTelemetry:
     """Tests for ``consume.lua`` telemetry accuracy in the returned array."""
 
@@ -554,4 +854,337 @@ class TestConsumeTelemetry:
         assert result[4] > 0, "reset_in_ms should be positive within a window"
         assert result[4] <= WINDOW_SIZE * 1000, (
             "reset_in_ms should not exceed the window size"
+        )
+
+
+@pytest.mark.behavior
+class TestConsumeRoundRobinYield:
+    """Tests for the round-robin fairness yield mechanism in ``consume.lua``."""
+
+    @staticmethod
+    def test_single_worker_never_yields(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that a lone worker never receives a yield status."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        for i in range(3):
+            task_json = build_task_json(f"task-{i}", arrived_at_ms=now * 1000)
+            _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        results = []
+        for _ in range(3):
+            results.append(
+                _eval_consume(
+                    redis_client,
+                    base_key,
+                    buffer_key,
+                    concurrency_key,
+                    dlq_key,
+                    worker_id="worker_a",
+                )
+            )
+
+        # Assert
+        for i, r in enumerate(results):
+            assert r[0] != -3, f"call {i} should not yield for a single worker"
+
+    @staticmethod
+    def test_same_worker_yields_when_another_called(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that the last consumer yields when a different worker has called since."""
+        # Arrange
+        # Only one task so that B's call finds an empty buffer (status 0),
+        # leaving last_consumer as A.
+        now = get_redis_timestamp(redis_client)
+        task_json = build_task_json("task-1", arrived_at_ms=now * 1000)
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        r1 = _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_a",
+        )
+        _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_b",
+        )
+        r3 = _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_a",
+        )
+
+        # Assert
+        assert r1[0] == 1, "first call from worker A should succeed"
+        assert r3[0] == -3, "worker A should yield after worker B called"
+
+    @staticmethod
+    def test_yield_returns_eight_element_array(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that a yield return has the same 8-element structure."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        task_json = build_task_json("task-1", arrived_at_ms=now * 1000)
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+        _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_a",
+        )
+        _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_b",
+        )
+
+        # Act
+        result = _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_a",
+        )
+
+        # Assert
+        assert len(result) == 8, "yield should return an 8-element array"
+        assert result[0] == -3, "status should be -3 for yield"
+
+    @staticmethod
+    def test_different_worker_does_not_yield(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that a worker that was not the last consumer proceeds normally."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        for i in range(3):
+            task_json = build_task_json(f"task-{i}", arrived_at_ms=now * 1000)
+            _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_a",
+        )
+        r2 = _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_b",
+        )
+
+        # Assert
+        assert r2[0] == 1, (
+            "worker B should consume normally since it was not the last consumer"
+        )
+
+    @staticmethod
+    def test_yield_is_one_shot(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that a worker resumes normally after yielding once."""
+        # Arrange
+        # One task for A, then B calls on empty buffer, then add more for A's resume.
+        now = get_redis_timestamp(redis_client)
+        task_json = build_task_json("task-1", arrived_at_ms=now * 1000)
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_a",
+        )
+        _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_b",
+        )
+        r_yield = _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_a",
+        )
+        # After yielding, last_caller is now A (the yield call updated it),
+        # so the condition last_consumer==A && last_caller!=A no longer holds.
+        task_json2 = build_task_json("task-2", arrived_at_ms=now * 1000)
+        _add_task_to_buffer(redis_client, buffer_key, task_json2)
+        r_resume = _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_a",
+        )
+
+        # Assert
+        assert r_yield[0] == -3, "worker A should yield on the third call"
+        assert r_resume[0] != -3, "worker A should resume after yielding once"
+
+    @staticmethod
+    def test_last_consumer_key_set_on_success(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that the ``last_consumer`` key is set when a task is dequeued."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        task_json = build_task_json("task-1", arrived_at_ms=now * 1000)
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_a",
+        )
+
+        # Assert
+        last_consumer = redis_client.get(f"{base_key}:last_consumer")
+        assert last_consumer == "worker_a", (
+            "last_consumer should be set to the consuming worker"
+        )
+
+    @staticmethod
+    def test_last_caller_key_set_on_every_call(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key
+    ):
+        """Verify that the ``last_caller`` key is updated on every call, even without tasks."""
+        # Act
+        _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_x",
+        )
+
+        # Assert
+        last_caller = redis_client.get(f"{base_key}:last_caller")
+        assert last_caller == "worker_x", (
+            "last_caller should be set on every consume call"
+        )
+
+    @staticmethod
+    def test_fairness_keys_have_ttl(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify that both fairness keys have a TTL so they self-clean."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        task_json = build_task_json("task-1", arrived_at_ms=now * 1000)
+        _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_a",
+        )
+
+        # Assert
+        ttl_consumer = redis_client.pttl(f"{base_key}:last_consumer")
+        ttl_caller = redis_client.pttl(f"{base_key}:last_caller")
+        assert ttl_consumer > 0, "last_consumer key should have a positive TTL"
+        assert ttl_caller > 0, "last_caller key should have a positive TTL"
+
+    @staticmethod
+    def test_three_worker_round_robin(
+        redis_client, base_key, buffer_key, concurrency_key, dlq_key, build_task_json
+    ):
+        """Verify round-robin behavior across three workers."""
+        # Arrange
+        now = get_redis_timestamp(redis_client)
+        for i in range(6):
+            task_json = build_task_json(f"task-{i}", arrived_at_ms=now * 1000)
+            _add_task_to_buffer(redis_client, buffer_key, task_json)
+
+        # Act
+        r1 = _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_a",
+        )
+        r2 = _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_b",
+        )
+        r3 = _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_c",
+        )
+        r4 = _eval_consume(
+            redis_client,
+            base_key,
+            buffer_key,
+            concurrency_key,
+            dlq_key,
+            worker_id="worker_a",
+        )
+
+        # Assert
+        assert r1[0] == 1, "A should consume first task"
+        assert r2[0] == 1, (
+            "B should consume since A was last consumer and B is different"
+        )
+        assert r3[0] == 1, (
+            "C should consume since B was last consumer and C is different"
+        )
+        assert r4[0] == 1, (
+            "A should consume since C was last consumer and A is different"
         )

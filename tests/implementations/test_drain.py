@@ -10,7 +10,6 @@ variant-specific fixtures and customization points.
 import inspect
 import logging
 import time
-from contextlib import asynccontextmanager, contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -37,15 +36,10 @@ class DrainBehaviorTests:
 
     Concrete test classes compose this mixin with a fixture mixin
     (``_SyncDrainFixture`` or ``_AsyncDrainFixture``) that supplies
-    ``limiter``, ``mock_target``, ``lock_result``, and ``_mock_cls``.
+    ``limiter``, ``mock_target``, and ``_mock_cls``.
     """
 
     _mock_cls = None
-
-    @staticmethod
-    def lock_result(acquired):
-        """Override in subclass to return a sync or async context manager."""
-        raise NotImplementedError
 
     @staticmethod
     async def test_drain_defers_when_paused(limiter, mock_target):
@@ -64,53 +58,53 @@ class DrainBehaviorTests:
         assert len(limiter.scheduled_drains) == 1, (
             "drain should schedule one follow-up while paused"
         )
-        assert limiter.scheduled_drains[0] > 0.0, (
-            "paused follow-up delay should be positive"
+        assert limiter.scheduled_drains[0] == pytest.approx(0.2, abs=1.0), (
+            "paused follow-up delay should approximate the remaining pause duration"
         )
 
-    async def test_drain_schedules_backup_when_lock_contended(
-        self, limiter, mock_target
-    ):
+    @staticmethod
+    async def test_drain_schedules_backup_when_yielded(limiter, mock_target):
         """Verify that ``drain()`` schedules a backup drain
-        when the dispatch lock is not acquired."""
+        when consume yields for round-robin fairness."""
         # Arrange
-        consume_mock = MagicMock()
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "marker_skipped": False,
+            "yielded": True,
+            "task": None,
+            "remaining_tokens": 5,
+            "active_concurrency": 0,
+            "reset_in_ms": 100,
+            "remaining_tasks": 3,
+            "val_previous": 0,
+            "val_current": 0,
+        }
 
         # Act
-        with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(False),
-            ),
-            patch.object(mock_target, "consume", consume_mock),
-        ):
+        with patch.object(mock_target, "consume", return_value=consume_result):
             await limiter.drain()
 
         # Assert
-        assert consume_mock.call_count == 0, (
-            "drain should not consume when lock is contended"
-        )
-        assert limiter.dispatched_tasks == [], (
-            "drain should not dispatch when lock is contended"
-        )
+        assert limiter.dispatched_tasks == [], "drain should not dispatch when yielded"
         assert len(limiter.scheduled_drains) == 1, (
-            "drain should schedule a backup drain when lock is contended"
+            "drain should schedule a backup drain when yielded"
         )
         expected_delay = limiter.window / limiter.limit
         assert limiter.scheduled_drains[0] == pytest.approx(expected_delay), (
-            "backup drain delay should be one token interval"
+            "yielded drain delay should be one token interval"
         )
 
-    async def test_drain_dispatches_task_and_schedules_follow_up(
-        self, limiter, mock_target
-    ):
+    @staticmethod
+    async def test_drain_dispatches_task_and_schedules_follow_up(limiter, mock_target):
         """Verify that a successful consume dispatches the task
         and schedules the next drain."""
         # Arrange
         consume_result = {
             "success": True,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": {
                 "id": "task-1",
                 "func_path": "myapp.tasks.work",
@@ -123,14 +117,7 @@ class DrainBehaviorTests:
         }
 
         # Act
-        with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
-            patch.object(mock_target, "consume", return_value=consume_result),
-        ):
+        with patch.object(mock_target, "consume", return_value=consume_result):
             await limiter.drain()
 
         # Assert
@@ -150,13 +137,16 @@ class DrainBehaviorTests:
             "drain should schedule an immediate follow-up when tasks remain"
         )
 
-    async def test_drain_stops_when_buffer_empty(self, limiter, mock_target):
+    @staticmethod
+    async def test_drain_stops_when_buffer_empty(limiter, mock_target):
         """Verify that ``drain()`` stops without scheduling
         a follow-up when no tasks remain."""
         # Arrange
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": 0,
@@ -165,14 +155,7 @@ class DrainBehaviorTests:
         }
 
         # Act
-        with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
-            patch.object(mock_target, "consume", return_value=consume_result),
-        ):
+        with patch.object(mock_target, "consume", return_value=consume_result):
             await limiter.drain()
 
         # Assert
@@ -183,15 +166,16 @@ class DrainBehaviorTests:
             "drain should not schedule follow-up when buffer is empty"
         )
 
-    async def test_drain_handles_expired_task_without_dispatch(
-        self, limiter, mock_target
-    ):
+    @staticmethod
+    async def test_drain_handles_expired_task_without_dispatch(limiter, mock_target):
         """Verify that an expired consume result is neither
         dispatched nor rescheduled."""
         # Arrange
         consume_result = {
             "success": False,
             "expired": True,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": 0,
@@ -200,14 +184,7 @@ class DrainBehaviorTests:
         }
 
         # Act
-        with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
-            patch.object(mock_target, "consume", return_value=consume_result),
-        ):
+        with patch.object(mock_target, "consume", return_value=consume_result):
             await limiter.drain()
 
         # Assert
@@ -219,13 +196,16 @@ class DrainBehaviorTests:
             "result has no remaining tasks"
         )
 
-    async def test_drain_stops_when_concurrency_at_capacity(self, limiter, mock_target):
+    @staticmethod
+    async def test_drain_stops_when_concurrency_at_capacity(limiter, mock_target):
         """Verify that ``drain()`` stops without scheduling
         a follow-up when concurrency is saturated."""
         # Arrange
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": limiter.max_concurrency,
@@ -234,14 +214,7 @@ class DrainBehaviorTests:
         }
 
         # Act
-        with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
-            patch.object(mock_target, "consume", return_value=consume_result),
-        ):
+        with patch.object(mock_target, "consume", return_value=consume_result):
             await limiter.drain()
 
         # Assert
@@ -252,8 +225,9 @@ class DrainBehaviorTests:
             "drain should not schedule retry when concurrency is at capacity"
         )
 
+    @staticmethod
     async def test_drain_schedules_delayed_retry_when_rate_limited(
-        self, limiter, mock_target
+        limiter, mock_target
     ):
         """Verify that ``drain()`` schedules a delayed retry
         when the remaining tokens are exhausted."""
@@ -261,6 +235,8 @@ class DrainBehaviorTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 0,
             "active_concurrency": 1,
@@ -272,11 +248,6 @@ class DrainBehaviorTests:
 
         # Act
         with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
             patch.object(mock_target, "consume", return_value=consume_result),
             patch.object(
                 mock_target,
@@ -306,6 +277,8 @@ class DrainBehaviorTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": 0,
@@ -314,20 +287,72 @@ class DrainBehaviorTests:
         }
 
         # Act
-        with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
-            patch.object(mock_target, "consume", return_value=consume_result),
-        ):
+        with patch.object(mock_target, "consume", return_value=consume_result):
             await limiter.drain()
 
         # Assert
         mock_target.refresh_config.assert_called_once()
 
-    async def test_drain_resets_failure_counter_on_success(self, limiter, mock_target):
+    async def test_drain_throttles_refresh_config_to_once_per_second(
+        self, limiter, mock_target
+    ):
+        """Verify that ``drain()`` does not call ``refresh_config()``
+        more than once per second."""
+        # Arrange
+        mock_target.refresh_config = self._mock_cls()
+        mock_target._last_refresh_at = time.monotonic()
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
+            "task": None,
+            "remaining_tokens": 5,
+            "active_concurrency": 0,
+            "reset_in_ms": 100,
+            "remaining_tasks": 0,
+        }
+
+        # Act
+        with patch.object(mock_target, "consume", return_value=consume_result):
+            await limiter.drain()
+
+        # Assert
+        mock_target.refresh_config.assert_not_called()
+
+    async def test_drain_refresh_config_updates_last_refresh_timestamp(
+        self, limiter, mock_target
+    ):
+        """Verify that ``drain()`` updates ``_last_refresh_at``
+        after calling ``refresh_config()``."""
+        # Arrange
+        mock_target.refresh_config = self._mock_cls()
+        mock_target._last_refresh_at = time.monotonic() - 1.0
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
+            "task": None,
+            "remaining_tokens": 5,
+            "active_concurrency": 0,
+            "reset_in_ms": 100,
+            "remaining_tasks": 0,
+        }
+
+        # Act
+        before = time.monotonic()
+        with patch.object(mock_target, "consume", return_value=consume_result):
+            await limiter.drain()
+
+        # Assert
+        mock_target.refresh_config.assert_called_once()
+        assert mock_target._last_refresh_at >= before, (
+            "_last_refresh_at must be updated after calling refresh_config"
+        )
+
+    @staticmethod
+    async def test_drain_resets_failure_counter_on_success(limiter, mock_target):
         """Verify that the consecutive failure counter resets
         to zero after a successful drain."""
         # Arrange
@@ -335,6 +360,8 @@ class DrainBehaviorTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": 0,
@@ -343,14 +370,7 @@ class DrainBehaviorTests:
         }
 
         # Act
-        with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
-            patch.object(mock_target, "consume", return_value=consume_result),
-        ):
+        with patch.object(mock_target, "consume", return_value=consume_result):
             await limiter.drain()
 
         # Assert
@@ -358,22 +378,16 @@ class DrainBehaviorTests:
             "failure counter should reset to 0 after successful drain"
         )
 
+    @staticmethod
     async def test_drain_backoff_increases_with_consecutive_failures(
-        self, limiter, mock_target
+        limiter, mock_target
     ):
         """Verify that the recovery delay doubles with each consecutive failure."""
         # Act
-        with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                side_effect=lambda: self.lock_result(True),
-            ),
-            patch.object(
-                mock_target,
-                "consume",
-                side_effect=RuntimeError("fail"),
-            ),
+        with patch.object(
+            mock_target,
+            "consume",
+            side_effect=RuntimeError("fail"),
         ):
             await limiter.drain()
             await limiter.drain()
@@ -392,15 +406,16 @@ class DrainBehaviorTests:
             "second recovery delay should be 200ms"
         )
 
-    async def test_drain_dispatches_last_task_without_follow_up(
-        self, limiter, mock_target
-    ):
+    @staticmethod
+    async def test_drain_dispatches_last_task_without_follow_up(limiter, mock_target):
         """Verify that drain does not schedule a follow-up
         after dispatching the last task."""
         # Arrange
         consume_result = {
             "success": True,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": {
                 "id": "last-task",
                 "func_path": "myapp.tasks.work",
@@ -413,14 +428,7 @@ class DrainBehaviorTests:
         }
 
         # Act
-        with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
-            patch.object(mock_target, "consume", return_value=consume_result),
-        ):
+        with patch.object(mock_target, "consume", return_value=consume_result):
             await limiter.drain()
 
         # Assert
@@ -434,8 +442,9 @@ class DrainBehaviorTests:
             "drain should not schedule a follow-up when no tasks remain after dispatch"
         )
 
+    @staticmethod
     async def test_drain_stops_after_expired_task_with_remaining_tasks(
-        self, limiter, mock_target
+        limiter, mock_target
     ):
         """Verify that drain stops without follow-up when an
         expired task leaves remaining tasks."""
@@ -443,6 +452,8 @@ class DrainBehaviorTests:
         consume_result = {
             "success": False,
             "expired": True,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": 0,
@@ -451,14 +462,7 @@ class DrainBehaviorTests:
         }
 
         # Act
-        with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
-            patch.object(mock_target, "consume", return_value=consume_result),
-        ):
+        with patch.object(mock_target, "consume", return_value=consume_result):
             await limiter.drain()
 
         # Assert
@@ -470,18 +474,14 @@ class DrainBehaviorTests:
             "expired-with-remaining fall-through path"
         )
 
+    @staticmethod
     async def test_drain_handles_double_failure_when_schedule_drain_also_fails(
-        self, limiter, mock_target
+        limiter, mock_target
     ):
         """Verify that ``drain()`` does not propagate when both
         the inner drain and recovery scheduling fail."""
         # Act
         with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
             patch.object(
                 mock_target,
                 "consume",
@@ -500,15 +500,16 @@ class DrainBehaviorTests:
             "failure counter should be incremented despite double failure"
         )
 
-    async def test_drain_skips_jitter_on_token_recovery_path(
-        self, limiter, mock_target
-    ):
+    @staticmethod
+    async def test_drain_skips_jitter_on_token_recovery_path(limiter, mock_target):
         """Verify that jitter is skipped when the token
         recovery uses sliding-window decay."""
         # Arrange
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 0,
             "active_concurrency": 1,
@@ -521,11 +522,6 @@ class DrainBehaviorTests:
 
         # Act
         with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
             patch.object(mock_target, "consume", return_value=consume_result),
             patch.object(
                 mock_target,
@@ -593,6 +589,134 @@ class DrainBehaviorTests:
         )
 
     @staticmethod
+    async def test_drain_marker_consumed_skips_dispatch_but_schedules_follow_up(
+        limiter, mock_target
+    ):
+        """Verify that a consumed acquire marker is not dispatched but triggers a follow-up drain."""
+        # Arrange
+        consume_result = {
+            "success": True,
+            "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
+            "task": {
+                "id": "marker-1",
+                "func_path": "__redis_rate_limiter_acquire_marker__",
+                "payload": {"_uuid": "abc", "_acquire_timeout_ms": 5000},
+            },
+            "remaining_tokens": 4,
+            "active_concurrency": 1,
+            "reset_in_ms": 100,
+            "remaining_tasks": 2,
+        }
+
+        # Act
+        with patch.object(mock_target, "consume", return_value=consume_result):
+            await limiter.drain()
+
+        # Assert
+        assert limiter.dispatched_tasks == [], (
+            "drain should not dispatch acquire markers"
+        )
+        assert limiter.scheduled_drains == [0.0], (
+            "drain should schedule an immediate follow-up when tasks remain"
+        )
+
+    @staticmethod
+    async def test_drain_marker_consumed_as_last_task_skips_dispatch_without_follow_up(
+        limiter, mock_target
+    ):
+        """Verify that a consumed acquire marker as the last task produces no dispatch and no follow-up."""
+        # Arrange
+        consume_result = {
+            "success": True,
+            "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
+            "task": {
+                "id": "marker-2",
+                "func_path": "__redis_rate_limiter_acquire_marker__",
+                "payload": {"_uuid": "def", "_acquire_timeout_ms": 5000},
+            },
+            "remaining_tokens": 4,
+            "active_concurrency": 1,
+            "reset_in_ms": 100,
+            "remaining_tasks": 0,
+        }
+
+        # Act
+        with patch.object(mock_target, "consume", return_value=consume_result):
+            await limiter.drain()
+
+        # Assert
+        assert limiter.dispatched_tasks == [], (
+            "drain should not dispatch acquire markers"
+        )
+        assert limiter.scheduled_drains == [], (
+            "drain should not schedule follow-up when no tasks remain"
+        )
+
+    @staticmethod
+    async def test_drain_marker_skipped_with_remaining_tasks_schedules_follow_up(
+        limiter, mock_target
+    ):
+        """Verify that a skipped marker with remaining tasks schedules a follow-up drain."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "marker_skipped": True,
+            "yielded": False,
+            "task": None,
+            "remaining_tokens": 5,
+            "active_concurrency": 0,
+            "reset_in_ms": 100,
+            "remaining_tasks": 3,
+        }
+
+        # Act
+        with patch.object(mock_target, "consume", return_value=consume_result):
+            await limiter.drain()
+
+        # Assert
+        assert limiter.dispatched_tasks == [], (
+            "drain should not dispatch when marker is skipped"
+        )
+        assert limiter.scheduled_drains == [0.0], (
+            "drain should schedule an immediate follow-up when tasks remain after marker skip"
+        )
+
+    @staticmethod
+    async def test_drain_marker_skipped_with_one_remaining_task_schedules_follow_up(
+        limiter, mock_target
+    ):
+        """Verify that a skipped marker with exactly one remaining task schedules a follow-up."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "marker_skipped": True,
+            "yielded": False,
+            "task": None,
+            "remaining_tokens": 5,
+            "active_concurrency": 0,
+            "reset_in_ms": 100,
+            "remaining_tasks": 1,
+        }
+
+        # Act
+        with patch.object(mock_target, "consume", return_value=consume_result):
+            await limiter.drain()
+
+        # Assert
+        assert limiter.dispatched_tasks == [], (
+            "drain should not dispatch when marker is skipped"
+        )
+        assert limiter.scheduled_drains == [0.0], (
+            "drain should schedule an immediate follow-up when one task remains after marker skip"
+        )
+
+    @staticmethod
     async def test_trigger_consume_schedules_drain(limiter):
         """Verify that ``trigger_consume()`` schedules a drain."""
         # Act
@@ -629,6 +753,8 @@ class DrainObservabilityTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": 0,
@@ -638,14 +764,7 @@ class DrainObservabilityTests:
 
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
-            with (
-                patch.object(
-                    mock_target,
-                    "execution_lock",
-                    return_value=self.lock_result(True),
-                ),
-                patch.object(mock_target, "consume", return_value=consume_result),
-            ):
+            with patch.object(mock_target, "consume", return_value=consume_result):
                 await limiter.drain()
 
         # Assert
@@ -678,31 +797,27 @@ class DrainObservabilityTests:
             ),
         )
 
-    async def test_drain_lock_acquired_emits_debug_log(
-        self, limiter, mock_target, caplog
-    ):
-        """Verify that ``_drain_inner`` emits a debug log with the lock acquisition result."""
+    async def test_drain_yielded_emits_debug_log(self, limiter, mock_target, caplog):
+        """Verify that ``drain()`` emits a debug log when consume yields
+        for round-robin fairness."""
         # Arrange
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": True,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": 0,
             "reset_in_ms": 100,
-            "remaining_tasks": 0,
+            "remaining_tasks": 3,
+            "val_previous": 0,
+            "val_current": 0,
         }
 
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
-            with (
-                patch.object(
-                    mock_target,
-                    "execution_lock",
-                    return_value=self.lock_result(True),
-                ),
-                patch.object(mock_target, "consume", return_value=consume_result),
-            ):
+            with patch.object(mock_target, "consume", return_value=consume_result):
                 await limiter.drain()
 
         # Assert
@@ -712,49 +827,11 @@ class DrainObservabilityTests:
             label=self._log_label,
             required_fragments=[
                 f"limiter={limiter.id}",
-                "acquired=True",
-            ],
-            message=("should emit a debug log with the lock acquisition result"),
-        )
-
-    async def test_drain_lock_contended_emits_debug_log(
-        self, limiter, mock_target, caplog
-    ):
-        """Verify that ``drain()`` emits debug logs when
-        the dispatch lock is contended."""
-        # Act
-        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
-            with (
-                patch.object(
-                    mock_target,
-                    "execution_lock",
-                    return_value=self.lock_result(False),
-                ),
-                patch.object(mock_target, "consume", MagicMock()),
-            ):
-                await limiter.drain()
-
-        # Assert
-        assert_log_emitted(
-            caplog.records,
-            level="DEBUG",
-            label=self._log_label,
-            required_fragments=[
-                f"limiter={limiter.id}",
-                "held",
+                "yielded",
             ],
             message=(
-                "should emit a debug log indicating the drain was "
-                "skipped because the lock is held by another drainer"
-            ),
-        )
-        assert_log_emitted(
-            caplog.records,
-            level="DEBUG",
-            label=self._log_label,
-            required_fragments=[f"limiter={limiter.id}", "delay_s=12.000"],
-            message=(
-                "should emit a debug log for the backup drain with limiter id and delay"
+                "should emit a debug log indicating the drain "
+                "yielded for round-robin fairness"
             ),
         )
 
@@ -767,6 +844,8 @@ class DrainObservabilityTests:
         consume_result = {
             "success": True,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": {
                 "id": "task-1",
                 "func_path": "myapp.tasks.work",
@@ -780,14 +859,7 @@ class DrainObservabilityTests:
 
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
-            with (
-                patch.object(
-                    mock_target,
-                    "execution_lock",
-                    return_value=self.lock_result(True),
-                ),
-                patch.object(mock_target, "consume", return_value=consume_result),
-            ):
+            with patch.object(mock_target, "consume", return_value=consume_result):
                 await limiter.drain()
 
         # Assert
@@ -820,17 +892,10 @@ class DrainObservabilityTests:
         log with the attempt number."""
         # Act
         with caplog.at_level(logging.ERROR, logger="redis_rate_limiter"):
-            with (
-                patch.object(
-                    mock_target,
-                    "execution_lock",
-                    return_value=self.lock_result(True),
-                ),
-                patch.object(
-                    mock_target,
-                    "consume",
-                    side_effect=RuntimeError("consume failed"),
-                ),
+            with patch.object(
+                mock_target,
+                "consume",
+                side_effect=RuntimeError("consume failed"),
             ):
                 await limiter.drain()
 
@@ -858,11 +923,6 @@ class DrainObservabilityTests:
         # Act
         with caplog.at_level(logging.CRITICAL, logger="redis_rate_limiter"):
             with (
-                patch.object(
-                    mock_target,
-                    "execution_lock",
-                    return_value=self.lock_result(True),
-                ),
                 patch.object(
                     mock_target,
                     "consume",
@@ -899,6 +959,8 @@ class DrainObservabilityTests:
         consume_result = {
             "success": False,
             "expired": True,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": 0,
@@ -908,14 +970,7 @@ class DrainObservabilityTests:
 
         # Act
         with caplog.at_level(logging.WARNING, logger="redis_rate_limiter"):
-            with (
-                patch.object(
-                    mock_target,
-                    "execution_lock",
-                    return_value=self.lock_result(True),
-                ),
-                patch.object(mock_target, "consume", return_value=consume_result),
-            ):
+            with patch.object(mock_target, "consume", return_value=consume_result):
                 await limiter.drain()
 
         # Assert
@@ -938,6 +993,8 @@ class DrainObservabilityTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": limiter.max_concurrency,
@@ -947,14 +1004,7 @@ class DrainObservabilityTests:
 
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
-            with (
-                patch.object(
-                    mock_target,
-                    "execution_lock",
-                    return_value=self.lock_result(True),
-                ),
-                patch.object(mock_target, "consume", return_value=consume_result),
-            ):
+            with patch.object(mock_target, "consume", return_value=consume_result):
                 await limiter.drain()
 
         # Assert
@@ -982,6 +1032,8 @@ class DrainObservabilityTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 5,
             "active_concurrency": 0,
@@ -991,14 +1043,7 @@ class DrainObservabilityTests:
 
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter"):
-            with (
-                patch.object(
-                    mock_target,
-                    "execution_lock",
-                    return_value=self.lock_result(True),
-                ),
-                patch.object(mock_target, "consume", return_value=consume_result),
-            ):
+            with patch.object(mock_target, "consume", return_value=consume_result):
                 await limiter.drain()
 
         # Assert
@@ -1022,6 +1067,8 @@ class DrainObservabilityTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 0,
             "active_concurrency": 1,
@@ -1034,11 +1081,6 @@ class DrainObservabilityTests:
         # Act
         with caplog.at_level(logging.INFO, logger="redis_rate_limiter"):
             with (
-                patch.object(
-                    mock_target,
-                    "execution_lock",
-                    return_value=self.lock_result(True),
-                ),
                 patch.object(mock_target, "consume", return_value=consume_result),
                 patch.object(
                     mock_target,
@@ -1080,6 +1122,8 @@ class DrainObservabilityTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 0,
             "active_concurrency": 1,
@@ -1091,11 +1135,6 @@ class DrainObservabilityTests:
 
         # Act
         with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
             patch.object(mock_target, "consume", return_value=consume_result),
             patch.object(
                 mock_target,
@@ -1190,12 +1229,6 @@ class _SyncDrainFixture:
 
     _mock_cls = MagicMock
 
-    @staticmethod
-    @contextmanager
-    def lock_result(acquired):
-        """Yield a deterministic lock outcome."""
-        yield acquired
-
     @pytest.fixture
     def limiter(self, tracking_limiter):
         """Wrap the sync tracking limiter in an async adapter."""
@@ -1211,12 +1244,6 @@ class _AsyncDrainFixture:
     """Shared fixture mixin for async drain tests."""
 
     _mock_cls = AsyncMock
-
-    @staticmethod
-    @asynccontextmanager
-    async def lock_result(acquired):
-        """Yield a deterministic lock outcome."""
-        yield acquired
 
     @pytest.fixture
     def limiter(self, async_tracking_limiter):
@@ -1249,11 +1276,12 @@ class DrainBoundaryTests:
 
     Concrete test classes compose this mixin with a fixture mixin
     (``_SyncDrainFixture`` or ``_AsyncDrainFixture``) that supplies
-    ``limiter``, ``mock_target``, ``lock_result``, and ``_mock_cls``.
+    ``limiter``, ``mock_target``, and ``_mock_cls``.
     """
 
+    @staticmethod
     async def test_drain_schedules_followup_when_exactly_one_task_remains(
-        self, limiter, mock_target
+        limiter, mock_target
     ):
         """Verify that ``drain()`` schedules a follow-up when
         exactly one task remains after dispatch."""
@@ -1261,6 +1289,8 @@ class DrainBoundaryTests:
         consume_result = {
             "success": True,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": {
                 "id": "task-boundary",
                 "func_path": "myapp.tasks.work",
@@ -1273,14 +1303,7 @@ class DrainBoundaryTests:
         }
 
         # Act
-        with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
-            patch.object(mock_target, "consume", return_value=consume_result),
-        ):
+        with patch.object(mock_target, "consume", return_value=consume_result):
             await limiter.drain()
 
         # Assert
@@ -1289,8 +1312,9 @@ class DrainBoundaryTests:
             "drain should schedule an immediate follow-up when exactly one task remains"
         )
 
+    @staticmethod
     async def test_drain_delay_is_base_plus_jitter_rounded_to_three_decimals(
-        self, limiter, mock_target
+        limiter, mock_target
     ):
         """Verify that the rate-limited retry delay equals
         ``round(max(0.001, base_delay + jitter), 3)``."""
@@ -1302,6 +1326,8 @@ class DrainBoundaryTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 0,
             "active_concurrency": 1,
@@ -1313,11 +1339,6 @@ class DrainBoundaryTests:
 
         # Act
         with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
             patch.object(mock_target, "consume", return_value=consume_result),
             patch.object(
                 mock_target,
@@ -1338,8 +1359,9 @@ class DrainBoundaryTests:
             f" got {limiter.scheduled_drains[0]}"
         )
 
+    @staticmethod
     async def test_drain_passes_consume_result_values_to_jitter_calculator(
-        self, limiter, mock_target
+        limiter, mock_target
     ):
         """Verify that ``_calculate_smart_jitter`` receives the
         actual consume result values, not defaults or None."""
@@ -1347,6 +1369,8 @@ class DrainBoundaryTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 0,
             "active_concurrency": 1,
@@ -1358,11 +1382,6 @@ class DrainBoundaryTests:
 
         # Act
         with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
             patch.object(mock_target, "consume", return_value=consume_result),
             patch.object(
                 mock_target,
@@ -1379,13 +1398,16 @@ class DrainBoundaryTests:
             active_concurrency=1,
         )
 
-    async def test_drain_stops_when_concurrency_equals_max(self, limiter, mock_target):
+    @staticmethod
+    async def test_drain_stops_when_concurrency_equals_max(limiter, mock_target):
         """Verify that ``drain()`` does not schedule a follow-up
         when active concurrency equals max concurrency."""
         # Arrange
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 3,
             "active_concurrency": mock_target.max_concurrency,
@@ -1394,14 +1416,7 @@ class DrainBoundaryTests:
         }
 
         # Act
-        with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
-            patch.object(mock_target, "consume", return_value=consume_result),
-        ):
+        with patch.object(mock_target, "consume", return_value=consume_result):
             await limiter.drain()
 
         # Assert
@@ -1409,15 +1424,16 @@ class DrainBoundaryTests:
             "drain should not schedule a follow-up when concurrency is at capacity"
         )
 
-    async def test_drain_skips_jitter_on_token_recovery_path(
-        self, limiter, mock_target
-    ):
+    @staticmethod
+    async def test_drain_skips_jitter_on_token_recovery_path(limiter, mock_target):
         """Verify that jitter is not applied when the token recovery
         delay is computed from previous-window decay (non-fallback)."""
         # Arrange
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 0,
             "active_concurrency": 1,
@@ -1429,11 +1445,6 @@ class DrainBoundaryTests:
 
         # Act
         with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
             patch.object(mock_target, "consume", return_value=consume_result),
             patch.object(
                 mock_target,
@@ -1449,8 +1460,9 @@ class DrainBoundaryTests:
             "drain should schedule a recovery retry"
         )
 
+    @staticmethod
     async def test_drain_schedules_recovery_when_remaining_tokens_exactly_zero(
-        self, limiter, mock_target
+        limiter, mock_target
     ):
         """Verify that ``drain()`` enters the rate-limited recovery
         path when ``remaining_tokens`` is exactly zero."""
@@ -1458,6 +1470,8 @@ class DrainBoundaryTests:
         consume_result = {
             "success": False,
             "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
             "task": None,
             "remaining_tokens": 0,
             "active_concurrency": 1,
@@ -1469,11 +1483,6 @@ class DrainBoundaryTests:
 
         # Act
         with (
-            patch.object(
-                mock_target,
-                "execution_lock",
-                return_value=self.lock_result(True),
-            ),
             patch.object(mock_target, "consume", return_value=consume_result),
             patch.object(
                 mock_target,
@@ -1488,6 +1497,107 @@ class DrainBoundaryTests:
             "drain should schedule a recovery when remaining_tokens is exactly zero"
         )
         assert limiter.scheduled_drains[0] > 0, "recovery delay should be positive"
+
+    @staticmethod
+    async def test_drain_falls_through_when_remaining_tokens_positive(
+        limiter, mock_target
+    ):
+        """Verify that drain does not enter the rate-limited recovery path
+        when remaining_tokens is positive but no other condition matches."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
+            "task": None,
+            "remaining_tokens": 1,
+            "active_concurrency": 1,
+            "reset_in_ms": 200,
+            "remaining_tasks": 3,
+        }
+
+        # Act
+        with patch.object(mock_target, "consume", return_value=consume_result):
+            await limiter.drain()
+
+        # Assert
+        assert limiter.scheduled_drains == [], (
+            "drain should not schedule a recovery when remaining_tokens is positive"
+        )
+
+    @staticmethod
+    async def test_drain_uses_fallback_jitter_when_val_previous_zero_and_current_below_limit(
+        limiter, mock_target
+    ):
+        """Verify that fallback jitter is applied when val_previous is zero
+        even if val_current is below the configured limit."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
+            "task": None,
+            "remaining_tokens": 0,
+            "active_concurrency": 1,
+            "reset_in_ms": 250,
+            "remaining_tasks": 4,
+            "val_previous": 0,
+            "val_current": 3,
+        }
+
+        # Act
+        with (
+            patch.object(mock_target, "consume", return_value=consume_result),
+            patch.object(
+                mock_target,
+                "_calculate_smart_jitter",
+                return_value=0.0,
+            ) as mock_jitter,
+        ):
+            await limiter.drain()
+
+        # Assert
+        assert mock_jitter.call_count == 1, (
+            "smart jitter should be called when val_previous is zero "
+            "regardless of val_current being below limit"
+        )
+
+    @staticmethod
+    async def test_drain_does_not_use_fallback_jitter_when_val_previous_is_one(
+        limiter, mock_target
+    ):
+        """Verify that fallback jitter is not applied when val_previous is
+        one and val_current is below the configured limit."""
+        # Arrange
+        consume_result = {
+            "success": False,
+            "expired": False,
+            "marker_skipped": False,
+            "yielded": False,
+            "task": None,
+            "remaining_tokens": 0,
+            "active_concurrency": 1,
+            "reset_in_ms": 500,
+            "remaining_tasks": 3,
+            "val_previous": 1,
+            "val_current": 3,
+        }
+
+        # Act
+        with (
+            patch.object(mock_target, "consume", return_value=consume_result),
+            patch.object(
+                mock_target,
+                "_calculate_smart_jitter",
+                return_value=0.1,
+            ) as mock_jitter,
+        ):
+            await limiter.drain()
+
+        # Assert
+        mock_jitter.assert_not_called()
 
 
 @pytest.mark.behavior

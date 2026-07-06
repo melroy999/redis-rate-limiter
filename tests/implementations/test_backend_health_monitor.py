@@ -20,7 +20,7 @@ Fixture dependencies:
 import asyncio
 import logging
 import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -32,7 +32,11 @@ from redis_rate_limiter.core.limiters import (
     BackendHealthMonitor,
     DistributedRateLimiterMixin,
 )
-from tests.helpers.utils import assert_log_emitted, assert_log_emitted_with_exc_info
+from tests.helpers.utils import (
+    assert_log_emitted,
+    assert_log_emitted_with_exc_info,
+    assert_shutdown_join_timeout_warning,
+)
 
 # ---------------------------------------------------------------------------
 # Unified behavioral tests
@@ -313,6 +317,13 @@ class TestSyncHealthMonitorLifecycle:
         )
 
     @staticmethod
+    def test_shutdown_without_start_does_not_raise(monitor):
+        """Verify that calling ``shutdown()`` before ``start()``
+        completes without error."""
+        # Act & Assert
+        monitor.shutdown()
+
+    @staticmethod
     def test_monitor_not_started_for_default_implementation(stub_limiter):
         """Verify that in-process backends (default
         ``_check_backend_health``) do not start a monitor.
@@ -357,6 +368,42 @@ class TestSyncHealthMonitorLifecycle:
         assert result is True, "base mixin health check should always return true"
 
     @staticmethod
+    def test_monitor_thread_is_daemon(monitor):
+        """Verify that the health monitor thread is a daemon thread."""
+        # Arrange
+        monitor.start()
+
+        try:
+            # Assert
+            assert monitor._thread is not None, (
+                "monitor thread should exist after start"
+            )
+            assert monitor._thread.daemon is True, (
+                "monitor thread must be a daemon so it does not prevent interpreter exit"
+            )
+        finally:
+            monitor.shutdown()
+
+    @staticmethod
+    def test_shutdown_joins_thread_with_timeout(monitor):
+        """Verify that shutdown joins the thread with a bounded timeout."""
+        # Arrange
+        monitor.start()
+        thread = monitor._thread
+        assert thread is not None, "monitor thread should exist after start"
+
+        # Act
+        with patch.object(thread, "join", wraps=thread.join) as mock_join:
+            monitor.shutdown()
+
+        # Assert
+        mock_join.assert_called_once()
+        _, kwargs = mock_join.call_args
+        assert kwargs.get("timeout") == pytest.approx(5.0), (
+            "shutdown should join the thread with a 5-second timeout"
+        )
+
+    @staticmethod
     def test_run_loop_executes_health_check(mock_limiter):
         """Verify that the ``_run`` loop invokes ``_check_backend_health``
         at least once before shutdown.
@@ -371,6 +418,22 @@ class TestSyncHealthMonitorLifecycle:
 
         # Assert
         mock_limiter._check_backend_health.assert_called()
+
+
+@pytest.mark.observability
+class TestSyncHealthMonitorShutdownObservability:
+    """Observability tests for sync ``BackendHealthMonitor`` shutdown log emissions."""
+
+    @staticmethod
+    def test_shutdown_join_timeout_emits_warning_log(caplog):
+        """Verify that ``shutdown()`` emits a WARNING log when
+        the monitor thread does not exit within the join timeout.
+        """
+        assert_shutdown_join_timeout_warning(
+            BackendHealthMonitor, "[BackendHealthMonitor]",
+            "test-monitor-join-timeout", caplog,
+            constructor_kwargs={"interval": 1.0},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -427,26 +490,6 @@ class TestAsyncHealthMonitorLifecycle:
         backed by a mock limiter.
         """
         return AsyncBackendHealthMonitor(mock_limiter, interval=1.0)
-
-    @staticmethod
-    @pytest.mark.timeout_safety_net
-    async def test_shutdown_cancels_task(monitor):
-        """Verify that ``shutdown()`` cancels the background asyncio task cleanly."""
-        # Arrange
-        monitor.start()
-
-        # Act
-        shutdown_task = asyncio.create_task(monitor.shutdown())
-        await asyncio.sleep(0.05)
-
-        # Assert
-        assert shutdown_task.done(), (
-            "shutdown() should complete promptly; "
-            "still running indicates the _run loop did not exit"
-        )
-        assert monitor._task is None or monitor._task.done(), (
-            "background task should be done after shutdown"
-        )
 
     @staticmethod
     async def test_monitor_not_started_for_default_implementation(
@@ -569,6 +612,27 @@ class TestAsyncHealthMonitorLifecycle:
         )
 
     @staticmethod
+    async def test_shutdown_without_start_does_not_raise(monitor):
+        """Verify that calling ``shutdown()`` before ``start()`` is safe
+        when ``_task`` is still ``None``."""
+        # Act & Assert
+        await monitor.shutdown()
+
+    @staticmethod
+    async def test_shutdown_cancels_running_task(monitor):
+        """Verify that shutdown cancels the running task and waits for completion."""
+        # Arrange
+        monitor.start()
+        assert monitor._task is not None, "task should exist after start"
+        assert not monitor._task.done(), "task should be running after start"
+
+        # Act
+        await monitor.shutdown()
+
+        # Assert
+        assert monitor._task.done() is True, "task should be completed after shutdown"
+
+    @staticmethod
     async def test_run_loop_executes_health_check(mock_limiter):
         """Verify that the ``_run`` loop invokes ``_check_backend_health``
         at least once before shutdown.
@@ -579,9 +643,9 @@ class TestAsyncHealthMonitorLifecycle:
         # Act
         monitor.start()
         await asyncio.sleep(0.05)
+        await monitor.shutdown()
 
         # Assert
-        (
-            mock_limiter._check_backend_health.assert_called(),
-            ("health check should have been called at least once during the run loop"),
+        assert mock_limiter._check_backend_health.called, (
+            "health check should have been called at least once during the run loop"
         )

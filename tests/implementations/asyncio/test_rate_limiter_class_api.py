@@ -394,6 +394,23 @@ class TestGet:
         with pytest.raises(ValueError, match=r"^Limiter '.*' not found"):
             await AsyncManagedTestRateLimiter.get(missing_limiter_id)
 
+    @staticmethod
+    async def test_get_caches_hydrated_instance_for_subsequent_calls(limiter_id):
+        """Verify that ``get()`` caches the hydrated instance so that
+        subsequent calls return the same object."""
+        # Arrange
+        await create_test_limiter(limiter_id)
+        AsyncManagedTestRateLimiter._instances.clear()
+
+        # Act
+        first = await AsyncManagedTestRateLimiter.get(limiter_id)
+        second = await AsyncManagedTestRateLimiter.get(limiter_id)
+
+        # Assert
+        assert first is second, (
+            "subsequent get() calls should return the same cached instance"
+        )
+
 
 @pytest.mark.behavior
 class TestUpdate:

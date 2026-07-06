@@ -7,15 +7,14 @@ Fixtures provided:
   Each test receives a fresh connection to avoid event loop conflicts with ``asyncio_mode = "auto"``.
 - ``limiter_id`` (function): unique ``limiter_{test}_{pid}_{uuid}`` identifier per test.
 - ``module_limiter_id`` (module): shared limiter identifier within a single test module.
-- ``lock_key`` (function): unique ``lock_{test}_{pid}_{uuid}`` key per test.
 - ``func_path`` (session): static function path string for task scheduling.
 - ``payload`` (session): static payload dictionary for task scheduling.
 
 Redis connection details are derived from the ``REDIS_HOST`` and ``REDIS_PORT``
 environment variables (defaulting to ``localhost:6379``).
 
-Isolation strategy: every test receives a unique ``limiter_id`` and ``lock_key``
-that include both the PID and a UUID fragment, guaranteeing no key collisions
+Isolation strategy: every test receives a unique ``limiter_id``
+that includes both the PID and a UUID fragment, guaranteeing no key collisions
 across concurrent processes (e.g., mutmut parallel forks). The ``flushdb()``
 calls that previously provided isolation have been removed because they cause
 cross-process data destruction when multiple forked pytest sessions share the
@@ -23,13 +22,23 @@ same Redis instance.
 """
 
 import os
+import threading
 from uuid import uuid4
 
 import pytest
 import redis
 import redis.asyncio
 
-pytest_plugins = ["tests.plugins.mutmut_defaults_patch"]
+# The platform default of 8 MB per thread causes memory exhaustion during
+# parallel mutmut runs; 256 KB is sufficient for all test workloads.
+threading.stack_size(262144)
+
+pytest_plugins = [
+    "tests.plugins.mutmut_defaults_patch",
+    "tests.plugins.mutmut_test_timeline",
+    "tests.plugins.mutmut_resource_snapshot",
+    "tests.plugins.memory_per_test",
+]
 
 
 def pytest_collection_modifyitems(items: list) -> None:
@@ -50,8 +59,6 @@ def pytest_collection_modifyitems(items: list) -> None:
     items[:] = early + rest
 
 
-# Redis configuration is derived from environment variables.
-# The default values target localhost:6379, but may be overridden for Docker Compose.
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
@@ -105,7 +112,7 @@ def _redis_connection():
             client.delete("__warmup__")
             # No flushdb() here: multiple forked processes (e.g., mutmut
             # parallel children) may share this Redis instance. All keys are
-            # namespace-isolated via unique limiter_id and lock_key fixtures.
+            # namespace-isolated via unique limiter_id fixtures.
             break
         except redis.exceptions.ConnectionError:
             if attempt == 9:
@@ -123,8 +130,8 @@ def _redis_connection():
 def redis_client(_redis_connection):
     """Provide a per-test Redis client.
 
-    Test isolation is achieved through unique key namespaces (``limiter_id``,
-    ``lock_key``) rather than ``flushdb()``. This allows multiple forked
+    Test isolation is achieved through unique key namespaces (``limiter_id``)
+    rather than ``flushdb()``. This allows multiple forked
     processes (e.g., mutmut parallel children) to share the same Redis
     instance without cross-contamination.
 
@@ -168,13 +175,6 @@ def module_limiter_id(request) -> str:
     """Provide a unique limiter identifier per module for use in module-scoped fixtures."""
     module_name = _safe_id_component(request.module.__name__)
     return f"module_limiter_{module_name}_{_unique_suffix()}"
-
-
-@pytest.fixture
-def lock_key(request) -> str:
-    """Provide a unique lock key for each test."""
-    test_name = _safe_id_component(request.node.name)
-    return f"lock_{test_name}_{_unique_suffix()}"
 
 
 @pytest.fixture(scope="function")

@@ -12,7 +12,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from tests.helpers.utils import clear_limiter_keys
+from tests.helpers.utils import property_test_cleanup
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -52,47 +52,42 @@ class TestConcurrencyInvariantProperties:
     ):
         """Property: the active concurrency never exceeds
         the configured max_concurrency."""
-        # Arrange
-        clear_limiter_keys(property_redis_client, property_limiter)
-        next_payload_id = 0
-        active_task_ids = set()
-        all_scheduled_task_ids = []
+        with property_test_cleanup(
+            property_redis_client, property_limiter
+        ) as scheduled_ids:
+            next_payload_id = 0
+            active_task_ids: set[str] = set()
 
-        # Act & Assert
-        for operation in operations:
-            if operation == "schedule":
-                _success, task_id = property_limiter.schedule_task(
-                    "myapp.tasks.work",
-                    {"payload_id": next_payload_id},
-                )
-                all_scheduled_task_ids.append(task_id)
-                next_payload_id += 1
-            elif operation == "consume":
-                result = property_limiter.consume()
-                if result["success"] and result["task"] is not None:
-                    active_task_ids.add(result["task"]["id"])
+            # Act & Assert
+            for operation in operations:
+                if operation == "schedule":
+                    _success, task_id = property_limiter.schedule_task(
+                        "myapp.tasks.work",
+                        {"payload_id": next_payload_id},
+                    )
+                    scheduled_ids.append(task_id)
+                    next_payload_id += 1
+                elif operation == "consume":
+                    result = property_limiter.consume()
+                    if result["success"] and result["task"] is not None:
+                        active_task_ids.add(result["task"]["id"])
+                    assert (
+                        result["active_concurrency"] <= property_limiter.max_concurrency
+                    ), (
+                        "consume should never report"
+                        " active_concurrency above max_concurrency"
+                    )
+                else:
+                    if active_task_ids:
+                        task_id = active_task_ids.pop()
+                        property_redis_client.zrem(
+                            property_limiter.concurrency_key, task_id
+                        )
+                        property_redis_client.delete(
+                            property_limiter.get_inflight_key(task_id)
+                        )
+
                 assert (
-                    result["active_concurrency"] <= property_limiter.max_concurrency
-                ), (
-                    "consume should never report"
-                    " active_concurrency above max_concurrency"
-                )
-            else:
-                if active_task_ids:
-                    task_id = active_task_ids.pop()
-                    property_redis_client.zrem(
-                        property_limiter.concurrency_key, task_id
-                    )
-                    property_redis_client.delete(
-                        property_limiter.get_inflight_key(task_id)
-                    )
-
-            assert (
-                property_redis_client.zcard(property_limiter.concurrency_key)
-                <= property_limiter.max_concurrency
-            ), "concurrency set cardinality must never exceed max_concurrency"
-
-        # Cleanup
-        clear_limiter_keys(property_redis_client, property_limiter)
-        for task_id in all_scheduled_task_ids:
-            property_redis_client.delete(property_limiter.get_inflight_key(task_id))
+                    property_redis_client.zcard(property_limiter.concurrency_key)
+                    <= property_limiter.max_concurrency
+                ), "concurrency set cardinality must never exceed max_concurrency"

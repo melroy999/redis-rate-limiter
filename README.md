@@ -16,7 +16,7 @@ The core algorithm is a sliding window counter implemented as atomic Lua scripts
 - **Dead letter queue**: tasks that exceed their maximum age are moved to a DLQ instead of being silently dropped.
 - **Dynamic configuration**: rate limits, concurrency caps and window sizes can be changed in Redis at runtime. All existing limiter instances across workers and machines pick up the new configuration on their next drain cycle.
 - **Smart jitter**: adaptive retry delays that scale with queue depth and concurrency pressure to prevent the thundering herd problem at window resets (see [docs/smart-jitter.md](docs/smart-jitter.md)).
-- **ASGI middleware**: request-level rate limiting for FastAPI/Starlette with per-client identity keys, standard rate limit headers and configurable bypass rules.
+- **ASGI middleware**: request-level rate limiting for FastAPI with per-client identity keys, standard rate limit headers and configurable bypass rules.
 - **Metrics callbacks**: an optional hook for observability, invoked after every consume and schedule operation.
 
 ## Installation
@@ -37,7 +37,7 @@ pip install redis-rate-limiter[dramatiq]
 # With the Huey backend.
 pip install redis-rate-limiter[huey]
 
-# With the ASGI middleware backend (FastAPI/Starlette).
+# With the ASGI middleware backend (FastAPI).
 pip install redis-rate-limiter[asgi]
 
 # All optional dependencies.
@@ -331,7 +331,7 @@ All task-oriented backends compose `SyncManagedRateLimiter` (or `AsyncManagedRat
 | Celery           | Celery broker (`send_task`)              | Done    |
 | Threading        | `concurrent.futures.ThreadPoolExecutor`  | Done    |
 | AsyncIO          | `asyncio` event loop / task group        | Done    |
-| ASGI Middleware  | Starlette/FastAPI request handling       | Done    |
+| ASGI Middleware  | FastAPI request handling                 | Done    |
 | Multiprocessing  | `concurrent.futures.ProcessPoolExecutor` | Done    |
 | RQ (Redis Queue) | RQ job queue (`queue.enqueue`)           | Done    |
 | Dramatiq         | Dramatiq broker (`actor.send`)           | Done    |

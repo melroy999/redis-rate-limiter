@@ -43,7 +43,6 @@ class GetStatusTests:
             "concurrency",
             "buffer",
             "rate_limit",
-            "dispatcher",
         }, "status should include all top-level sections"
 
         assert set(status["concurrency"].keys()) == {"current", "max", "available"}, (
@@ -60,9 +59,6 @@ class GetStatusTests:
             "window",
             "reset_in_ms",
         }, "rate_limit section should include the expected telemetry fields"
-        assert set(status["dispatcher"].keys()) == {"is_locked"}, (
-            "dispatcher section should include is_locked"
-        )
 
     @staticmethod
     async def test_get_status_reflects_scheduled_tasks(limiter, func_path):
@@ -154,10 +150,6 @@ class GetStatusTests:
             "rate_limit window should match the configured window"
         )
 
-        assert status["dispatcher"]["is_locked"] == 0, (
-            "dispatcher should not be locked for a fresh limiter"
-        )
-
     @staticmethod
     async def test_get_status_available_is_zero_when_all_slots_used(limiter):
         """Verify that ``available`` is exactly 0 when all
@@ -208,23 +200,6 @@ class GetStatusTests:
         )
         assert status["concurrency"]["available"] == 0, (
             "concurrency available should be clamped to 0, not negative"
-        )
-
-    @staticmethod
-    async def test_get_status_reports_locked_dispatcher(limiter):
-        """Verify that ``is_locked`` is 1 when the dispatch lock key exists in Redis."""
-        # Arrange
-        lock_key = f"{limiter.id}:dispatch_lock"
-        result = limiter.redis.set(lock_key, "1", ex=10)
-        if inspect.isawaitable(result):
-            await result
-
-        # Act
-        status = await limiter.get_status()
-
-        # Assert
-        assert status["dispatcher"]["is_locked"] == 1, (
-            "dispatcher is_locked should be 1 when the dispatch lock key exists"
         )
 
     @staticmethod

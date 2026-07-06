@@ -65,6 +65,31 @@ class TestAcquireReturnValues:
         )
 
     @staticmethod
+    def test_reset_in_ms_is_positive(redis_client, base_key):
+        """Verify that ``reset_in_ms`` is positive when called within a window."""
+        # Act
+        result = _eval_acquire(redis_client, base_key)
+
+        # Assert
+        assert result[2] > 0, "reset_in_ms should be positive within a window"
+        assert result[2] <= WINDOW_SIZE * 1000, (
+            "reset_in_ms should not exceed the window size"
+        )
+
+    @staticmethod
+    def test_previous_count_reflects_previous_window_key(redis_client, base_key):
+        """Verify that ``result[3]`` reflects the previous window counter value."""
+        # Arrange
+        _, previous_key = get_window_keys(redis_client, base_key)
+        redis_client.set(previous_key, "7")
+
+        # Act
+        result = _eval_acquire(redis_client, base_key)
+
+        # Assert
+        assert result[3] == 7, "previous_count should reflect the previous window key"
+
+    @staticmethod
     def test_denied_status_code_is_zero(redis_client, base_key):
         """Verify that a denied request returns status code 0."""
         # Arrange
