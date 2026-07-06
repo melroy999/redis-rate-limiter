@@ -25,6 +25,10 @@ from redis_rate_limiter.core.scripts import load_lua_script
 logger = logging.getLogger(__name__)
 
 
+class AcquireTimeout(Exception):
+    """Raised by ``acquire()`` when the timeout expires without admission."""
+
+
 class AbstractRateLimiter:
     """Configuration-only base for all rate limiters.
 

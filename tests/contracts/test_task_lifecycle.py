@@ -130,11 +130,15 @@ class TaskLifecycleContractTest:
         )
 
     @staticmethod
-    async def test_lifecycle_triggers_consume(
+    async def test_lifecycle_wakes_local_drain(
         async_redis_client, mock_limiter, task_id, inflight_key, create_lifecycle
     ):
-        """Contract: the lifecycle must trigger consumption to process
-        subsequent tasks."""
+        """Contract: the lifecycle must wake the local drain loop after a task completes.
+
+        Cross-process notification is published atomically inside
+        ``release.lua``; the only Python-side wake left is
+        ``_schedule_drain`` for this worker's own drain loop.
+        """
         # Arrange
         await async_redis_client.zadd(mock_limiter.concurrency_key, {task_id: 100})
         await async_redis_client.set(inflight_key, "1")
@@ -144,13 +148,13 @@ class TaskLifecycleContractTest:
             pass
 
         # Assert
-        mock_limiter.trigger_consume.assert_called_once()
+        mock_limiter._schedule_drain.assert_called_once()
 
     @staticmethod
-    async def test_lifecycle_triggers_consume_even_on_exception(
+    async def test_lifecycle_wakes_local_drain_even_on_exception(
         async_redis_client, mock_limiter, task_id, inflight_key, create_lifecycle
     ):
-        """Contract: ``trigger_consume`` must be called even when the task fails."""
+        """Contract: the local drain wake must fire even when the task raises."""
         # Arrange
         await async_redis_client.zadd(mock_limiter.concurrency_key, {task_id: 100})
         await async_redis_client.set(inflight_key, "1")
@@ -161,4 +165,4 @@ class TaskLifecycleContractTest:
                 raise RuntimeError("Simulated crash")
 
         # Assert
-        mock_limiter.trigger_consume.assert_called_once()
+        mock_limiter._schedule_drain.assert_called_once()

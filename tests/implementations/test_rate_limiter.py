@@ -171,6 +171,29 @@ class RateLimiterImplementationTests:
         )
 
     @staticmethod
+    async def test_schedule_different_func_paths_produce_different_task_ids(
+        limiter, async_redis_client
+    ):
+        """Verify that tasks with different func_paths but identical payloads
+        produce distinct task identifiers."""
+        # Arrange
+        payload = {"user_id": 123}
+
+        # Act
+        success_a, task_id_a = await limiter.schedule_task("myapp.tasks.work_a", payload)
+        success_b, task_id_b = await limiter.schedule_task("myapp.tasks.work_b", payload)
+
+        # Assert
+        assert success_a is True, "first task should be scheduled successfully"
+        assert success_b is True, "second task with different func_path should be scheduled"
+        assert task_id_a != task_id_b, (
+            "tasks with different func_paths must produce different task_ids"
+        )
+        assert await async_redis_client.zcard(limiter.buffer_key) == 2, (
+            "buffer should contain two distinct tasks"
+        )
+
+    @staticmethod
     async def test_schedule_task_default_priority_is_100(
         limiter, async_redis_client, func_path, payload
     ):
@@ -392,96 +415,6 @@ class RateLimiterImplementationTests:
         assert count == 3, "buffer count should match number of scheduled tasks"
 
     @staticmethod
-    async def test_execution_lock_forwards_all_attributes(limiter):
-        """Verify that ``execution_lock()`` forwards all limiter
-        attributes to the lock."""
-        # Act
-        lock = limiter.execution_lock()
-
-        # Assert
-        # cooldown_ms = min(int((window / limit) * 1000), 1000)
-        expected_cooldown = min(
-            int((limiter.window / limiter.limit) * 1000),
-            1000,
-        )
-        assert lock.cooldown_ms == expected_cooldown, (
-            f"lock cooldown_ms should be {expected_cooldown}, got {lock.cooldown_ms}"
-        )
-        assert lock.lock_key == limiter.lock_key, (
-            "lock_key must be forwarded from the limiter"
-        )
-        assert lock.worker_id == limiter._worker_id, (
-            "worker_id must be forwarded from the limiter"
-        )
-        assert lock.contention_key == limiter.contention_key, (
-            "contention_key must be forwarded from the limiter"
-        )
-        assert lock.timeout_ms == 5000, (
-            "timeout_ms must default to 5000 when not explicitly provided"
-        )
-
-    @staticmethod
-    async def test_execution_lock_receives_redis_client(limiter):
-        """Verify that ``execution_lock()`` passes the limiter's
-        Redis client to the lock constructor."""
-        # Act
-        lock = limiter.execution_lock()
-
-        # Assert
-        actual_limiter = getattr(limiter, "_inner", limiter)
-        assert lock.redis is actual_limiter.redis, (
-            "lock redis client must be the limiter's redis client"
-        )
-
-    @staticmethod
-    async def test_contention_key_follows_redis_key_convention(limiter):
-        """Verify that ``contention_key`` is derived from the
-        limiter id with the expected suffix."""
-        # Assert
-        assert limiter.contention_key == f"{limiter.id}:dispatch_lock:contention", (
-            "contention_key must follow the {id}:dispatch_lock:contention format"
-        )
-
-    @staticmethod
-    async def test_execution_lock_cooldown_below_cap_reflects_multiplier(limiter):
-        """Verify that cooldown_ms reflects the ``* 1000``
-        multiplier when below the cap."""
-        # Arrange
-        original_window, original_limit = limiter.window, limiter.limit
-        limiter.window, limiter.limit = 2, 3
-
-        try:
-            # Act
-            lock = limiter.execution_lock()
-
-            # Assert
-            assert lock.cooldown_ms == 666, (
-                f"cooldown_ms should be int((2/3)*1000)=666, got {lock.cooldown_ms}"
-            )
-        finally:
-            limiter.window, limiter.limit = original_window, original_limit
-
-    @staticmethod
-    async def test_execution_lock_cooldown_is_zero_when_limit_is_zero(limiter):
-        """Verify that ``execution_lock()`` sets ``cooldown_ms``
-        to zero when ``limit`` is zero."""
-        # Arrange
-        original_limit = limiter.limit
-        limiter.limit = 0
-
-        try:
-            # Act
-            lock = limiter.execution_lock()
-
-            # Assert
-            assert lock.cooldown_ms == 0, (
-                "cooldown_ms should be zero when limit is zero "
-                "to avoid division by zero"
-            )
-        finally:
-            limiter.limit = original_limit
-
-    @staticmethod
     async def test_consume_lease_expiry_reflects_configured_duration(
         limiter, async_redis_client, func_path, payload
     ):
@@ -562,27 +495,42 @@ class RateLimiterImplementationTests:
         assert result["val_current"] == 600, "val_current must map to result[7]"
 
     @staticmethod
-    async def test_consume_expired_result_sets_correct_flags(limiter):
-        """Verify that ``consume()`` correctly parses the expired
-        indicator (``result[0]="-1"``)."""
+    @pytest.mark.parametrize(
+        (
+            "result_code",
+            "expected_success",
+            "expected_expired",
+            "expected_marker_skipped",
+            "expected_yielded",
+        ),
+        [
+            ("-1", False, True, False, False),
+            ("0", False, False, False, False),
+            ("-2", False, False, True, False),
+            ("-3", False, False, False, True),
+        ],
+        ids=["expired", "denied", "marker_skipped", "yielded"],
+    )
+    async def test_consume_non_success_result_sets_correct_flags(
+        limiter,
+        result_code,
+        expected_success,
+        expected_expired,
+        expected_marker_skipped,
+        expected_yielded,
+    ):
+        """Verify that ``consume()`` correctly parses the boolean flags
+        for each non-success result code."""
         # Arrange
-        task_json = json.dumps(
-            {
-                "id": "expired-task",
-                "func_path": "tests.helpers.tasks.noop_task",
-                "payload": {"expired": True},
-                "inflight_key": "test:inflight:expired-task",
-            }
-        )
         sentinel_result = [
-            "-1",  # [0] expired flag
-            task_json,  # [1] task data (Lua returns task data even for expired tasks)
-            "10",  # [2] remaining_tokens
-            "0",  # [3] active_concurrency
-            "500",  # [4] reset_in_ms
-            "3",  # [5] remaining_tasks
-            "5",  # [6] val_previous
-            "2",  # [7] val_current
+            result_code,
+            "",
+            "10",
+            "0",
+            "500",
+            "3",
+            "5",
+            "2",
         ]
 
         # Act
@@ -590,68 +538,21 @@ class RateLimiterImplementationTests:
             result = await limiter.consume()
 
         # Assert
-        assert result["expired"] is True, (
-            "expired should be True when result[0] is '-1'"
+        assert result["success"] is expected_success, (
+            f"success should be {expected_success} for result code '{result_code}'"
         )
-        assert result["success"] is False, (
-            "success should be False when result[0] is '-1'"
+        assert result["expired"] is expected_expired, (
+            f"expired should be {expected_expired} for result code '{result_code}'"
         )
-
-    @staticmethod
-    async def test_consume_denied_result_sets_correct_flags(limiter):
-        """Verify that ``consume()`` correctly parses the denied
-        indicator (``result[0]="0"``)."""
-        # Arrange
-        sentinel_result = [
-            "0",  # [0] denied flag
-            "",  # [1] no task data
-            "0",  # [2] remaining_tokens
-            "2",  # [3] active_concurrency
-            "100",  # [4] reset_in_ms
-            "5",  # [5] remaining_tasks
-            "10",  # [6] val_previous
-            "5",  # [7] val_current
-        ]
-
-        # Act
-        with RateLimiterImplementationTests._mock_eval_script(limiter, sentinel_result):
-            result = await limiter.consume()
-
-        # Assert
-        assert result["success"] is False, (
-            "success should be False when result[0] is '0'"
+        assert result["marker_skipped"] is expected_marker_skipped, (
+            f"marker_skipped should be {expected_marker_skipped} for result code '{result_code}'"
         )
-        assert result["expired"] is False, (
-            "expired should be False when result[0] is '0'"
+        assert result["yielded"] is expected_yielded, (
+            f"yielded should be {expected_yielded} for result code '{result_code}'"
         )
         assert result["task"] is None, (
             "task should be None when result[1] is an empty string"
         )
-
-    @staticmethod
-    async def test_execution_lock_cooldown_caps_at_1000ms(limiter):
-        """Verify that the execution lock cooldown is capped
-        at 1000ms for large window/limit ratios."""
-        # Arrange
-        actual_limiter = getattr(limiter, "_inner", limiter)
-        original_window = actual_limiter.window
-        original_limit = actual_limiter.limit
-        actual_limiter.window = 60
-        actual_limiter.limit = 1
-
-        try:
-            # Act
-            lock = actual_limiter.execution_lock()
-
-            # Assert
-            # Without cap: int((60/1) * 1000) = 60000
-            # With cap: min(60000, 1000) = 1000
-            assert lock.cooldown_ms == 1000, (
-                "cooldown should be capped at 1000ms, not the raw value of 60000ms"
-            )
-        finally:
-            actual_limiter.window = original_window
-            actual_limiter.limit = original_limit
 
 
 # ---------------------------------------------------------------------------

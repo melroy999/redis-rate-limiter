@@ -22,6 +22,14 @@ class TestDramatiqRateLimiter:
     """Tests that are specific to the Dramatiq backend dispatch and payload logic."""
 
     @staticmethod
+    def test_constructor_stores_broker_instance(limiter, dramatiq_broker):
+        """Verify that the constructor stores the provided broker instance."""
+        # Assert
+        assert limiter.broker is dramatiq_broker, (
+            "limiter must store the broker instance passed during construction"
+        )
+
+    @staticmethod
     def test_schedule_task_defaults_use_executor_to_true(
         limiter, redis_client, func_path, payload
     ):

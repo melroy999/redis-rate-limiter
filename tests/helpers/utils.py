@@ -9,25 +9,219 @@ import logging
 import math
 import time
 from contextlib import contextmanager
-from threading import Timer
-from typing import Generator
+from threading import Thread, Timer
+from typing import Any, Callable, Generator, Optional
+from unittest.mock import MagicMock
 
 import pytest
 
 
+def completes_within(fn: Callable[..., Any], timeout: float = 5.0) -> bool:
+    """Run ``fn`` in a daemon thread and return whether it completes within ``timeout`` seconds.
+
+    Works for both sync and async callables: coroutine functions are
+    executed via ``asyncio.run()`` inside the thread, creating an
+    isolated event loop. This catches event-loop starvation that
+    ``asyncio.wait_for`` cannot: if a spinning task monopolises the
+    loop, ``asyncio.run()`` never returns, the thread stays alive past
+    the join deadline, and this function returns ``False``.
+
+    Any exception raised by ``fn`` (including assertion failures) is
+    re-raised in the caller after the thread completes.
+    """
+    exc_holder: list[BaseException | None] = [None]
+
+    def _target() -> None:
+        try:
+            if asyncio.iscoroutinefunction(fn):
+                asyncio.run(fn())
+            else:
+                fn()
+        except BaseException as e:
+            exc_holder[0] = e
+
+    thread = Thread(target=_target, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+
+    if exc_holder[0] is not None:
+        raise exc_holder[0]
+
+    return not thread.is_alive()
+
+
+class IterationCapExceeded(BaseException):
+    """Raised by ``cap_iterations`` once its invocation cap is exceeded.
+
+    Subclasses ``BaseException`` (not ``Exception``) so a loop's broad
+    ``except Exception:`` cannot absorb it.  Without this guarantee, a
+    spin-class mutation in a loop with such a handler would burn CPU
+    until the test's wall-clock budget expires; under mutmut's parallel
+    execution this contributes to the SIGXCPU pressure that safety-net
+    tests are supposed to relieve.
+    """
+
+
+@contextmanager
+def cap_iterations(
+    target: Any,
+    attr: str,
+    *,
+    return_value: Any = None,
+    side_effect: Optional[Callable[..., Any]] = None,
+    cap: int = 10000,
+) -> Generator[Callable[[], int], None, None]:
+    """Patch ``target.attr`` with a counting stub for spin-class mutation detection.
+
+    Replaces the named attribute with a stub that records each invocation
+    and returns either ``side_effect(*args, **kwargs)`` (when supplied) or
+    ``return_value``. After ``cap`` calls the stub raises
+    ``IterationCapExceeded`` (a ``BaseException``) so the surrounding loop
+    is interrupted regardless of whether it wraps its iteration body in
+    ``except Exception:``.
+
+    The stub flavor is selected by introspecting the original attribute:
+    coroutine functions get an ``async def`` stub, others get a plain
+    function. When the original is async and ``side_effect`` returns a
+    coroutine, the stub awaits it.
+
+    Yields a zero-argument callable that returns the current invocation
+    count, so background-loop tests can assert on iteration rate after a
+    bounded sleep:
+
+        rate_limited = {"success": False, ..., "remaining_tasks": 1}
+        with cap_iterations(limiter, "consume", return_value=rate_limited) as count:
+            limiter.trigger_consume()
+            time.sleep(0.5)
+        assert count() < 50, f"drain spun: {count()} iterations in 0.5s"
+
+    Foreground tests where the cap exception propagates can rely on the
+    cap as the failure mechanism directly: install the wrapped callable on
+    a synchronous code path and expect ``IterationCapExceeded`` (or
+    whichever exception the surrounding code raises first).
+    """
+    state = {"count": 0}
+    original = getattr(target, attr)
+    is_async = asyncio.iscoroutinefunction(original)
+    label = f"{type(target).__name__}.{attr}"
+
+    def _resolve(args: tuple, kwargs: dict) -> Any:
+        if side_effect is not None:
+            return side_effect(*args, **kwargs)
+        return return_value
+
+    if is_async:
+
+        async def _stub(*args: Any, **kwargs: Any) -> Any:
+            state["count"] += 1
+            if state["count"] > cap:
+                raise IterationCapExceeded(
+                    f"call count exceeded cap of {cap} on {label}"
+                )
+            result = _resolve(args, kwargs)
+            if asyncio.iscoroutine(result):
+                result = await result
+            return result
+    else:
+
+        def _stub(*args: Any, **kwargs: Any) -> Any:
+            state["count"] += 1
+            if state["count"] > cap:
+                raise IterationCapExceeded(
+                    f"call count exceeded cap of {cap} on {label}"
+                )
+            return _resolve(args, kwargs)
+
+    setattr(target, attr, _stub)
+    try:
+        yield lambda: state["count"]
+    finally:
+        setattr(target, attr, original)
+
+
+@contextmanager
+def trip_after_deadline(
+    target: Any,
+    attr: str,
+    deadline_seconds: float,
+    *,
+    return_value: Any = None,
+    side_effect: Optional[Callable[..., Any]] = None,
+) -> Generator[Callable[[], int], None, None]:
+    """Patch ``target.attr`` to raise ``RuntimeError`` if invoked past a wall-clock deadline.
+
+    Wall-clock mirror of ``cap_iterations``: spin-class mutations on async loops
+    can starve the event loop so that ``asyncio.sleep`` never wakes to evaluate
+    a count assertion. Raising from inside the loop's own call path kills the
+    spinning task and frees the loop, allowing the test to progress.
+
+    Yields a zero-argument callable that returns the current invocation count,
+    so tests can still assert on iteration rate alongside the deadline guard.
+    """
+    state = {"count": 0}
+    deadline = time.monotonic() + deadline_seconds
+    original = getattr(target, attr)
+    is_async = asyncio.iscoroutinefunction(original)
+    label = f"{type(target).__name__}.{attr}"
+
+    def _resolve(args: tuple, kwargs: dict) -> Any:
+        if side_effect is not None:
+            return side_effect(*args, **kwargs)
+        return return_value
+
+    if is_async:
+
+        async def _stub(*args: Any, **kwargs: Any) -> Any:
+            state["count"] += 1
+            if time.monotonic() > deadline:
+                raise RuntimeError(
+                    f"call to {label} exceeded wall-clock deadline of"
+                    f" {deadline_seconds}s"
+                )
+            result = _resolve(args, kwargs)
+            if asyncio.iscoroutine(result):
+                result = await result
+            return result
+    else:
+
+        def _stub(*args: Any, **kwargs: Any) -> Any:
+            state["count"] += 1
+            if time.monotonic() > deadline:
+                raise RuntimeError(
+                    f"call to {label} exceeded wall-clock deadline of"
+                    f" {deadline_seconds}s"
+                )
+            return _resolve(args, kwargs)
+
+    setattr(target, attr, _stub)
+    try:
+        yield lambda: state["count"]
+    finally:
+        setattr(target, attr, original)
+
+
 @contextmanager
 def shutdown_timer(
-    obj: object,
+    obj: Optional[object] = None,
     timeout: float = 0.5,
     attr: str = "_shutdown",
+    *,
+    on_fire: Optional[Callable[[], None]] = None,
 ) -> Generator[Timer, None, None]:
     """Set a shutdown flag after *timeout* seconds so that a ``_run()``
     loop under test exits cleanly.
 
-    This is the primary shutdown mechanism for tests that invoke ``_run()``
-    directly rather than going through ``start()`` / ``shutdown()``.
+    Default behaviour: ``setattr(obj, attr, True)`` after *timeout* seconds.
+    Pass ``on_fire`` to invoke a custom callback instead, e.g. when the loop
+    waits on an :class:`asyncio.Event` that must be signalled via
+    ``loop.call_soon_threadsafe(...)`` from the timer's worker thread.
     """
-    timer = Timer(timeout, lambda: setattr(obj, attr, True))
+    if on_fire is None:
+        if obj is None:
+            raise ValueError("shutdown_timer requires either obj or on_fire")
+        captured_obj, captured_attr = obj, attr
+        on_fire = lambda: setattr(captured_obj, captured_attr, True)  # noqa: E731
+    timer = Timer(timeout, on_fire)
     timer.start()
     try:
         yield timer
@@ -78,23 +272,19 @@ def dict_equals_approx(left, right, relative_tolerance=1e-9, absolute_tolerance=
     Returns:
         True if the values are approximately equal, False otherwise.
     """
-    # Handle the case where both values are None.
     if left is None and right is None:
         return True
     if left is None or right is None:
         return False
 
-    # Handle the case where the types differ.
     if type(left) is not type(right):
         return False
 
-    # Handle float values with approximate equality.
     if isinstance(left, float):
         return math.isclose(
             left, right, rel_tol=relative_tolerance, abs_tol=absolute_tolerance
         )
 
-    # Handle dictionaries recursively.
     if isinstance(left, dict):
         if set(left.keys()) != set(right.keys()):
             return False
@@ -105,7 +295,6 @@ def dict_equals_approx(left, right, relative_tolerance=1e-9, absolute_tolerance=
             for key in left.keys()
         )
 
-    # Handle lists recursively.
     if isinstance(left, list):
         if len(left) != len(right):
             return False
@@ -116,7 +305,6 @@ def dict_equals_approx(left, right, relative_tolerance=1e-9, absolute_tolerance=
             for i in range(len(left))
         )
 
-    # For all remaining types (i.e., int, str, bool), exact equality is used.
     return left == right
 
 
@@ -219,6 +407,39 @@ def clear_limiter_keys(redis_client, limiter) -> None:
     )
 
 
+@contextmanager
+def property_test_cleanup(
+    redis_client: Any,
+    limiter: Any,
+    task_ids: list[str] | None = None,
+) -> Generator[list[str], None, None]:
+    """Context manager that ensures clean Redis state for property-based tests.
+
+    On entry, clears the limiter's non-expiring keys to ensure a clean
+    starting state. On exit, clears the same keys again and deletes all
+    in-flight keys for the collected task IDs.
+
+    Args:
+        redis_client: A sync Redis client.
+        limiter: The rate limiter instance whose keys should be cleaned.
+        task_ids: Optional pre-populated list of task IDs. If ``None``,
+            a fresh empty list is created. Callers should append task IDs
+            to this list as tasks are scheduled during the test.
+
+    Yields:
+        A mutable list of task IDs. The caller should append IDs of any
+        tasks scheduled during the test body.
+    """
+    ids: list[str] = task_ids if task_ids is not None else []
+    clear_limiter_keys(redis_client, limiter)
+    try:
+        yield ids
+    finally:
+        clear_limiter_keys(redis_client, limiter)
+        for tid in ids:
+            redis_client.delete(limiter.get_inflight_key(tid))
+
+
 def cleanup_managed_limiter(redis_client, limiter_id: str) -> None:
     """Delete all Redis state for a managed limiter created via ``create()``.
 
@@ -268,3 +489,30 @@ def is_subset(target: dict, superset: dict):
         elif value != superset[key]:
             return False
     return True
+
+
+def assert_shutdown_join_timeout_warning(
+    component_class, label, limiter_id, caplog, *, constructor_kwargs=None
+):
+    limiter = MagicMock()
+    limiter.id = limiter_id
+    component = component_class(limiter, **(constructor_kwargs or {}))
+    mock_thread = MagicMock()
+    mock_thread.is_alive.return_value = True
+    component._thread = mock_thread
+
+    with caplog.at_level(
+        logging.WARNING, logger="redis_rate_limiter.core.limiters"
+    ):
+        component.shutdown()
+
+    assert_log_emitted(
+        caplog.records,
+        level="WARNING",
+        label=label,
+        required_fragments=[f"limiter={limiter_id}", "thread still alive"],
+        message=(
+            f"should emit a warning when {label} thread"
+            " does not exit within join timeout"
+        ),
+    )

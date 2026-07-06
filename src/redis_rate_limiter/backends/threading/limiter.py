@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, ClassVar, Optional
 
 from redis import Redis
@@ -124,7 +124,19 @@ class ThreadPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimit
                 with self._local_dispatch_lock:
                     self._local_dispatched -= 1
 
-        self.executor.submit(_run_task)
+        def _log_task_exception(fut: Future[None]) -> None:
+            exc = fut.exception()
+            if exc is not None:
+                logger.error(
+                    "[ThreadPoolRateLimiter] Task raised an exception: limiter=%s, task_id=%s, func_path=%s.",
+                    self.id,
+                    task_id,
+                    func_path,
+                    exc_info=exc,
+                )
+
+        future = self.executor.submit(_run_task)
+        future.add_done_callback(_log_task_exception)
         logger.debug(
             "[ThreadPoolRateLimiter] Task submitted to thread pool: limiter=%s, task_id=%s, func_path=%s, local_dispatched=%d.",
             self.id,

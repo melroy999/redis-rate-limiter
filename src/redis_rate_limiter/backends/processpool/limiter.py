@@ -125,8 +125,20 @@ class ProcessPoolRateLimiter(SyncManagedRateLimiter, AbstractDistributedRateLimi
         future = self.executor.submit(target_func, **payload)
 
         def _on_done(f: Future[Any]) -> None:
+            exc = f.exception()
+            if exc is not None:
+                logger.error(
+                    "[ProcessPoolRateLimiter] Task raised an exception: limiter=%s, task_id=%s, func_path=%s.",
+                    self.id,
+                    task_id,
+                    func_path,
+                    exc_info=exc,
+                )
             try:
-                lifecycle.__exit__(None, None, None)
+                if exc is None:
+                    lifecycle.__exit__(None, None, None)
+                else:
+                    lifecycle.__exit__(type(exc), exc, exc.__traceback__)
             finally:
                 with self._local_dispatch_lock:
                     self._local_dispatched -= 1

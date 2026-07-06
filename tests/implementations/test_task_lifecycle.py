@@ -14,27 +14,37 @@ import inspect
 import logging
 import os
 import signal
+import threading
 import time
 from unittest.mock import MagicMock, patch
 
 import pytest
+import redis
 
 from redis_rate_limiter import TaskLifecycle
+from redis_rate_limiter.core.limiters import HeartbeatScheduler
+from redis_rate_limiter.core.scripts import load_lua_script
 from tests.contracts.test_task_lifecycle import TaskLifecycleContractTest
-from tests.helpers.utils import assert_log_emitted
+from tests.helpers.utils import assert_log_emitted, assert_shutdown_join_timeout_warning
 from tests.implementations.conftest import (
     HEARTBEAT_OVERRIDE_CASES,
     HeartbeatFailureMode,
+    NoopHeartbeatScheduler,
     StubRateLimiter,
+    make_eval_script,
 )
+
+RELEASE_SOURCE = load_lua_script("release.lua")
 
 
 @pytest.fixture
 def mock_limiter(redis_client, limiter_id, task_id):
-    """Create a mock limiter that uses the real Redis client but mocks internal helpers.
+    """Create a mock limiter with real Redis but mocked backend methods.
 
-    This fixture provides a limiter with real Redis operations but mocked
-    Celery-specific methods, thereby avoiding the need for a full Celery setup.
+    Uses ``NoopHeartbeatScheduler`` to avoid spawning real threads;
+    mutations on the scheduler loop would otherwise create busy loops
+    in mutmut's forked children. Tests that need real heartbeat
+    behaviour should attach a ``HeartbeatScheduler`` explicitly.
     """
     limiter = MagicMock()
     limiter.redis = redis_client
@@ -44,10 +54,30 @@ def mock_limiter(redis_client, limiter_id, task_id):
 
     # A short duration is used for fast test execution.
     limiter.lease_duration = 0.2
-
-    # Configure the return value for background thread tests.
     limiter.extend_lease.return_value = None
+
+    # Wire _eval_script to actually run scripts via the real Redis client.
+    limiter._eval_script.side_effect = make_eval_script(redis_client)
+
+    # release.lua needs the drain channel and worker id.
+    limiter._drain_signal_channel = f"{limiter_id}:drain_signal"
+    limiter._worker_id = f"{limiter_id}_worker"
+
+    limiter._heartbeat_scheduler = NoopHeartbeatScheduler()
     return limiter
+
+
+@pytest.fixture
+def scheduler_limiter(mock_limiter):
+    """``mock_limiter`` with a real ``HeartbeatScheduler`` attached.
+
+    Used by tests that need actual heartbeat renewal. The noop scheduler
+    from ``mock_limiter`` is replaced so the scheduler thread fires.
+    """
+    scheduler = HeartbeatScheduler(mock_limiter)
+    mock_limiter._heartbeat_scheduler = scheduler
+    yield mock_limiter
+    scheduler.shutdown()
 
 
 @pytest.fixture
@@ -139,23 +169,34 @@ class TestTaskLifecycleImplementation:
         redis_client, mock_limiter, task_id, inflight_key
     ):
         """Verify that the lifecycle raises an exception but
-        still triggers consume on Redis failure.
+        still wakes the local drain loop on Redis failure.
         """
         # Arrange
+        # The cleanup path calls release.lua via _eval_script; simulate a
+        # Redis failure by making _eval_script raise on the cleanup call.
+        mock_limiter._eval_script.side_effect = ConnectionError("Redis connection lost")
+
+        # Act & Assert
+        with pytest.raises(ConnectionError, match="Redis connection lost"):
+            with TaskLifecycle(mock_limiter, task_id):
+                pass
+
+        mock_limiter._eval_script.assert_called_once()
+        mock_limiter._schedule_drain.assert_called_once()
+
+    @staticmethod
+    def test_exit_deregisters_with_correct_task_id(mock_limiter, task_id):
+        """Verify that ``__exit__`` calls deregister with the exact task_id."""
+        # Arrange
         with patch.object(
-            mock_limiter.redis,
-            "zrem",
-            side_effect=ConnectionError("Redis connection lost"),
-        ) as mock_zrem:
-            # Act & Assert
-            with patch("redis_rate_limiter.core.limiters.Thread"):
-                with pytest.raises(ConnectionError, match="Redis connection lost"):
-                    with TaskLifecycle(mock_limiter, task_id):
-                        pass
+            mock_limiter._heartbeat_scheduler, "deregister"
+        ) as mock_deregister:
+            # Act
+            with TaskLifecycle(mock_limiter, task_id):
+                pass
 
-                mock_zrem.assert_called_once()
-
-        mock_limiter.trigger_consume.assert_called_once()
+        # Assert
+        mock_deregister.assert_called_once_with(task_id)
 
     @staticmethod
     def test_empty_task_id_skips_inflight_cleanup(redis_client, limiter_id):
@@ -167,14 +208,24 @@ class TestTaskLifecycleImplementation:
         limiter.id = limiter_id
         limiter.lease_duration = 0.2
         limiter.extend_lease.return_value = None
+        limiter._eval_script.side_effect = make_eval_script(redis_client)
+        limiter._drain_signal_channel = f"{limiter_id}:drain_signal"
+        limiter._worker_id = f"{limiter_id}_worker"
+        limiter._heartbeat_scheduler = HeartbeatScheduler(limiter)
 
-        # Act
-        with patch("redis_rate_limiter.core.limiters.Thread"):
+        try:
+            # Act
             with TaskLifecycle(limiter, task_id=""):
                 pass
+        finally:
+            limiter._heartbeat_scheduler.shutdown()
 
         # Assert
-        limiter.trigger_consume.assert_called_once()
+        limiter._schedule_drain.assert_called_once()
+        call_args = limiter._eval_script.call_args
+        assert call_args[0][3] == "", (
+            "inflight key should be empty string when task_id is empty"
+        )
 
     @staticmethod
     @pytest.mark.parametrize(
@@ -246,63 +297,6 @@ class TestTaskLifecycleImplementation:
 
 
 # ---------------------------------------------------------------------------
-# Boundary tests
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.behavior
-class TestTaskLifecycleBoundary:
-    """Boundary condition tests for ``TaskLifecycle`` thread management."""
-
-    @staticmethod
-    def test_heartbeat_thread_is_daemon(mock_limiter, task_id):
-        """Verify that the heartbeat thread is started as a daemon
-        so it does not prevent process shutdown.
-
-        Mutation target: ``daemon=True`` in
-        ``TaskLifecycle.__enter__``.
-        """
-        # Act
-        with TaskLifecycle(mock_limiter, task_id) as lifecycle:
-            thread = lifecycle._thread
-
-            # Assert
-            assert thread.daemon is True, "heartbeat thread must be a daemon thread"
-
-    @staticmethod
-    def test_heartbeat_thread_join_uses_timeout(mock_limiter, task_id):
-        """Verify that ``__exit__`` joins the heartbeat thread
-        with a bounded timeout to prevent indefinite blocking."""
-        # Arrange
-        mock_thread = MagicMock()
-        mock_thread.is_alive.return_value = True
-
-        with patch("redis_rate_limiter.core.limiters.Thread", return_value=mock_thread):
-            # Act
-            with TaskLifecycle(mock_limiter, task_id):
-                pass
-
-        # Assert
-        mock_thread.join.assert_called_once_with(timeout=1.0)
-
-    @staticmethod
-    def test_exit_skips_join_when_thread_is_not_alive(mock_limiter, task_id):
-        """Verify that ``__exit__`` does not join the heartbeat thread
-        when it has already terminated on its own."""
-        # Arrange
-        mock_thread = MagicMock()
-        mock_thread.is_alive.return_value = False
-
-        with patch("redis_rate_limiter.core.limiters.Thread", return_value=mock_thread):
-            # Act
-            with TaskLifecycle(mock_limiter, task_id):
-                pass
-
-        # Assert
-        mock_thread.join.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
 # Observability tests
 # ---------------------------------------------------------------------------
 
@@ -310,6 +304,33 @@ class TestTaskLifecycleBoundary:
 @pytest.mark.observability
 class TestTaskLifecycleObservability:
     """Observability tests for the ``TaskLifecycle`` context manager log emissions."""
+
+    @staticmethod
+    def test_lifecycle_entry_emits_debug_log(mock_limiter, task_id, caplog):
+        """Verify that lifecycle entry emits a DEBUG log with
+        limiter id, task id, and heartbeat interval.
+        """
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
+            with TaskLifecycle(mock_limiter, task_id):
+                pass
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label="[TaskLifecycle]",
+            required_fragments=[
+                f"limiter={mock_limiter.id}",
+                f"task_id={task_id}",
+                f"heartbeat_interval_s={mock_limiter.lease_duration / 2:.1f}",
+            ],
+            message=(
+                "should emit a debug log for lifecycle entry"
+                " with limiter id, task id,"
+                " and heartbeat interval"
+            ),
+        )
 
     @staticmethod
     def test_lifecycle_cleanup_emits_debug_log(
@@ -322,9 +343,8 @@ class TestTaskLifecycleObservability:
 
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
-            with patch("redis_rate_limiter.core.limiters.Thread"):
-                with TaskLifecycle(mock_limiter, task_id):
-                    pass
+            with TaskLifecycle(mock_limiter, task_id):
+                pass
 
         # Assert
         assert_log_emitted(
@@ -345,6 +365,35 @@ class TestTaskLifecycleObservability:
         )
 
     @staticmethod
+    def test_lifecycle_cleanup_distinguishes_concurrency_from_inflight(
+        redis_client, mock_limiter, task_id, caplog
+    ):
+        """Verify that ``__exit__`` correctly maps result[0] to
+        removed_concurrency and result[1] to removed_inflight."""
+        # Arrange
+        redis_client.zadd(mock_limiter.concurrency_key, {task_id: 100})
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
+            with TaskLifecycle(mock_limiter, task_id):
+                pass
+
+        # Assert
+        assert_log_emitted(
+            caplog.records,
+            level="DEBUG",
+            label="[TaskLifecycle]",
+            required_fragments=[
+                "removed_concurrency=True",
+                "removed_inflight=False",
+            ],
+            message=(
+                "cleanup log must correctly attribute removal to concurrency"
+                " (result[0]) and inflight (result[1]) independently"
+            ),
+        )
+
+    @staticmethod
     def test_empty_task_id_emits_removed_inflight_false(
         redis_client, limiter_id, caplog
     ):
@@ -358,12 +407,20 @@ class TestTaskLifecycleObservability:
         limiter.id = limiter_id
         limiter.lease_duration = 0.2
         limiter.extend_lease.return_value = None
+        limiter._eval_script.side_effect = make_eval_script(redis_client)
+        limiter._drain_signal_channel = f"{limiter_id}:drain_signal"
+        limiter._worker_id = f"{limiter_id}_worker"
+        limiter._heartbeat_scheduler = HeartbeatScheduler(limiter)
 
-        # Act
-        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
-            with patch("redis_rate_limiter.core.limiters.Thread"):
+        try:
+            # Act
+            with caplog.at_level(
+                logging.DEBUG, logger="redis_rate_limiter.core.limiters"
+            ):
                 with TaskLifecycle(limiter, task_id=""):
                     pass
+        finally:
+            limiter._heartbeat_scheduler.shutdown()
 
         # Assert
         assert_log_emitted(
@@ -381,9 +438,8 @@ class TestTaskLifecycleObservability:
         """
         # Act
         with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
-            with patch("redis_rate_limiter.core.limiters.Thread"):
-                with TaskLifecycle(mock_limiter, task_id):
-                    pass
+            with TaskLifecycle(mock_limiter, task_id):
+                pass
 
         # Assert
         assert_log_emitted(
@@ -402,22 +458,19 @@ class TestTaskLifecycleObservability:
 
 
 # ---------------------------------------------------------------------------
-# Heartbeat loop tests
+# Heartbeat scheduler tests
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.behavior
-class TestHeartbeatLoop:
-    """Tests for the heartbeat loop that periodically extends the task lease."""
+class TestTaskLifecycleInterval:
+    """Verify the lifecycle exposes the heartbeat interval to its callers."""
 
     @staticmethod
     def test_heartbeat_interval_calculation(mock_limiter, task_id):
-        """Verify that the heartbeat interval is correctly
-        calculated as ``lease_duration / 2``.
-        """
+        """Verify that ``lifecycle.interval`` is ``lease_duration / 2``."""
         # Arrange & Act
-        with patch("redis_rate_limiter.core.limiters.Thread"):
-            lifecycle = TaskLifecycle(mock_limiter, task_id)
+        lifecycle = TaskLifecycle(mock_limiter, task_id)
 
         # Assert
         expected_interval = mock_limiter.lease_duration / 2
@@ -425,63 +478,119 @@ class TestHeartbeatLoop:
             f"interval must be lease_duration / 2 = {expected_interval} seconds"
         )
 
+
+@pytest.mark.behavior
+class TestHeartbeatScheduler:
+    """Tests for the shared ``HeartbeatScheduler`` that renews task leases."""
+
     @staticmethod
-    @pytest.mark.timeout_safety_net
-    def test_heartbeat_loop_restores_health_on_recovery(
-        redis_client, mock_limiter, task_id
-    ):
-        """Verify that the heartbeat loop restores the health
-        status after recovering from a failure.
-        """
+    def test_register_returns_entry_with_initial_state(scheduler_limiter, task_id):
+        """Verify that register returns an entry with the expected fields."""
         # Act
-        with TaskLifecycle(mock_limiter, task_id) as lifecycle:
-            lifecycle.is_healthy = False
-            time.sleep(0.75 * mock_limiter.lease_duration)
+        entry = scheduler_limiter._heartbeat_scheduler.register(task_id, "warn")
+
+        try:
+            # Assert
+            assert entry.task_id == task_id, "entry must carry the task id"
+            assert entry.on_failure_action == "warn", (
+                "entry must carry the on_failure_action"
+            )
+            assert entry.is_healthy is True, "entry must start in a healthy state"
+        finally:
+            scheduler_limiter._heartbeat_scheduler.deregister(task_id)
+
+    @staticmethod
+    def test_register_then_deregister_removes_entry(scheduler_limiter, task_id):
+        """Verify that ``get_entry`` returns ``None`` after deregistration."""
+        # Arrange
+        scheduler_limiter._heartbeat_scheduler.register(task_id, "warn")
+
+        # Act
+        scheduler_limiter._heartbeat_scheduler.deregister(task_id)
+
+        # Assert
+        assert scheduler_limiter._heartbeat_scheduler.get_entry(task_id) is None, (
+            "deregistered task must not be retrievable via get_entry"
+        )
+
+    @staticmethod
+    def test_multiple_tasks_renewed_independently(scheduler_limiter):
+        """Verify that several tasks registered concurrently all see renewals."""
+        # Arrange
+        scheduler = scheduler_limiter._heartbeat_scheduler
+        task_ids = ["task_a", "task_b", "task_c"]
+        for tid in task_ids:
+            scheduler.register(tid, "warn")
+
+        try:
+            # Act
+            time.sleep(0.75 * scheduler_limiter.lease_duration)
 
             # Assert
-            assert lifecycle.is_healthy, "lifecycle must restore health after recovery"
+            renewed_ids = {
+                call[0][0] for call in scheduler_limiter.extend_lease.call_args_list
+            }
+            for tid in task_ids:
+                assert tid in renewed_ids, (
+                    f"extend_lease must be called for registered task {tid}"
+                )
+            assert scheduler_limiter.extend_lease.call_count <= 30, (
+                f"extend_lease called {scheduler_limiter.extend_lease.call_count} "
+                "times; renewal rate exceeds expected interval"
+            )
+        finally:
+            for tid in task_ids:
+                scheduler.deregister(tid)
 
     @staticmethod
-    @pytest.mark.timeout_safety_net
-    def test_heartbeat_loop_flags_unhealthy_on_failure_warn_mode(
-        redis_client, mock_limiter, task_id
-    ):
-        """Verify that the heartbeat loop flags the lifecycle
-        as unhealthy on failure in warn mode.
-        """
+    def test_heartbeat_recovery_restores_entry_health(scheduler_limiter, task_id):
+        """Verify that an unhealthy entry recovers when ``extend_lease`` succeeds."""
         # Arrange
-        mock_limiter.extend_lease.side_effect = Exception("Simulated Redis failure")
+        with TaskLifecycle(scheduler_limiter, task_id) as lifecycle:
+            # Act
+            lifecycle.is_healthy = False
+            time.sleep(0.75 * scheduler_limiter.lease_duration)
+
+            # Assert
+            assert lifecycle.is_healthy, "entry must restore health after recovery"
+
+    @staticmethod
+    def test_heartbeat_failure_warn_mode_marks_entry_unhealthy(
+        scheduler_limiter, task_id
+    ):
+        """Verify that warn mode flags the entry as unhealthy on failure."""
+        # Arrange
+        scheduler_limiter.extend_lease.side_effect = redis.RedisError(
+            "Simulated Redis failure"
+        )
 
         # Act
         with patch("os.kill") as mock_kill:
             with TaskLifecycle(
-                mock_limiter, task_id, on_heartbeat_failure="warn"
+                scheduler_limiter, task_id, on_heartbeat_failure="warn"
             ) as lifecycle:
-                time.sleep(0.75 * mock_limiter.lease_duration)
+                time.sleep(0.75 * scheduler_limiter.lease_duration)
 
                 # Assert
                 assert not lifecycle.is_healthy, (
-                    "lifecycle must be marked unhealthy after heartbeat failure"
+                    "entry must be marked unhealthy after heartbeat failure"
                 )
                 assert mock_kill.call_count == 0, (
                     "os.kill must not be called in warn mode"
                 )
 
     @staticmethod
-    @pytest.mark.timeout_safety_net
-    def test_heartbeat_loop_terminates_worker_on_failure_kill_mode(
-        redis_client, mock_limiter, task_id
-    ):
-        """Verify that the heartbeat loop terminates the
-        worker on failure in kill mode.
-        """
+    def test_heartbeat_failure_kill_mode_terminates_worker(scheduler_limiter, task_id):
+        """Verify that kill mode terminates the worker on failure."""
         # Arrange
-        mock_limiter.extend_lease.side_effect = Exception("Simulated Redis failure")
+        scheduler_limiter.extend_lease.side_effect = redis.RedisError(
+            "Simulated Redis failure"
+        )
 
         # Act & Assert
         with patch("os.kill") as mock_kill:
-            with TaskLifecycle(mock_limiter, task_id, on_heartbeat_failure="kill"):
-                time.sleep(0.75 * mock_limiter.lease_duration)
+            with TaskLifecycle(scheduler_limiter, task_id, on_heartbeat_failure="kill"):
+                time.sleep(0.75 * scheduler_limiter.lease_duration)
 
                 assert mock_kill.call_count > 0, (
                     "os.kill must be called in kill mode on heartbeat failure"
@@ -489,75 +598,237 @@ class TestHeartbeatLoop:
                 mock_kill.assert_called_with(os.getpid(), signal.SIGTERM)
 
     @staticmethod
-    @pytest.mark.timeout_safety_net
-    def test_heartbeat_loop_calls_extend_lease_with_correct_parameters(
-        redis_client, mock_limiter, task_id
-    ):
-        """Verify that the heartbeat loop calls
-        ``extend_lease`` with the correct ``task_id``
-        and duration.
-        """
+    def test_extend_lease_called_with_correct_parameters(scheduler_limiter, task_id):
+        """Verify that ``extend_lease`` is called with the right task id and duration."""
         # Act
-        with TaskLifecycle(mock_limiter, task_id):
-            time.sleep(0.75 * mock_limiter.lease_duration)
+        with TaskLifecycle(scheduler_limiter, task_id):
+            time.sleep(0.75 * scheduler_limiter.lease_duration)
 
         # Assert
-        assert mock_limiter.extend_lease.call_count >= 1, (
+        assert scheduler_limiter.extend_lease.call_count >= 1, (
             "extend_lease must be called at least once with correct parameters"
         )
-        for call in mock_limiter.extend_lease.call_args_list:
+        for call in scheduler_limiter.extend_lease.call_args_list:
             assert call[0][0] == task_id, "extend_lease must be called with task_id"
-            assert call[0][1] == mock_limiter.lease_duration, (
+            assert call[0][1] == scheduler_limiter.lease_duration, (
                 "extend_lease must be called with lease_duration"
             )
 
 
-# ---------------------------------------------------------------------------
-# Heartbeat observability tests
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.observability
-class TestHeartbeatLoopObservability:
-    """Observability tests for log emissions from the heartbeat loop."""
+@pytest.mark.behavior
+class TestHeartbeatSchedulerBoundary:
+    """Boundary tests for ``HeartbeatScheduler`` thread management."""
 
     @staticmethod
-    def test_lifecycle_entry_emits_debug_log(mock_limiter, task_id, caplog):
-        """Verify that lifecycle entry emits a DEBUG log with
-        limiter id, task id, and heartbeat interval.
-        """
+    def test_scheduler_thread_is_daemon(scheduler_limiter, task_id):
+        """Verify that the scheduler worker thread is a daemon."""
         # Act
-        with caplog.at_level(logging.DEBUG, logger="redis_rate_limiter.core.limiters"):
-            with TaskLifecycle(mock_limiter, task_id):
-                time.sleep(0.75 * mock_limiter.lease_duration)
+        scheduler_limiter._heartbeat_scheduler.register(task_id, "warn")
 
-        # Assert
-        assert_log_emitted(
-            caplog.records,
-            level="DEBUG",
-            label="[TaskLifecycle]",
-            required_fragments=[
-                f"limiter={mock_limiter.id}",
-                f"task_id={task_id}",
-                f"heartbeat_interval_s={mock_limiter.lease_duration / 2:.1f}",
-            ],
-            message=(
-                "should emit a debug log for lifecycle entry"
-                " with limiter id, task id,"
-                " and heartbeat interval"
-            ),
+        try:
+            # Assert
+            assert scheduler_limiter._heartbeat_scheduler._thread is not None, (
+                "scheduler thread must exist after the first registration"
+            )
+            assert scheduler_limiter._heartbeat_scheduler._thread.daemon is True, (
+                "scheduler thread must be a daemon thread"
+            )
+        finally:
+            scheduler_limiter._heartbeat_scheduler.deregister(task_id)
+
+    @staticmethod
+    def test_lazy_thread_start(redis_client, limiter_id):
+        """Verify that the worker thread is not started until first register."""
+        # Arrange
+        limiter = MagicMock()
+        limiter.id = limiter_id
+        limiter.lease_duration = 0.2
+        scheduler = HeartbeatScheduler(limiter)
+
+        try:
+            # Assert
+            assert scheduler._thread is None, (
+                "worker thread must not exist before any task is registered"
+            )
+            assert scheduler._shutdown is False, (
+                "scheduler must initialize with _shutdown set to False"
+            )
+        finally:
+            scheduler.shutdown()
+
+    @staticmethod
+    def test_shutdown_is_idempotent(redis_client, limiter_id):
+        """Verify that calling shutdown twice does not raise."""
+        # Arrange
+        limiter = MagicMock()
+        limiter.id = limiter_id
+        limiter.lease_duration = 0.2
+        scheduler = HeartbeatScheduler(limiter)
+        scheduler.register("task-1", "warn")
+
+        # Act
+        scheduler.shutdown()
+        scheduler.shutdown()  # second call must be safe
+
+        # Assert: no exception raised; thread is no longer alive.
+        assert scheduler._thread is None or not scheduler._thread.is_alive(), (
+            "worker thread must be stopped after shutdown"
         )
 
     @staticmethod
-    def test_heartbeat_recovery_emits_info_log(mock_limiter, task_id, caplog):
+    def test_thread_restart_after_shutdown_and_reregister(redis_client, limiter_id):
+        """Verify that registering after shutdown revives the worker thread."""
+        # Arrange
+        limiter = MagicMock()
+        limiter.id = limiter_id
+        limiter.lease_duration = 0.2
+        limiter.extend_lease.return_value = None
+        scheduler = HeartbeatScheduler(limiter)
+        scheduler.register("task-1", "warn")
+        scheduler.shutdown()
+
+        # Act
+        scheduler.register("task-2", "warn")
+
+        try:
+            # Assert
+            assert scheduler._thread is not None, (
+                "scheduler must spawn a new thread after shutdown + register"
+            )
+            assert scheduler._thread.is_alive(), (
+                "scheduler thread must be alive after restart"
+            )
+        finally:
+            scheduler.shutdown()
+
+    @staticmethod
+    def test_stale_heap_entry_is_skipped(scheduler_limiter, task_id):
+        """Verify that a deregistered task's leftover heap entry does
+        not trigger a renewal.
+        """
+        # Arrange
+        scheduler = scheduler_limiter._heartbeat_scheduler
+        scheduler.register(task_id, "warn")
+        scheduler.deregister(task_id)
+        scheduler.register("task_other", "warn")
+
+        # Act
+        time.sleep(0.75 * scheduler_limiter.lease_duration)
+
+        # Assert
+        renewed_ids = {
+            call[0][0] for call in scheduler_limiter.extend_lease.call_args_list
+        }
+        assert task_id not in renewed_ids, (
+            "deregistered task must not be renewed via a stale heap entry"
+        )
+        scheduler.deregister("task_other")
+
+    @staticmethod
+    def test_is_healthy_true_before_enter(mock_limiter, task_id):
+        """Verify that ``is_healthy`` returns ``True`` before
+        ``__enter__`` when no scheduler entry exists.
+        """
+        # Arrange & Act
+        lifecycle = TaskLifecycle(mock_limiter, task_id)
+
+        # Assert
+        assert lifecycle.is_healthy is True, (
+            "is_healthy must return True when no scheduler entry exists"
+        )
+
+    @staticmethod
+    def test_empty_heap_does_not_crash_scheduler(scheduler_limiter, task_id):
+        """Verify that the scheduler thread survives when the heap
+        drains completely after all tasks are deregistered.
+        """
+        # Arrange
+        scheduler = scheduler_limiter._heartbeat_scheduler
+        scheduler.register(task_id, "warn")
+
+        # Act
+        time.sleep(0.75 * scheduler_limiter.lease_duration)
+        scheduler.deregister(task_id)
+        time.sleep(0.75 * scheduler_limiter.lease_duration)
+
+        # Assert
+        assert scheduler._thread is not None, (
+            "scheduler thread must still exist after heap drains"
+        )
+        assert scheduler._thread.is_alive(), (
+            "scheduler thread must remain alive after heap drains"
+        )
+
+    @staticmethod
+    def test_scheduler_renews_task_across_multiple_cycles(scheduler_limiter, task_id):
+        """Verify that the scheduler reschedules a registered task for
+        renewal in subsequent cycles, not just the first one."""
+        # Arrange
+        scheduler = scheduler_limiter._heartbeat_scheduler
+        scheduler.register(task_id, "warn")
+
+        try:
+            # Act
+            time.sleep(1.5 * scheduler_limiter.lease_duration)
+
+            # Assert
+            assert scheduler_limiter.extend_lease.call_count >= 2, (
+                "extend_lease must be called at least twice across multiple cycles"
+            )
+        finally:
+            scheduler.deregister(task_id)
+
+    @staticmethod
+    def test_scheduler_interval_is_half_lease_duration(redis_client, limiter_id):
+        """Verify that the scheduler renewal interval equals half the lease duration."""
+        # Arrange
+        limiter = MagicMock()
+        limiter.id = limiter_id
+        limiter.lease_duration = 0.2
+        scheduler = HeartbeatScheduler(limiter)
+
+        try:
+            # Assert
+            expected = limiter.lease_duration / 2
+            assert scheduler._interval == pytest.approx(expected), (
+                f"scheduler interval must be lease_duration / 2 = {expected}"
+            )
+        finally:
+            scheduler.shutdown()
+
+    @staticmethod
+    def test_scheduler_thread_name_contains_limiter_id(scheduler_limiter, task_id):
+        """Verify that the scheduler thread is named after the limiter."""
+        # Act
+        scheduler_limiter._heartbeat_scheduler.register(task_id, "warn")
+
+        try:
+            # Assert
+            thread = scheduler_limiter._heartbeat_scheduler._thread
+            assert thread is not None, (
+                "scheduler thread should exist after registration"
+            )
+            assert scheduler_limiter.id in thread.name, (
+                "scheduler thread name should contain the limiter id"
+            )
+        finally:
+            scheduler_limiter._heartbeat_scheduler.deregister(task_id)
+
+
+@pytest.mark.observability
+class TestHeartbeatSchedulerObservability:
+    """Observability tests for log emissions from the shared scheduler."""
+
+    @staticmethod
+    def test_heartbeat_recovery_emits_info_log(scheduler_limiter, task_id, caplog):
         """Verify that heartbeat recovery emits an INFO log
         with task id and limiter id.
         """
         # Act
         with caplog.at_level(logging.INFO, logger="redis_rate_limiter.core.limiters"):
-            with TaskLifecycle(mock_limiter, task_id) as lifecycle:
+            with TaskLifecycle(scheduler_limiter, task_id) as lifecycle:
                 lifecycle.is_healthy = False
-                time.sleep(0.75 * mock_limiter.lease_duration)
+                time.sleep(0.75 * scheduler_limiter.lease_duration)
 
         # Assert
         assert_log_emitted(
@@ -566,7 +837,7 @@ class TestHeartbeatLoopObservability:
             label="[TaskLifecycle]",
             required_fragments=[
                 f"task {task_id}",
-                f"limiter {mock_limiter.id}",
+                f"limiter {scheduler_limiter.id}",
                 "restored",
             ],
             message=(
@@ -578,18 +849,20 @@ class TestHeartbeatLoopObservability:
 
     @staticmethod
     def test_heartbeat_failure_warn_mode_emits_critical_log(
-        mock_limiter, task_id, caplog
+        scheduler_limiter, task_id, caplog
     ):
         """Verify that heartbeat failure in warn mode emits a CRITICAL log."""
         # Arrange
-        mock_limiter.extend_lease.side_effect = Exception("Simulated Redis failure")
+        scheduler_limiter.extend_lease.side_effect = redis.RedisError(
+            "Simulated Redis failure"
+        )
 
         # Act
         with caplog.at_level(
             logging.CRITICAL, logger="redis_rate_limiter.core.limiters"
         ):
-            with TaskLifecycle(mock_limiter, task_id, on_heartbeat_failure="warn"):
-                time.sleep(0.75 * mock_limiter.lease_duration)
+            with TaskLifecycle(scheduler_limiter, task_id, on_heartbeat_failure="warn"):
+                time.sleep(0.75 * scheduler_limiter.lease_duration)
 
         # Assert
         assert_log_emitted(
@@ -609,21 +882,25 @@ class TestHeartbeatLoopObservability:
 
     @staticmethod
     def test_heartbeat_failure_kill_mode_emits_critical_log(
-        mock_limiter, task_id, caplog
+        scheduler_limiter, task_id, caplog
     ):
         """Verify that heartbeat failure in kill mode emits
         a CRITICAL log with termination action.
         """
         # Arrange
-        mock_limiter.extend_lease.side_effect = Exception("Simulated Redis failure")
+        scheduler_limiter.extend_lease.side_effect = redis.RedisError(
+            "Simulated Redis failure"
+        )
 
         # Act
         with caplog.at_level(
             logging.CRITICAL, logger="redis_rate_limiter.core.limiters"
         ):
             with patch("os.kill"):
-                with TaskLifecycle(mock_limiter, task_id, on_heartbeat_failure="kill"):
-                    time.sleep(0.75 * mock_limiter.lease_duration)
+                with TaskLifecycle(
+                    scheduler_limiter, task_id, on_heartbeat_failure="kill"
+                ):
+                    time.sleep(0.75 * scheduler_limiter.lease_duration)
 
         # Assert
         assert_log_emitted(
@@ -640,6 +917,16 @@ class TestHeartbeatLoopObservability:
                 " failure with task id, error,"
                 " and termination action"
             ),
+        )
+
+    @staticmethod
+    def test_shutdown_join_timeout_emits_warning_log(caplog):
+        """Verify that ``shutdown()`` emits a WARNING log when
+        the scheduler thread does not exit within the join timeout.
+        """
+        assert_shutdown_join_timeout_warning(
+            HeartbeatScheduler, "[HeartbeatScheduler]",
+            "test-scheduler-join-timeout", caplog,
         )
 
 
@@ -780,4 +1067,53 @@ class TestTaskLifecycleSignatures:
         # Assert
         assert sig.parameters["on_heartbeat_failure"].default == "warn", (
             "default on_heartbeat_failure must be lowercase 'warn'"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Thread leak integration test
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.behavior
+class TestNoThreadLeak:
+    """Verify that the shared scheduler does not leak threads under churn."""
+
+    @staticmethod
+    def test_no_thread_leak_after_many_lifecycles(redis_client, limiter_id):
+        """Run many consume + lifecycle cycles and verify the active thread
+        count returns to baseline once the limiter is shut down.
+
+        Guards against the regression a per-task heartbeat thread model
+        would cause: even at thousands of lifecycle entries, only the
+        single shared scheduler thread should ever be alive at once.
+        """
+        # Arrange
+        limiter = StubRateLimiter(
+            redis_client=redis_client,
+            limiter_id=f"{limiter_id}_no_thread_leak",
+            limit=10_000,
+            window=60,
+            max_concurrency=10_000,
+            max_age=3600,
+            lease_duration=30,
+        )
+        baseline = threading.active_count()
+
+        try:
+            # Act
+            for i in range(100):
+                with limiter.task_lifecycle(f"task_{i}"):
+                    pass
+            mid_run_count = threading.active_count()
+        finally:
+            limiter.shutdown()
+
+        # Assert
+        # During the run we tolerate the scheduler thread being alive
+        # (baseline + 1). Anything beyond that means a per-task thread
+        # leaked.
+        assert mid_run_count <= baseline + 2, (
+            f"only the shared scheduler thread should be alive during the "
+            f"run; saw {mid_run_count - baseline} extra threads"
         )

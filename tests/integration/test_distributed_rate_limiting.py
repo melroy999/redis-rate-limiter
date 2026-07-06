@@ -183,6 +183,8 @@ class TestDistributedRateLimiting:
         stop.set()
         producer_thread.join(timeout=2)
         consumer_thread.join(timeout=2)
+        assert not producer_thread.is_alive(), "producer thread should have exited"
+        assert not consumer_thread.is_alive(), "consumer thread should have exited"
 
         # Assert
         buffer_count = redis_client.zcard(f"{limiter_id}:buffer")
@@ -246,9 +248,11 @@ class TestDistributedRateLimiting:
         # a task after the consumer's final iteration.
         producer_stop.set()
         producer_thread.join(timeout=2)
+        assert not producer_thread.is_alive(), "producer thread should have exited"
         precise_sleep(window)
         consumer_stop.set()
         consumer_thread.join(timeout=2)
+        assert not consumer_thread.is_alive(), "consumer thread should have exited"
 
         # Assert
         buffer_count = redis_client.zcard(f"{limiter_id}:buffer")

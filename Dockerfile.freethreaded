@@ -1,0 +1,50 @@
+# Free-threaded Python 3.14 (PEP 703) build for the contention benchmark.
+#
+# Goal: re-run benchmarks/test_contention.py under a no-GIL interpreter to see
+# whether the "threads" variant scales past 8 workers. Poetry and the locked
+# environment are intentionally bypassed: poetry.lock targets CPython 3.12 and
+# resolves wheels (and platform tags) that do not exist for cp314t. We pip
+# install only what the contention benchmark imports.
+#
+# Docker Hub does not yet publish a free-threaded `python:3.14*` tag, so we
+# fetch a free-threaded build via `uv`, which pulls python-build-standalone
+# binaries that include the cp314t variant.
+FROM ghcr.io/astral-sh/uv:debian-slim AS base
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHON_GIL=0 \
+    UV_PYTHON_PREFERENCE=only-managed \
+    UV_LINK_MODE=copy
+
+# Install the free-threaded CPython 3.14 build, create a venv from it, and
+# put the venv's python on PATH. uv-managed interpreters refuse `--system`
+# installs, so a venv is required.
+RUN uv python install 3.14t && \
+    uv venv --python 3.14t /opt/venv
+ENV PATH="/opt/venv/bin:$PATH" \
+    VIRTUAL_ENV=/opt/venv
+
+WORKDIR /app
+
+# Verify we are actually on a free-threaded build before installing anything.
+RUN python -VV && \
+    python -c "import sys; assert sys.version_info >= (3, 14); assert not sys._is_gil_enabled(), 'interpreter still has the GIL enabled'"
+
+# Pure-Python and cp314t-supported deps only. numpy publishes cp314t wheels;
+# everything else here is pure Python.
+RUN uv pip install --no-cache \
+        "redis>=7.1.0,<7.2.0" \
+        "pytest>=9.0.2" \
+        "pytest-asyncio>=0.25.0" \
+        "pytest-benchmark>=5.2.3" \
+        "pytest-timeout>=2.3.0" \
+        "numpy>=2.4.4"
+
+# Install the project itself in editable mode without re-resolving deps.
+COPY pyproject.toml ./
+COPY src/ ./src/
+RUN uv pip install --no-cache --no-deps -e .
+
+COPY tests/ ./tests/
+COPY benchmarks/ ./benchmarks/

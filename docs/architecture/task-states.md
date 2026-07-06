@@ -17,8 +17,13 @@ stateDiagram-v2
     DuplicateRejected --> [*] : submission rejected
 
     Buffered --> Active : consumed and dispatched
+    Buffered --> MarkerSignalled : acquire marker admitted
     Buffered --> ExpiredDLQ : task expired
+    Buffered --> MarkerDropped : acquire marker deadline<br>elapsed (status −2)
     Buffered --> Buffered : rate or concurrency<br>limit reached
+
+    MarkerSignalled --> [*] : caller wakes via BLPOP,<br>receives TaskLifecycle
+    MarkerDropped --> [*] : silently dropped,<br>inflight key deleted
 
     ExpiredDLQ --> [*] : moved to dead letter queue
 
@@ -46,6 +51,8 @@ stateDiagram-v2
 | **Active** | `{id}:concurrency` ZSET | The task has been consumed: the window counter has been incremented via `INCR`, a concurrency lease has been registered via `ZADD` with an expiry score, and the task has been popped from the buffer. The backend is dispatching or executing it. |
 | **Lease Expired** | `{id}:concurrency` ZSET (stale entry) | The worker executing the task has crashed; the concurrency lease has expired (its score is less than the current timestamp) and will be cleaned up by the self-healing `ZREMRANGEBYSCORE` operation on the next `consume()` call. |
 | **Completed** | None (all keys cleaned up) | `TaskLifecycle.__exit__()` has run: the concurrency lease has been removed via `ZREM`, the inflight key has been deleted via `DEL`, and `trigger_consume()` has been called to signal the drain loop. |
+| **Marker Signalled** | `{id}:acquire:{task_id}` LIST + `{id}:concurrency` ZSET | The acquire marker has been admitted by `consume.lua`: the concurrency lease has been registered via `ZADD`, and the signal key has been populated via `RPUSH`. The caller's `BLPOP` wakes and `acquire()` returns a `TaskLifecycle` context manager. The signal key expires via `PEXPIRE` set to the marker's `_acquire_timeout_ms`. |
+| **Marker Dropped** | None (inflight key deleted) | The acquire marker's embedded deadline (`__meta_arrived_at + _acquire_timeout_ms`) had elapsed before `consume.lua` reached it. The marker is silently dropped (not moved to the DLQ), the inflight key is deleted, and `consume.lua` returns status -2. The caller's `BLPOP` times out and `acquire()` raises `AcquireTimeout`. |
 | **Duplicate Rejected** | Inflight key already exists | The `SET NX` for the inflight key failed, indicating that a task with the same identifier is already in flight; `schedule_task()` returns `(False, task_id)` immediately without buffering the task. |
 
 **Test coverage:**
@@ -57,6 +64,8 @@ stateDiagram-v2
 | Scheduled → DuplicateRejected | SET NX fails (inflight key exists) | `contracts/test_rate_limiter::test_schedule_duplicate_task_returns_false`, `implementations/test_rate_limiter::test_schedule_duplicate_task_skips_second` |
 | DuplicateRejected → [*] | Returns (False, task_id) | `contracts/test_rate_limiter::test_schedule_duplicate_task_returns_false` |
 | Buffered → Active | `consume.lua` succeeds (pop + lease + increment) | `contracts/test_rate_limiter::test_consume_returns_expected_structure`, `integration/test_rate_limiting::test_basic_rate_limit_enforcement` |
+| Buffered → MarkerSignalled | `consume.lua` admits acquire marker (ZADD lease + RPUSH signal) | `implementations/test_acquire::TestSyncAcquireBehavior::test_acquire_blocks_on_correct_signal_key`, `implementations/test_acquire::TestAsyncAcquireBehavior::test_acquire_blocks_on_correct_signal_key` |
+| Buffered → MarkerDropped | Acquire marker deadline elapsed; silently dropped (status -2) | None (acquire-specific tests pending) |
 | Buffered → ExpiredDLQ | `consume.lua` finds age > max_age | `integration/test_rate_limiting::test_expired_task_moved_to_dlq` |
 | Buffered → Buffered | Rate or concurrency limit exceeded; retry scheduled | `integration/test_rate_limiting::test_basic_rate_limit_enforcement`, `integration/test_rate_limiting::test_concurrency_limit_enforcement` |
 | Active → Completed | `TaskLifecycle.__exit__()` runs | `contracts/test_task_lifecycle::test_lifecycle_removes_task_from_concurrency_set`, `contracts/test_task_lifecycle::test_lifecycle_removes_active_marker` |

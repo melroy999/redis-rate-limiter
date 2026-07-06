@@ -77,18 +77,21 @@ services:
   mutate:
     <<: *test-base
     container_name: redis-rate-limiter-mutate
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PYTHONPATH: /app
     volumes:
       # Rebuild with --build to pick up source changes.
       - ./mutmut-results:/app/mutation-output
       - ./mutants:/app/mutants
     command: >-
       bash -c "
-        python scripts/run_mutmut.py run 2>&1 | tee /tmp/mutmut-run.log;
+        find /app/mutants -mindepth 1 -delete;
+        python scripts/run_mutmut.py run --max-children $$(( ( _n = $$(nproc) * 3 / 4, _n > 0 ? _n : 1 ) )) 2>&1 | tee /tmp/mutmut-run.log;
         MUTMUT_EXIT=$${PIPESTATUS[0]};
         if [ $$MUTMUT_EXIT -ne 0 ]; then
           echo '*** BASELINE FAILURE: mutmut run exited with code '$$MUTMUT_EXIT' ***';
-          echo 'Re-running test suite to capture the failing test:';
-          python -m pytest -x --tb=short -q --ignore=tests/properties/ --deselect=tests/integration/test_rate_limiting.py::TestSlidingWindowBehavior --deselect=tests/integration/test_distributed_rate_limiting.py::TestDistributedRateLimiting;
           exit 1;
         fi;
         python scripts/generate_mutmut_report.py --log /tmp/mutmut-run.log --output-dir /app/mutation-output --killed-by /tmp/mutmut_killed_by_results.json
@@ -96,21 +99,107 @@ services:
     profiles:
       - mutate
 
+  # Mutation testing with per-process resource profiling.
+  mutate-profile:
+    extends:
+      service: mutate
+    container_name: redis-rate-limiter-mutate-profile
+    environment:
+      MUTMUT_RESOURCE_SNAPSHOT_FILE: /tmp/mutmut_resource_snapshot.jsonl
+    command: >-
+      bash -c "
+        find /app/mutants -mindepth 1 -delete;
+        python scripts/run_mutmut.py run --max-children $$(( ( _n = $$(nproc) * 3 / 4, _n > 0 ? _n : 1 ) )) 2>&1 | tee /tmp/mutmut-run.log;
+        MUTMUT_EXIT=$${PIPESTATUS[0]};
+        if [ $$MUTMUT_EXIT -ne 0 ]; then
+          echo '*** BASELINE FAILURE: mutmut run exited with code '$$MUTMUT_EXIT' ***';
+          exit 1;
+        fi;
+        python scripts/generate_mutmut_report.py --log /tmp/mutmut-run.log --output-dir /app/mutation-output --killed-by /tmp/mutmut_killed_by_results.json;
+        cp /tmp/mutmut_resource_snapshot.jsonl /app/mutation-output/ 2>/dev/null || true
+      "
+    profiles:
+      - mutate-profile
+
+  # Memory analysis service (runs a representative test subset with /proc/self/status sampling).
+  memory-profile:
+    <<: *test-base
+    container_name: redis-rate-limiter-memory-profile
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PYTHONPATH: /app
+      MEMORY_PROFILE_FILE: /app/memory-output/memory-profile.jsonl
+    volumes:
+      - ./src:/app/src:ro
+      - ./tests:/app/tests:ro
+      - ./memory-results:/app/memory-output
+    command: poetry run pytest tests/ -v -s
+    profiles:
+      - memory-profile
+
   # Superfluity analysis service (runs per-file mutation testing without -x).
   superfluity:
     <<: *test-base
     container_name: redis-rate-limiter-superfluity
     volumes:
       - ./mutmut-results:/app/mutation-output
-    deploy:
-      resources:
-        limits:
-#          memory: 6g
-          cpus: "12"
     command: >-
-      python scripts/analyze_superfluity.py --all --output-dir /app/mutation-output
+      bash -c "python scripts/analyze_superfluity.py --all --max-children $$(( ( _n = $$(nproc) / 2, _n > 0 ? _n : 1 ) )) --output-dir /app/mutation-output"
     profiles:
       - superfluity
+
+  # Benchmark runner service.
+  benchmark:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: benchmark
+    container_name: redis-rate-limiter-benchmark
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PYTHONPATH: /app
+      SOAK_DURATION: "${SOAK_DURATION:-60}"
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./benchmark-results:/app/.benchmarks
+    command: >-
+      bash -c "
+        poetry run pytest benchmarks/ -v -s --benchmark-max-time=5.0 --benchmark-warmup=on --benchmark-autosave &&
+        python scripts/benchmark_report.py .benchmarks
+      "
+    networks:
+      - rate-limiter-network
+    profiles:
+      - benchmark
+
+  # Free-threaded Python 3.14 contention benchmark (PEP 703 / no-GIL).
+  # Run with: docker compose --profile benchmark-ft up --build --abort-on-container-exit --exit-code-from benchmark-ft
+  benchmark-ft:
+    build:
+      context: .
+      dockerfile: Dockerfile.freethreaded
+    container_name: redis-rate-limiter-benchmark-ft
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PYTHONPATH: /app
+      PYTHON_GIL: "0"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: >-
+      bash -c "
+        python -c 'import sys; print(\"free-threaded:\", not sys._is_gil_enabled())' &&
+        pytest benchmarks/test_contention.py -v -s --benchmark-max-time=5.0 --benchmark-warmup=on
+      "
+    networks:
+      - rate-limiter-network
+    profiles:
+      - benchmark-ft
 
   # Optional: Redis Commander (web UI for debugging).
   redis-commander:
@@ -128,6 +217,48 @@ services:
     profiles:
       # Only start with: docker-compose --profile debug up.
       - debug
+
+  # Toxiproxy for Redis degradation benchmarks.
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    container_name: redis-rate-limiter-toxiproxy
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - rate-limiter-network
+    profiles:
+      - benchmark-degraded
+
+  # Benchmark runner with Toxiproxy between client and Redis.
+  benchmark-degraded:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: benchmark
+    container_name: redis-rate-limiter-benchmark-degraded
+    environment:
+      REDIS_HOST: toxiproxy
+      REDIS_PORT: 16379
+      TOXIPROXY_API: http://toxiproxy:8474
+      TOXIPROXY_UPSTREAM: redis:6379
+      PYTHONPATH: /app
+    depends_on:
+      toxiproxy:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./benchmark-degraded-results:/app/.benchmarks
+    command: >-
+      bash -c "
+        poetry run pytest benchmarks/test_redis_degradation.py -v -s --benchmark-disable &&
+        python scripts/benchmark_report.py .benchmarks
+      "
+    networks:
+      - rate-limiter-network
+    profiles:
+      - benchmark-degraded
 
 volumes:
   redis-data:

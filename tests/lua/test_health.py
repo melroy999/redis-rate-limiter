@@ -93,6 +93,32 @@ class TestHealthReturnValues:
         assert result[1] == 3, "current_count should reflect the current window key"
 
     @staticmethod
+    def test_estimated_count_is_bounded_by_window_counts(
+        redis_client, base_key, buffer_key, concurrency_key
+    ):
+        """Verify that ``estimated_count`` is bounded between ``current_count``
+        and ``current_count + previous_count`` when both windows have
+        non-zero values."""
+        # Arrange
+        current_key, previous_key = get_window_keys(redis_client, base_key)
+        redis_client.set(current_key, "3")
+        redis_client.set(previous_key, "7")
+
+        # Act
+        result = _eval_health(redis_client, base_key, buffer_key, concurrency_key)
+
+        # Assert
+        assert float(result[2]) >= 3, (
+            "estimated_count should be at least the current window count"
+        )
+        assert float(result[2]) <= 10, (
+            "estimated_count should not exceed the sum of current and previous window counts"
+        )
+        assert float(result[2]) > 3, (
+            "estimated_count should include a non-zero contribution from the previous window"
+        )
+
+    @staticmethod
     def test_active_count_reflects_concurrency_set(
         redis_client, base_key, buffer_key, concurrency_key
     ):

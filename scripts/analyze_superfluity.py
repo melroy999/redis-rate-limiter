@@ -39,6 +39,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 from collections import defaultdict
 from pathlib import Path
 
@@ -53,6 +54,18 @@ _KILLED_BY_DIR = "/tmp/mutmut_superfluity_killed_by"
 _KILLED_BY_RESULTS = "/tmp/mutmut_superfluity_killed_by_results.json"
 
 _accumulator = KilledByAccumulator(_KILLED_BY_RESULTS, _KILLED_BY_DIR)
+
+_safety_net_skip_dir: str | None = None
+
+_SAFETY_NET_FILES = frozenset({
+    "tests/implementations/test_loop_safety_net.py",
+    "tests/implementations/test_async_loop_safety_net.py",
+})
+
+
+def _is_safety_net_test(nodeid: str) -> bool:
+    """Return True if the pytest nodeid belongs to a safety net test file."""
+    return any(nodeid.startswith(f) for f in _SAFETY_NET_FILES)
 
 
 class KilledByCollector(_KilledByCollectorBase):
@@ -69,8 +82,15 @@ class KilledByCollector(_KilledByCollectorBase):
 
 
 def _patched_run_tests(self, *, mutant_name, tests):  # type: ignore[no-untyped-def]
-    """Replacement for ``PytestRunner.run_tests`` that runs all tests
-    (no ``-x``) to capture the full kill matrix for superfluity analysis.
+    """Replacement for ``PytestRunner.run_tests`` that uses a two-stage
+    approach for superfluity analysis.
+
+    Stage 1: run safety net tests with ``-x``. If any fail, the mutant
+    causes a hang or spin; skip the full matrix (the kill set of safety
+    net tests is not meaningful for superfluity analysis).
+
+    Stage 2: run the remaining (correctness) tests without ``-x`` to
+    capture the full kill matrix.
     """
     from mutmut.__main__ import change_cwd
 
@@ -87,14 +107,27 @@ def _patched_run_tests(self, *, mutant_name, tests):  # type: ignore[no-untyped-
 
         signal.signal(signal.SIGXCPU, _sigxcpu_handler)
 
-    # No -x: run all tests for full kill matrix.
-    pytest_args = ["-q", "-p", "no:randomly", "-p", "no:random-order"]
-    if tests:
-        pytest_args += list(tests)
-    else:
-        pytest_args += self._pytest_add_cli_args_test_selection
+    correctness = list(tests) if tests else list(self._pytest_add_cli_args_test_selection)
+    correctness = [t for t in correctness if not _is_safety_net_test(t)]
+
+    base_args = ["-q", "-p", "no:randomly", "-p", "no:random-order"]
+
+    # Stage 1: safety net pre-filter (with -x).
     with change_cwd("mutants"):
-        result = int(self.execute_pytest(pytest_args, plugins=[collector]))
+        gate_result = int(self.execute_pytest(
+            base_args + ["-x"] + sorted(_SAFETY_NET_FILES), plugins=[],
+        ))
+    if gate_result != 0:
+        if _safety_net_skip_dir is not None and mutant_name is not None:
+            Path(_safety_net_skip_dir, f"{os.getpid()}").write_text(mutant_name)
+        if original_sigxcpu is not None:
+            signal.signal(signal.SIGXCPU, original_sigxcpu)
+        collector.write_temp_file(partial=False)
+        return gate_result
+
+    # Stage 2: full kill matrix on correctness tests (no -x).
+    with change_cwd("mutants"):
+        result = int(self.execute_pytest(base_args + correctness, plugins=[collector]))
 
     if original_sigxcpu is not None:
         signal.signal(signal.SIGXCPU, original_sigxcpu)
@@ -319,7 +352,7 @@ def _write_text_report(
 # ---------------------------------------------------------------------------
 
 
-def _run_single(test_file: str, output_dir: Path) -> None:
+def _run_single(test_file: str, output_dir: Path, max_children: int | None = None) -> None:
     """Run superfluity analysis for a single test file.
 
     Applies mutmut patches, runs the mutation test with full matrix
@@ -340,11 +373,26 @@ def _run_single(test_file: str, output_dir: Path) -> None:
     _apply_patches(test_file)
     from mutmut.__main__ import cli
 
-    print("Running mutation testing (full matrix, no -x)...", flush=True)
+    global _safety_net_skip_dir
+    _safety_net_skip_dir = tempfile.mkdtemp(prefix="mutmut_safety_net_skips_")
+
+    print("Running mutation testing (two-stage, safety net pre-filter)...", flush=True)
+    run_args = ["run"]
+    if max_children is not None:
+        run_args += ["--max-children", str(max_children)]
     try:
-        cli(["run"])
+        cli(run_args)
     except SystemExit:
         pass  # mutmut exits via SystemExit; we catch it.
+
+    # Report safety net skips.
+    skip_dir = Path(_safety_net_skip_dir)
+    skipped_mutants = sorted(p.read_text() for p in skip_dir.glob("*"))
+    shutil.rmtree(skip_dir, ignore_errors=True)
+    print(
+        f"  {len(skipped_mutants)} mutant(s) skipped (killed by safety net pre-filter).",
+        flush=True,
+    )
 
     # Flush killed-by data accumulated in memory during the mutation run.
     # The atexit handler has not fired yet, so we flush explicitly.
@@ -410,7 +458,7 @@ def _merge_reports(per_file_dir: Path) -> dict:
     """Merge per-file superfluity JSON reports into a project-wide report.
 
     Each per-file report contains class names that may collide across
-    files (e.g., multiple files may have a ``TestDistributedLock`` class).
+    files (e.g., multiple files may have a ``TestDrainBehavior`` class).
     To avoid collisions, each class is namespaced by the source file stem
     in the merged report.
     """
@@ -434,7 +482,7 @@ def _merge_reports(per_file_dir: Path) -> dict:
     }
 
 
-def _run_all(output_dir: Path) -> None:
+def _run_all(output_dir: Path, max_children: int | None = None) -> None:
     """Run superfluity analysis for all test files in the project.
 
     Discovers test files under ``tests/``, runs each sequentially as a
@@ -470,17 +518,17 @@ def _run_all(output_dir: Path) -> None:
             f"[{i}/{total}] {test_file}",
             flush=True,
         )
-        result = subprocess.run(
-            [
-                sys.executable,
-                script_path,
-                "--test-file",
-                test_file,
-                "--output-dir",
-                str(superfluity_dir),
-            ],
-            check=False,
-        )
+        cmd = [
+            sys.executable,
+            script_path,
+            "--test-file",
+            test_file,
+            "--output-dir",
+            str(superfluity_dir),
+        ]
+        if max_children is not None:
+            cmd += ["--max-children", str(max_children)]
+        result = subprocess.run(cmd, check=False)
         if result.returncode != 0:
             failed.append(test_file)
             print(
@@ -550,15 +598,21 @@ def main() -> None:
         default="mutmut-results",
         help="Directory to write output files to (default: mutmut-results/).",
     )
+    parser.add_argument(
+        "--max-children",
+        type=int,
+        default=None,
+        help="Maximum number of mutmut child processes (passed through to mutmut).",
+    )
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.run_all:
-        _run_all(output_dir)
+        _run_all(output_dir, max_children=args.max_children)
     else:
-        _run_single(args.test_file, output_dir)
+        _run_single(args.test_file, output_dir, max_children=args.max_children)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # Task Lifecycle Sequence
 
-The sequence diagram traces the flow of a single task from the moment it is scheduled to the moment its execution completes. The diagram is divided into four phases, namely the *scheduling* phase, the *drain and consume* phase, the *dispatch and execution* phase and the *completion* phase. It should be noted that the diagram depicts the nominal flow exclusively. The handling of error conditions, such as script cache misses, lock contention and task expiration to the dead letter queue, is documented in the [error handling](error-handling.md) reference.
+The sequence diagram traces the flow of a single task from the moment it is scheduled to the moment its execution completes. The diagram is divided into four phases, namely the *scheduling* phase, the *drain and consume* phase, the *dispatch and execution* phase and the *completion* phase. It should be noted that the diagram depicts the nominal flow exclusively. The handling of error conditions, such as script cache misses and task expiration to the dead letter queue, is documented in the [error handling](error-handling.md) reference.
 
 Several observations can be made about the lifecycle:
 
@@ -35,18 +35,15 @@ sequenceDiagram
     note over U,W: Phase 2: Drain and Consume
 
     D->>+L: drain()
-    L->>R: Acquire dispatch_lock (check cooldown, SET NX, record contention)
-    R-->>L: OK (lock acquired)
 
     L->>R: EVALSHA consume.lua
-    note right of R: Atomic: check window rate,<br>check concurrency cap,<br>pop task from buffer,<br>increment window counter,<br>register concurrency lease
+    note right of R: Atomic: check window rate,<br>check concurrency cap,<br>round-robin yield check,<br>pop task from buffer,<br>increment window counter,<br>register concurrency lease
 
     R-->>L: task_data + telemetry
 
     note over U,W: Phase 3: Dispatch and Execute
 
     L->>B: _dispatch_task(func, payload, task_id)
-    L->>R: Release dispatch_lock (verify token, check contention, set cooldown)
     deactivate L
 
     B->>+W: send_task() / submit()
@@ -71,7 +68,59 @@ sequenceDiagram
     note over D: DrainLoop wakes, cycle repeats
 ```
 
-**Test coverage:**
+## Inline Acquire Flow
+
+The `acquire()` method provides an alternative entry point for callers that wish to block inline until a rate and concurrency slot becomes available, rather than scheduling a task for deferred execution. The mechanism reuses the existing buffer and drain loop infrastructure: the caller schedules a sentinel marker (with `func_path` set to `__redis_rate_limiter_acquire_marker__`) into the priority buffer and then blocks on `BLPOP` against a per-call signal key. When `consume.lua` dequeues the marker, it registers the concurrency lease via `ZADD` and atomically signals the caller via `RPUSH` on the signal key. The caller's `BLPOP` wakes, and `acquire()` returns a `TaskLifecycle` (sync) or `AsyncTaskLifecycle` (async) context manager that releases the slot on exit.
+
+The marker carries an embedded deadline (`__meta_arrived_at + _acquire_timeout_ms`). If the drain loop does not reach the marker before the deadline elapses, `consume.lua` silently drops the marker (status -2) instead of admitting it, which prevents reserving a concurrency slot for a caller whose `BLPOP` has already timed out. Expired markers are not moved to the dead letter queue, because they represent abandoned admission attempts rather than failed task work.
+
+```mermaid
+%%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
+sequenceDiagram
+    participant U as User Code
+    participant L as Limiter
+    participant R as Redis
+    participant D as DrainLoop
+
+    U->>+L: acquire(timeout, priority)
+    L->>R: SET NX inflight:{marker_id} (dedup)
+    L->>R: EVALSHA schedule.lua (marker)
+    L->>D: wake(delay=0)
+    L->>R: BLPOP {id}:acquire:{marker_id} (blocks)
+
+    note over D: DrainLoop fires
+
+    D->>R: EVALSHA consume.lua
+    note right of R: Recognizes marker:<br>ZADD concurrency lease,<br>RPUSH signal key,<br>PEXPIRE signal key
+
+    R-->>L: BLPOP returns marker_id
+    L-->>-U: return TaskLifecycle
+
+    note over U: Use slot within context manager
+
+    U->>R: ZREM concurrency (release slot)
+    U->>R: DEL inflight:{marker_id}
+    U->>D: trigger_consume()
+```
+
+**Inline acquire test coverage:**
+
+| Phase | Description | Tested by |
+|-------|-------------|-----------|
+| Precondition | `acquire()` rejects non-positive timeout | `implementations/test_acquire::test_acquire_raises_value_error_for_non_positive_timeout`, `test_acquire_raises_value_error_for_zero_timeout` |
+| Precondition | `acquire()` rejects call without drain loop | `implementations/test_acquire::test_acquire_raises_runtime_error_without_drain_loop` |
+| Schedule | Marker scheduled with correct func_path | `implementations/test_acquire::test_acquire_schedules_marker_with_correct_func_path` |
+| Schedule | Marker payload contains timeout in ms | `implementations/test_acquire::test_acquire_schedules_marker_with_timeout_in_payload` |
+| Schedule | Marker payload contains UUID | `implementations/test_acquire::test_acquire_schedules_marker_with_uuid_in_payload` |
+| Schedule | Marker scheduled with custom priority | `implementations/test_acquire::test_acquire_schedules_marker_with_custom_priority` |
+| Schedule | max_age is ceiling of timeout | `implementations/test_acquire::test_acquire_max_age_is_ceiling_of_timeout` |
+| Schedule | Buffer rejection raises RuntimeError | `implementations/test_acquire::test_acquire_raises_runtime_error_when_scheduling_fails` |
+| BLPOP | BLPOP uses correct signal key | `implementations/test_acquire::test_acquire_blocks_on_correct_signal_key` |
+| BLPOP | BLPOP None raises AcquireTimeout | `implementations/test_acquire::test_acquire_raises_acquire_timeout_on_blpop_none` |
+| BLPOP | Timeout message contains limiter ID | `implementations/test_acquire::test_acquire_timeout_message_contains_limiter_id` |
+| Return | Returns lifecycle with correct task ID | `implementations/test_acquire::test_acquire_returns_lifecycle_with_correct_task_id` |
+
+**Standard lifecycle test coverage:**
 
 | Phase | Message | Description | Tested by |
 |-------|---------|-------------|-----------|
@@ -80,8 +129,7 @@ sequenceDiagram
 | **Schedule** | L → R: EVALSHA schedule.lua | Buffer insertion | `contracts/test_rate_limiter::test_schedule_task_adds_to_buffer`, `implementations/test_rate_limiter::test_schedule_single_task_stores_correctly` |
 | **Schedule** | L → D: wake(delay=0) | DrainLoop triggered after scheduling | `implementations/test_drain::test_trigger_consume_schedules_drain` |
 | **Drain** | D → L: drain() | DrainLoop calls drain | `implementations/test_drain_loop::test_wake_default_delay_is_zero` |
-| **Drain** | L → R: Acquire dispatch_lock | Distributed lock acquisition (contention-aware) | `implementations/test_drain::test_drain_schedules_backup_when_lock_contended`, `implementations/test_concurrent_access::test_distributed_lock_serializes_drains`, `implementations/test_concurrent_access::test_contention_aware_cooldown_distributes_drains` |
-| **Drain** | L → R: EVALSHA consume.lua | Atomic consumption | `contracts/test_rate_limiter::test_consume_returns_expected_structure`, `integration/test_rate_limiting::test_basic_rate_limit_enforcement` |
+| **Drain** | L → R: EVALSHA consume.lua | Atomic consumption with round-robin yield fairness | `contracts/test_rate_limiter::test_consume_returns_expected_structure`, `integration/test_rate_limiting::test_basic_rate_limit_enforcement` |
 | **Execute** | L → B: _dispatch_task() | Backend dispatch | `implementations/test_drain::test_drain_dispatches_task_and_schedules_follow_up` |
 | **Execute** | W: TaskLifecycle.__enter__() | Lifecycle context entered | `implementations/test_decorator::test_decorator_wraps_function_in_task_lifecycle` |
 | **Execute** | W → R: EVALSHA renew.lua | Heartbeat lease renewal | `implementations/test_task_lifecycle::test_heartbeat_loop_calls_extend_lease_with_correct_parameters`, `implementations/test_task_lifecycle::test_extend_lease_succeeds_for_existing_task` |

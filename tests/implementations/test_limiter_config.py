@@ -357,6 +357,27 @@ class TestMixinConfigBoundaryDecisions:
                 lease_duration=-1,
             )
 
+    @staticmethod
+    def test_accepts_minimum_lease_duration(redis_client, limiter_id):
+        """Verify that ``lease_duration=1`` is accepted as the minimum valid value."""
+        # Act
+        limiter = StubRateLimiter(
+            redis_client=redis_client,
+            limiter_id=f"{limiter_id}_min_lease",
+            limit=5,
+            window=60,
+            max_concurrency=2,
+            lease_duration=1,
+        )
+
+        try:
+            # Assert
+            assert limiter.lease_duration == 1, (
+                "lease_duration=1 should be accepted as the minimum valid value"
+            )
+        finally:
+            limiter.shutdown()
+
 
 @pytest.mark.behavior
 class TestScheduleTaskPriorityBoundaryDecisions:

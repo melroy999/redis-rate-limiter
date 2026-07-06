@@ -534,9 +534,6 @@ class TestRateLimitingIntegration:
         assert status["rate_limit"]["limit"] == integration_limiter.limit, (
             "status rate-limit limit should match limiter configuration"
         )
-        assert status["dispatcher"]["is_locked"] == redis_client.exists(
-            integration_limiter.lock_key
-        ), "status lock state should match redis lock key presence"
 
 
 @pytest.mark.behavior

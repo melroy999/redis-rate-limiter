@@ -6,7 +6,7 @@ The class hierarchy is organized into four layers:
 
 1. **`AbstractRateLimiter`** defines the core configuration attributes (`limiter_id`, `limit`, `window`) and configuration override hooks. Two specializations, `AbstractSyncRateLimiter` and `AbstractAsyncRateLimiter`, add Redis client management and Lua script registration using blocking and non-blocking clients respectively.
 2. **`DistributedRateLimiterMixin`** is a pure Python mixin that encapsulates all task-oriented domain logic: key construction, task signature hashing, token recovery delay calculation, jitter computation, metric emission, and persist/override hooks for backend-specific configuration fields. This mixin is shared by both sync and async distributed rate limiters, avoiding code duplication.
-3. **`AbstractDistributedRateLimiter`** (sync) and **`AbstractAsyncDistributedRateLimiter`** (async) combine the mixin with their respective Redis base class and add drain orchestration, task scheduling and consumption, lease management, and the threading/asyncio helpers (`DrainLoop`, `DrainSignalSubscriber`, `DistributedLock`, `TaskLifecycle`).
+3. **`AbstractDistributedRateLimiter`** (sync) and **`AbstractAsyncDistributedRateLimiter`** (async) combine the mixin with their respective Redis base class and add drain orchestration, task scheduling and consumption, lease management, and the threading/asyncio helpers (`DrainLoop`, `DrainSignalSubscriber`, `TaskLifecycle`).
 4. **`ManagedRateLimiterMixin`** provides the singleton-style class API (`configure`, `create`, `get`, `update`, `refresh_config`) with Redis-backed configuration persistence. `SyncManagedRateLimiter` and `AsyncManagedRateLimiter` implement the Redis I/O for this pattern using blocking and non-blocking clients respectively.
 
 Eight concrete backends compose these layers via multiple inheritance:
@@ -22,7 +22,7 @@ Eight concrete backends compose these layers via multiple inheritance:
 
 Backends are required to implement `_dispatch_task()` (for task-oriented backends) and the five backend context methods (`_configure_backend`, `_has_backend_context`, `_get_instance_context`, `_reset_backend_context`, `_configure_hint`). Task-oriented backends may optionally override `_has_local_capacity()` to prevent the consumer from acquiring Redis concurrency slots for tasks that would only be queued locally.
 
-The supporting classes come in sync and async pairs. For the sync path: `DrainLoop` (Thread + Lock + Condition), `DrainSignalSubscriber` (Thread + sync pubsub), `DistributedLock` (sync context manager), and `TaskLifecycle` (Thread + Event). For the async path: `AsyncDrainLoop` (asyncio.Task + asyncio.Condition), `AsyncDrainSignalSubscriber` (asyncio.Task + redis.asyncio pubsub), `AsyncDistributedLock` (async context manager), and `AsyncTaskLifecycle` (asyncio.Task + asyncio.Event). All helpers are *composed* rather than inherited; the drain helpers are owned by the limiter and created during construction (unless `drain_enabled=False`), while the lock and lifecycle instances are created on demand through factory methods.
+The supporting classes come in sync and async pairs. For the sync path: `DrainLoop` (Thread + Lock + Condition), `DrainSignalSubscriber` (Thread + sync pubsub), and `TaskLifecycle` (Thread + Event). For the async path: `AsyncDrainLoop` (asyncio.Task + asyncio.Condition), `AsyncDrainSignalSubscriber` (asyncio.Task + redis.asyncio pubsub), and `AsyncTaskLifecycle` (asyncio.Task + asyncio.Event). All helpers are *composed* rather than inherited; the drain helpers are owned by the limiter and created during construction (unless `drain_enabled=False`), while lifecycle instances are created on demand through factory methods.
 
 ```mermaid
 %%{init: {"theme": "default", "themeVariables": {"lineColor": "#6e7781"}}}%%
@@ -58,7 +58,6 @@ classDiagram
         +int lease_duration
         +str buffer_key
         +str concurrency_key
-        +str lock_key
         +str dlq_key
         +_get_task_signature_str(func_path, payload) str
         +get_inflight_key(task_id) str
@@ -70,6 +69,7 @@ classDiagram
     class AbstractDistributedRateLimiter {
         <<abstract>>
         +schedule_task(func_path, payload, priority, max_age) tuple
+        +acquire(timeout, priority) TaskLifecycle
         +consume() ConsumeResult
         +drain()
         +trigger_consume()
@@ -77,7 +77,6 @@ classDiagram
         +get_status() dict
         +get_buffer_count() int
         +task_lifecycle(task_id) TaskLifecycle
-        +execution_lock(timeout_ms) DistributedLock
         +shutdown()
         #_dispatch_task(func_path, payload, task_id)* void
         #_has_local_capacity() bool
@@ -87,6 +86,7 @@ classDiagram
         <<abstract>>
         +async start() void
         +async schedule_task() tuple
+        +async acquire(timeout, priority) AsyncTaskLifecycle
         +async consume() ConsumeResult
         +async drain()
         +async trigger_consume()
@@ -94,7 +94,6 @@ classDiagram
         +async get_status() dict
         +async get_buffer_count() int
         +task_lifecycle(task_id) AsyncTaskLifecycle
-        +execution_lock(timeout_ms) AsyncDistributedLock
         +async shutdown()
         #async _dispatch_task()* void
         #_has_local_capacity() bool
@@ -231,5 +230,5 @@ classDiagram
 
 **Composition (not shown in diagram for clarity):**
 
-- `AbstractDistributedRateLimiter` owns `DrainLoop` (0..1) and `DrainSignalSubscriber` (0..1); creates `DistributedLock` via `execution_lock()` and `TaskLifecycle` via `task_lifecycle()`.
-- `AbstractAsyncDistributedRateLimiter` owns `AsyncDrainLoop` (0..1) and `AsyncDrainSignalSubscriber` (0..1); creates `AsyncDistributedLock` via `execution_lock()` and `AsyncTaskLifecycle` via `task_lifecycle()`.
+- `AbstractDistributedRateLimiter` owns `DrainLoop` (0..1) and `DrainSignalSubscriber` (0..1); creates `TaskLifecycle` via `task_lifecycle()`.
+- `AbstractAsyncDistributedRateLimiter` owns `AsyncDrainLoop` (0..1) and `AsyncDrainSignalSubscriber` (0..1); creates `AsyncTaskLifecycle` via `task_lifecycle()`.

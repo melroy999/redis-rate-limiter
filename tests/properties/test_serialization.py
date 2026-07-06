@@ -16,7 +16,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from tests.helpers.strategies import nested_dict
-from tests.helpers.utils import clear_limiter_keys, dict_equals_approx
+from tests.helpers.utils import dict_equals_approx, property_test_cleanup
 from tests.implementations.conftest import StubRateLimiter
 
 # ---------------------------------------------------------------------------
@@ -58,13 +58,12 @@ class TestSerializationProperties:
         3. Retrieval from Redis.
         4. JSON deserialization.
         """
-        # Arrange
-        # Ensure a clean state for each example.
-        clear_limiter_keys(property_redis_client, property_limiter)
-
-        # Act
-        try:
+        with property_test_cleanup(
+            property_redis_client, property_limiter
+        ) as scheduled_ids:
+            # Act
             success, task_id = property_limiter.schedule_task(func_path, payload)
+            scheduled_ids.append(task_id)
 
             # Assert
             # Scheduling should always succeed for valid JSON payloads
@@ -96,11 +95,6 @@ class TestSerializationProperties:
                 f"retrieved: {stored_payload}"
             )
 
-        finally:
-            # Cleanup
-            clear_limiter_keys(property_redis_client, property_limiter)
-            property_redis_client.delete(property_limiter.get_inflight_key(task_id))
-
     @staticmethod
     @given(
         payload=st.dictionaries(
@@ -120,22 +114,19 @@ class TestSerializationProperties:
 
         This verifies that the rate limiter does not reject valid dictionary payloads.
         """
-        # Arrange
-        clear_limiter_keys(property_redis_client, property_limiter)
+        with property_test_cleanup(
+            property_redis_client, property_limiter
+        ) as scheduled_ids:
+            # Act
+            success, task_id = property_limiter.schedule_task(func_path, payload)
+            scheduled_ids.append(task_id)
 
-        # Act
-        success, task_id = property_limiter.schedule_task(func_path, payload)
-
-        # Assert
-        assert success is True, f"scheduling should succeed for payload: {payload}"
-        assert len(task_id) > 0, "task ID should not be empty"
-        assert property_redis_client.exists(
-            property_limiter.get_inflight_key(task_id)
-        ), "task should be marked as in-flight"
-
-        # Cleanup
-        clear_limiter_keys(property_redis_client, property_limiter)
-        property_redis_client.delete(property_limiter.get_inflight_key(task_id))
+            # Assert
+            assert success is True, f"scheduling should succeed for payload: {payload}"
+            assert len(task_id) > 0, "task ID should not be empty"
+            assert property_redis_client.exists(
+                property_limiter.get_inflight_key(task_id)
+            ), "task should be marked as in-flight"
 
     @staticmethod
     @given(payload=nested_dict)

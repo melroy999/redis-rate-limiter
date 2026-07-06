@@ -137,7 +137,6 @@ class TestAsyncIOTaskLimiter:
         assert "concurrency" in status, "status should include concurrency section"
         assert "buffer" in status, "status should include buffer section"
         assert "rate_limit" in status, "status should include rate_limit section"
-        assert "dispatcher" in status, "status should include dispatcher section"
 
     @staticmethod
     async def test_has_local_capacity_respects_max_tasks(limiter):
@@ -395,4 +394,43 @@ class TestAsyncIOTaskLimiterBoundary:
         for entry in limiter._active_tasks:
             assert isinstance(entry, asyncio.Task), (
                 "each entry in _active_tasks must be an asyncio.Task"
+            )
+
+    @staticmethod
+    async def test_completed_task_is_removed_from_active_set(limiter):
+        """Verify that a completed task is discarded from
+        ``_active_tasks`` after it finishes."""
+        # Arrange
+        await limiter._dispatch_task(
+            "tests.helpers.tasks.async_noop_task", {}, "cleanup-task"
+        )
+
+        # Act
+        await asyncio.gather(*list(limiter._active_tasks), return_exceptions=True)
+
+        # Assert
+        assert len(limiter._active_tasks) == 0, (
+            "completed tasks must be removed from the active set"
+        )
+
+    @staticmethod
+    async def test_shutdown_awaits_active_tasks_before_clearing(limiter):
+        """Verify that ``shutdown()`` awaits all active tasks
+        rather than just clearing the set."""
+        # Arrange
+        await limiter._dispatch_task(
+            "tests.helpers.tasks.slow_task", {}, "await-task"
+        )
+        tasks_snapshot = list(limiter._active_tasks)
+        assert len(tasks_snapshot) >= 1, (
+            "at least one task should be active before shutdown"
+        )
+
+        # Act
+        await limiter.shutdown()
+
+        # Assert
+        for task in tasks_snapshot:
+            assert task.done(), (
+                "all tasks must be done after shutdown, not just cleared from the set"
             )

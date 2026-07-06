@@ -13,7 +13,7 @@ Test files belong in the directory that matches their scope and subject.
 | Scope | Directory | Example |
 |---|---|---|
 | Abstract contracts (any backend must pass) | `tests/contracts/` | `test_rate_limiter.py`, `test_distributed_lock.py` |
-| Backend-agnostic implementation | `tests/implementations/` | `test_rate_limiter.py`, `test_drain.py` |
+| Backend-agnostic implementation | `tests/implementations/` | `test_rate_limiter.py`, `test_drain.py`, `test_acquire.py` |
 | Backend-specific implementation | `tests/implementations/<backend>/` | `celery/test_celery_limiter.py` |
 | Pure algorithm verification | `tests/algorithms/` | `test_sliding_window_counter.py` |
 | Property-based (Hypothesis) | `tests/properties/` | `test_sliding_window_counter.py` |
@@ -25,13 +25,15 @@ Test files belong in the directory that matches their scope and subject.
 
 When adding a new backend, create the corresponding subdirectory under `tests/implementations/` and a fixture module under `tests/fixtures/`.
 
+**Exception: loop safety-net tests live together, not next to their component.** Tests whose primary purpose is detecting a hang or spin failure mode in a persistent loop belong in `tests/implementations/test_loop_safety_net.py` (sync) or `tests/implementations/test_async_loop_safety_net.py` (async), regardless of which component they cover. This consolidates the safety-net audit surface. The exception applies only to *intent-driven* safety-net tests; behavioral tests that incidentally use a bounded primitive (e.g., `TaskLifecycle.__exit__`) keep the `timeout_safety_net` marker but stay in their behavioral home file. See Section 5.4 for the hang-vs-spin classification.
+
 ### 1.2 Class Naming Conventions
 
 | Pattern | Purpose | Example |
 |---|---|---|
-| `<Feature>ContractTest` | Abstract contract base; pytest does not collect it because the name lacks a `Test` prefix | `RateLimiterContractTest`, `DistributedLockContractTest` |
+| `<Feature>ContractTest` | Abstract contract base; pytest does not collect it because the name lacks a `Test` prefix | `RateLimiterContractTest` |
 | `<Feature>Tests` | Unified mixin base for sync/async deduplication; pytest does not collect it | `DrainBehaviorTests`, `GetStatusTests`, `MetricsCallbackTests` |
-| `<Feature>BoundaryTests` | Unified mixin base for boundary condition tests; pytest does not collect it | `DrainBoundaryTests`, `DistributedLockBoundaryTests` |
+| `<Feature>BoundaryTests` | Unified mixin base for boundary condition tests; pytest does not collect it | `DrainBoundaryTests` |
 | `Test<Subject>` | Concrete test class that pytest collects and executes | `TestSyncDrain`, `TestAsyncDrainLoop`, `TestCeleryRateLimiter` |
 | `Test<Subject>BoundaryDecisions` | Concrete test class for boundary and edge-case conditions | `TestBaseConfigBoundaryDecisions`, `TestConsumeBoundaryDecisions` |
 
@@ -262,8 +264,8 @@ mock_cls = (
 **Data-flow verification via mocks**: tests that mock internal method calls and assert on the arguments forwarded to those methods are a valid and important category. They verify that the correct data flows through the system: if the arguments passed to an internal method are swapped (e.g., `task_id` and `func_path`), these tests catch it. Data-flow verification tests are normal behavioral tests; they do not require a `Mutation target:` annotation because they guard against real bugs, not merely theoretical mutations.
 
 ```python
-def test_execution_lock_forwards_all_attributes(limiter, ...):
-    """Verify that ``execution_lock()`` forwards the correct lock key, worker ID, and contention key."""
+def test_schedule_task_forwards_inflight_key(limiter, ...):
+    """Verify that ``schedule_task()`` forwards the correct inflight key to the Lua script."""
 ```
 
 Do not confuse data-flow verification with call-count verification. Asserting that a method was called with specific arguments is valuable; asserting only that a method was called a specific number of times (without verifying the arguments) is weaker and should be avoided unless the call count itself is the behavioral contract.
@@ -365,10 +367,39 @@ assert not any(
 | Async operations that should complete promptly | `asyncio.wait_for(coro, timeout=N)` | `await asyncio.wait_for(loop.shutdown(), timeout=1.0)` |
 | Sync thread synchronization | `Event.wait(timeout=N)` | `fired = drain_called.wait(timeout=2.0)` |
 | Shutdown timer for `_run()` loop tests | `shutdown_timer()` context manager | `with shutdown_timer(subscriber): subscriber._run()` |
+| Iteration-throttle bypass detection | `cap_iterations()` context manager | `with cap_iterations(limiter, "consume", return_value=stub): ...` |
+| Event-loop-starving spin detection | `trip_after_deadline()` context manager | `with trip_after_deadline(scheduler._lock, "acquire", 0.3, side_effect=original): ...` |
 
 **`shutdown_timer` usage**: use `shutdown_timer()` from `tests.helpers.utils` instead of inline `Timer` construction. Apply only to tests that call `_run()` directly (or `start()`+`shutdown()` where the Timer is the existing guard). Do NOT add to `shutdown()` / lifecycle / health-monitor tests; these already have bounded timeouts and adding a timer would mask mutations.
 
-**Priority marker**: tests with bounded shutdown mechanisms must be decorated with `@pytest.mark.timeout_safety_net`. This includes tests using `shutdown_timer()`, tests with bounded `Thread.join(timeout=)`, and tests using `TaskLifecycle` / `AsyncTaskLifecycle` context managers (whose `__exit__` / `__aexit__` has a bounded join). A `pytest_collection_modifyitems` hook in `tests/conftest.py` moves these tests to the front of the collection so they fail fast under mutmut's `-x` mode, preventing SIGXCPU.
+**Priority marker**: tests with **body-level** bounded primitives must be decorated with `@pytest.mark.timeout_safety_net`. A `pytest_collection_modifyitems` hook in `tests/conftest.py` moves these tests to the front of the collection so they fail fast under mutmut's `-x` mode, preventing SIGXCPU.
+
+**Body-level bound requirement**: the marker carries one meaning only, namely that *the test body itself has a primitive that will fire regardless of event-loop state*. Acceptable bounds, all installed inside the test body:
+
+- `shutdown_timer(...)` (sets a `_shutdown` flag from a `threading.Timer`; pass `on_fire=...` for non-attribute targets such as `asyncio.Event`)
+- `cap_iterations(...)` (counting stub on the loop's I/O primitive)
+- `trip_after_deadline(...)` (wall-clock guard from inside the loop's own call path)
+- `Thread.join(timeout=N)` in the body
+- `asyncio.wait_for(..., timeout=N)` in the body (only when the awaited coroutine cannot starve the event loop)
+
+**Bounded fixture teardown does NOT qualify.** A fixture that calls `scheduler.shutdown(timeout=5)` on teardown can only fire *after* the test body returns; if the body's `await asyncio.sleep(...)` is starved by a mutation, teardown never runs. Same for `TaskLifecycle.__exit__` / `AsyncTaskLifecycle.__aexit__`: the body must reach the exit before the bounded primitive can fire. A test that relies solely on these for hang protection is **behavioral**, not safety-net; do not mark it.
+
+**Hang vs. spin: choose the right detection mechanism.** A `timeout_safety_net` test catches one of two distinct mutation failure modes, and using the wrong tool turns the test itself into a cross-process resource hog under mutmut's parallel execution.
+
+| Failure mode | What it looks like | Detection tool |
+|---|---|---|
+| **Hang** | Code blocks forever or fails to terminate (e.g., `Event.wait(timeout=None)` blocks because the timeout literal was nulled). | Wall-clock-based: `shutdown_timer`, bounded `Thread.join`. |
+| **Spin** | Code iterates without throttling (e.g., a poll loop's floor literal mutated to `0`, producing thousands of iterations per second). | `cap_iterations()` with mocked I/O. |
+
+A wall-clock-based test cannot reliably detect a spin: by the time a 1-second cap fires, the spinning loop has already executed 100k+ iterations and (if I/O is real) flooded shared resources (Redis) the whole time. An iteration-cap test cannot detect a hang: the count stays at 1 if the first iteration blocks forever, and the test passes erroneously.
+
+**Critical rule: never combine real I/O + wall-clock detection in a `timeout_safety_net` test.** A wall-clock-based test that runs real I/O will, under any spin-class mutation in the surrounding code, hold the real I/O path open for the full timeout duration. Under mutmut's parallel execution this floods Redis and cascades timeouts onto unrelated mutants in other parallel children. Examples of safe wall-clock tests: `shutdown_timer(subscriber)` where `subscriber._pubsub` is a `MagicMock`. The unsafe pattern is wrapping any real Redis-touching call in a wall-clock cap to detect spin; use `cap_iterations()` with the I/O primitive mocked instead.
+
+**`cap_iterations` usage**: install on the loop's I/O primitive so mutations on the surrounding throttle (smart-jitter floor, watchdog interval, sleep literal) trip the cap. The mock prevents real I/O from being touched, so the test cannot itself flood shared resources under any mutation. For background loops (drain, heartbeat, subscriber) where the `AssertionError` raised by the cap is swallowed by the loop's own exception handler, inspect the yielded count via `count()` after a bounded `time.sleep` / `asyncio.sleep`. For foreground loops where the cap's `AssertionError` propagates to the test thread, the cap is the failure mechanism directly.
+
+**`trip_after_deadline` usage**: a tight async loop whose body never truly yields (e.g., `async with` on an uncontended `asyncio.Lock`, no real `await`) starves the event loop, so the test's `await asyncio.sleep(...)` never wakes to evaluate a `cap_iterations` count assertion; the test hangs and mutmut sees a per-mutant timeout. `trip_after_deadline` raises `RuntimeError` from inside the loop's own call path, killing the spinning task so the loop becomes responsive again and the count assertion can run. Use it on the same primitive that `cap_iterations` would target (e.g., `_lock.acquire`); the helper yields a count callable so a single context manager covers both the deadline and the assertion.
+
+**File placement for intent-driven safety-net tests**: tests whose primary purpose is hang or spin detection live in `tests/implementations/test_loop_safety_net.py` (sync) and `tests/implementations/test_async_loop_safety_net.py` (async), per the Section 1.1 exception. Behavioral tests that incidentally use a bounded primitive keep the `timeout_safety_net` marker but remain in their natural home file. The discriminator: if removing the bounded primitive would make the test meaningless, it belongs in the safety-net file; if removing it would change the test's *implementation* but not its *intent*, it belongs in the behavioral file.
 
 ### 5.5 `time.sleep()` Rules
 
@@ -514,8 +545,18 @@ The following categories of equivalent mutants have been identified in the codeb
 |---|---|---|---|
 | `cast()` calls | `cast()` is a no-op at runtime; any mutation produces equivalent behavior | `limiters.py`, `async_limiters.py`, `base.py`, `decorators.py`, `importing.py`, `celery/limiter.py` | The mutation does not change observable behavior |
 | `"latin-1"` encoding | Encoding mutations on ASCII data produce identical bytes | `backends/asgi/keys.py` | ASCII subset is identical across common encodings |
-| `"utf-8"` encoding case | `"utf-8"` and `"UTF-8"` resolve to the same codec via `codecs.lookup()` | `core/managed.py:_parse_raw_config` | Python normalizes encoding names case-insensitively |
+| `"utf-8"` encoding case | `"utf-8"` and `"UTF-8"` resolve to the same codec via `codecs.lookup()` | `core/managed.py:_parse_raw_config`, `core/scripts.py:load_lua_script` | Python normalizes encoding names case-insensitively |
 | `__init_subclass__` body | Previously required `# pragma: no mutate` due to a mutmut trampoline bug; resolved by adding an explicit `@classmethod` decorator ([mutmut#366](https://github.com/boxed/mutmut/issues/366)). Mutmut may still skip mutating this method entirely. | `managed.py` | No longer pragmaed; kept for reference |
+| `entry.generation += 1` | The generation counter in `HeartbeatScheduler._run()` is only ever compared against itself (the heap entry stores the generation at push time, and the loop compares it against the current entry generation at pop time). Any consistent increment operator (`= 1`, `-= 1`, `+= 2`) produces the same match/mismatch result because both sides are updated by the same operation. | `limiters.py:HeartbeatScheduler._run`, `async_limiters.py:AsyncHeartbeatScheduler._run` | The generation value is self-referential; no external observer distinguishes the operators |
+| `getattr(obj, attr, False)` default | In `__del__`, `getattr(self, "_shutdown_called", False)` is used inside `not getattr(...)`. Mutating `False` to `None` produces the same result because both are falsy; the `not` operator yields `True` in both cases. | `limiters.py:__del__`, `async_limiters.py:__del__` | Both `False` and `None` are falsy; only `True` discriminates |
+| `self._shutdown = False` init | In `_ensure_started_locked`, `self._shutdown = False` resets the shutdown flag before spawning a thread. Mutating `False` to `None` is equivalent because all shutdown checks use `if self._shutdown:`, and `None` is falsy like `False`. | `limiters.py:HeartbeatScheduler`, `limiters.py:DrainLoop`, `async_limiters.py:AsyncHeartbeatScheduler`, `async_limiters.py:AsyncDrainLoop`, `async_limiters.py:AsyncDrainSignalSubscriber` | `None` is falsy; the truthiness guard cannot distinguish it from `False` |
+| `round(x, 3)` precision | `round(delay, 3)` rounds the scheduling delay to millisecond precision. Mutating `3` to `4` adds an extra decimal place with no scheduling effect; the underlying timer resolution is far coarser than 0.1ms. | `limiters.py:_drain_inner`, `async_limiters.py:_drain_inner` | Sub-millisecond precision has no observable scheduling effect |
+| `_last_refresh_at = 0.0` init | The `_last_refresh_at` field is initialized to `0.0` and compared against `time.monotonic()`. Mutating `0.0` to `1.0` is equivalent because `time.monotonic()` returns the system uptime, which is always much greater than `1.0` on any real system. The first `drain()` call still triggers `refresh_config`. | `limiters.py:__init__`, `async_limiters.py:__init__` | `time.monotonic()` always exceeds `1.0` on a running system |
+| `Condition(Lock())` vs `Condition(None)` | `Condition(self._lock)` and `Condition(None)` are equivalent when `_lock` is never acquired independently of `_condition`. In `DrainLoop` and `AsyncDrainLoop`, the lock is created solely to pass to the `Condition`; all synchronization goes through the condition variable. `Condition(None)` creates its own internal lock with identical semantics. | `limiters.py:DrainLoop.__init__`, `async_limiters.py:AsyncDrainLoop.__init__` | The lock is never used outside the condition; `Condition(None)` creates its own |
+| `data.get("remaining_tasks", 0)` default | In `PrometheusMetricsExporter._handle_consume`, line 167 uses `data.get("remaining_tasks", 0)`, but line 176 accesses `data["remaining_tasks"]` directly. Any event dict that omits the key would crash with `KeyError` at line 176 regardless of the default at line 167, making the default value dead code. | `integrations/prometheus.py:_handle_consume` | The default is unreachable; a later direct key access crashes first |
+| HeartbeatScheduler empty-heap `continue` | When the heap is empty, the scheduler calls `wait(timeout=self._interval)` then `continue`. Mutating `continue` to `break` causes the thread to exit, but `_ensure_started_locked()` in `register()` detects the dead thread and restarts it. No lease renewals are missed for any registered task because the heap is empty (all tasks deregistered) when the break fires. | `limiters.py:HeartbeatScheduler._run`, `async_limiters.py:AsyncHeartbeatScheduler._run` | `_ensure_started_locked` restarts the thread on the next `register()` call |
+| HeartbeatScheduler empty-heap `timeout` | `wait(timeout=self._interval)` on the empty-heap path. Mutating to `wait(timeout=None)` blocks indefinitely, but all state changes (`register`, `shutdown`, `wake`) call `notify_all()`, which wakes the wait. The interval timeout is a defensive guard, not a behavioral requirement. | `limiters.py:HeartbeatScheduler._run`, `async_limiters.py:AsyncHeartbeatScheduler._run` | All state transitions notify the condition; the timeout is redundant |
+| `remaining_tasks > 0` after `marker_skipped` | The `remaining_tasks > 0` guard inside the `elif result["marker_skipped"]:` branch is only reachable when `remaining_tasks >= 1`, because the earlier `elif result["remaining_tasks"] == 0:` branch fires first when `remaining_tasks` is zero. With `remaining_tasks >= 1`, both `> 0` and `>= 0` evaluate to `True`. | `limiters.py:_drain_inner`, `async_limiters.py:_drain_inner` | The operator is unreachable with the value (0) that would distinguish `>` from `>=` |
 
 ## 7. Pitfalls and Checklist
 
@@ -541,7 +582,7 @@ When adding a new backend, create the following:
 
 1. `tests/fixtures/<backend>_backend.py`: fixture module with limiter construction and teardown.
 2. `tests/implementations/<backend>/conftest.py`: imports the fixtures from the fixture module.
-3. `tests/implementations/<backend>/test_contracts.py`: concrete subclass of `RateLimiterContractTest` (and `DistributedLockContractTest`, `TaskLifecycleContractTest` if applicable) with a `limiter` fixture providing the backend-specific limiter instance.
+3. `tests/implementations/<backend>/test_contracts.py`: concrete subclass of `RateLimiterContractTest` (and `TaskLifecycleContractTest` if applicable) with a `limiter` fixture providing the backend-specific limiter instance.
 4. `tests/implementations/<backend>/test_<backend>_limiter.py`: backend-specific tests for dispatch logic, payload handling, and other behavior unique to the backend.
 5. Add the backend class to the `TestConfigureHintCompliance` parametrize list in `tests/contracts/test_managed_mixin.py`.
 
@@ -582,7 +623,7 @@ The `async_redis_client` fixture in `tests/conftest.py` is function-scoped (not 
 
 Every concrete test class (i.e., classes whose name starts with `Test`) must carry exactly one category marker: `@pytest.mark.behavior`, `@pytest.mark.observability`, `@pytest.mark.signature`, `@pytest.mark.contract`, or `@pytest.mark.concurrency`. This ensures that all tests are reachable via marker-based selection (e.g., `pytest -m behavior`).
 
-Mixin base classes (names that do **not** start with `Test`, e.g., `DrainBehaviorTests`, `DistributedLockBoundaryTests`) must **not** carry category markers. The concrete subclass that inherits the mixin is responsible for applying the appropriate marker. Placing a marker on a mixin is redundant because pytest does not collect classes whose names do not start with `Test`.
+Mixin base classes (names that do **not** start with `Test`, e.g., `DrainBehaviorTests`, `DrainBoundaryTests`) must **not** carry category markers. The concrete subclass that inherits the mixin is responsible for applying the appropriate marker. Placing a marker on a mixin is redundant because pytest does not collect classes whose names do not start with `Test`.
 
 ### 8.4 Custom Marker Registration
 
@@ -614,7 +655,7 @@ Without such documentation, a future contributor may "optimize" the value back t
 
 ### 10.1 Rationale
 
-The core rate limiting algorithm is implemented in Lua scripts: `consume.lua`, `acquire.lua`, `schedule.lua`, `health.lua`, and `renew.lua`. While the algorithm is verified via a Python reference implementation in `tests/algorithms/` and tested through the Python integration layer, the Lua scripts themselves have no isolated unit tests. A Lua-specific bug (e.g., off-by-one in return value indexing, incorrect `ARGV` parsing, a rounding difference vs the Python reference) would only be caught indirectly.
+The core rate limiting algorithm is implemented in Lua scripts: `consume.lua`, `acquire.lua`, `schedule.lua`, `health.lua`, `renew.lua`, and `release.lua`. The algorithm is verified via a Python reference implementation in `tests/algorithms/` and tested through the Python integration layer. Lua-level unit tests in `tests/lua/` exercise each script directly via `redis.eval()`, catching Lua-specific bugs (e.g., off-by-one in return value indexing, incorrect `ARGV` parsing, boundary decisions) that would only be caught indirectly by the Python-level tests.
 
 ### 10.2 Test Location and Structure
 
@@ -663,7 +704,7 @@ This section identifies test categories that should exist but are currently abse
 
 Tests should verify the system behavior for boundary and degenerate configurations:
 
-- **`limit=0`**: should deny all consumption requests. The current test (`test_execution_lock_cooldown_is_zero_when_limit_is_zero`) only verifies the cooldown calculation, not `consume()` behavior.
+- **`limit=0`**: should deny all consumption requests.
 - **`window=0` or very small windows**: should be handled gracefully, either rejected at configuration time or treated as a valid edge case with defined behavior.
 - **Negative values** for `limit`, `window`, `max_concurrency`: should be rejected with clear error messages.
 - **Very large values** (`limit=10**9`, `window=86400`): should not cause integer overflow or excessive memory allocation in Lua.

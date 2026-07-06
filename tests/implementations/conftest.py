@@ -11,7 +11,7 @@ Fixture dependencies from the root ``tests/conftest.py``:
     - ``limiter_id``: unique per-test limiter identifier.
 """
 
-from typing import Literal
+from typing import Any, Callable, Literal
 from uuid import uuid4
 
 import pytest
@@ -20,6 +20,8 @@ from redis_rate_limiter import (
     AbstractAsyncDistributedRateLimiter,
     AbstractDistributedRateLimiter,
 )
+from redis_rate_limiter.core.limiters import HeartbeatEntry
+from redis_rate_limiter.core.scripts import load_lua_script
 
 # ---------------------------------------------------------------------------
 # Shared test configuration
@@ -128,6 +130,85 @@ class AsyncTrackingRateLimiter(_TrackingMixin, AsyncStubRateLimiter):
         self.dispatched_tasks.append(
             {"func_path": func_path, "payload": payload, "task_id": task_id}
         )
+
+
+# ---------------------------------------------------------------------------
+# Noop heartbeat schedulers
+# ---------------------------------------------------------------------------
+
+
+class NoopHeartbeatScheduler:
+    """Lightweight scheduler substitute that never spawns a thread.
+
+    Used by ``mock_limiter`` fixtures so that lifecycle tests do not start real
+    scheduler threads. This prevents mutmut mutations on the scheduler loop
+    from creating busy loops that saturate CPU in forked children. Tests that
+    need real heartbeat behaviour should use a real ``HeartbeatScheduler``
+    explicitly.
+    """
+
+    def register(self, task_id: str, on_failure_action: str) -> HeartbeatEntry:
+        return HeartbeatEntry(task_id=task_id, on_failure_action=on_failure_action)
+
+    def deregister(self, task_id: str) -> None:
+        pass
+
+    def get_entry(self, task_id: str) -> None:
+        return None
+
+    def shutdown(self) -> None:
+        pass
+
+
+class AsyncNoopHeartbeatScheduler:
+    """Async noop scheduler that never spawns a task.
+
+    Prevents mutmut mutations on the scheduler loop from creating busy loops
+    in forked children. Tests that need real heartbeat behaviour should use
+    ``scheduler_limiter`` instead.
+    """
+
+    async def register(self, task_id: str, on_failure_action: str) -> HeartbeatEntry:
+        return HeartbeatEntry(task_id=task_id, on_failure_action=on_failure_action)
+
+    async def deregister(self, task_id: str) -> None:
+        pass
+
+    async def get_entry(self, task_id: str) -> None:
+        return None
+
+    async def shutdown(self) -> None:
+        pass
+
+
+def make_eval_script(redis_client: Any) -> Callable[..., Any]:
+    """Return a real ``_eval_script`` implementation for the given sync client.
+
+    The returned callable looks up the named Lua script source via
+    ``load_lua_script`` and executes it through ``redis_client.eval``,
+    matching the runtime semantics of the production limiter for any
+    test that needs the script to actually run.
+    """
+    sources: dict[str, str] = {}
+
+    def _eval_script(script_name: str, num_keys: int, *args: Any) -> Any:
+        if script_name not in sources:
+            sources[script_name] = load_lua_script(script_name)
+        return redis_client.eval(sources[script_name], num_keys, *args)
+
+    return _eval_script
+
+
+def make_async_eval_script(async_redis_client: Any) -> Callable[..., Any]:
+    """Return a real async ``_eval_script`` implementation for the given client."""
+    sources: dict[str, str] = {}
+
+    async def _eval_script(script_name: str, num_keys: int, *args: Any) -> Any:
+        if script_name not in sources:
+            sources[script_name] = load_lua_script(script_name)
+        return await async_redis_client.eval(sources[script_name], num_keys, *args)
+
+    return _eval_script
 
 
 # ---------------------------------------------------------------------------

@@ -221,3 +221,18 @@ mutants/
 mutmut-results/report-detail.json
 mutmut-results/all-mutations.json
 mutmut-results/superfluity/
+mutmut-results/test-timeline.jsonl
+mutmut-results/test-timeline.txt
+mutmut-results/mutmut_resource_snapshot.jsonl
+
+# Memory profiling
+memory-results/
+
+# Benchmark snapshots (pytest-benchmark --benchmark-autosave)
+benchmark-results/
+benchmark-degraded-results/
+.benchmarks/
+
+# Claude Code (local/ephemeral files only; agents and settings.json are tracked)
+.claude/settings.local.json
+.claude/agent-memory/

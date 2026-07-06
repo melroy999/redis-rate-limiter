@@ -3,7 +3,6 @@
 from redis_rate_limiter.core import (
     AbstractAsyncDistributedRateLimiter,
     AbstractDistributedRateLimiter,
-    DistributedLock,
     TaskLifecycle,
     import_string,
     rate_limited,
@@ -15,7 +14,6 @@ __all__ = [
     "AbstractDistributedRateLimiter",
     "ASGIRateLimiter",
     "AsyncIOTaskLimiter",
-    "DistributedLock",
     "ProcessPoolRateLimiter",
     "RateLimitMiddleware",
     "TaskLifecycle",
@@ -25,7 +23,6 @@ __all__ = [
     "resolve_import_path",
 ]
 
-# The Celery backend is only available when the celery package is installed.
 try:
     from redis_rate_limiter.backends.celery import CeleryRateLimiter  # noqa: F401
 
@@ -33,7 +30,6 @@ try:
 except ImportError:
     pass
 
-# The RQ backend is only available when the rq package is installed.
 # ValueError is caught because rq calls get_context("fork") at import time,
 # which raises ValueError on Windows (no fork support).
 try:
@@ -43,7 +39,6 @@ try:
 except (ImportError, ValueError):
     pass
 
-# The Dramatiq backend is only available when the dramatiq package is installed.
 try:
     from redis_rate_limiter.backends.dramatiq import DramatiqRateLimiter  # noqa: F401
 
@@ -51,7 +46,6 @@ try:
 except ImportError:
     pass
 
-# The Huey backend is only available when the huey package is installed.
 try:
     from redis_rate_limiter.backends.huey import HueyRateLimiter  # noqa: F401
 
@@ -59,19 +53,11 @@ try:
 except ImportError:
     pass
 
-# The threading backend relies solely on the standard library and does not require
-# any external dependencies. As such, it is included by default.
-# The ASGI backend provides framework-agnostic rate limiting middleware.
 from redis_rate_limiter.backends.asgi import ASGIRateLimiter, RateLimitMiddleware
-
-# The asyncio backend relies solely on the standard library and redis.asyncio.
 from redis_rate_limiter.backends.asyncio import AsyncIOTaskLimiter
-
-# The process pool and thread pool backends rely solely on the standard library.
 from redis_rate_limiter.backends.processpool import ProcessPoolRateLimiter
 from redis_rate_limiter.backends.threading import ThreadPoolRateLimiter
 
-# The Prometheus integration is only available when the prometheus_client package is installed.
 try:
     from redis_rate_limiter.integrations.prometheus import (
         PrometheusMetricsExporter,  # noqa: F401

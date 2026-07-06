@@ -10,11 +10,12 @@ Fixture dependencies:
 import logging
 import threading
 import time
+from concurrent.futures import Future
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tests.helpers.utils import assert_log_emitted
+from tests.helpers.utils import assert_log_emitted, assert_log_emitted_with_exc_info
 
 
 @pytest.mark.behavior
@@ -272,3 +273,84 @@ class TestThreadPoolDispatchObservability:
             "limiter id, task id, func path, and "
             "local dispatch count",
         )
+
+    @staticmethod
+    def test_task_exception_emits_error_log(limiter, func_path, task_id, caplog):
+        """Verify that ``_dispatch_task`` emits an ERROR log
+        with attached exception context when the submitted
+        task body raises."""
+        # Arrange
+        done = threading.Event()
+
+        def raising_task(**kwargs):
+            try:
+                raise ValueError("boom")
+            finally:
+                done.set()
+
+        # Act
+        with caplog.at_level(
+            logging.ERROR, logger="redis_rate_limiter.backends.threading.limiter"
+        ):
+            with (
+                patch(
+                    "redis_rate_limiter.backends.threading.limiter.import_string",
+                    return_value=raising_task,
+                ),
+                patch.object(limiter, "task_lifecycle") as mock_lifecycle,
+            ):
+                mock_lifecycle.return_value.__enter__ = MagicMock(return_value=None)
+                mock_lifecycle.return_value.__exit__ = MagicMock(return_value=False)
+                limiter._dispatch_task(func_path, {}, task_id)
+                assert done.wait(timeout=5.0), "raising task should have completed"
+
+            # The done callback fires inline in the worker thread after _run_task exits.
+            time.sleep(0.2)
+
+        # Assert
+        assert_log_emitted_with_exc_info(
+            caplog.records,
+            level="ERROR",
+            label="[ThreadPoolRateLimiter]",
+            required_fragments=[
+                f"limiter={limiter.id}",
+                f"task_id={task_id}",
+                f"func_path={func_path}",
+            ],
+            message="should emit an error log with exception "
+            "context when the task body raises",
+        )
+
+    @staticmethod
+    def test_successful_task_does_not_emit_error_log(limiter, func_path, task_id):
+        """Verify that the done callback does not emit an
+        error log when the task completes successfully."""
+        # Arrange
+        mock_future: Future[None] = Future()
+        captured_callbacks: list = []
+        mock_future.add_done_callback = lambda cb: captured_callbacks.append(cb)
+
+        # Act
+        with (
+            patch(
+                "redis_rate_limiter.backends.threading.limiter.import_string",
+                return_value=MagicMock(),
+            ),
+            patch.object(limiter, "task_lifecycle") as mock_lifecycle,
+            patch.object(limiter.executor, "submit", return_value=mock_future),
+            patch.object(
+                logging.getLogger("redis_rate_limiter.backends.threading.limiter"),
+                "error",
+            ) as mock_error,
+        ):
+            mock_lifecycle.return_value.__enter__ = MagicMock(return_value=None)
+            mock_lifecycle.return_value.__exit__ = MagicMock(return_value=False)
+            limiter._dispatch_task(func_path, {}, task_id)
+            mock_future.set_result(None)
+            assert len(captured_callbacks) == 1, (
+                "exactly one done callback should be registered"
+            )
+            captured_callbacks[0](mock_future)
+
+        # Assert
+        mock_error.assert_not_called()

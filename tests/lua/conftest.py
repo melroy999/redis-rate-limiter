@@ -6,7 +6,7 @@ server-side operations; sync and async Python clients exercise identical
 Lua code paths, so only the sync ``redis_client`` is used.
 
 Fixture dependencies:
-    - ``redis_client``, ``limiter_id``, ``lock_key``: from ``tests/conftest.py``.
+    - ``redis_client``, ``limiter_id``: from ``tests/conftest.py``.
 """
 
 import json
@@ -15,19 +15,13 @@ import time
 import pytest
 from redis import Redis
 
-from redis_rate_limiter.core.limiters import (
-    LOCK_ACQUIRE_SCRIPT,
-    LOCK_RELEASE_SCRIPT,
-    LOCK_SIMPLE_RELEASE_SCRIPT,
-)
 from redis_rate_limiter.core.scripts import load_lua_script
-
-__all__ = ["LOCK_ACQUIRE_SCRIPT", "LOCK_RELEASE_SCRIPT", "LOCK_SIMPLE_RELEASE_SCRIPT"]
 
 CONSUME_SOURCE: str = load_lua_script("consume.lua")
 ACQUIRE_SOURCE: str = load_lua_script("acquire.lua")
 HEALTH_SOURCE: str = load_lua_script("health.lua")
 RENEW_SOURCE: str = load_lua_script("renew.lua")
+RELEASE_SOURCE: str = load_lua_script("release.lua")
 SCHEDULE_SOURCE: str = load_lua_script("schedule.lua")
 
 # Default window size for sliding window tests (seconds).
