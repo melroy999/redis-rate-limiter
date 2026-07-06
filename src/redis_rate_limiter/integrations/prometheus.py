@@ -53,11 +53,11 @@ class PrometheusMetricsExporter:
     - ``redis_rate_limiter_consume_total{limiter_id, outcome}``:
       total consume operations, where *outcome* is one of:
 
-      - ``success`` -- task dispatched.
-      - ``rejected`` -- rate-limit or concurrency cap hit while tasks
+      - ``success``: task dispatched.
+      - ``rejected``: rate-limit or concurrency cap hit while tasks
         were pending in the buffer.
-      - ``expired`` -- task exceeded ``max_age`` and was dropped.
-      - ``empty`` -- the drain loop ticked on an empty buffer
+      - ``expired``: task exceeded ``max_age`` and was dropped.
+      - ``empty``: the drain loop ticked on an empty buffer
         (idle housekeeping; not a real rejection).
     - ``redis_rate_limiter_schedule_total{limiter_id, scheduled}``:
       total schedule operations, where *scheduled* is ``true`` or ``false``.

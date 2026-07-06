@@ -25,7 +25,7 @@ pytest_cov = ">=7.0.0"
 ruff = "^0.15.9"
 mypy = "^1.20.0"
 hypothesis = "^6.152.1"
-mutmut = {version = "^3.5.0", python = "<4.0"}
+mutmut = {version = "3.5.0", python = "<4.0"}
 pytest-timeout = ">=2.3.0"
 hiredis = ">=3.0.0"
 pytest-benchmark = "^5.2.3"

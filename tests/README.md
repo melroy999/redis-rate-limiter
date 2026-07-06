@@ -30,7 +30,6 @@ All backends inherit the shared contract suite via `RateLimiterContractTest` (un
 tests/
 ├── contracts/                          # Abstract interface contracts
 │   ├── test_rate_limiter.py            # Tests any limiter must satisfy (unified async)
-│   ├── test_distributed_lock.py        # Tests any lock must satisfy (unified async)
 │   └── test_task_lifecycle.py          # Tests any lifecycle manager must satisfy (unified async)
 │
 ├── implementations/                    # Core implementation tests (backend-agnostic)
@@ -38,7 +37,6 @@ tests/
 │   ├── test_acquire.py                 # Acquire primitive behavior (preconditions, scheduling, BLPOP signaling)
 │   ├── test_rate_limiter.py            # Generic limiter implementation behavior
 │   ├── test_rate_limiter_class_api.py  # Managed class API behavior (generic backend)
-│   ├── test_distributed_lock.py        # Redis-backed lock implementation tests
 │   ├── test_task_lifecycle.py          # Lifecycle manager implementation tests
 │   ├── test_drain.py                   # Drain and trigger_consume branch tests
 │   ├── test_drain_loop.py             # DrainLoop scheduling and coalescing tests
@@ -51,7 +49,6 @@ tests/
 │   ├── test_smart_jitter.py            # Adaptive jitter calculation tests
 │   ├── test_metrics_callback.py        # Metrics callback observability tests
 │   ├── test_concurrent_access.py       # Multi-worker contention and atomicity tests
-│   ├── test_async_distributed_lock.py   # Async lock implementation tests
 │   ├── test_async_task_lifecycle.py     # Async lifecycle implementation tests
 │   ├── test_decorator.py               # Decorator behavior (core)
 │   ├── test_importing.py               # Dynamic import helper behavior
@@ -131,7 +128,6 @@ tests/
 │   ├── test_acquire.py                 # ASGI acquire script tests
 │   ├── test_consume.py                 # Consume script boundary and decision tests
 │   ├── test_health.py                  # Health script return value tests
-│   ├── test_lock_scripts.py            # Inline lock script tests
 │   ├── test_release.py                 # Release script tests
 │   ├── test_renew.py                   # Lease renewal script tests
 │   └── test_schedule.py               # Schedule script tests

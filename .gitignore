@@ -232,3 +232,7 @@ memory-results/
 benchmark-results/
 benchmark-degraded-results/
 .benchmarks/
+
+# Claude Code (local/ephemeral files only; agents and settings.json are tracked)
+.claude/settings.local.json
+.claude/agent-memory/
