@@ -24,7 +24,7 @@ pytest-asyncio = ">=0.25.0"
 pytest_cov = ">=7.0.0"
 ruff = "^0.15.9"
 mypy = "^1.20.0"
-hypothesis = "^6.152.1"
+hypothesis = "^6.156.3"
 mutmut = {version = "3.5.0", python = "<4.0"}
 pytest-timeout = ">=2.3.0"
 hiredis = ">=3.0.0"
