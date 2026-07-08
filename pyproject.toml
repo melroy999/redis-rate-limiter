@@ -16,7 +16,7 @@ rq = ["rq (>=2.0.0,<3.0.0)"]
 dramatiq = ["dramatiq[redis] (>=2.0.0,<3.0.0)"]
 huey = ["huey (>=2.5.0,<3.0.0)"]
 prometheus = ["prometheus_client (>=0.21.0,<1.0.0)"]
-asgi = ["fastapi (>=0.115.0)", "uvicorn (>=0.44.0)"]
+asgi = ["fastapi (>=0.115.0)", "uvicorn (>=0.51.0)"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=9.0.3"
