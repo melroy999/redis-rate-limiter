@@ -22,7 +22,7 @@ asgi = ["fastapi (>=0.115.0)", "uvicorn (>=0.44.0)"]
 pytest = ">=9.0.3"
 pytest-asyncio = ">=0.25.0"
 pytest_cov = ">=7.0.0"
-ruff = "^0.15.9"
+ruff = "^0.15.21"
 mypy = "^1.20.0"
 hypothesis = "^6.152.1"
 mutmut = {version = "3.5.0", python = "<4.0"}
