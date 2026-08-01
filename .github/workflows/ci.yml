@@ -119,7 +119,7 @@ jobs:
 
       - name: Update Coverage Badge
         if: ${{ github.ref_name == 'master' }}
-        uses: schneegans/dynamic-badges-action@0e50b8bad39e7e1afd3e4e9c2b7dd145fad07501 # v1.8.0
+        uses: schneegans/dynamic-badges-action@28b0fa8bdeb46170ac397105ece0c1fe58f68910 # v1.9.0
         with:
           auth: ${{ secrets.GIST_SECRET }}
           gistID: f3caa8f0af98bf11563b5b2031c1ef3e
@@ -132,7 +132,7 @@ jobs:
 
       - name: Update CI Badge (passing)
         if: ${{ github.ref_name == 'master' && success() }}
-        uses: schneegans/dynamic-badges-action@0e50b8bad39e7e1afd3e4e9c2b7dd145fad07501 # v1.8.0
+        uses: schneegans/dynamic-badges-action@28b0fa8bdeb46170ac397105ece0c1fe58f68910 # v1.9.0
         with:
           auth: ${{ secrets.GIST_SECRET }}
           gistID: f3caa8f0af98bf11563b5b2031c1ef3e
@@ -143,7 +143,7 @@ jobs:
 
       - name: Update CI Badge (failing)
         if: ${{ github.ref_name == 'master' && failure() }}
-        uses: schneegans/dynamic-badges-action@0e50b8bad39e7e1afd3e4e9c2b7dd145fad07501 # v1.8.0
+        uses: schneegans/dynamic-badges-action@28b0fa8bdeb46170ac397105ece0c1fe58f68910 # v1.9.0
         with:
           auth: ${{ secrets.GIST_SECRET }}
           gistID: f3caa8f0af98bf11563b5b2031c1ef3e
